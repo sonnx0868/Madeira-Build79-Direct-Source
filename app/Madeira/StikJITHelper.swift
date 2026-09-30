@@ -1,10 +1,12 @@
 import UIKit
+import Darwin
 
-/// Helper to enable JIT via StikDebug/StikJIT URL scheme.
+/// Helper to enable JIT via the public StikDebug URL protocol.
 /// Opens StikDebug with an embedded script, polls for CS_DEBUGGED,
 /// then allocates JIT memory and detaches the debugger.
 enum StikJITHelper {
     private static var jitPollTimer: Timer?
+    private static let stikDebugScheme = "stikdebug"
 
     /// The JIT script. Edit madeira-jit.js, then run:
     ///   base64 -i app/Madeira/madeira-jit.js | tr -d '\n' | pbcopy
@@ -22,9 +24,9 @@ enum StikJITHelper {
         return scriptBase64
     }
 
-    /// Check if StikDebug or StikJIT is available by trying to open their URL.
+    /// Check whether StikDebug is installed and registered for URL requests.
     static var isAvailable: Bool {
-        guard let url = URL(string: "stikjit://enable-jit") else { return false }
+        guard let url = URL(string: "\(stikDebugScheme)://enable-jit") else { return false }
         return UIApplication.shared.canOpenURL(url)
     }
 
@@ -35,17 +37,31 @@ enum StikJITHelper {
         jitPollTimer = nil
         let bundleId = Bundle.main.bundleIdentifier ?? "com.madeira.emulator"
 
-        // Build the URL with script data
-        let scriptData = resolvedScriptBase64.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let urlString = "stikjit://enable-jit?bundle-id=\(bundleId)&script-data=\(scriptData)"
+        guard checkAppEntitlement("get-task-allow") else {
+            LogStore.shared.log("JIT requires get-task-allow. Reinstall Madeira with a development/sideload profile.", level: .error)
+            completion(false)
+            return
+        }
 
-        guard let url = URL(string: urlString) else {
+        // StikDebug's current protocol requires the target PID. URLComponents
+        // performs the query escaping; hand-built URLs break on long base64
+        // scripts and silently target the wrong process.
+        var components = URLComponents()
+        components.scheme = stikDebugScheme
+        components.host = "enable-jit"
+        components.queryItems = [
+            URLQueryItem(name: "bundle-id", value: bundleId),
+            URLQueryItem(name: "pid", value: String(getpid())),
+            URLQueryItem(name: "script-data", value: resolvedScriptBase64)
+        ]
+
+        guard let url = components.url else {
             LogStore.shared.log("Failed to build StikJIT URL", level: .error)
             completion(false)
             return
         }
 
-        LogStore.shared.log("Opening StikDebug to enable JIT...")
+        LogStore.shared.log("Opening StikDebug for PID \(getpid())...")
 
         UIApplication.shared.open(url, options: [:]) { success in
             if !success {
