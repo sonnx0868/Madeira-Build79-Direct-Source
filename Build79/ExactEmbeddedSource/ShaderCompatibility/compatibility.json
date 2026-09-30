@@ -1,0 +1,549 @@
+{
+  "policy": {
+    "sdk": "iphoneos",
+    "language": "metal3.1",
+    "target": "air64-apple-ios17.0"
+  },
+  "source_sha256": "fe0cb48e4c9ded6614f43a46eb0cd2eb0f3891579b7d5ab1b60f4ff404d13857",
+  "metallib_sha256": "9a042827e037f8922ad7dc957032882712f8aac436e1658335a4487dc9a71ff3",
+  "metallib_bytes": 149665,
+  "commands": [
+    [
+      "xcrun",
+      "--sdk",
+      "iphoneos",
+      "metal",
+      "-std=metal3.1",
+      "-target",
+      "air64-apple-ios17.0",
+      "-c",
+      "/Users/runner/work/madeira-private-build/madeira-private-build/source/research/dxmt/src/dxmt/dxmt_command.metal",
+      "-o",
+      "/Users/runner/work/madeira-private-build/madeira-private-build/dx11-output/shaders/dxmt_command.air"
+    ],
+    [
+      "xcrun",
+      "--sdk",
+      "iphoneos",
+      "metallib",
+      "/Users/runner/work/madeira-private-build/madeira-private-build/dx11-output/shaders/dxmt_command.air",
+      "-o",
+      "/Users/runner/work/madeira-private-build/madeira-private-build/dx11-output/shaders/dxmt_command.metallib"
+    ],
+    [
+      "xxd",
+      "-n",
+      "dxmt_command",
+      "-i",
+      "/Users/runner/work/madeira-private-build/madeira-private-build/dx11-output/shaders/dxmt_command.metallib",
+      "/Users/runner/work/madeira-private-build/madeira-private-build/dx11-output/shaders/dxmt_command.h"
+    ]
+  ],
+  "inspection": {
+    "language": "3.1",
+    "function_count": 35,
+    "functions": [
+      {
+        "name": "clear_texture_1d_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 0,
+        "bitcode_size": 3824
+      },
+      {
+        "name": "clear_texture_1d_array_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 3824,
+        "bitcode_size": 4000
+      },
+      {
+        "name": "clear_texture_2d_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 7824,
+        "bitcode_size": 3936
+      },
+      {
+        "name": "clear_texture_2d_array_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 11760,
+        "bitcode_size": 4128
+      },
+      {
+        "name": "clear_texture_3d_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 15888,
+        "bitcode_size": 4048
+      },
+      {
+        "name": "clear_texture_buffer_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 19936,
+        "bitcode_size": 4096
+      },
+      {
+        "name": "clear_buffer_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 24032,
+        "bitcode_size": 3680
+      },
+      {
+        "name": "clear_texture_1d_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 27712,
+        "bitcode_size": 3840
+      },
+      {
+        "name": "clear_texture_1d_array_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 31552,
+        "bitcode_size": 4000
+      },
+      {
+        "name": "clear_texture_2d_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 35552,
+        "bitcode_size": 3952
+      },
+      {
+        "name": "clear_texture_2d_array_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 39504,
+        "bitcode_size": 4128
+      },
+      {
+        "name": "clear_texture_3d_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 43632,
+        "bitcode_size": 4048
+      },
+      {
+        "name": "clear_texture_buffer_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 47680,
+        "bitcode_size": 4112
+      },
+      {
+        "name": "cs_copy_to_buffer_d32s8",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 51792,
+        "bitcode_size": 4512
+      },
+      {
+        "name": "cs_copy_to_buffer_d24s8",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 56304,
+        "bitcode_size": 4656
+      },
+      {
+        "name": "cs_clear_texture2d_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 60960,
+        "bitcode_size": 3808
+      },
+      {
+        "name": "cs_clear_texture2d_array_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 64768,
+        "bitcode_size": 3888
+      },
+      {
+        "name": "cs_clear_texture2d_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 68656,
+        "bitcode_size": 3808
+      },
+      {
+        "name": "cs_clear_texture2d_array_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 72464,
+        "bitcode_size": 3872
+      },
+      {
+        "name": "cs_clear_tbuffer_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 76336,
+        "bitcode_size": 3824
+      },
+      {
+        "name": "cs_clear_tbuffer_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 80160,
+        "bitcode_size": 3824
+      },
+      {
+        "name": "cs_clear_buffer_float",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 83984,
+        "bitcode_size": 3712
+      },
+      {
+        "name": "cs_clear_buffer_uint",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 87696,
+        "bitcode_size": 3712
+      },
+      {
+        "name": "cs_downscale_dilated_mv",
+        "type": 2,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 91408,
+        "bitcode_size": 4512
+      },
+      {
+        "name": "vs_clear_rt",
+        "type": 0,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 95920,
+        "bitcode_size": 3376
+      },
+      {
+        "name": "vs_present_quad",
+        "type": 0,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 99296,
+        "bitcode_size": 3328
+      },
+      {
+        "name": "ts_draw_arguments_marshal",
+        "type": 0,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 102624,
+        "bitcode_size": 4304
+      },
+      {
+        "name": "gs_draw_arguments_marshal",
+        "type": 0,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 106928,
+        "bitcode_size": 4192
+      },
+      {
+        "name": "fs_clear_rt_float",
+        "type": 1,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 111120,
+        "bitcode_size": 3344
+      },
+      {
+        "name": "fs_clear_rt_uint",
+        "type": 1,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 114464,
+        "bitcode_size": 3472
+      },
+      {
+        "name": "fs_clear_rt_sint",
+        "type": 1,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 117936,
+        "bitcode_size": 3472
+      },
+      {
+        "name": "fs_clear_rt_depth",
+        "type": 1,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 121408,
+        "bitcode_size": 3344
+      },
+      {
+        "name": "fs_present_quad",
+        "type": 1,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 124752,
+        "bitcode_size": 10768
+      },
+      {
+        "name": "fs_copy_from_buffer_d32s8",
+        "type": 1,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 135520,
+        "bitcode_size": 4176
+      },
+      {
+        "name": "fs_copy_from_buffer_d24s8",
+        "type": 1,
+        "air_version": [
+          2,
+          6
+        ],
+        "language_version": [
+          3,
+          1
+        ],
+        "bitcode_offset": 139696,
+        "bitcode_size": 4224
+      }
+    ],
+    "header_version": [
+      2,
+      7
+    ],
+    "platform": 1,
+    "os": 130,
+    "os_version": [
+      17,
+      0
+    ],
+    "file_size": 149665
+  }
+}

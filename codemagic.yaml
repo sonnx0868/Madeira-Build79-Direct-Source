@@ -1,0 +1,95 @@
+workflows:
+  madeira-sideload-ipa:
+    name: Madeira iOS Sideload IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      groups:
+        - madeira_build_inputs
+      vars:
+        XCODE_PROJECT: app/Madeira.xcodeproj
+        XCODE_SCHEME: Madeira
+        DERIVED_DATA: /tmp/madeira-derived
+    triggering:
+      events:
+        - push
+        - tag
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      cancel_previous_builds: true
+    scripts:
+      - name: Checkout pinned submodules
+        script: git submodule update --init --recursive
+      - name: Apply lineage-verified source patches
+        script: bash scripts/apply-lineage-patches.sh
+      - name: Restore pinned native build inputs
+        script: bash scripts/restore-native-deps.sh
+      - name: Verify complete build inputs
+        script: bash scripts/check-ios-build.sh
+      - name: Build device app without an Apple account
+        script: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$CM_BUILD_DIR/$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Package ad-hoc IPA for SideStore or AltStore
+        script: |
+          set -euo pipefail
+          app="$DERIVED_DATA/Build/Products/Release-iphoneos/Madeira.app"
+          test -d "$app"
+          codesign --force --sign - \
+            --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" \
+            "$app"
+          package="$CM_BUILD_DIR/build/sideload"
+          rm -rf "$package"
+          mkdir -p "$package/Payload"
+          ditto "$app" "$package/Payload/Madeira.app"
+          cd "$package"
+          /usr/bin/zip -qry Madeira-sideload.ipa Payload
+    artifacts:
+      - build/sideload/Madeira-sideload.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - /tmp/madeira-derived/Build/Products/Release-iphoneos/Madeira.app
+
+  madeira-development-ipa:
+    name: Madeira iOS Development-signed IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      groups:
+        - madeira_build_inputs
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.madeira.emulator
+      vars:
+        XCODE_PROJECT: app/Madeira.xcodeproj
+        XCODE_SCHEME: Madeira
+    scripts:
+      - name: Checkout pinned submodules
+        script: git submodule update --init --recursive
+      - name: Apply lineage-verified source patches
+        script: bash scripts/apply-lineage-patches.sh
+      - name: Restore pinned native build inputs
+        script: bash scripts/restore-native-deps.sh
+      - name: Verify complete build inputs
+        script: bash scripts/check-ios-build.sh
+      - name: Apply development provisioning profile
+        script: xcode-project use-profiles
+      - name: Build development IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$CM_BUILD_DIR/$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM

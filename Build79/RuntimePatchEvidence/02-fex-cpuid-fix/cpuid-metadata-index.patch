@@ -1,0 +1,68 @@
+--- a/FEXCore/Source/Interface/Core/CPUID.cpp
++++ b/FEXCore/Source/Interface/Core/CPUID.cpp
+@@ -915,9 +915,9 @@
+ 
+ FEXCore::CPUID::FunctionResults CPUIDEmu::Function_1Ah(uint32_t Leaf) const {
+   FEXCore::CPUID::FunctionResults Res {};
+-  if (Hybrid) {
++  if (Hybrid && !PerCPUData.empty()) {
+     uint32_t CPU = GetCPUID();
+-    auto& Data = PerCPUData[CPU];
++    auto& Data = PerCPUData[CPU % PerCPUData.size()];
+     // 0x40 is a big CPU
+     // 0x20 is a little CPU
+     Res.eax |= (Data.IsBig ? 0x40 : 0x20) << 24;
+@@ -1115,24 +1115,36 @@
+ 
+ FEXCore::CPUID::FunctionResults CPUIDEmu::Function_8000_0002h(uint32_t Leaf, uint32_t CPU) const {
+   FEXCore::CPUID::FunctionResults Res {};
+-  auto& Data = PerCPUData[CPU];
++  // Personal Madeira integration: host processor IDs may outnumber the
++  // metadata records (the iOS host currently provides one generic MIDR).
++  // Match RunFunctionName's existing indexing convention without changing
++  // processor counts or scheduler affinity.
++  if (PerCPUData.empty()) return Res;
++  auto& Data = PerCPUData[CPU % PerCPUData.size()];
++  if (!Data.ProductName) return Res;
+   memcpy(&Res, Data.ProductName, std::min(strlen(Data.ProductName), sizeof(FEXCore::CPUID::FunctionResults)));
+   return Res;
+ }
+ 
+ FEXCore::CPUID::FunctionResults CPUIDEmu::Function_8000_0003h(uint32_t Leaf, uint32_t CPU) const {
+   FEXCore::CPUID::FunctionResults Res {};
+-  auto& Data = PerCPUData[CPU];
+-  const auto RemainingStringSize = std::max<ssize_t>(0, strlen(Data.ProductName) - 16);
+-  memcpy(&Res, Data.ProductName + 16, std::min<size_t>(RemainingStringSize, sizeof(FEXCore::CPUID::FunctionResults)));
++  if (PerCPUData.empty()) return Res;
++  auto& Data = PerCPUData[CPU % PerCPUData.size()];
++  if (!Data.ProductName) return Res;
++  const size_t Length = strlen(Data.ProductName);
++  if (Length <= 16) return Res;
++  memcpy(&Res, Data.ProductName + 16, std::min(Length - 16, sizeof(FEXCore::CPUID::FunctionResults)));
+   return Res;
+ }
+ 
+ FEXCore::CPUID::FunctionResults CPUIDEmu::Function_8000_0004h(uint32_t Leaf, uint32_t CPU) const {
+   FEXCore::CPUID::FunctionResults Res {};
+-  auto& Data = PerCPUData[CPU];
+-  const auto RemainingStringSize = std::max<ssize_t>(0, strlen(Data.ProductName) - 32);
+-  memcpy(&Res, Data.ProductName + 32, std::min<size_t>(RemainingStringSize, sizeof(FEXCore::CPUID::FunctionResults)));
++  if (PerCPUData.empty()) return Res;
++  auto& Data = PerCPUData[CPU % PerCPUData.size()];
++  if (!Data.ProductName) return Res;
++  const size_t Length = strlen(Data.ProductName);
++  if (Length <= 32) return Res;
++  memcpy(&Res, Data.ProductName + 32, std::min(Length - 32, sizeof(FEXCore::CPUID::FunctionResults)));
+   return Res;
+ }
+ 
+--- a/FEXCore/Source/Interface/Core/CPUID.h
++++ b/FEXCore/Source/Interface/Core/CPUID.h
+@@ -58,6 +58,7 @@
+   }
+ 
+   FEXCore::CPUID::FunctionResults RunFunctionName(uint32_t Function, uint32_t Leaf, uint32_t CPU) const {
++    if (PerCPUData.empty()) return {};
+     if (Function == 0x8000'0002U) {
+       return Function_8000_0002h(Leaf, CPU % PerCPUData.size());
+     } else if (Function == 0x8000'0003U) {

@@ -1,0 +1,81 @@
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -1692,7 +1692,7 @@
+             /* FIXME: can't free old block here, should be freed at thread exit */
+         }
+ 
+-        if (!(new_ptr = RtlAllocateHeap( GetProcessHeap(), 0, size + dir->SizeOfZeroFill ))) return -1;
++        if (!(new_ptr = RtlAllocateHeap( GetProcessHeap(), 0, size + dir->SizeOfZeroFill ))) return FALSE;
+         memcpy( new_ptr, (void *)dir->StartAddressOfRawData, size );
+         memset( (char *)new_ptr + size, 0, dir->SizeOfZeroFill );
+ 
+@@ -1729,6 +1729,46 @@
+     }
+     return TRUE;
+ }
++
++
++#ifdef __arm64ec__
++/* Initially loaded images bypass ordinary import fixup. A missing TLS
++ * directory is valid; failure to register an existing one is fatal at startup. */
++static NTSTATUS alloc_initial_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
++{
++    extern void *xlate_ios_jit( void *ptr );
++    const IMAGE_TLS_DIRECTORY *dir;
++    DWORD *index, *executing_index;
++    ULONG size;
++
++    dir = RtlImageDirectoryEntryToData( mod->DllBase, TRUE, IMAGE_DIRECTORY_ENTRY_TLS, &size );
++    if (!dir || (dir->StartAddressOfRawData == dir->EndAddressOfRawData &&
++                 !dir->SizeOfZeroFill && !dir->AddressOfCallBacks))
++        return STATUS_SUCCESS;
++    if (!alloc_tls_slot( mod )) return STATUS_NO_MEMORY;
++    /* Madeira may execute a process-owned copy of PE .data. The initially
++     * loaded ntdll bypasses ordinary import/protection synchronization; update
++     * its index through the same existing translation route as delay IATs. */
++    index = (DWORD *)dir->AddressOfIndex;
++    executing_index = xlate_ios_jit( index );
++    if (!executing_index)
++    {
++        ERR( "[tls-initial] module=%p index_ptr=%p translation failed\n", mod->DllBase, index );
++        return STATUS_UNSUCCESSFUL;
++    }
++    if (executing_index != index) *(volatile DWORD *)executing_index = *index;
++    if (*(volatile DWORD *)executing_index != *index)
++    {
++        ERR( "[tls-initial] module=%p index_ptr=%p executing_index=%p readback failed\n",
++             mod->DllBase, index, executing_index );
++        return STATUS_UNSUCCESSFUL;
++    }
++    mod->TlsIndex = -1;
++    ERR( "[tls-initial] module=%p index_ptr=%p index=%lu executing_index=%p value=%lu\n",
++         mod->DllBase, index, *index, executing_index, *executing_index );
++    return STATUS_SUCCESS;
++}
++#endif
+ 
+ 
+ /*************************************************************************
+@@ -5521,8 +5561,21 @@
+          * isn't, leaving zero-initialized registries that later get virt-
+          * called and crash. fixup_imports() guards against double-alloc
+          * via the TlsIndex == -1 marker. */
+-        if (alloc_tls_slot( &wm->ldr )) wm->ldr.TlsIndex = -1;
++        if ((status = alloc_initial_tls_slot( &wm->ldr )))
++            NtTerminateProcess( GetCurrentProcess(), status );
+         ERR( "loader_init: pre-allocated main EXE TLS slot (TlsIndex=%ld)\n", wm->ldr.TlsIndex );
++        /* The ARM64EC exception implementation has compiler-emitted static TLS.
++         * build_ntdll_module() bypasses fixup_imports(), where ordinary modules
++         * register their TLS. Register ntdll after the main image and before
++         * the emulator; alloc_thread_tls() then supplies a separate ntdll block
++         * to every thread through the normal path. */
++        {
++            LDR_DATA_TABLE_ENTRY *ntdll = CONTAINING_RECORD( node_ntdll->Modules.Flink,
++                                                           LDR_DATA_TABLE_ENTRY, NodeModuleLink );
++
++            if ((status = alloc_initial_tls_slot( ntdll )))
++                NtTerminateProcess( GetCurrentProcess(), status );
++        }
+         /* iOS-Madeira (FEX-2607 rebase): wire the NLS casemap BEFORE
+          * load_arm64ec_module(). The rebased xtajit64 arm64ec_process_init
+          * uppercases strings (RtlUpcaseUnicodeStringToCountedOemString ->

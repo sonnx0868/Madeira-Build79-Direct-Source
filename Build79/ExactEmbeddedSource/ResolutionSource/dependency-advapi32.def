@@ -1,0 +1,5 @@
+LIBRARY ADVAPI32.dll
+EXPORTS
+RegOpenKeyExW
+RegQueryValueExW
+RegCloseKey

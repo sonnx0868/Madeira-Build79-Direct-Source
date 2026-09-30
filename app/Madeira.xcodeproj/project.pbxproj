@@ -1,0 +1,552 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001 /* MadeiraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001 /* MadeiraApp.swift */; };
+		A1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000002 /* ContentView.swift */; };
+		A1000003 /* LogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000003 /* LogStore.swift */; };
+		A1000004 /* JITAllocator.c in Sources */ = {isa = PBXBuildFile; fileRef = A2000004 /* JITAllocator.c */; };
+		A1000005 /* EntitlementChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A /* EntitlementChecker.swift */; };
+		A1000006 /* FEXBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = A200000B /* FEXBridge.mm */; };
+		A1000010 /* libFEXCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000010 /* libFEXCore.a */; };
+		A1000011 /* libFEXCore_Base.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000011 /* libFEXCore_Base.a */; };
+		A1000012 /* libfmt.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000012 /* libfmt.a */; };
+		A1000013 /* libcephes_128bit.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000013 /* libcephes_128bit.a */; };
+		A1000014 /* libxxhash.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000014 /* libxxhash.a */; };
+		A1000015 /* libsoftfloat_3e.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000015 /* libsoftfloat_3e.a */; };
+		A1000016 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000016 /* libc++.tbd */; };
+		A1000017 /* libJemallocLibs.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000017 /* libJemallocLibs.a */; };
+		A1000020 /* WineServerBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A200001E /* WineServerBridge.m */; };
+		A1000021 /* libwineserver.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000020 /* libwineserver.a */; };
+		A1000022 /* nls in Resources */ = {isa = PBXBuildFile; fileRef = A2000021 /* nls */; };
+		A1000030 /* WineProcessBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000030 /* WineProcessBridge.m */; };
+		A1000031 /* libntdll_unix.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000032 /* libntdll_unix.a */; };
+		A1000032 /* aarch64-windows in Resources */ = {isa = PBXBuildFile; fileRef = A2000033 /* aarch64-windows */; };
+		A10000F1 /* legal in Resources */ = {isa = PBXBuildFile; fileRef = A20000F1 /* legal */; };
+		A1000033 /* wine_stubs.c in Sources */ = {isa = PBXBuildFile; fileRef = A2000034 /* wine_stubs.c */; };
+		A1000034 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000035 /* IOKit.framework */; };
+		A1000035 /* StikJITHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000036 /* StikJITHelper.swift */; };
+		A1000040 /* prefix-template.tar.gz in Resources */ = {isa = PBXBuildFile; fileRef = A2000040 /* prefix-template.tar.gz */; };
+		A1000041 /* PrefixExtractor.c in Sources */ = {isa = PBXBuildFile; fileRef = A2000041 /* PrefixExtractor.c */; };
+		A1000042 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000042 /* libz.tbd */; };
+		A1000050 /* IOSDisplayShim.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000050 /* IOSDisplayShim.m */; };
+		A1000051 /* libdxmt_combined.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000051 /* libdxmt_combined.a */; };
+		A1000052 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000052 /* Metal.framework */; };
+		A1000053 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000053 /* QuartzCore.framework */; };
+		A1000054 /* MetalFX.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000054 /* MetalFX.framework */; };
+		A1000055 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000055 /* libsqlite3.tbd */; };
+		A1000060 /* libwin32u_unix.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000060 /* libwin32u_unix.a */; };
+		A1000070 /* Winios/Winios.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000070 /* Winios/Winios.m */; };
+		A1000080 /* arm64ec-windows in Resources */ = {isa = PBXBuildFile; fileRef = A2000080 /* arm64ec-windows */; };
+		A1000081 /* x86_64-vcruntime in Resources */ = {isa = PBXBuildFile; fileRef = A2000081 /* x86_64-vcruntime */; };
+		A1000090 /* libgnutls.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000090 /* libgnutls.a */; };
+		A1000091 /* libhogweed.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000091 /* libhogweed.a */; };
+		A1000092 /* libnettle.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000092 /* libnettle.a */; };
+		A1000093 /* libgmp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000093 /* libgmp.a */; };
+		A1000094 /* cacert.pem in Resources */ = {isa = PBXBuildFile; fileRef = A2000094 /* cacert.pem */; };
+		A1000200 /* LogPattern.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000200 /* LogPattern.swift */; };
+		A1000201 /* LogTail.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000201 /* LogTail.swift */; };
+		A1000202 /* FPSOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000202 /* FPSOverlay.swift */; };
+		A1000203 /* GameLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000203 /* GameLibrary.swift */; };
+		A1000204 /* GameLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000204 /* GameLibraryView.swift */; };
+		A1000205 /* madeira-jit.js in Resources */ = {isa = PBXBuildFile; fileRef = A2000205 /* madeira-jit.js */; };
+		A1000210 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000210 /* AVFoundation.framework */; };
+		A1000211 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000211 /* AudioToolbox.framework */; };
+		A1000212 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000212 /* ImageIO.framework */; };
+		A1000213 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000213 /* Security.framework */; };
+		A1000214 /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000214 /* GameController.framework */; };
+		A1000215 /* HardwareInputBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000215 /* HardwareInputBridge.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A2000001 /* MadeiraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MadeiraApp.swift; sourceTree = "<group>"; };
+		A2000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A2000003 /* LogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStore.swift; sourceTree = "<group>"; };
+		A2000004 /* JITAllocator.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = JITAllocator.c; sourceTree = "<group>"; };
+		A2000005 /* JITAllocator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = JITAllocator.h; sourceTree = "<group>"; };
+		A2000006 /* Madeira-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Madeira-Bridging-Header.h"; sourceTree = "<group>"; };
+		A2000007 /* Madeira.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Madeira.entitlements; sourceTree = "<group>"; };
+		A2000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000009 /* Madeira.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Madeira.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A200000A /* EntitlementChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntitlementChecker.swift; sourceTree = "<group>"; };
+		A200000B /* FEXBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = FEXBridge.mm; sourceTree = "<group>"; };
+		A200000C /* FEXBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FEXBridge.h; sourceTree = "<group>"; };
+		A2000010 /* libFEXCore.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libFEXCore.a; path = "../FEX/build-ios/FEXCore/Source/libFEXCore.a"; sourceTree = "<group>"; };
+		A2000011 /* libFEXCore_Base.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libFEXCore_Base.a; path = "../FEX/build-ios/FEXCore/Source/libFEXCore_Base.a"; sourceTree = "<group>"; };
+		A2000012 /* libfmt.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libfmt.a; path = "../FEX/build-ios/External/fmt/libfmt.a"; sourceTree = "<group>"; };
+		A2000013 /* libcephes_128bit.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libcephes_128bit.a; path = "../FEX/build-ios/External/cephes/libcephes_128bit.a"; sourceTree = "<group>"; };
+		A2000014 /* libxxhash.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libxxhash.a; path = "../FEX/build-ios/External/xxhash/cmake_unofficial/libxxhash.a"; sourceTree = "<group>"; };
+		A2000015 /* libsoftfloat_3e.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libsoftfloat_3e.a; path = "../FEX/build-ios/External/SoftFloat-3e/libsoftfloat_3e.a"; sourceTree = "<group>"; };
+		A2000016 /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
+		A2000017 /* libJemallocLibs.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libJemallocLibs.a; path = "../FEX/build-ios/FEXCore/Source/libJemallocLibs.a"; sourceTree = "<group>"; };
+		A200001E /* WineServerBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WineServerBridge.m; sourceTree = "<group>"; };
+		A200001F /* WineServerBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WineServerBridge.h; sourceTree = "<group>"; };
+		A2000020 /* libwineserver.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libwineserver.a; sourceTree = "<group>"; };
+		A2000021 /* nls */ = {isa = PBXFileReference; lastKnownFileType = folder; path = nls; sourceTree = "<group>"; };
+		A2000030 /* WineProcessBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WineProcessBridge.m; sourceTree = "<group>"; };
+		A2000031 /* WineProcessBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WineProcessBridge.h; sourceTree = "<group>"; };
+		A2000032 /* libntdll_unix.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libntdll_unix.a; sourceTree = "<group>"; };
+		A2000033 /* aarch64-windows */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "aarch64-windows"; sourceTree = "<group>"; };
+		A20000F1 /* legal */ = {isa = PBXFileReference; lastKnownFileType = folder; path = legal; sourceTree = "<group>"; };
+		A2000034 /* wine_stubs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = wine_stubs.c; sourceTree = "<group>"; };
+		A2000035 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
+		A2000036 /* StikJITHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StikJITHelper.swift; sourceTree = "<group>"; };
+		A2000040 /* prefix-template.tar.gz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = "prefix-template.tar.gz"; sourceTree = "<group>"; };
+		A2000041 /* PrefixExtractor.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = PrefixExtractor.c; sourceTree = "<group>"; };
+		A2000042 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
+		A2000043 /* PrefixExtractor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PrefixExtractor.h; sourceTree = "<group>"; };
+		A2000050 /* IOSDisplayShim.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = IOSDisplayShim.m; sourceTree = "<group>"; };
+		A2000051 /* libdxmt_combined.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libdxmt_combined.a; sourceTree = "<group>"; };
+		A2000052 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		A2000053 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		A2000054 /* MetalFX.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalFX.framework; path = System/Library/Frameworks/MetalFX.framework; sourceTree = SDKROOT; };
+		A2000055 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		A2000056 /* IOSDisplayShim.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IOSDisplayShim.h; sourceTree = "<group>"; };
+		A2000060 /* libwin32u_unix.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libwin32u_unix.a; sourceTree = "<group>"; };
+		A2000070 /* Winios/Winios.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Winios/Winios.m; sourceTree = "<group>"; };
+		A2000071 /* Winios/Winios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Winios/Winios.h; sourceTree = "<group>"; };
+		A2000080 /* arm64ec-windows */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "arm64ec-windows"; sourceTree = "<group>"; };
+		A2000081 /* x86_64-vcruntime */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "x86_64-vcruntime"; sourceTree = "<group>"; };
+		A2000090 /* libgnutls.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libgnutls.a; sourceTree = "<group>"; };
+		A2000091 /* libhogweed.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libhogweed.a; sourceTree = "<group>"; };
+		A2000092 /* libnettle.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libnettle.a; sourceTree = "<group>"; };
+		A2000093 /* libgmp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libgmp.a; sourceTree = "<group>"; };
+		A2000094 /* cacert.pem */ = {isa = PBXFileReference; lastKnownFileType = text; path = cacert.pem; sourceTree = "<group>"; };
+		A2000200 /* LogPattern.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogPattern.swift; sourceTree = "<group>"; };
+		A2000201 /* LogTail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogTail.swift; sourceTree = "<group>"; };
+		A2000202 /* FPSOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FPSOverlay.swift; sourceTree = "<group>"; };
+		A2000203 /* GameLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLibrary.swift; sourceTree = "<group>"; };
+		A2000204 /* GameLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLibraryView.swift; sourceTree = "<group>"; };
+		A2000205 /* madeira-jit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "madeira-jit.js"; sourceTree = "<group>"; };
+		A2000210 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		A2000211 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
+		A2000212 /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
+		A2000213 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		A2000214 /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
+		A2000215 /* HardwareInputBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareInputBridge.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A3000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000010 /* libFEXCore.a in Frameworks */,
+				A1000011 /* libFEXCore_Base.a in Frameworks */,
+				A1000012 /* libfmt.a in Frameworks */,
+				A1000013 /* libcephes_128bit.a in Frameworks */,
+				A1000014 /* libxxhash.a in Frameworks */,
+				A1000015 /* libsoftfloat_3e.a in Frameworks */,
+				A1000016 /* libc++.tbd in Frameworks */,
+				A1000017 /* libJemallocLibs.a in Frameworks */,
+				A1000021 /* libwineserver.a in Frameworks */,
+				A1000031 /* libntdll_unix.a in Frameworks */,
+				A1000034 /* IOKit.framework in Frameworks */,
+				A1000042 /* libz.tbd in Frameworks */,
+				A1000051 /* libdxmt_combined.a in Frameworks */,
+				A1000052 /* Metal.framework in Frameworks */,
+				A1000053 /* QuartzCore.framework in Frameworks */,
+				A1000054 /* MetalFX.framework in Frameworks */,
+				A1000055 /* libsqlite3.tbd in Frameworks */,
+				A1000060 /* libwin32u_unix.a in Frameworks */,
+				A1000090 /* libgnutls.a in Frameworks */,
+				A1000091 /* libhogweed.a in Frameworks */,
+				A1000092 /* libnettle.a in Frameworks */,
+				A1000093 /* libgmp.a in Frameworks */,
+				A1000210 /* AVFoundation.framework in Frameworks */,
+				A1000211 /* AudioToolbox.framework in Frameworks */,
+				A1000212 /* ImageIO.framework in Frameworks */,
+				A1000213 /* Security.framework in Frameworks */,
+				A1000214 /* GameController.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A4000001 = {
+			isa = PBXGroup;
+			children = (
+				A4000002 /* Madeira */,
+				A4000004 /* Libraries */,
+				A4000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A4000002 /* Madeira */ = {
+			isa = PBXGroup;
+			children = (
+				A2000001 /* MadeiraApp.swift */,
+				A2000002 /* ContentView.swift */,
+				A2000003 /* LogStore.swift */,
+				A2000200 /* LogPattern.swift */,
+				A2000201 /* LogTail.swift */,
+				A2000202 /* FPSOverlay.swift */,
+				A2000203 /* GameLibrary.swift */,
+				A2000204 /* GameLibraryView.swift */,
+				A2000205 /* madeira-jit.js */,
+				A2000215 /* HardwareInputBridge.swift */,
+				A2000004 /* JITAllocator.c */,
+				A2000005 /* JITAllocator.h */,
+				A200000B /* FEXBridge.mm */,
+				A200000C /* FEXBridge.h */,
+				A200001E /* WineServerBridge.m */,
+				A200001F /* WineServerBridge.h */,
+				A2000030 /* WineProcessBridge.m */,
+				A2000031 /* WineProcessBridge.h */,
+				A200000A /* EntitlementChecker.swift */,
+				A2000036 /* StikJITHelper.swift */,
+				A2000021 /* nls */,
+				A2000033 /* aarch64-windows */,
+				A20000F1 /* legal */,
+				A2000080 /* arm64ec-windows */,
+				A2000081 /* x86_64-vcruntime */,
+				A2000040 /* prefix-template.tar.gz */,
+				A2000094 /* cacert.pem */,
+				A2000041 /* PrefixExtractor.c */,
+				A2000043 /* PrefixExtractor.h */,
+				A2000050 /* IOSDisplayShim.m */,
+				A2000056 /* IOSDisplayShim.h */,
+				A2000070 /* Winios/Winios.m */,
+				A2000071 /* Winios/Winios.h */,
+				A2000034 /* wine_stubs.c */,
+				A2000006 /* Madeira-Bridging-Header.h */,
+				A2000007 /* Madeira.entitlements */,
+				A2000008 /* Info.plist */,
+			);
+			path = Madeira;
+			sourceTree = "<group>";
+		};
+		A4000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A2000009 /* Madeira.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A4000004 /* Libraries */ = {
+			isa = PBXGroup;
+			children = (
+				A2000010 /* libFEXCore.a */,
+				A2000011 /* libFEXCore_Base.a */,
+				A2000012 /* libfmt.a */,
+				A2000013 /* libcephes_128bit.a */,
+				A2000014 /* libxxhash.a */,
+				A2000015 /* libsoftfloat_3e.a */,
+				A2000016 /* libc++.tbd */,
+				A2000017 /* libJemallocLibs.a */,
+				A2000020 /* libwineserver.a */,
+				A2000032 /* libntdll_unix.a */,
+				A2000035 /* IOKit.framework */,
+				A2000042 /* libz.tbd */,
+				A2000051 /* libdxmt_combined.a */,
+				A2000052 /* Metal.framework */,
+				A2000053 /* QuartzCore.framework */,
+				A2000054 /* MetalFX.framework */,
+				A2000055 /* libsqlite3.tbd */,
+				A2000060 /* libwin32u_unix.a */,
+				A2000090 /* libgnutls.a */,
+				A2000091 /* libhogweed.a */,
+				A2000092 /* libnettle.a */,
+				A2000093 /* libgmp.a */,
+				A2000210 /* AVFoundation.framework */,
+				A2000211 /* AudioToolbox.framework */,
+				A2000212 /* ImageIO.framework */,
+				A2000213 /* Security.framework */,
+				A2000214 /* GameController.framework */,
+			);
+			name = Libraries;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A5000001 /* Madeira */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7000003 /* Build configuration list for PBXNativeTarget "Madeira" */;
+			buildPhases = (
+				A3000002 /* Sources */,
+				A3000001 /* Frameworks */,
+				A3000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Madeira;
+			productName = Madeira;
+			productReference = A2000009 /* Madeira.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A6000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A5000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A7000001 /* Build configuration list for PBXProject "Madeira" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A4000001;
+			productRefGroup = A4000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A5000001 /* Madeira */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A3000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000022 /* nls in Resources */,
+				A1000032 /* aarch64-windows in Resources */,
+				A10000F1 /* legal in Resources */,
+				A1000080 /* arm64ec-windows in Resources */,
+				A1000081 /* x86_64-vcruntime in Resources */,
+				A1000040 /* prefix-template.tar.gz in Resources */,
+				A1000094 /* cacert.pem in Resources */,
+				A1000205 /* madeira-jit.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A3000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001 /* MadeiraApp.swift in Sources */,
+				A1000002 /* ContentView.swift in Sources */,
+				A1000003 /* LogStore.swift in Sources */,
+				A1000200 /* LogPattern.swift in Sources */,
+				A1000201 /* LogTail.swift in Sources */,
+				A1000202 /* FPSOverlay.swift in Sources */,
+				A1000203 /* GameLibrary.swift in Sources */,
+				A1000204 /* GameLibraryView.swift in Sources */,
+				A1000215 /* HardwareInputBridge.swift in Sources */,
+				A1000004 /* JITAllocator.c in Sources */,
+				A1000005 /* EntitlementChecker.swift in Sources */,
+				A1000006 /* FEXBridge.mm in Sources */,
+				A1000020 /* WineServerBridge.m in Sources */,
+				A1000030 /* WineProcessBridge.m in Sources */,
+				A1000033 /* wine_stubs.c in Sources */,
+				A1000041 /* PrefixExtractor.c in Sources */,
+				A1000050 /* IOSDisplayShim.m in Sources */,
+				A1000070 /* Winios/Winios.m in Sources */,
+				A1000035 /* StikJITHelper.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A8000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A8000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A8000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Madeira/Madeira.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 79;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../FEX/FEXCore/include",
+					"$(SRCROOT)/../FEX/FEXHeaderUtils",
+					"$(SRCROOT)/../FEX/CodeEmitter",
+					"$(SRCROOT)/../FEX/External/fmt/include",
+					"$(SRCROOT)/../FEX/External/range-v3/include",
+					"$(SRCROOT)/../FEX/External/unordered_dense/include",
+					"$(SRCROOT)/../FEX/build-ios",
+					"$(SRCROOT)/../FEX/build-ios/include",
+					"$(SRCROOT)/../FEX/build-ios/FEXCore/Source",
+					"$(SRCROOT)/../FEX",
+				);
+				INFOPLIST_FILE = Madeira/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../FEX/build-ios/FEXCore/Source",
+					"$(SRCROOT)/../FEX/build-ios/External/fmt",
+					"$(SRCROOT)/../FEX/build-ios/External/cephes",
+					"$(SRCROOT)/../FEX/build-ios/External/xxhash/cmake_unofficial",
+					"$(SRCROOT)/../FEX/build-ios/External/SoftFloat-3e",
+					"$(SRCROOT)/Madeira",
+				);
+				MARKETING_VERSION = 0.34.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.madeira.emulator;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SUPPORTED_PLATFORMS = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Madeira/Madeira-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A8000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Madeira/Madeira.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 79;
+				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../FEX/FEXCore/include",
+					"$(SRCROOT)/../FEX/FEXHeaderUtils",
+					"$(SRCROOT)/../FEX/CodeEmitter",
+					"$(SRCROOT)/../FEX/External/fmt/include",
+					"$(SRCROOT)/../FEX/External/range-v3/include",
+					"$(SRCROOT)/../FEX/External/unordered_dense/include",
+					"$(SRCROOT)/../FEX/build-ios",
+					"$(SRCROOT)/../FEX/build-ios/include",
+					"$(SRCROOT)/../FEX/build-ios/FEXCore/Source",
+					"$(SRCROOT)/../FEX",
+				);
+				INFOPLIST_FILE = Madeira/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../FEX/build-ios/FEXCore/Source",
+					"$(SRCROOT)/../FEX/build-ios/External/fmt",
+					"$(SRCROOT)/../FEX/build-ios/External/cephes",
+					"$(SRCROOT)/../FEX/build-ios/External/xxhash/cmake_unofficial",
+					"$(SRCROOT)/../FEX/build-ios/External/SoftFloat-3e",
+					"$(SRCROOT)/Madeira",
+				);
+				MARKETING_VERSION = 0.34.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.madeira.emulator;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Madeira/Madeira-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A7000001 /* Build configuration list for PBXProject "Madeira" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8000001 /* Debug */,
+				A8000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A7000003 /* Build configuration list for PBXNativeTarget "Madeira" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8000003 /* Debug */,
+				A8000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A6000001 /* Project object */;
+}

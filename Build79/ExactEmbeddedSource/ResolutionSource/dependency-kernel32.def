@@ -1,0 +1,18 @@
+LIBRARY KERNEL32.dll
+EXPORTS
+CreateFileW
+ReadFile
+WriteFile
+CloseHandle
+SetFilePointerEx
+LoadLibraryW
+FreeLibrary
+GetProcAddress
+GetModuleFileNameW
+GetSystemDirectoryW
+GetLastError
+GetStdHandle
+WideCharToMultiByte
+ExitProcess
+GetNativeSystemInfo
+GetSystemInfo

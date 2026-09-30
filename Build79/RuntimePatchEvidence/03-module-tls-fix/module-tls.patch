@@ -1,0 +1,138 @@
+--- installed/loader.c
++++ module-tls/loader.c
+@@ -1731,66 +1731,72 @@
+ }
+ 
+ 
++
++
++
++/*************************************************************************
++ *		free_tls_slot
++ *
++ * Free the module TLS slot on unload.
++ * The loader_section must be locked while calling this function.
++ */
++static void free_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
++{
++    const IMAGE_TLS_DIRECTORY *dir;
++    ULONG i, size;
++
++    if (mod->TlsIndex != -1)
++        return;
++    if (!(dir = RtlImageDirectoryEntryToData( mod->DllBase, TRUE, IMAGE_DIRECTORY_ENTRY_TLS, &size )))
++        return;
++
++    i = *(ULONG*)dir->AddressOfIndex;
++    assert( i < tls_module_count );
++    memset( &tls_dirs[i], 0, sizeof(tls_dirs[i]) );
++}
++
++
+ #ifdef __arm64ec__
+-/* Initially loaded images bypass ordinary import fixup. A missing TLS
+- * directory is valid; failure to register an existing one is fatal at startup. */
+-static NTSTATUS alloc_initial_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
++/* Both initial images and ordinary DLLs can execute a process-owned copy of
++ * PE data. Keep its TLS index in sync with the loader's original image. */
++static NTSTATUS alloc_module_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
+ {
+     extern void *xlate_ios_jit( void *ptr );
+     const IMAGE_TLS_DIRECTORY *dir;
+     DWORD *index, *executing_index;
+     ULONG size;
+ 
++    if (mod->TlsIndex == -1) return STATUS_SUCCESS;
+     dir = RtlImageDirectoryEntryToData( mod->DllBase, TRUE, IMAGE_DIRECTORY_ENTRY_TLS, &size );
+     if (!dir || (dir->StartAddressOfRawData == dir->EndAddressOfRawData &&
+                  !dir->SizeOfZeroFill && !dir->AddressOfCallBacks))
+         return STATUS_SUCCESS;
+-    if (!alloc_tls_slot( mod )) return STATUS_NO_MEMORY;
+-    /* Madeira may execute a process-owned copy of PE .data. The initially
+-     * loaded ntdll bypasses ordinary import/protection synchronization; update
+-     * its index through the same existing translation route as delay IATs. */
++
++    /* Resolve the destination before allocating, so a missing translation
++     * cannot leave an untracked registration behind. */
+     index = (DWORD *)dir->AddressOfIndex;
+     executing_index = xlate_ios_jit( index );
+     if (!executing_index)
+     {
+-        ERR( "[tls-initial] module=%p index_ptr=%p translation failed\n", mod->DllBase, index );
++        ERR( "[tls-module] module=%p index_ptr=%p translation failed\n", mod->DllBase, index );
+         return STATUS_UNSUCCESSFUL;
+     }
++    if (!alloc_tls_slot( mod )) return STATUS_NO_MEMORY;
++    mod->TlsIndex = -1;
+     if (executing_index != index) *(volatile DWORD *)executing_index = *index;
+     if (*(volatile DWORD *)executing_index != *index)
+     {
+-        ERR( "[tls-initial] module=%p index_ptr=%p executing_index=%p readback failed\n",
++        ERR( "[tls-module] module=%p index_ptr=%p executing_index=%p readback failed\n",
+              mod->DllBase, index, executing_index );
++        free_tls_slot( mod );
++        mod->TlsIndex = 0;
+         return STATUS_UNSUCCESSFUL;
+     }
+-    mod->TlsIndex = -1;
+-    ERR( "[tls-initial] module=%p index_ptr=%p index=%lu executing_index=%p value=%lu\n",
++    ERR( "[tls-module] module=%p index_ptr=%p index=%lu executing_index=%p value=%lu\n",
+          mod->DllBase, index, *index, executing_index, *executing_index );
+     return STATUS_SUCCESS;
+ }
+ #endif
+-
+-
+-/*************************************************************************
+- *		free_tls_slot
+- *
+- * Free the module TLS slot on unload.
+- * The loader_section must be locked while calling this function.
+- */
+-static void free_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
+-{
+-    const IMAGE_TLS_DIRECTORY *dir;
+-    ULONG i, size;
+-
+-    if (mod->TlsIndex != -1)
+-        return;
+-    if (!(dir = RtlImageDirectoryEntryToData( mod->DllBase, TRUE, IMAGE_DIRECTORY_ENTRY_TLS, &size )))
+-        return;
+-
+-    i = *(ULONG*)dir->AddressOfIndex;
+-    assert( i < tls_module_count );
+-    memset( &tls_dirs[i], 0, sizeof(tls_dirs[i]) );
+-}
+ 
+ 
+ /****************************************************************
+@@ -1853,7 +1859,11 @@
+      * before load_arm64ec_module() so the EXE claims slot 0 instead of
+      * xtajit64.dll — Thumper-style games have compiler-generated magic-static
+      * guards that read `TLS[0]` hardcoded, assuming the main EXE is slot 0. */
++#ifdef __arm64ec__
++    if ((status = alloc_module_tls_slot( &wm->ldr ))) return status;
++#else
+     if (wm->ldr.TlsIndex != -1 && alloc_tls_slot( &wm->ldr )) wm->ldr.TlsIndex = -1;
++#endif
+ 
+     if (!(imports = RtlImageDirectoryEntryToData( wm->ldr.DllBase, TRUE,
+                                                   IMAGE_DIRECTORY_ENTRY_IMPORT, &size )))
+@@ -5561,7 +5571,7 @@
+          * isn't, leaving zero-initialized registries that later get virt-
+          * called and crash. fixup_imports() guards against double-alloc
+          * via the TlsIndex == -1 marker. */
+-        if ((status = alloc_initial_tls_slot( &wm->ldr )))
++        if ((status = alloc_module_tls_slot( &wm->ldr )))
+             NtTerminateProcess( GetCurrentProcess(), status );
+         ERR( "loader_init: pre-allocated main EXE TLS slot (TlsIndex=%ld)\n", wm->ldr.TlsIndex );
+         /* The ARM64EC exception implementation has compiler-emitted static TLS.
+@@ -5573,7 +5583,7 @@
+             LDR_DATA_TABLE_ENTRY *ntdll = CONTAINING_RECORD( node_ntdll->Modules.Flink,
+                                                            LDR_DATA_TABLE_ENTRY, NodeModuleLink );
+ 
+-            if ((status = alloc_initial_tls_slot( ntdll )))
++            if ((status = alloc_module_tls_slot( ntdll )))
+                 NtTerminateProcess( GetCurrentProcess(), status );
+         }
+         /* iOS-Madeira (FEX-2607 rebase): wire the NLS casemap BEFORE

@@ -1,0 +1,16 @@
+LIBRARY kernel32.dll
+EXPORTS
+CreateFileW
+CloseHandle
+LoadLibraryW
+GetProcAddress
+GetModuleFileNameW
+WideCharToMultiByte
+GetLastError
+GetStdHandle
+WriteFile
+Sleep
+GetTickCount64
+QueryPerformanceCounter
+QueryPerformanceFrequency
+ExitProcess

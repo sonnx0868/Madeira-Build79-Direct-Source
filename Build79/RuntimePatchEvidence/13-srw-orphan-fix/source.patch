@@ -1,0 +1,13 @@
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -3904,7 +3904,9 @@
+                  lock, word, nsame, susp[j].strikes );
+         if (susp[j].strikes >= 3)
+         {
+-            ios_srw_reap_exclusive( lock, 0xDEADull );
++            /* A missing FEX stamp does not establish the owner of an anonymous
++             * SRW is dead. Keep this heuristic diagnostic-only; leave the
++             * real owner responsible for release and waiter notification. */
+             susp[j].lock = 0;
+             susp[j].strikes = 0;
+         }

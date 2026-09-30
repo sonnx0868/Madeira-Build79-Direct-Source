@@ -1,0 +1,32 @@
+{
+  "bundle": "Madeira-Build79-Lineage-Verified-Source",
+  "authority": "Build 79 release workspace only",
+  "other_lineages_used": false,
+  "authoritative_inputs": {
+    "Madeira.ipa": "5c2a8d7aff37bfc6a0bd7e80ae52cfef4744b88c717ef77e6284dc36c77b41b9",
+    "Madeira-Build-79-Source.tar.gz": "1779d8657e67ec7d5316057969fa985333555686fd3511ac10a2309793afed3c"
+  },
+  "pinned_components": {
+    "Madeira": "97e2ce26e6dc9e4a38976f3b5deb9272d64558eb",
+    "FEX": "053c385ecc9090702e4959a1d96752ea918a6110",
+    "Wine": "7817e220384e895651f868ba4d97affcf21b3816",
+    "DXMT": "b4b89f0a5a1752da3982a7b6c5575506024bf253"
+  },
+  "build79_dx11_source_archive_sha256": "04618b5a3e5fce90236ed31aaa37e0681210bae960b7e41e195c6cc84cb9fb14",
+  "source_changes": [
+    "Build79 RuntimeFixes/ntdll/loader.c",
+    "R5 runtime patch 02 FEX CPUID metadata index",
+    "R5 runtime patch 05 FEX runtime TEB",
+    "R5 runtime patch 06 native TSD bitmap",
+    "R5 runtime patch 07 guest exit semantic source equivalent",
+    "R5 runtime patches 08 through 13, with final SRW patch applied once",
+    "Build79 Windows VirtualProtect contract patch",
+    "Build79 embedded complete DX11 optimization source",
+    "Build79 application identity and controller metadata"
+  ],
+  "excluded_inputs": [
+    "all other Madeira repositories and forks",
+    "all other dated Codex workspaces",
+    "the superseded Madeira-Community-Source-Build80 package"
+  ]
+}

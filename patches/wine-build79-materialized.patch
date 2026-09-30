@@ -1,0 +1,98 @@
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+index 610c9eb..d186cf5 100644
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -1527,7 +1527,7 @@ static BOOL import_dll( WINE_MODREF *wm, const IMAGE_IMPORT_DESCRIPTOR *descr, L
+                          !pslot ? "(no pool copy / hook unset)"
+                                 : pval == (void *)thunk_list->u1.Function
+                                       ? "POOL IN SYNC"
+-                                      : "POOL STALE  <== executing copy sees the OLD x64 thunk" );
++                                      : "PRE-SYNC SNAPSHOT (call-time unverified)" );
+                 }
+             }
+ #endif
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+index 8980818..f416474 100644
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -3904,7 +3904,9 @@ void ios_orphan_check( const unsigned long long *live_stamps, int nstamps )
+                  lock, word, nsame, susp[j].strikes );
+         if (susp[j].strikes >= 3)
+         {
+-            ios_srw_reap_exclusive( lock, 0xDEADull );
++            /* A missing FEX stamp does not establish the owner of an anonymous
++             * SRW is dead. Keep this heuristic diagnostic-only; leave the
++             * real owner responsible for release and waiter notification. */
+             susp[j].lock = 0;
+             susp[j].strikes = 0;
+         }
+diff --git a/server/async.c b/server/async.c
+index d56478a..7819623 100644
+--- a/server/async.c
++++ b/server/async.c
+@@ -743,21 +743,21 @@ static struct async *find_async_from_user( struct process *process, client_ptr_t
+     return NULL;
+ }
+ 
++/* Proposed isolated replacement, not installed. Source basis and tests in README.md. */
+ static int cancel_process_async( struct process *process, struct object *obj, struct thread *thread, client_ptr_t iosb, obj_handle_t *wait_handle )
+ {
+     struct async_cancel *cancel = NULL;
+-    struct async *async, *next_async;
++    struct async *async;
+     struct list tracked;
+     int count = 0;
+ 
+     if (thread && !(cancel = create_async_cancel( process ))) return 0;
++    /* The construction sentinel keeps synchronous completions from destroying
++     * this group while the remaining operations are being added. */
++    if (cancel) cancel->count = 1;
+ 
+     list_init( &tracked );
+ 
+-    /* We can't simply use LIST_FOR_EACH_ENTRY_SAFE here, because currently
+-     * cancelling an async can cause other asyncs to be removed via
+-     * async_reselect() */
+-
+ restart:
+     LIST_FOR_EACH_ENTRY( async, &process->asyncs, struct async, process_entry )
+     {
+@@ -766,28 +766,33 @@ restart:
+             (!thread || async->thread == thread) &&
+             (!iosb || async->data.iosb == iosb))
+         {
+-            if (!async->canceled) cancel_async( async );
++            /* Cancellation and reselect may complete this or earlier tracked
++             * operations. Retain every tracked entry until it is restored. */
++            grab_object( async );
+             if (cancel)
+             {
+                 assert( !async->async_cancel );
+                 async->async_cancel = cancel;
+                 cancel->count++;
+             }
++            /* Publish group membership before a callback can complete it. */
++            if (!async->canceled) cancel_async( async );
+             list_remove( &async->process_entry );
+             list_add_tail( &tracked, &async->process_entry );
+             count++;
+             goto restart;
+         }
+     }
+-    /* Put the asyncs back into the process list */
+-    LIST_FOR_EACH_ENTRY_SAFE( async, next_async, &tracked, struct async, process_entry )
++    while (!list_empty( &tracked ))
+     {
++        async = LIST_ENTRY( list_head( &tracked ), struct async, process_entry );
+         list_remove( &async->process_entry );
+         list_add_tail( &process->asyncs, &async->process_entry );
++        release_object( async );
+     }
+     if (cancel)
+     {
+-        if (!cancel->count) release_object( cancel );
++        if (!--cancel->count) release_object( cancel );
+         else *wait_handle = alloc_handle( process, cancel, SYNCHRONIZE, 0 );
+     }
+     return count;
+

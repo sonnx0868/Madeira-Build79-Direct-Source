@@ -1,0 +1,14 @@
+LIBRARY kernel32.dll
+EXPORTS
+CreateFileW
+GetFileSizeEx
+CreateFileMappingW
+MapViewOfFile
+UnmapViewOfFile
+CloseHandle
+GetTickCount64
+QueryPerformanceCounter
+QueryPerformanceFrequency
+Sleep
+AcquireSRWLockExclusive
+ReleaseSRWLockExclusive

@@ -1,0 +1,9 @@
+[submodule "FEX"]
+	path = FEX
+	url = https://github.com/willfaust/FEX.git
+[submodule "wine"]
+	path = wine
+	url = https://github.com/willfaust/wine.git
+[submodule "research/dxmt"]
+	path = research/dxmt
+	url = https://github.com/willfaust/dxmt.git

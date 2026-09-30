@@ -1,0 +1,19 @@
+LIBRARY kernel32.dll
+EXPORTS
+GetModuleFileNameW
+GetCurrentProcessId
+GetLastError
+CreateNamedPipeW
+ConnectNamedPipe
+CreateFileW
+CreateEventW
+ResetEvent
+ReadFile
+WriteFile
+CancelIo
+CancelIoEx
+GetOverlappedResult
+WaitForSingleObject
+FlushFileBuffers
+CloseHandle
+ExitProcess

@@ -1,0 +1,98 @@
+--- pinned/Module.S
++++ runtime-teb/Module.S
+@@ -1,27 +1,22 @@
+ .text
+ .balign 16
+ 
+-// iOS clobbers x18 on context switches. Read TEB from TPIDRRO_EL0 + the raw
+-// pthread TSD slot that wine's ntdll-unix publishes the TEB in, instead of
+-// trusting x18 directly. TPIDRRO_EL0 IS preserved by iOS across context
+-// switches, and AND #~7 + ldr is the canonical pthread TLS pattern.
+-//
+-// The #0x898 below is a PLACEHOLDER, not the slot. The real slot is whichever
+-// one backs ntdll-unix's TEB pthread key in this process, which is not knowable
+-// at assembly time and differs per device and per load order. Wine's x18
+-// binary patcher recognises this exact three-instruction triplet and rewrites
+-// the immediate through the .text RW alias, before this code is ever executed
+-// (see the "retarget hand-written TEB-from-TSD reads" pass in virtual_ios.c).
+-//
+-// Do NOT "correct" this constant, and do NOT break the triplet apart or
+-// reorder it -- the patcher matches all three instructions with matching
+-// registers, and an unmatched sequence silently keeps reading the wrong slot.
+-// The JIT emitters read the same offset at runtime via IosTebTsdOffset.
+-#ifdef FEX_IOS_HOST
+-.macro IOS_LOAD_TEB reg
++// Use the offset imported by ProcessInit, as the C++ IOSLoadTEB helper does.
++// Each caller supplies a scratch register which is dead at this point. The
++// sequence preserves NZCV and does not touch the stack or fixed TSD slots.
++#ifdef FEX_IOS_HOST
++.macro IOS_LOAD_TEB reg, scratch, scratchw
++  adrp \scratch, IosTebTsdOffset
++  ldr \scratchw, [\scratch, #:lo12:IosTebTsdOffset]
++  cbz \scratchw, .Lios_teb_fallback\@
+   mrs \reg, TPIDRRO_EL0
+   and \reg, \reg, #~7
+-  ldr \reg, [\reg, #0x898]
++  ldr \reg, [\reg, \scratch]
++  cbnz \reg, .Lios_teb_done\@
++.Lios_teb_fallback\@:
++  // Before ProcessInit or thread publication, retain the C++ helper fallback.
++  mov \reg, x18
++.Lios_teb_done\@:
+ .endm
+ #endif
+ 
+@@ -41,7 +36,7 @@
+ check_target_ec:
+   // Check if target is in fact x86 code
+ #ifdef FEX_IOS_HOST
+-  IOS_LOAD_TEB x16
++  IOS_LOAD_TEB x16, x17, w17
+   ldr x16, [x16, #0x60] // TEB->PEB
+ #else
+   ldr x16, [x18, #0x60] // TEB->PEB
+@@ -131,7 +126,7 @@
+   ldr x23, [x16]         // Entry.PeBase
+   add x17, x23, x4       // target in PE space
+ ios_ffs_xlate_done:
+-  IOS_LOAD_TEB x16
++  IOS_LOAD_TEB x16, x23, w23
+   ldr x16, [x16, #0x60]  // TEB->PEB
+   ldr x16, [x16, #0x368] // PEB->EcCodeBitMap
+   cbz x16, ios_ffs_reject
+@@ -166,7 +161,7 @@
+ 
+ enter_jit:
+ #ifdef FEX_IOS_HOST
+-  IOS_LOAD_TEB x17
++  IOS_LOAD_TEB x17, x16, w16
+   ldr x17, [x17, #0x1788] // TEB->ChpeV2CpuAreaInfo
+ #else
+   ldr x17, [x18, #0x1788] // TEB->ChpeV2CpuAreaInfo
+@@ -195,7 +190,7 @@
+ .global BeginSimulation
+ BeginSimulation:
+ #ifdef FEX_IOS_HOST
+-  IOS_LOAD_TEB x17
++  IOS_LOAD_TEB x17, x16, w16
+   ldr x17, [x17, #0x1788] // TEB->ChpeV2CpuAreaInfo
+   // ml460 (#75): this funnel re-enters the JIT after NtContinue (syscall
+   // resumes, guest SEH returns, suspend resumes) and could otherwise run
+@@ -226,7 +221,7 @@
+   bl "#SyncThreadContext"
+ #endif
+ #ifdef FEX_IOS_HOST
+-  IOS_LOAD_TEB x17
++  IOS_LOAD_TEB x17, x16, w16
+   ldr x17, [x17, #0x1788] // TEB->ChpeV2CpuAreaInfo
+ #else
+   ldr x17, [x18, #0x1788] // TEB->ChpeV2CpuAreaInfo
+@@ -244,7 +239,7 @@
+   and x17, x17, #~6 // NEP + AH
+   msr fpcr, x17
+ #ifdef FEX_IOS_HOST
+-  IOS_LOAD_TEB x17
++  IOS_LOAD_TEB x17, x16, w16
+   ldr x17, [x17, #0x1788] // TEB->ChpeV2CpuAreaInfo
+ #else
+   ldr x17, [x18, #0x1788] // TEB->ChpeV2CpuAreaInfo
