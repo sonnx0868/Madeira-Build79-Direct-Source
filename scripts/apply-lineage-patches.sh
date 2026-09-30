@@ -18,5 +18,6 @@ apply_once() {
 }
 
 apply_once FEX patches/fex-build79-materialized.patch
+apply_once FEX patches/fex-ios-build-fix.patch
 apply_once wine patches/wine-build79-materialized.patch
 apply_once research/dxmt patches/dxmt-build79-materialized.patch
