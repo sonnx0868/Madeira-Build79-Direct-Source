@@ -13,6 +13,7 @@ cmake -S "$root/FEX" -B "$build" -G Ninja \
     -DCMAKE_OSX_SYSROOT=iphoneos \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
     -DCMAKE_BUILD_TYPE=Release \
+    -DTUNE_CPU=none \
     -DBUILD_TESTING=OFF \
     -DBUILD_THUNKS=OFF \
     -DBUILD_FEXCONFIG=OFF \
