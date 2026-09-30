@@ -9,6 +9,7 @@ jobs="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
 if [[ ! -f "$build/CMakeCache.txt" ]]; then
     cmake -S "$root/FEX" -B "$build" -G Ninja \
         -DCMAKE_SYSTEM_NAME=iOS \
+        -DCMAKE_SYSTEM_PROCESSOR=arm64 \
         -DCMAKE_OSX_ARCHITECTURES=arm64 \
         -DCMAKE_OSX_SYSROOT=iphoneos \
         -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
