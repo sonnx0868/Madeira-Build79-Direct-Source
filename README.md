@@ -91,10 +91,16 @@ it is not an App Store/distribution-signing build.
 
 ### Codemagic
 
-`codemagic.yaml` provides two workflows:
+`codemagic.yaml` provides three workflows:
 
+- `madeira-bootstrap-sideload` cold-builds the missing native dependencies
+  directly from their pinned sources, packages them for reuse, then builds an
+  ad-hoc sideload IPA. Run this first when no native-deps bundle exists. The
+  upstream project never verified this complete clean-machine path, so the
+  first run may expose a platform-specific compile gap and can approach the
+  120-minute Codemagic limit;
 - `madeira-sideload-ipa` creates an ad-hoc IPA for re-signing/installing with
-  SideStore or AltStore;
+  SideStore or AltStore from a previously packaged dependency bundle;
 - `madeira-development-ipa` uses a matching Apple Development certificate and
   development provisioning profile configured in Codemagic.
 

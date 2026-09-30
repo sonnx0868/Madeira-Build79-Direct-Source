@@ -19,7 +19,18 @@ required=(
   app/Madeira/libntdll_unix.a
   app/Madeira/libwin32u_unix.a
   app/Madeira/libdxmt_combined.a
-  app/Madeira/x86_64-vcruntime
+  app/Madeira/x86_64-vcruntime/concrt140.dll
+  app/Madeira/x86_64-vcruntime/msvcp140.dll
+  app/Madeira/x86_64-vcruntime/msvcp140_1.dll
+  app/Madeira/x86_64-vcruntime/msvcp140_2.dll
+  app/Madeira/x86_64-vcruntime/msvcp140_atomic_wait.dll
+  app/Madeira/x86_64-vcruntime/msvcp140_codecvt_ids.dll
+  app/Madeira/x86_64-vcruntime/vcamp140.dll
+  app/Madeira/x86_64-vcruntime/vccorlib140.dll
+  app/Madeira/x86_64-vcruntime/vcomp140.dll
+  app/Madeira/x86_64-vcruntime/vcruntime140.dll
+  app/Madeira/x86_64-vcruntime/vcruntime140_1.dll
+  app/Madeira/x86_64-vcruntime/vcruntime140_threads.dll
 )
 
 for path in "${required[@]}"; do

@@ -1,4 +1,71 @@
 workflows:
+  madeira-bootstrap-sideload:
+    name: Madeira bootstrap native deps + Sideload IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: app/Madeira.xcodeproj
+        XCODE_SCHEME: Madeira
+        DERIVED_DATA: /tmp/madeira-derived
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/FEX/build-ios
+        - $CM_BUILD_DIR/wine/build-macos
+        - $CM_BUILD_DIR/wine/build-arm64ec
+        - $CM_BUILD_DIR/toolchains/llvm-mingw-20260421-ucrt-macos-universal
+        - $CM_BUILD_DIR/toolchains/llvm-project
+        - $CM_BUILD_DIR/toolchains/llvm-host-build
+        - $CM_BUILD_DIR/toolchains/llvm-ios-build
+        - $CM_BUILD_DIR/toolchains/gnutls-ios
+        - $CM_BUILD_DIR/build/gnutls-ios/obj
+        - $CM_BUILD_DIR/build/freetype-ios/build
+        - $CM_BUILD_DIR/research/freetype
+        - $CM_BUILD_DIR/build/wineserver/obj
+        - $CM_BUILD_DIR/build/ntdll-unix/obj
+        - $CM_BUILD_DIR/build/win32u-unix/obj
+        - $CM_BUILD_DIR/build/dxmt-ios/obj
+        - $CM_BUILD_DIR/app/Madeira/x86_64-vcruntime
+    scripts:
+      - name: Bootstrap every native dependency from source
+        script: bash scripts/bootstrap-native-deps.sh
+      - name: Package reusable native dependency bundle
+        script: |
+          mkdir -p "$CM_BUILD_DIR/build/native"
+          bash scripts/package-native-deps.sh \
+            "$CM_BUILD_DIR/build/native/madeira-native-deps.zip"
+      - name: Build device app without an Apple account
+        script: |
+          set -euo pipefail
+          xcodebuild \
+            -project "$CM_BUILD_DIR/$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Package ad-hoc IPA for SideStore or AltStore
+        script: |
+          set -euo pipefail
+          app="$DERIVED_DATA/Build/Products/Release-iphoneos/Madeira.app"
+          test -d "$app"
+          codesign --force --sign - \
+            --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" \
+            "$app"
+          package="$CM_BUILD_DIR/build/bootstrap-sideload"
+          rm -rf "$package"
+          mkdir -p "$package/Payload"
+          ditto "$app" "$package/Payload/Madeira.app"
+          cd "$package"
+          /usr/bin/zip -qry Madeira-bootstrap-sideload.ipa Payload
+    artifacts:
+      - build/bootstrap-sideload/Madeira-bootstrap-sideload.ipa
+      - build/native/madeira-native-deps.zip
+      - /tmp/xcodebuild_logs/*.log
+      - /tmp/madeira-derived/Build/Products/Release-iphoneos/Madeira.app
+
   madeira-sideload-ipa:
     name: Madeira iOS Sideload IPA
     instance_type: mac_mini_m2

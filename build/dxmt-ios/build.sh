@@ -94,3 +94,15 @@ echo ""
 echo "=== Archiving libdxmt_unix.a ==="
 xcrun -sdk iphoneos ar rcs "$OUT_LIB" "$OBJ_DIR"/*.o
 echo "Built: $OUT_LIB ($(wc -c < "$OUT_LIB" | tr -d ' ') bytes)"
+
+LLVM_LIB_DIR="$LLVM_BUILD/lib"
+test -d "$LLVM_LIB_DIR" || { echo "Missing LLVM iOS libs: $LLVM_LIB_DIR" >&2; exit 1; }
+LLVM_LIBS=("$LLVM_LIB_DIR"/*.a)
+test -e "${LLVM_LIBS[0]}" || { echo "No LLVM static libraries found" >&2; exit 1; }
+
+COMBINED="$BUILD_DIR/libdxmt_combined.a"
+APP_COMBINED="$REPO_ROOT/app/Madeira/libdxmt_combined.a"
+echo "=== Combining DXMT + LLVM iOS archives ==="
+xcrun -sdk iphoneos libtool -static -o "$COMBINED" "$OUT_LIB" "${LLVM_LIBS[@]}"
+cp "$COMBINED" "$APP_COMBINED"
+echo "Built: $APP_COMBINED ($(wc -c < "$APP_COMBINED" | tr -d ' ') bytes)"

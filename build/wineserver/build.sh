@@ -12,13 +12,14 @@ SHIMS_DIR="$REPO_ROOT/build/ntdll-unix/shims"
 OBJ_DIR="$BUILD_DIR/obj"
 mkdir -p "$OBJ_DIR"
 
-# Copy the base library if we don't have one yet
+# Copy the incremental base library when available. A clean CI checkout builds
+# every non-overridden Wine server translation unit below instead.
+CLEAN_BUILD=0
 if [ ! -f "$OBJ_DIR/libwineserver.a" ]; then
     if [ -f "$APP_LIB" ]; then
         cp "$APP_LIB" "$OBJ_DIR/libwineserver.a"
     else
-        echo "ERROR: No base libwineserver.a found"
-        exit 1
+        CLEAN_BUILD=1
     fi
 fi
 
@@ -160,6 +161,21 @@ REPLACEMENTS=(
     "object.o:object.o"
     "async.o:async.o"
 )
+
+if [ "$CLEAN_BUILD" = 1 ]; then
+    echo "=== Clean build: compiling remaining Wine server sources for iOS ==="
+    rm -f "$OBJ_DIR"/base_*.o
+    for src in "$WINE_SRC"/server/*.c; do
+        source_obj="$(basename "$src" .c).o"
+        skip=0
+        for entry in "${REPLACEMENTS[@]}"; do
+            [ "${entry##*:}" = "$source_obj" ] && { skip=1; break; }
+        done
+        [ "$skip" = 1 ] && continue
+        compile_one "$src" "base_$(basename "$src" .c)"
+    done
+    ar rcs "$OBJ_DIR/libwineserver.a" "$OBJ_DIR"/base_*.o
+fi
 
 for entry in "${REPLACEMENTS[@]}"; do
     new_obj="${entry%%:*}"

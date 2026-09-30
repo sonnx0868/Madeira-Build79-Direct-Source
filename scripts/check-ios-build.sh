@@ -48,7 +48,13 @@ need_file app/Madeira/libdxmt_combined.a
 need_file app/Madeira/prefix-template.tar.gz
 need_dir app/Madeira/aarch64-windows
 need_dir app/Madeira/arm64ec-windows
-need_dir app/Madeira/x86_64-vcruntime
+for dll in \
+    concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll \
+    msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcamp140.dll \
+    vccorlib140.dll vcomp140.dll vcruntime140.dll vcruntime140_1.dll \
+    vcruntime140_threads.dll; do
+    need_file "app/Madeira/x86_64-vcruntime/$dll"
+done
 
 if command -v plutil >/dev/null 2>&1; then
     plutil -lint "$REPO_ROOT/app/Madeira/Info.plist" >/dev/null

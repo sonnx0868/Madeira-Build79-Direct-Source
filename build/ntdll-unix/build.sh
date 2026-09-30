@@ -157,6 +157,11 @@ if [ -n "$FAILED_FILES" ]; then
     echo "Failed:$FAILED_FILES"
 fi
 
+if [ "$FAILED" -gt 0 ]; then
+    echo "Refusing to archive an incomplete libntdll_unix.a" >&2
+    exit 1
+fi
+
 echo ""
 echo "=== Building libntdll_unix.a ==="
 ar rcs "$OBJ_DIR/libntdll_unix.a" \
