@@ -78,15 +78,6 @@ workflows:
         XCODE_PROJECT: app/Madeira.xcodeproj
         XCODE_SCHEME: Madeira
         DERIVED_DATA: /tmp/madeira-derived
-    triggering:
-      events:
-        - push
-        - tag
-      branch_patterns:
-        - pattern: main
-          include: true
-          source: true
-      cancel_previous_builds: true
     scripts:
       - name: Checkout pinned submodules
         script: git submodule update --init --recursive
