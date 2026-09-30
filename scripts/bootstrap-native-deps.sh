@@ -49,8 +49,9 @@ if [[ ! -f "$wine_host/config.status" ]]; then
             --without-freetype --without-gnutls --disable-tests --enable-winegstreamer
     )
 fi
-make -C "$wine_host" -j"$jobs" \
-    include/wine/server_protocol.h include/dwrite.h include/dwrite_3.h
+# server_protocol.h is tracked in this Wine revision; only the WIDL-generated
+# DirectWrite headers need make targets.
+make -C "$wine_host" -j"$jobs" include/dwrite.h include/dwrite_3.h
 
 log "Configure Wine ARM64EC generated-header tree"
 wine_ec="$root/wine/build-arm64ec"
