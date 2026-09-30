@@ -89,6 +89,28 @@ runtime files before Xcode reaches an opaque linker error. Follow the relevant
 Apple Development team in Xcode. Madeira requires development signing and JIT;
 it is not an App Store/distribution-signing build.
 
+### Codemagic
+
+`codemagic.yaml` provides two workflows:
+
+- `madeira-sideload-ipa` creates an ad-hoc IPA for re-signing/installing with
+  SideStore or AltStore;
+- `madeira-development-ipa` uses a matching Apple Development certificate and
+  development provisioning profile configured in Codemagic.
+
+The public repo intentionally excludes generated FEX/Wine/DXMT archives and
+Microsoft VC++ redistributables. Build them once on a known-good Mac, run
+`scripts/package-native-deps.sh`, upload the ZIP to private/versioned storage,
+then create the Codemagic environment group `madeira_build_inputs` containing:
+
+- `MADEIRA_NATIVE_DEPS_URL`
+- `MADEIRA_NATIVE_DEPS_SHA256`
+- `MADEIRA_NATIVE_DEPS_TOKEN` (optional)
+
+Codemagic verifies the SHA-256 before extracting anything. A clean CI build is
+deliberately stopped by the preflight when these inputs are absent, rather than
+producing a misleading or partially functional IPA.
+
 ## License
 
 **GPL-3.0-or-later** — see [`LICENSE`](LICENSE). Derivatives that are
