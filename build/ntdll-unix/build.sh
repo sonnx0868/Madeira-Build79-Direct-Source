@@ -90,7 +90,7 @@ compile_one "$BUILD_DIR/audio_null_ios.c" "audio_null_ios"
 
 # iOS-Madeira 2026-07-05 (Steam S0): network + crypto unix sides.
 echo "=== Building crypto/network unixlibs ==="
-"$CRYPTO_DIR/gen_gnutls_symtab.sh" > /dev/null
+bash "$CRYPTO_DIR/gen_gnutls_symtab.sh" > /dev/null
 compile_one "$CRYPTO_DIR/gnutls_symtab_ios.c" "gnutls_symtab_ios"
 compile_unixlib "$WINE_SRC/dlls/ws2_32/unixlib.c" "ws2_32_unixlib" "ws2_32" \
     -I"$WINE_SRC/dlls/ws2_32"
