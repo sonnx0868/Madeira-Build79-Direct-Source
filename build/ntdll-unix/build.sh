@@ -41,6 +41,8 @@ compile_one() {
         SUCCEEDED=$((SUCCEEDED + 1))
     else
         echo "FAILED"
+        echo "--- $OBJ_DIR/$name.err ---" >&2
+        sed -n '1,240p' "$OBJ_DIR/$name.err" >&2
         FAILED=$((FAILED + 1))
         FAILED_FILES="$FAILED_FILES $name"
     fi
@@ -76,6 +78,8 @@ compile_unixlib() {
         SUCCEEDED=$((SUCCEEDED + 1))
     else
         echo "FAILED"
+        echo "--- $OBJ_DIR/$name.err ---" >&2
+        sed -n '1,240p' "$OBJ_DIR/$name.err" >&2
         FAILED=$((FAILED + 1))
         FAILED_FILES="$FAILED_FILES $name"
     fi

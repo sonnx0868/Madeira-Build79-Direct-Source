@@ -7,6 +7,7 @@ set -euo pipefail
 root="${CM_BUILD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 jobs="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
 export JOBS="$jobs"
+export HOMEBREW_NO_AUTO_UPDATE=1
 export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PATH"
 
 log() { printf '\n========== %s ==========\n' "$*"; }

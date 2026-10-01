@@ -63,6 +63,9 @@ workflows:
     artifacts:
       - build/bootstrap-sideload/Madeira-bootstrap-sideload.ipa
       - build/native/madeira-native-deps.zip
+      - build/ntdll-unix/obj/*.err
+      - build/win32u-unix/obj/*.err
+      - build/wineserver/obj/*.txt
       - /tmp/xcodebuild_logs/*.log
       - /tmp/madeira-derived/Build/Products/Release-iphoneos/Madeira.app
 
