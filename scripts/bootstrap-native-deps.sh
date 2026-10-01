@@ -83,8 +83,11 @@ if [[ ! -d "$root/research/freetype/.git" ]]; then
     git clone --filter=blob:none --depth 1 --branch VER-2-13-3 \
         https://github.com/freetype/freetype.git "$root/research/freetype"
 fi
+# VER-2-13-3 is an annotated tag: 534ad... is the tag object while Git
+# checks out its peeled commit 42608f... . Verify the commit that is actually
+# compiled, rather than comparing HEAD with the tag object ID.
 test "$(git -C "$root/research/freetype" rev-parse HEAD)" = \
-    534ad3456055ee1f65ecde3bcf22a656a31514d1
+    42608f77f20749dd6ddc9e0536788eaad70ea4b5
 bash "$root/build/freetype-ios/build.sh"
 
 log "Build Wine unix-side static archives"
