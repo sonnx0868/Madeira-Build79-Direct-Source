@@ -333,8 +333,13 @@ echo "Built: $OUT_LIB ($(wc -c < "$OUT_LIB" | tr -d ' ') bytes)"
 COMBINED="$BUILD_DIR/libdxmt_combined.a"
 APP_COPY="$REPO_ROOT/app/Madeira/libdxmt_combined.a"
 LLVM_LIB_DIR="$LLVM_BUILD/lib"
-LLVM_LIBS=("$LLVM_LIB_DIR"/*.a)
-test -e "${LLVM_LIBS[0]}" || { echo "No LLVM iOS archives in $LLVM_LIB_DIR" >&2; exit 1; }
+LLVM_LIBS=()
+while IFS= read -r target; do
+    [[ -z "$target" ]] && continue
+    archive="$LLVM_LIB_DIR/lib$target.a"
+    test -s "$archive" || { echo "Missing required LLVM archive: $archive" >&2; exit 1; }
+    LLVM_LIBS+=("$archive")
+done < "$REPO_ROOT/build/llvm-ios/static-libs.txt"
 echo "=== Combining DXMT + LLVM iOS archives ==="
 xcrun -sdk iphoneos libtool -static -o "$COMBINED" "$OUT_LIB" "${LLVM_LIBS[@]}"
 cp "$COMBINED" "$APP_COPY"
