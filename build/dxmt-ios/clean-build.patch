@@ -1,0 +1,11 @@
+diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
+index fcfe237..b688681 100644
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -1,5 +1,5 @@
+ #include <stdatomic.h>
+-#include "../../../../../build/madeira_cfg.h"   /* ml1095: one config file */
++#include "madeira_cfg.h"   /* ml1095: one config file */
+ #include <sys/mman.h>
+ #include <mach/vm_statistics.h>
+ #include <errno.h>
