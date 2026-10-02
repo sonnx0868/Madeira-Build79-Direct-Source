@@ -17,8 +17,16 @@ OUT_LIB="$BUILD_DIR/libdxmt_unix.a"
 
 mkdir -p "$OBJ_DIR"
 
+PATCH="$BUILD_DIR/clean-build.patch"
+if git -C "$DXMT_ROOT" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
+    echo "DXMT clean-build patch already applied"
+else
+    git -C "$DXMT_ROOT" apply --check "$PATCH"
+    git -C "$DXMT_ROOT" apply "$PATCH"
+fi
+
 COMMON_FLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=18.0 -fblocks -O2"
-INCLUDES="-I$DXMT_ROOT/include -I$DXMT_ROOT/libs -I$DXMT_SRC/winemetal -I$DXMT_SRC/airconv"
+INCLUDES="-I$REPO_ROOT/build -I$DXMT_ROOT/include -I$DXMT_ROOT/libs -I$DXMT_SRC/winemetal -I$DXMT_SRC/airconv"
 INCLUDES_DIRECTX="-I$DXMT_ROOT/include/native/directx -I$DXMT_ROOT/include/native/windows"
 INCLUDES_SHADERS="-I$BUILD_DIR/shader-headers"
 LLVM_INCLUDES="-I$LLVM_BUILD/include -I$LLVM_SRC/include"
@@ -127,6 +135,23 @@ compile_objcxx_arc() {
         echo "FAILED"; FAILED=$((FAILED+1)); FAILED_FILES="$FAILED_FILES $name"
     fi
 }
+
+# Meson's airconv target generates these embedded LLVM bitcode headers from
+# Metal sources. The standalone iOS build must reproduce that generator chain
+# before compiling airconv_context.cpp.
+mkdir -p "$BUILD_DIR/shader-headers"
+for shader in air_msad air_samplepos air_tessellation; do
+    source="$DXMT_SRC/airconv/shaders/$shader.metal"
+    air="$BUILD_DIR/shader-headers/$shader.air"
+    header="$BUILD_DIR/shader-headers/$shader.h"
+    if [[ ! -f "$header" || "$source" -nt "$header" ]]; then
+        xcrun -sdk macosx metal -o "$air" -c "$source" \
+            -std=metal3.1 --target=air64-apple-macos14.0
+        xxd -n "$shader" -i "$air" "$header"
+        echo "  $shader.h generated"
+    fi
+done
+
 if [[ -f "$BUILD_DIR/../madeira-d3d12/deps.sh" ]] && \
    source "$BUILD_DIR/../madeira-d3d12/deps.sh"; then
     echo "=== madeira-d3d12 canary (Objective-C++, Metal Shader Converter) ==="
