@@ -1,5 +1,5 @@
 diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
-index fcfe237..b688681 100644
+index fcfe237..878c5f0 100644
 --- a/src/winemetal/unix/winemetal_unix.c
 +++ b/src/winemetal/unix/winemetal_unix.c
 @@ -1,5 +1,5 @@
@@ -9,3 +9,38 @@ index fcfe237..b688681 100644
  #include <sys/mman.h>
  #include <mach/vm_statistics.h>
  #include <errno.h>
+@@ -1715,7 +1715,7 @@ _MTLDevice_newMeshRenderPipelineState(void *obj) {
+  * machine, with nothing pointing at the cause.
+  */
+ #include "wmt_remote_pack.h"
+-#include "../../../../remote-metal/host/wmt_decode.h"
++#include "../../../../research/remote-metal/host/wmt_decode.h"
+ 
+ static int wmt_shadow_on = -1;
+ static unsigned long wmt_sh_ok, wmt_sh_packfail, wmt_sh_valfail, wmt_sh_records;
+diff --git a/src/winemetal/unix/wmt_remote_client.h b/src/winemetal/unix/wmt_remote_client.h
+index 223c8a2..4c39c01 100644
+--- a/src/winemetal/unix/wmt_remote_client.h
++++ b/src/winemetal/unix/wmt_remote_client.h
+@@ -31,7 +31,7 @@
+ #include <arpa/inet.h>
+ #include <pthread.h>
+ #include <sys/time.h>
+-#include "../../../../remote-metal/protocol.h"
++#include "../../../../research/remote-metal/protocol.h"
+ 
+ static int  wmtr_fd   = -1;
+ static int  wmtr_mode = -1;          /* -1 undecided, 0 local, 1 remote */
+diff --git a/src/winemetal/unix/wmt_remote_pack.h b/src/winemetal/unix/wmt_remote_pack.h
+index 1cb6542..eef3898 100644
+--- a/src/winemetal/unix/wmt_remote_pack.h
++++ b/src/winemetal/unix/wmt_remote_pack.h
+@@ -18,7 +18,7 @@
+ #ifndef WMT_REMOTE_PACK_H
+ #define WMT_REMOTE_PACK_H
+ 
+-#include "../../../../remote-metal/wmt_pack.h"
++#include "../../../../research/remote-metal/wmt_pack.h"
+ #include "winemetal.h"
+ 
+ static inline enum wmtw_pack_status
