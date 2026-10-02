@@ -2472,16 +2472,25 @@ struct ContentView: View {
             //
             // ORDERING MATTERS: our task-port claim installs at wine's first thread
             // setup, which is AFTER this point, so this BRK still reaches StikDebug.
-            // Flip to false to A/B against the old attached-for-the-whole-run behaviour.
-            let earlyDetach = true
+            // iOS 26 still needs the debugger connection while Wine creates
+            // and prepares executable regions. The public Madeira setup guide
+            // says the same, but this path previously detached unconditionally
+            // before wineserver/Wine started, producing the reported state
+            // where the JIT badge was green yet the session immediately failed.
+            // iOS 27 keeps the measured early-detach path.
+            let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+            let keepDebuggerAttached = osMajor == 26
+            let earlyDetach = !keepDebuggerAttached
             if earlyDetach, pool != nil {
                 let dt0 = CFAbsoluteTimeGetCurrent()
                 StikJITHelper.detachDebugger()
                 let dms = (CFAbsoluteTimeGetCurrent() - dt0) * 1000.0
                 logStore.log(String(format: "[early-detach] rev=ml524 took %.0f ms", dms),
                              level: dms > 5000 ? .error : .success)
+            } else if keepDebuggerAttached {
+                logStore.log("[ios26-jit] debugger stays attached for the session", level: .success)
             } else if !earlyDetach {
-                logStore.log("[early-detach] rev=ml524 DISABLED — debugger stays attached all run")
+                logStore.log("[early-detach] rev=ml524 DISABLED — debugger stays attached during boot")
             }
 
             winios_phase("detach-done")
@@ -2590,8 +2599,12 @@ struct ContentView: View {
             }
             Thread.sleep(forTimeInterval: 2.0)
 
-            // Step 6: Detach debugger — main thread should have zero accumulated hang time
-            if !earlyDetach {
+            // Step 6: iOS 26 deliberately remains attached. Detaching after a
+            // first frame can make later FEX/PE executable-region preparation
+            // fail even though CS_DEBUGGED had already turned the UI badge green.
+            if keepDebuggerAttached {
+                logStore.log("[ios26-jit] keeping StikDebug attached; do not close it during play", level: .info)
+            } else if !earlyDetach {
                 logStore.log("Detaching debugger...")
                 StikJITHelper.detachDebugger()
             } else {
@@ -2807,7 +2820,9 @@ struct SetupGuideView: View {
                     guideRow(
                         icon: "cpu",
                         title: "Biên dịch JIT",
-                        detail: "Bắt buộc để dịch x86-64 sang ARM64. StikDebug attach và chạy script Madeira; app sẽ cấp JIT pool rồi tự detach sớm khi an toàn."
+                        detail: ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26
+                            ? "Bắt buộc để dịch x86-64 sang ARM64. Trên iOS 26, StikDebug phải giữ attach trong suốt phiên chơi; không đóng StikDebug sau khi badge chuyển xanh."
+                            : "Bắt buộc để dịch x86-64 sang ARM64. StikDebug attach và chạy script Madeira; app sẽ cấp JIT pool rồi tự detach sớm khi an toàn."
                     )
                     guideRow(
                         icon: "memorychip",
@@ -2827,6 +2842,9 @@ struct SetupGuideView: View {
                     stepRow(number: 3, text: "Cài StikDebug và gán script Madeira/universal cho đúng bundle ID")
                     stepRow(number: 4, text: "Nhấn “Mở StikDebug và bật JIT” ở trên")
                     stepRow(number: 5, text: "Quay lại Madeira; badge JIT chuyển xanh thì chọn game và Chạy")
+                    if ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 26 {
+                        stepRow(number: 6, text: "Giữ StikDebug và LocalDevVPN hoạt động trong lúc chơi trên iOS 26")
+                    }
                 }
 
                 Section("Giới hạn") {
