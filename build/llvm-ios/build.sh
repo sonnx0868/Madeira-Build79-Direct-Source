@@ -71,6 +71,18 @@ cmake -S "$source_dir/llvm" -B "$ios_build" -G Ninja \
     -DLLVM_ENABLE_ZSTD=OFF \
     -DLLVM_ENABLE_TERMINFO=OFF
 
-cmake --build "$ios_build" --parallel "$jobs"
-test -n "$(find "$ios_build/lib" -maxdepth 1 -name 'libLLVM*.a' -print -quit)"
-echo "LLVM iOS static libraries ready in $ios_build/lib"
+# DXMT's airconv meson.build records the output of
+# `llvm-config --libs bitwriter passes`. Building LLVM's default `all` target
+# also builds MCA, ORC JIT, ExecutionEngine, XRay, ObjCopy and iOS executables
+# that the app never links; that exceeded Codemagic's job duration. Build only
+# the static-library closure airconv names.
+manifest="$root/build/llvm-ios/static-libs.txt"
+targets=()
+while IFS= read -r target; do
+    [[ -n "$target" ]] && targets+=("$target")
+done < "$manifest"
+cmake --build "$ios_build" --parallel "$jobs" --target "${targets[@]}"
+for target in "${targets[@]}"; do
+    test -s "$ios_build/lib/lib$target.a" || { echo "Missing LLVM archive: lib$target.a" >&2; exit 1; }
+done
+echo "DXMT LLVM static-library closure ready (${#targets[@]} archives)"
