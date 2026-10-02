@@ -41,8 +41,10 @@ if [[ ! -f "$wine_host/config.status" ]]; then
     (cd "$wine_host" && ../configure --enable-archs=aarch64 --without-x --without-vulkan \
         --without-freetype --without-gnutls --disable-tests --enable-winegstreamer)
 fi
-make -C "$wine_host" -j"$jobs" include/dwrite.h include/dwrite_3.h \
-    include/mfobjects.h include/mftransform.h
+# The unixlib sources include a wider generated-header closure (wtypes,
+# objidl, mfobjects, dwrite, and friends). Generate the whole include tree so
+# Xcode updates do not expose the next missing header one at a time.
+make -C "$wine_host" -j"$jobs" include/all tools/widl/all tools/winebuild/all
 
 wine_ec="$root/wine/build-arm64ec"
 if [[ ! -f "$wine_ec/config.status" ]]; then
@@ -50,8 +52,7 @@ if [[ ! -f "$wine_ec/config.status" ]]; then
     (cd "$wine_ec" && ../configure --enable-archs=arm64ec --without-x --without-vulkan \
         --without-freetype --without-gnutls --disable-tests --enable-winegstreamer)
 fi
-make -C "$wine_ec" -j"$jobs" include/dwrite.h include/dwrite_3.h \
-    include/mfobjects.h include/mftransform.h
+make -C "$wine_ec" -j"$jobs" include/all tools/widl/all tools/winebuild/all
 
 log "Build FEX iOS"
 bash "$root/build/fex-ios/build.sh"
