@@ -26,7 +26,6 @@
 #include <mach/semaphore.h>
 #include <mach/task.h>
 #include <pthread.h>
-#include <stdatomic.h>
 #include <mach/mach_vm.h>
 #include <mach/vm_region.h>
 #include "wine_log_ios.h"
@@ -189,6 +188,20 @@ struct fd
     struct completion   *completion;  /* completion object attached to this fd */
     apc_param_t          comp_key;    /* completion key to set in completion events */
     unsigned int         comp_flags;  /* completion flags */
+    /* ml978: who opened this fd, recorded at allocation.
+     *
+     * ml960 could name the CONFLICTING holder on a sharing violation but not
+     * whose it was, and Astra's review was explicit that a host unix_fd number
+     * is not a Wine process owner. Walking the server's handle tables to
+     * attribute the holder is not reachable from here (process_list and the
+     * handle_table internals are static to process.c / handle.c), so record the
+     * provenance at the one moment it is trivially known: fd creation, which
+     * always runs on the requesting thread. Attribution then comes from history
+     * rather than a table walk, and it separates the two causes that need
+     * opposite fixes -- a handle leaked by an exited pseudo-process, versus a
+     * second live open in the same one (which Windows would also refuse). */
+    unsigned int         open_pid;    /* ml978: process that created this fd */
+    unsigned int         open_tid;    /* ml978: thread that created this fd */
 };
 
 static void fd_dump( struct object *obj, int verbose );
@@ -405,14 +418,36 @@ static void atomic_store_long(volatile LONG *ptr, LONG value)
 }
 
 /* ml731c: one place decides whether the shared-data clock is armed, so the
- * mapping and the periodic write can never disagree about it. */
+ * mapping and the periodic write can never disagree about it.
+ *
+ * ml1001: THE DEFAULT IS NOW ON, and the reason is a proven hang rather than a
+ * tidiness argument.  While this was opt-in, KUSER_SHARED_DATA.TickCount stayed
+ * at its SEC_COMMIT zero for the whole run, so GetTickCount() and
+ * GetTickCount64() returned 0 to every guest program, forever.  A 64-bit title
+ * whose HTTP stack keys an absolute-deadline timer tree on GetTickCount64
+ * therefore gave every timer the SAME key, and its "is this node already in the
+ * tree" sentinel is "the stored deadline is {0,0}" -- which a zero clock also
+ * produces.  The node was re-inserted while still linked, the equal-key path
+ * made it its own child, and a worker thread span in that tree at 100 % of a
+ * core for the rest of the run.  Three devices, three runs, byte-identical
+ * corruption.  See WOW64_DESIGN.md 2026-09-28.
+ *
+ * The same frozen page makes every "N ms have passed since X" test in a guest
+ * false for the life of the process: a headless host that sits online and
+ * re-checks a condition "5 s after sign-in" never reaches its check, and its
+ * own 90 s wall-clock bound never fires either.
+ *
+ * A clock that does not tick is not a missing optimisation, it is a wrong
+ * answer from an API, and it can only ever be found by the program that trips
+ * over it.  `MADEIRA_USD_TIME=0' is the kill switch and restores the frozen
+ * page exactly (mapping included -- see create_user_data_mapping). */
 int ios_usd_time_enabled(void)
 {
     static int env = -1;
     if (env < 0)
     {
         const char *e = getenv( "MADEIRA_USD_TIME" );
-        env = (e && e[0] == '1') ? 1 : 0;
+        env = (e && e[0] == '0') ? 0 : 1;
     }
     return env;
 }
@@ -1245,7 +1280,7 @@ void main_loop(void)
         extern void master_socket_handle_client(int client_fd);
 
         /* Stop flag — set by wineserver_stop() when wine process exits */
-        extern _Atomic int g_wineserver_should_stop;
+        extern volatile int g_wineserver_should_stop;
 
         ws_log("[wineserver-fd] iOS poll loop: master_fd=%d nb_users=%d active=%d", pollfd[0].fd, nb_users, active_users);
         {
@@ -1257,7 +1292,7 @@ void main_loop(void)
         while (active_users)
         {
             /* Check stop flag */
-            if (atomic_load_explicit(&g_wineserver_should_stop, memory_order_acquire))
+            if (g_wineserver_should_stop)
             {
                 ws_log("[wineserver-fd] LOOP EXIT: stop requested at iter=%d", ios_iter);
                 break;
@@ -2196,6 +2231,60 @@ static void fd_destroy( struct object *obj )
 
 /* check if the desired access is possible without violating */
 /* the sharing mode of other opens of the same file */
+/* ml960: name the CONFLICTING holder on a sharing violation.
+ *
+ * rdr25's first failure is STATUS_SHARING_VIOLATION on a guest's own state
+ * file, opened FILE_OVERWRITE_IF for write with sharing=FILE_SHARE_READ, which
+ * is why that file sits at 0 bytes on disk. The violation means another fd on
+ * the same inode holds write access (or does not share write), but the
+ * client-side probe can only report its own failed request -- it cannot see the
+ * holder. This is the one place that can: fd->inode->open is the authoritative
+ * list. Attribution matters because the plausible causes need opposite fixes:
+ * an fd leaked by an exited pseudo-process (fd ownership at teardown is a known
+ * unresolved area here) versus a second live open that Windows would permit.
+ *
+ * Only on the violation paths, so it cannot flood, and capped regardless. */
+static void ml960_report_sharing( struct fd *fd, unsigned int access, unsigned int sharing,
+                                  unsigned int options, int which )
+{
+    static int ml960_n;
+    struct fd *o;
+    int others = 0;
+
+    if (ml960_n >= 16) return;
+    ml960_n++;
+
+    fprintf( stderr, "ml960: SHARING VIOLATION (check %d) on \"%s\": request access=%08x "
+             "sharing=%08x options=%08x by pid=%04x tid=%04x\n", which,
+             fd->unix_name ? fd->unix_name : "(no unix name)", access, sharing, options,
+             current ? current->process->id : 0, current ? current->id : 0 );
+    LIST_FOR_EACH_ENTRY( o, &fd->inode->open, struct fd, inode_entry )
+    {
+        if (o == fd) continue;
+        others++;
+        /* ml978: name the holder's origin and whether that process still exists.
+         * A DEAD owner means a handle outlived its pseudo-process -- our bug, in
+         * teardown. A live one means a genuine second open, which Windows would
+         * also refuse and which must NOT be "fixed" by relaxing sharing. */
+        {
+            struct process *op = o->open_pid ? get_process_from_id( o->open_pid ) : NULL;
+            const char *alive = !o->open_pid ? "server-internal"
+                              : (op ? "ALIVE" : "DEAD -- handle outlived its process");
+            fprintf( stderr, "ml960:   holder #%d unix_fd=%d access=%08x sharing=%08x options=%08x "
+                     "opened_by pid=%04x tid=%04x [%s] same_process=%d name=\"%s\"\n",
+                     others, o->unix_fd, o->access, o->sharing, o->options,
+                     o->open_pid, o->open_tid, alive,
+                     (current && o->open_pid == current->process->id) ? 1 : 0,
+                     o->unix_name ? o->unix_name : "(no unix name)" );
+            if (op) release_object( op );
+        }
+    }
+    if (!others)
+        fprintf( stderr, "ml960:   NO other fd on this inode -- the verdict came from the "
+                 "mapping/access bits, not a second opener\n" );
+    fflush( stderr );
+}
+
 static unsigned int check_sharing( struct fd *fd, unsigned int access, unsigned int sharing,
                                    unsigned int open_flags, unsigned int options )
 {
@@ -2222,10 +2311,16 @@ static unsigned int check_sharing( struct fd *fd, unsigned int access, unsigned 
     if (((access & read_access) && !(existing_sharing & FILE_SHARE_READ)) ||
         ((access & write_access) && !(existing_sharing & FILE_SHARE_WRITE)) ||
         ((access & DELETE) && !(existing_sharing & FILE_SHARE_DELETE)))
+    {
+        ml960_report_sharing( fd, access, sharing, options, 1 );
         return STATUS_SHARING_VIOLATION;
+    }
     if (((existing_access & FILE_MAPPING_WRITE) && !(sharing & FILE_SHARE_WRITE)) ||
         ((existing_access & FILE_MAPPING_IMAGE) && (access & FILE_WRITE_DATA)))
+    {
+        ml960_report_sharing( fd, access, sharing, options, 2 );
         return STATUS_SHARING_VIOLATION;
+    }
     if ((existing_access & FILE_MAPPING_IMAGE) && (options & FILE_DELETE_ON_CLOSE))
         return STATUS_CANNOT_DELETE;
     if ((existing_access & FILE_MAPPING_ACCESS) && (open_flags & O_TRUNC))
@@ -2235,7 +2330,10 @@ static unsigned int check_sharing( struct fd *fd, unsigned int access, unsigned 
     if (((existing_access & read_access) && !(sharing & FILE_SHARE_READ)) ||
         ((existing_access & write_access) && !(sharing & FILE_SHARE_WRITE)) ||
         ((existing_access & DELETE) && !(sharing & FILE_SHARE_DELETE)))
+    {
+        ml960_report_sharing( fd, access, sharing, options, 3 );
         return STATUS_SHARING_VIOLATION;
+    }
     return 0;
 }
 
@@ -2307,6 +2405,11 @@ static struct fd *alloc_fd_object(void)
     fd->poll_index = -1;
     fd->completion = NULL;
     fd->comp_flags = 0;
+    /* ml978: `current` is the requesting thread here; it is NULL only for fds
+     * the server makes for itself, which is worth showing as 0000 rather than
+     * guessing at. */
+    fd->open_pid   = current ? current->process->id : 0;
+    fd->open_tid   = current ? current->id : 0;
     init_async_queue( &fd->read_q );
     init_async_queue( &fd->write_q );
     init_async_queue( &fd->wait_q );
@@ -2350,6 +2453,10 @@ struct fd *alloc_pseudo_fd( const struct fd_ops *fd_user_ops, struct object *use
     fd->completion = NULL;
     fd->comp_flags = 0;
     fd->no_fd_status = STATUS_BAD_DEVICE_TYPE;
+    /* ml978: a duplicated fd is attributed to whoever duplicates it, which is
+     * the process that will hold it -- not to the original opener. */
+    fd->open_pid   = current ? current->process->id : 0;
+    fd->open_tid   = current ? current->id : 0;
     init_async_queue( &fd->read_q );
     init_async_queue( &fd->write_q );
     init_async_queue( &fd->wait_q );
@@ -2495,6 +2602,71 @@ void get_nt_name( struct fd *fd, struct unicode_str *name )
     name->len = fd->nt_namelen;
 }
 
+#ifdef WINE_IOS
+/* An overwrite of a file that is a symbolic link to a read-only file failed with access denied.
+ *
+ * Madeira's prefix links C:\windows\system32 and C:\windows\syswow64 to Wine's DLLs and programs
+ * inside the app bundle, which iOS keeps read-only. On Windows these are ordinary files that an
+ * installer may replace, and a redistributable installer copying its own build of a DLL over
+ * one of them (CopyFile: FILE_OVERWRITE_IF with write access) got STATUS_ACCESS_DENIED from
+ * open() through the link. The installer seen on a device retried the copy indefinitely, so the
+ * start that ran it never reached the game.
+ *
+ * Every disposition that truncates (FILE_SUPERSEDE, FILE_OVERWRITE, FILE_OVERWRITE_IF) discards
+ * the old contents, so the link itself is removed and a new regular file created in its place:
+ * the file the program asked for, with the contents it writes. The bundle is not touched. This
+ * runs only when that open failed with EACCES, EPERM or EROFS, the name is a symbolic link to a
+ * regular file, and no handle in any process has that file open (where Windows would report a
+ * sharing violation, the open still fails as before). Other opens, including writes that keep
+ * the contents, are unchanged. [readonly-link] logs the first 16 replacements, without names.
+ * MADEIRA_REPLACE_READONLY_LINK=0 restores the failure. */
+static int ios_link_target_in_use( const struct stat *st )
+{
+    struct device *device = get_device( st->st_dev, -1 );   /* no device object: nothing is open on it */
+    struct inode *inode;
+    int in_use = 0;
+
+    if (!device) return 0;
+    LIST_FOR_EACH_ENTRY( inode, &device->inode_hash[st->st_ino % INODE_HASH_SIZE], struct inode, entry )
+    {
+        if (inode->ino != st->st_ino) continue;
+        in_use = !list_empty( &inode->open );
+        break;
+    }
+    release_object( device );
+    return in_use;
+}
+
+/* called with errno from the failed open(); returns 1 when the link was removed, else keeps errno */
+static int ios_replace_readonly_link( const char *name, int flags, unsigned int access, unsigned int options )
+{
+    static int enabled = -1;
+    static unsigned int count;
+    int err = errno;
+    struct stat st;
+
+    if (enabled < 0)
+    {
+        /* On by default: an overwrite (supersede, overwrite, overwrite-if) through a link to a
+         * read-only file replaces the link with a new file. 0 fails it with access denied. */
+        const char *e = getenv( "MADEIRA_REPLACE_READONLY_LINK" );
+        enabled = !(e && e[0] == '0');
+    }
+    if (!enabled || (err != EACCES && err != EPERM && err != EROFS)) return 0;
+    if (!(flags & O_TRUNC) || !(access & FILE_UNIX_WRITE_ACCESS) || (options & FILE_DIRECTORY_FILE)) return 0;
+    if (lstat( name, &st ) == -1 || !S_ISLNK( st.st_mode )) goto keep;
+    if (stat( name, &st ) == -1 || !S_ISREG( st.st_mode ) || ios_link_target_in_use( &st )) goto keep;
+    if (unlink( name ) == -1) goto keep;
+    if (++count <= 16)
+        fprintf( stderr, "[readonly-link] #%u an overwrite replaced a link to a read-only file with a new file "
+                 "(MADEIRA_REPLACE_READONLY_LINK=0 fails it)\n", count );
+    return 1;
+keep:
+    errno = err;
+    return 0;
+}
+#endif
+
 /* open() wrapper that returns a struct fd with no fd user set */
 struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_name,
                     int flags, mode_t *mode, unsigned int access,
@@ -2557,6 +2729,11 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
 
     if ((fd->unix_fd = open( name, rw_mode | (flags & ~O_TRUNC), *mode )) == -1)
     {
+#ifdef WINE_IOS
+        if (ios_replace_readonly_link( name, flags, access, options ) &&
+            (fd->unix_fd = open( name, rw_mode | O_CREAT | (flags & ~O_TRUNC), *mode )) != -1)
+            errno = 0;
+#endif
         /* if we tried to open a directory for write access, retry read-only */
         if (errno == EISDIR)
         {

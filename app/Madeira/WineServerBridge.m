@@ -6,7 +6,6 @@
 #import <sys/stat.h>
 #import <pthread.h>
 #import <stdarg.h>
-#include <stdatomic.h>
 
 #include "WineServerBridge.h"
 #include <sys/time.h>
@@ -48,9 +47,7 @@ extern void wineserver_log_set_file(const char *path);
 // Set NLS directory for wineserver (defined in unicode_ios.c)
 extern void wineserver_set_nls_dir(const char *path);
 
-static _Atomic int g_wineserver_running = 0;
-
-// Override wineserver's fatal_error without terminating the whole iOS app.
+// Override wineserver's fatal_error to use logging and pthread_exit instead of exit(1)
 void fatal_error( const char *err, ... ) {
     va_list args;
     char buf[1024];
@@ -58,9 +55,8 @@ void fatal_error( const char *err, ... ) {
     vsnprintf(buf, sizeof(buf), err, args);
     va_end(args);
     wine_log_msg_impl("[Wine] FATAL: %s", buf);
-    atomic_store_explicit(&g_wineserver_running, 0, memory_order_release);
-    // Don't call exit(1) — that kills the whole app. The joinable server
-    // thread is reaped by wineserver_stop(); publish failure before exiting.
+    // Don't call exit(1) — that kills the whole app.
+    // Instead, terminate just this thread.
     pthread_exit(NULL);
 }
 
@@ -69,9 +65,10 @@ extern int foreground;
 extern int debug_level;
 
 // Stop flag checked by wineserver event loop (fd_ios.c)
-_Atomic int g_wineserver_should_stop = 0;
+volatile int g_wineserver_should_stop = 0;
 
 static pthread_t g_wineserver_thread;
+static volatile int g_wineserver_running = 0;
 static char *g_prefix_path = NULL;
 
 static void *wineserver_thread_func(void *arg) {
@@ -127,20 +124,16 @@ static void *wineserver_thread_func(void *arg) {
         int ret = wineserver_main(argc, argv);
         wine_log_msg("wineserver_main returned: %d", ret);
 
-        atomic_store_explicit(&g_wineserver_running, 0, memory_order_release);
+        g_wineserver_running = 0;
     }
     return NULL;
 }
 
 int wineserver_start(const char *prefix_path) {
-    int expected = 0;
-    if (!atomic_compare_exchange_strong_explicit(&g_wineserver_running, &expected, 1,
-                                                  memory_order_acq_rel,
-                                                  memory_order_acquire)) {
+    if (g_wineserver_running) {
         wine_log_msg("Wineserver already running");
         return 0;
     }
-    atomic_store_explicit(&g_wineserver_should_stop, 0, memory_order_release);
 
     // Store prefix path
     if (g_prefix_path) free(g_prefix_path);
@@ -157,6 +150,8 @@ int wineserver_start(const char *prefix_path) {
         extern void madeira_seed_prefix_if_needed(const char *prefix_path);
         madeira_seed_prefix_if_needed(prefix_path);
     }
+
+    g_wineserver_running = 1;
 
     /* 2026-07-04 perf: the wineserver thread used to be created at LOWERED
      * priority (sched_priority 20, "so wineserver doesn't starve the main
@@ -175,7 +170,7 @@ int wineserver_start(const char *prefix_path) {
     pthread_attr_destroy(&attr);
     if (ret != 0) {
         wine_log_msg("Failed to create wineserver thread: %d", ret);
-        atomic_store_explicit(&g_wineserver_running, 0, memory_order_release);
+        g_wineserver_running = 0;
         return -1;
     }
 
@@ -185,12 +180,12 @@ int wineserver_start(const char *prefix_path) {
 }
 
 int wineserver_is_running(void) {
-    return atomic_load_explicit(&g_wineserver_running, memory_order_acquire);
+    return g_wineserver_running;
 }
 
 void wineserver_stop(void) {
     wine_log_msg("Wineserver stop requested");
-    atomic_store_explicit(&g_wineserver_should_stop, 1, memory_order_release);
+    g_wineserver_should_stop = 1;
     // Join the wineserver thread to ensure it actually stops before we return.
     // This prevents iOS from killing us for excessive CPU from a spinning wineserver.
     pthread_t t = g_wineserver_thread;
@@ -199,6 +194,5 @@ void wineserver_stop(void) {
         pthread_join(t, NULL);
         wine_log_msg("Wineserver thread joined");
     }
-    g_wineserver_thread = (pthread_t)0;
-    atomic_store_explicit(&g_wineserver_running, 0, memory_order_release);
+    g_wineserver_running = 0;
 }

@@ -12,14 +12,13 @@ SHIMS_DIR="$REPO_ROOT/build/ntdll-unix/shims"
 OBJ_DIR="$BUILD_DIR/obj"
 mkdir -p "$OBJ_DIR"
 
-# Copy the incremental base library when available. A clean CI checkout builds
-# every non-overridden Wine server translation unit below instead.
-CLEAN_BUILD=0
+# Copy the base library if we don't have one yet
 if [ ! -f "$OBJ_DIR/libwineserver.a" ]; then
     if [ -f "$APP_LIB" ]; then
         cp "$APP_LIB" "$OBJ_DIR/libwineserver.a"
     else
-        CLEAN_BUILD=1
+        echo "ERROR: No base libwineserver.a found"
+        exit 1
     fi
 fi
 
@@ -29,6 +28,7 @@ CC_FLAGS=(
     -I"$WINE_SRC/build-macos/include"
     -I"$BUILD_DIR" -I"$WINE_SRC/server"
     -I"$SHIMS_DIR"
+    -I"$BUILD_DIR/../madsync" -DHAVE_LINUX_NTSYNC_H=1
     -include "$BUILD_DIR/config_ios.h"
     -include stdarg.h
     -include "$BUILD_DIR/unicode_fix.h"
@@ -70,6 +70,15 @@ PATCHED_FILES=(
     # REPLACEMENTS inserts it into the prebuilt base archive. An entry in
     # only the first compiles, prints OK, and is silently discarded.
     "object:$WINE_SRC/server/object.c:object.o"
+    # ml805: event/handle carry the [evt-hist] instrumentation. Both MUST be
+    # listed here -- they are otherwise linked from a prebuilt object and the
+    # source edits would be dead code, the same trap as the unix/*.c forks.
+    "event:$WINE_SRC/server/event.c:event.o"
+    # Fastsync's semaphore half (madeira_semaphore_cell_index and friends in
+    # server/semaphore.c) is referenced by inproc_sync.c and thread.c, so it is
+    # compiled from the submodule and swapped in as well.
+    "semaphore:$WINE_SRC/server/semaphore.c:semaphore.o"
+    "handle:$WINE_SRC/server/handle.c:handle.o"
     # ml575: async.c carries the free_async_queue UAF fix.
     "async:$WINE_SRC/server/async.c:async.o"
     "process_ios:$WINE_SRC/server/process.c:process.o"
@@ -87,6 +96,10 @@ PATCHED_FILES=(
     # task#32 Steam: stop_thread Mach-based context capture (iOS signal
     # suspend is dead) lives in the submodule's thread.c
     "thread:$WINE_SRC/server/thread.c:thread.o"
+    # ml1058: in-process synchronisation. The archive's copy was compiled with no
+    # ntsync header, i.e. as the all-stubs variant; build the real one against the
+    # userspace driver in build/madsync.
+    "inproc_sync:$WINE_SRC/server/inproc_sync.c:inproc_sync.o"
     # ml474 (#79): sock.c now builds from the submodule. Before this entry
     # the archive carried a hand-inserted Jul-10 sock.o (probed, source
     # lost) that every rebuild silently preserved — the #79 TCP-table
@@ -160,22 +173,15 @@ REPLACEMENTS=(
     "sock.o:sock.o"
     "object.o:object.o"
     "async.o:async.o"
+    # ml805: BOTH lists matter. PATCHED_FILES only compiles; REPLACEMENTS is what
+    # actually swaps the object into the archive. Adding to one and not the other
+    # compiles cleanly, ships the OLD object, and fails at link with an undefined
+    # symbol -- which is exactly what happened first try.
+    "event.o:event.o"
+    "semaphore.o:semaphore.o"
+    "handle.o:handle.o"
+    "inproc_sync.o:inproc_sync.o"   # ml1058
 )
-
-if [ "$CLEAN_BUILD" = 1 ]; then
-    echo "=== Clean build: compiling remaining Wine server sources for iOS ==="
-    rm -f "$OBJ_DIR"/base_*.o
-    for src in "$WINE_SRC"/server/*.c; do
-        source_obj="$(basename "$src" .c).o"
-        skip=0
-        for entry in "${REPLACEMENTS[@]}"; do
-            [ "${entry##*:}" = "$source_obj" ] && { skip=1; break; }
-        done
-        [ "$skip" = 1 ] && continue
-        compile_one "$src" "base_$(basename "$src" .c)"
-    done
-    ar rcs "$OBJ_DIR/libwineserver.a" "$OBJ_DIR"/base_*.o
-fi
 
 for entry in "${REPLACEMENTS[@]}"; do
     new_obj="${entry%%:*}"

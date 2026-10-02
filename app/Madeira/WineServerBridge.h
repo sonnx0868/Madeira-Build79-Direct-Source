@@ -19,9 +19,7 @@ void wineserver_stop(void);
 // iOS socketpair bypass: inject a pre-connected client fd into the wineserver.
 // Called from the app bridge after socketpair() — the wineserver event loop
 // picks this up and calls create_process/create_thread on it.
-/* Atomically replace the pending injected fd and return the previous value.
- * Passing -1 retracts a not-yet-consumed fd during launch rollback. */
-int wineserver_inject_client_fd(int fd);
+void wineserver_inject_client_fd(int fd);
 
 // Suppress os_log output from wineserver (file logging continues).
 // Prevents os_log buffer contention from blocking the main thread.

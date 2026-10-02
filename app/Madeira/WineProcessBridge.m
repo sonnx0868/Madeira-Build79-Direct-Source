@@ -5,6 +5,7 @@
 #import <Foundation/Foundation.h>
 #import <os/log.h>
 #import <pthread.h>
+#import "WineProcessBridge.h"
 /* AVFoundation: AVAudioSession activation for the Tier-2 audio driver
  * (audio_null_ios.c RemoteIO backend). AudioToolbox: pulls the framework
  * in via autolink — the static-lib driver code can't autolink itself. */
@@ -17,11 +18,13 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <dirent.h>
+#include "../../build/madeira_cfg.h"   /* ml1095: one config file */
 #include <sys/stat.h>
 #include <limits.h>
 #include <string.h>
-#include <ctype.h>
-#include <stdatomic.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <sys/sysctl.h>
 
 #include "WineProcessBridge.h"
 #include "WineServerBridge.h"
@@ -178,24 +181,6 @@ static int ios_reg_unmangle(const char *path)
     return ok ? (int)hits : 0;
 }
 
-/* The published Build79 archive was created before the prefix builder started
- * normalising its account name and therefore contains users/mythic, while
- * newer snapshots contain users/madeira.  Use whichever registered profile is
- * actually present instead of silently creating/repairing the wrong tree. */
-static NSString *madeira_active_profile_dir(NSString *prefix)
-{
-    NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *name in @[ @"madeira", @"mythic", @"mobile" ])
-    {
-        NSString *candidate = [prefix stringByAppendingPathComponent:
-            [@"drive_c/users" stringByAppendingPathComponent:name]];
-        BOOL is_dir = NO;
-        if ([fm fileExistsAtPath:candidate isDirectory:&is_dir] && is_dir)
-            return candidate;
-    }
-    return [prefix stringByAppendingPathComponent:@"drive_c/users/madeira"];
-}
-
 /* Move src into dst, merging. Existing destinations are never overwritten. */
 static void ios_merge_move(const char *src, const char *dst, int depth)
 {
@@ -235,11 +220,7 @@ static void madeira_repair_profile(NSString *prefix)
         fixed += ios_reg_unmangle( [prefix stringByAppendingPathComponent:reg].fileSystemRepresentation );
 
     NSString *bad  = [prefix stringByAppendingPathComponent:@"drive_c/usersmadeira"];
-    /* A mangled registry was explicitly a `madeira` profile. Otherwise honour
-     * the legacy `mythic` profile shipped in this source archive. */
-    NSString *good = fixed > 0
-        ? [prefix stringByAppendingPathComponent:@"drive_c/users/madeira"]
-        : madeira_active_profile_dir(prefix);
+    NSString *good = [prefix stringByAppendingPathComponent:@"drive_c/users/madeira"];
     if ([fm fileExistsAtPath:bad])
     {
         [fm createDirectoryAtPath:good withIntermediateDirectories:YES attributes:nil error:nil];
@@ -307,142 +288,64 @@ extern void __wine_main(int argc, char *argv[]);
 extern void wine_log_set_file(const char *path);
 
 static pthread_t g_wine_thread;
-static _Atomic int g_wine_running = 0;
+static volatile int g_wine_running = 0;
+
+/* Session exit report for the library front end. The app marks one process as
+ * its own: the program it hands to __wine_main below, which is the session's
+ * initial process. ntdll's common exit wrapper (build/ntdll-unix/server_ios.c)
+ * calls wine_launched_process_did_exit() for that process only, on whichever
+ * thread ends it. Only the status is kept: no names, no allocation, no
+ * logging. g_launch_exit holds (1 << 32) | status when the program ended with
+ * an NTSTATUS error (0xC...), else 0. */
+static uint64_t g_launch_exit = 0;
+void wine_launched_process_did_exit(int status) {
+    if ((uint32_t)status >= 0xC0000000u)
+        __atomic_store_n(&g_launch_exit, (UINT64_C(1) << 32) | (uint32_t)status, __ATOMIC_RELEASE);
+}
+void wine_exit_status_reset(void) {
+    __atomic_store_n(&g_launch_exit, 0, __ATOMIC_RELEASE);
+}
+int wine_crash_exit_status(uint32_t *status) {
+    uint64_t value = __atomic_load_n(&g_launch_exit, __ATOMIC_ACQUIRE);
+    if (!(value >> 32)) return 0;
+    if (status) *status = (uint32_t)value;
+    return 1;
+}
 static char *g_prefix_path = NULL;
 
-/* Launch configuration is copied before the guest thread starts.  The old
- * implementation read process-global MADEIRA_EXE/MADEIRA_ARGS while building
- * argv, so a second button tap could silently retarget the first launch. */
-static pthread_mutex_t g_launch_config_mutex = PTHREAD_MUTEX_INITIALIZER;
-static char *g_launch_exe = NULL;
-static char *g_launch_args = NULL;
-static int g_launch_use_arm64ec = -1;
-static int g_launch_desktop = -1;
-
-void wine_process_configure(const char *windows_exe,
-                            const char *arguments,
-                            int use_arm64ec,
-                            int desktop_mode)
+/* Export MADEIRA_DOCS_DIR before main(), while HOME is still the app container.
+ * The in-app wineserver thread sets HOME to the Wine prefix before it creates its
+ * first object, and madsync reads madeira.cfg inproc-sync right there (then keeps
+ * the answer for the whole app run); with MADEIRA_DOCS_DIR exported only when the
+ * guest starts (wine_process_thread below), that read looked in
+ * Documents/wine/Documents and missed the user's madeira.cfg. Kill switch:
+ * MADEIRA_CFG_EARLY_DOCS=0 in the process environment or
+ * env.MADEIRA_CFG_EARLY_DOCS = 0 in madeira.cfg. Pure C, host-tested
+ * (tests/host/check-cfg-early-docs.py). */
+static const char *g_madeira_docs_early = "not-run";
+static int madeira_cfg_off_word(const char *v)
 {
-    pthread_mutex_lock(&g_launch_config_mutex);
-    free(g_launch_exe);
-    free(g_launch_args);
-    g_launch_exe = windows_exe && *windows_exe ? strdup(windows_exe) : NULL;
-    g_launch_args = arguments && *arguments ? strdup(arguments) : NULL;
-    g_launch_use_arm64ec = use_arm64ec < 0 ? -1 : (use_arm64ec ? 1 : 0);
-    g_launch_desktop = desktop_mode < 0 ? -1 : (desktop_mode ? 1 : 0);
-
-    /* Keep the environment path for Wine child code that still consults it,
-     * but clear every per-title value first so a previous Steam/desktop run
-     * cannot leak into an imported game. */
-    if (g_launch_exe) setenv("MADEIRA_EXE", g_launch_exe, 1);
-    else unsetenv("MADEIRA_EXE");
-    if (g_launch_args) setenv("MADEIRA_ARGS", g_launch_args, 1);
-    else unsetenv("MADEIRA_ARGS");
-    if (g_launch_desktop >= 0)
-        setenv("MADEIRA_DESKTOP", g_launch_desktop ? "1" : "0", 1);
-    else
-        unsetenv("MADEIRA_DESKTOP");
-    if (g_launch_use_arm64ec >= 0)
-        setenv("MADEIRA_USE_ARM64EC", g_launch_use_arm64ec ? "1" : "0", 1);
-    else
-        unsetenv("MADEIRA_USE_ARM64EC");
-    unsetenv("MADEIRA_SCREEN_W");
-    unsetenv("MADEIRA_SCREEN_H");
-    unsetenv("SteamAppPath");
-    unsetenv("SteamAppId");
-    unsetenv("SteamGameId");
-    unsetenv("MADEIRA_USD_TIME");
-    pthread_mutex_unlock(&g_launch_config_mutex);
+    return v && (!strcmp(v, "0") || !strcmp(v, "off") || !strcmp(v, "no"));
 }
-
-static void snapshot_launch_config(char **exe, char **args,
-                                   int *use_arm64ec, int *desktop_mode)
+static const char *madeira_docs_dir_early(void)
 {
-    pthread_mutex_lock(&g_launch_config_mutex);
-    *exe = g_launch_exe ? strdup(g_launch_exe) : NULL;
-    *args = g_launch_args ? strdup(g_launch_args) : NULL;
-    *use_arm64ec = g_launch_use_arm64ec;
-    *desktop_mode = g_launch_desktop;
-    /* A configuration belongs to one Wine start.  Consuming it here prevents
-     * a later developer/test button from inheriting an imported game's path. */
-    free(g_launch_exe);
-    free(g_launch_args);
-    g_launch_exe = NULL;
-    g_launch_args = NULL;
-    g_launch_use_arm64ec = -1;
-    g_launch_desktop = -1;
-    pthread_mutex_unlock(&g_launch_config_mutex);
-}
-
-/* Parse the useful subset of CommandLineToArgvW semantics needed by game
- * launchers.  Unlike strtok(" "), this preserves quoted paths and supports
- * escaped quotes, while keeping the original API's single string storage. */
-static int parse_launch_arguments(char *buffer, char **argv, int max_args)
-{
-    int argc = 0;
-    char *src = buffer, *dst = buffer;
-    while (*src && argc < max_args) {
-        while (*src && isspace((unsigned char)*src)) src++;
-        if (!*src) break;
-        argv[argc++] = dst;
-        int quoted = 0;
-        while (*src) {
-            if (*src == '\\' && src[1] == '"') {
-                *dst++ = '"'; src += 2; continue;
-            }
-            if (*src == '"') { quoted = !quoted; src++; continue; }
-            if (!quoted && isspace((unsigned char)*src)) break;
-            *dst++ = *src++;
-        }
-        /* Capture the next token before terminating this one. When dst==src
-         * (the common unquoted case), writing NUL first would overwrite the
-         * delimiter and make parsing stop after argument #1. */
-        char *next = src;
-        while (*next && isspace((unsigned char)*next)) next++;
-        *dst++ = 0;
-        src = next;
+    char docs[1024], v[16];
+    const char *home = getenv("HOME"), *have = getenv("MADEIRA_DOCS_DIR");
+    if (madeira_cfg_off_word(getenv("MADEIRA_CFG_EARLY_DOCS"))) return "off-env";
+    if (have && *have) return "already-set";
+    if (!home || !*home || strlen(home) + 11 >= sizeof(docs)) return "no-home";
+    snprintf(docs, sizeof(docs), "%s/Documents", home);
+    setenv("MADEIRA_DOCS_DIR", docs, 0);
+    if (madeira_cfg_get("env.MADEIRA_CFG_EARLY_DOCS", v, sizeof(v)) && madeira_cfg_off_word(v)) {
+        unsetenv("MADEIRA_DOCS_DIR");
+        setenv("MADEIRA_CFG_EARLY_DOCS", "0", 1);   /* also turns off madeira_cfg.h's container fallback */
+        return "off-cfg";
     }
-    return argc;
+    return "set";
 }
-
-/* Only publish Steam variables when the imported title explicitly carries a
- * steam_appid.txt beside its executable.  This keeps Steam-aware games
- * working without contaminating ordinary Ren'Py/Win32 launches. */
-static void configure_steam_identity(const char *windows_exe, const char *prefix)
+__attribute__((constructor)) static void madeira_docs_dir_ctor(void)
 {
-    if (!windows_exe || !prefix || !strchr(windows_exe, '\\')) return;
-    const char *after_drive = windows_exe + 3;
-    const char *last_sep = strrchr(windows_exe, '\\');
-    if (!last_sep || last_sep <= after_drive) return;
-
-    char relative_dir[1024], windows_dir[1024];
-    size_t len = (size_t)(last_sep - after_drive);
-    if (len >= sizeof(relative_dir)) return;
-    memcpy(relative_dir, after_drive, len);
-    relative_dir[len] = 0;
-    memcpy(windows_dir, relative_dir, len + 1);
-    for (char *p = relative_dir; *p; p++) if (*p == '\\') *p = '/';
-
-    char appid_path[PATH_MAX];
-    if (snprintf(appid_path, sizeof(appid_path), "%s/drive_c/%s/steam_appid.txt",
-                 prefix, relative_dir) >= (int)sizeof(appid_path)) return;
-    FILE *f = fopen(appid_path, "r");
-    if (!f) return;
-    char line[64] = {0};
-    if (!fgets(line, sizeof(line), f)) { fclose(f); return; }
-    fclose(f);
-    char *end = NULL;
-    long appid = strtol(line, &end, 10);
-    if (end == line || appid <= 0 || appid > 2147483647L) return;
-
-    char path[1024];
-    if (snprintf(path, sizeof(path), "C:\\%s", windows_dir) >= (int)sizeof(path)) return;
-    char id[32]; snprintf(id, sizeof(id), "%ld", appid);
-    setenv("SteamAppPath", path, 1);
-    setenv("SteamAppId", id, 1);
-    setenv("SteamGameId", id, 1);
-    dprintf(STDERR_FILENO, "[WineProc] Steam identity from steam_appid.txt: %s (%s)\n", id, path);
+    g_madeira_docs_early = madeira_docs_dir_early();
 }
 
 /***********************************************************************
@@ -502,20 +405,334 @@ void madeira_seed_prefix_if_needed(const char *prefix_path) {
     }
 }
 
+/* ===========================================================================
+ * WoW64: 32-bit (i386) targets. See docs/WOW64.md.
+ *
+ * Everything below is used only when the bundle carries the i386 Wine set
+ * (app/Madeira/i386-windows, built by build/wine-i386/build.sh) or when the
+ * target exe is an i386 PE. A bundle without i386-windows and a 64-bit
+ * target take exactly the code path they took before.
+ * ========================================================================= */
+#define MADEIRA_IMAGE_FILE_MACHINE_I386 0x014c
+
+/* build/ntdll-unix/virtual_ios.c: nonzero when this session's MAIN image is
+ * 32-bit. The unix side reserves the process's guest window before its first
+ * TEB when it is set; the image's machine is not known there until later. */
+extern int ios_main_image_i386;
+
+/* IMAGE_FILE_HEADER.Machine, read off disk (MZ -> e_lfanew -> "PE\0\0").
+ * 0 on any read or format failure. */
+static uint16_t madeira_pe_machine(const char *unix_path)
+{
+    unsigned char dos[64], pe[6];
+    uint16_t machine = 0;
+    FILE *f;
+
+    if (!unix_path || !*unix_path || !(f = fopen(unix_path, "rb"))) return 0;
+    if (fread(dos, 1, sizeof(dos), f) == sizeof(dos) && dos[0] == 'M' && dos[1] == 'Z')
+    {
+        uint32_t lfanew = (uint32_t)dos[0x3c] | ((uint32_t)dos[0x3d] << 8) |
+                          ((uint32_t)dos[0x3e] << 16) | ((uint32_t)dos[0x3f] << 24);
+        if (lfanew <= (16u << 20) && fseek(f, (long)lfanew, SEEK_SET) == 0 &&
+            fread(pe, 1, sizeof(pe), f) == sizeof(pe) &&
+            pe[0] == 'P' && pe[1] == 'E' && !pe[2] && !pe[3])
+            machine = (uint16_t)(pe[4] | (pe[5] << 8));
+    }
+    fclose(f);
+    return machine;
+}
+
+/* The machine of the file the launch below will run, or 0 when it is not
+ * known (the caller then treats the target as 64-bit, as before).
+ *  - "C:\...\app.exe": the file under the prefix's drive_c.
+ *  - a bare name: the launch resolves it as C:\windows\system32\<name>, which
+ *    links the 64-bit farms, so a name present in a 64-bit farm is not probed
+ *    any further. Otherwise it is looked up in the bundle's i386-windows. To
+ *    launch the 32-bit build of a name both sets carry (explorer.exe, cmd.exe),
+ *    give its full path, C:\windows\syswow64\<name>.
+ *  - any other form (another drive, a relative Win32 path) is not probed. */
+static uint16_t madeira_target_machine(const char *exe, const char *prefix, NSString *bundle)
+{
+    static const char * const farms64[] = { "aarch64-windows", "arm64ec-windows" };
+    char probe[PATH_MAX];
+    size_t skip;
+
+    if ((exe[0] == 'C' || exe[0] == 'c') && exe[1] == ':' && exe[2] == '\\')
+    {
+        skip = strlen(prefix) + strlen("/drive_c/");
+        if (snprintf(probe, sizeof(probe), "%s/drive_c/%s", prefix, exe + 3) >= (int)sizeof(probe))
+            return 0;
+        for (char *p = probe + skip; *p; p++) if (*p == '\\') *p = '/';
+    }
+    else if (strchr(exe, '\\') || (exe[0] && exe[1] == ':'))
+        return 0;
+    else
+    {
+        for (size_t i = 0; i < sizeof(farms64) / sizeof(farms64[0]); i++)
+        {
+            snprintf(probe, sizeof(probe), "%s/%s/%s", bundle.fileSystemRepresentation, farms64[i], exe);
+            if (access(probe, R_OK) == 0) return 0;
+        }
+        if (snprintf(probe, sizeof(probe), "%s/i386-windows/%s", bundle.fileSystemRepresentation, exe)
+                >= (int)sizeof(probe))
+            return 0;
+    }
+    return madeira_pe_machine(probe);
+}
+
+/* The bundle carries the i386 Wine set. */
+static BOOL madeira_bundle_has_i386(NSString *bundle)
+{
+    NSString *ntdll = [bundle stringByAppendingPathComponent:@"i386-windows/ntdll.dll"];
+    return access(ntdll.fileSystemRepresentation, R_OK) == 0;
+}
+
+/* C:\windows\syswow64: the i386 farm, the Windows name for this pattern. A
+ * 32-bit process's system32 is redirected here, and the unix loader's
+ * machine -> directory mapping looks here for the 32-bit ntdll, kernel32 and
+ * the rest. Linked for every session once the bundle has the i386 set, so a
+ * 64-bit launcher can start a 32-bit child. */
+static void madeira_link_syswow64(NSFileManager *fm, NSString *prefix, NSString *bundle)
+{
+    NSString *farmDir = [prefix stringByAppendingPathComponent:@"drive_c/windows/syswow64"];
+    NSString *source = [bundle stringByAppendingPathComponent:@"i386-windows"];
+    int linked = 0;
+
+    [fm createDirectoryAtPath:farmDir withIntermediateDirectories:YES attributes:nil error:nil];
+    for (NSString *f in [fm contentsOfDirectoryAtPath:source error:nil])
+    {
+        if ([f hasPrefix:@"."]) continue;
+        NSString *dst = [farmDir stringByAppendingPathComponent:f];
+        [fm removeItemAtPath:dst error:nil];  /* self-heal stale links on reinstall */
+        if ([fm createSymbolicLinkAtPath:dst
+                     withDestinationPath:[source stringByAppendingPathComponent:f] error:nil])
+            linked++;
+    }
+    dprintf(STDERR_FILENO, "[WineProc] Farm syswow64: %d links -> i386-windows\n", linked);
+}
+
+/* syswow64\wbem, for 32-bit targets. The farms are flat, but WMI's registered
+ * InprocServer32 paths are C:\windows\system32\wbem\<name> (wine.inf installs
+ * these modules there), so a 32-bit CoCreateInstance(CLSID_WbemLocator) -- for
+ * example dxdiagn asking WMI about the display adapter -- fails with
+ * c0000135 when the subdirectory is empty. The list is wine.inf's. */
+static void madeira_link_syswow64_wbem(NSFileManager *fm, NSString *prefix, NSString *bundle)
+{
+    static const char * const wbem[] = { "wbemprox.dll", "wbemdisp.dll", "wmiutils.dll",
+                                         "wmic.exe", "mofcomp.exe" };
+    NSString *dir = [prefix stringByAppendingPathComponent:@"drive_c/windows/syswow64/wbem"];
+    NSString *source = [bundle stringByAppendingPathComponent:@"i386-windows"];
+    int linked = 0;
+
+    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    for (size_t i = 0; i < sizeof(wbem) / sizeof(wbem[0]); i++)
+    {
+        NSString *n = [NSString stringWithUTF8String:wbem[i]];
+        NSString *src = [source stringByAppendingPathComponent:n];
+        NSString *dst = [dir stringByAppendingPathComponent:n];
+        [fm removeItemAtPath:dst error:nil];
+        if (![fm fileExistsAtPath:src]) continue;
+        if ([fm createSymbolicLinkAtPath:dst withDestinationPath:src error:nil]) linked++;
+    }
+    dprintf(STDERR_FILENO, "[WineProc] syswow64\\wbem: %d/%zu links\n",
+            linked, sizeof(wbem) / sizeof(wbem[0]));
+}
+
+/* C:\windows\winsxs for 32-bit processes: the x86 side-by-side assemblies Wine
+ * ships. Re-seeded every session, because the links name the bundle path.
+ *
+ * The prefix has no winsxs directory: the template does not carry one and
+ * this port never runs wineboot's fake-DLL install, which is what builds it on
+ * a normal Wine prefix. Without it no 32-bit program gets a Common-Controls
+ * 6.0 activation context (comdlg32 gives up in DllMain with 14001), and a
+ * program built with Visual Studio 2005/2008, which carries its CRT as a
+ * side-by-side dependency ("Microsoft.VC80.CRT"), fails the activation
+ * context for every DLL with the same dependency.
+ *
+ * This writes what dlls/setupapi/fakedll.c writes for each WINE_MANIFEST
+ * assembly in the tree:
+ *   windows\winsxs\manifests\<DIR>.manifest
+ *   windows\winsxs\<DIR>\<file>          (linked from the i386 farm)
+ *   <DIR> = x86_<lower-case name>_<publicKeyToken>_<version>_none_deadbeef
+ * with the architecture filled into processorArchitecture, because actctx.c
+ * checks the identity in the file against the one in its name. actctx.c pins
+ * only major.minor, and accepts any build/revision >= the one requested, so
+ * one assembly per major.minor serves every service pack of it.
+ *
+ * Only the x86 architecture is written: ntdll looks for "x86_" assemblies in
+ * a 32-bit process and for "arm64_"/"amd64_" ones in 64-bit processes, so
+ * 64-bit processes in the same prefix see no difference. An assembly whose
+ * first file is missing from the i386 farm is skipped: a manifest without its
+ * DLL would redirect that DLL's loads into an empty directory. */
+static void madeira_seed_winsxs_x86(NSFileManager *fm, NSString *prefix, NSString *bundle)
+{
+    struct sxs_file { const char *in_assembly; const char *in_farm; };
+    struct sxs_assembly { const char *name, *lname, *key, *version; struct sxs_file files[4]; };
+    static const char *comctl32_body =
+        "    <windowClass>Button</windowClass>\n"
+        "    <windowClass>ButtonListBox</windowClass>\n"
+        "    <windowClass>ComboBoxEx32</windowClass>\n"
+        "    <windowClass>ComboLBox</windowClass>\n"
+        "    <windowClass>ComboBox</windowClass>\n"
+        "    <windowClass>Edit</windowClass>\n"
+        "    <windowClass>ListBox</windowClass>\n"
+        "    <windowClass>NativeFontCtl</windowClass>\n"
+        "    <windowClass>ReBarWindow32</windowClass>\n"
+        "    <windowClass>ScrollBar</windowClass>\n"
+        "    <windowClass>Static</windowClass>\n"
+        "    <windowClass>SysAnimate32</windowClass>\n"
+        "    <windowClass>SysDateTimePick32</windowClass>\n"
+        "    <windowClass>SysHeader32</windowClass>\n"
+        "    <windowClass>SysIPAddress32</windowClass>\n"
+        "    <windowClass>SysLink</windowClass>\n"
+        "    <windowClass>SysListView32</windowClass>\n"
+        "    <windowClass>SysMonthCal32</windowClass>\n"
+        "    <windowClass>SysPager</windowClass>\n"
+        "    <windowClass>SysTabControl32</windowClass>\n"
+        "    <windowClass>SysTreeView32</windowClass>\n"
+        "    <windowClass>ToolbarWindow32</windowClass>\n"
+        "    <windowClass>msctls_hotkey32</windowClass>\n"
+        "    <windowClass>msctls_progress32</windowClass>\n"
+        "    <windowClass>msctls_statusbar32</windowClass>\n"
+        "    <windowClass>msctls_trackbar32</windowClass>\n"
+        "    <windowClass>msctls_updown32</windowClass>\n"
+        "    <windowClass>tooltips_class32</windowClass>\n";
+    /* One entry per WINE_MANIFEST resource in the Wine tree (the file the
+     * values come from is named on each entry). */
+    static const struct sxs_assembly asms[] = {
+        /* dlls/comctl32_v6/comctl32.manifest (index 0: gets comctl32_body) */
+        { "Microsoft.Windows.Common-Controls", "microsoft.windows.common-controls",
+          "6595b64144ccf1df", "6.0.2600.2982", { { "comctl32.dll", "comctl32_v6.dll" } } },
+        /* dlls/msvcr80/msvcr80.manifest */
+        { "Microsoft.VC80.CRT", "microsoft.vc80.crt", "1fc8b3b9a1e18e3b", "8.0.50727.9672",
+          { { "msvcr80.dll", "msvcr80.dll" }, { "msvcp80.dll", "msvcp80.dll" },
+            { "msvcm80.dll", "msvcm80.dll" } } },
+        /* dlls/msvcr90/msvcr90.manifest */
+        { "Microsoft.VC90.CRT", "microsoft.vc90.crt", "1fc8b3b9a1e18e3b", "9.0.30729.6161",
+          { { "msvcr90.dll", "msvcr90.dll" }, { "msvcp90.dll", "msvcp90.dll" },
+            { "msvcm90.dll", "msvcm90.dll" } } },
+        /* dlls/atl80/atl80.manifest */
+        { "Microsoft.VC80.ATL", "microsoft.vc80.atl", "1fc8b3b9a1e18e3b", "8.0.50727.4053",
+          { { "atl80.dll", "atl80.dll" } } },
+        /* dlls/atl90/atl90.manifest */
+        { "Microsoft.VC90.ATL", "microsoft.vc90.atl", "1fc8b3b9a1e18e3b", "9.0.30729.6161",
+          { { "atl90.dll", "atl90.dll" } } },
+        /* dlls/gdiplus/gdiplus.manifest and gdiplus11.manifest: one DLL */
+        { "Microsoft.Windows.GdiPlus", "microsoft.windows.gdiplus", "6595b64144ccf1df",
+          "1.0.6000.16386", { { "gdiplus.dll", "gdiplus.dll" } } },
+        { "Microsoft.Windows.GdiPlus", "microsoft.windows.gdiplus", "6595b64144ccf1df",
+          "1.1.7601.23038", { { "gdiplus.dll", "gdiplus.dll" } } },
+        /* dlls/msxml3, msxml4 and msxml6 manifests */
+        { "Microsoft-Windows-MSXML30", "microsoft-windows-msxml30", "31bf3856ad364e35",
+          "6.0.6000.16386", { { "msxml3.dll", "msxml3.dll" } } },
+        { "Microsoft.MSXML2", "microsoft.msxml2", "6bd6b9abf345378f", "4.1.0.0",
+          { { "msxml4.dll", "msxml4.dll" } } },
+        { "Microsoft-Windows-MSXML60", "microsoft-windows-msxml60", "31bf3856ad364e35",
+          "6.0.6000.16386", { { "msxml6.dll", "msxml6.dll" } } },
+    };
+    NSString *winsxs = [prefix stringByAppendingPathComponent:@"drive_c/windows/winsxs"];
+    NSString *manifests = [winsxs stringByAppendingPathComponent:@"manifests"];
+    NSString *source = [bundle stringByAppendingPathComponent:@"i386-windows"];
+    const size_t count = sizeof(asms) / sizeof(asms[0]);
+    int seeded = 0, skipped = 0;
+
+    [fm createDirectoryAtPath:manifests withIntermediateDirectories:YES attributes:nil error:nil];
+    for (size_t a = 0; a < count; a++)
+    {
+        const struct sxs_assembly *def = &asms[a];
+        const char *body = a == 0 ? comctl32_body : NULL;
+        NSString *first = [source stringByAppendingPathComponent:
+                           [NSString stringWithUTF8String:def->files[0].in_farm]];
+        if (![fm fileExistsAtPath:first])
+        {
+            dprintf(STDERR_FILENO, "[WineProc] winsxs: x86 %s skipped, i386-windows has no %s\n",
+                    def->name, def->files[0].in_farm);
+            skipped++;
+            continue;
+        }
+        NSString *dirName = [NSString stringWithFormat:@"x86_%s_%s_%s_none_deadbeef",
+                             def->lname, def->key, def->version];
+        NSString *asmDir = [winsxs stringByAppendingPathComponent:dirName];
+        NSString *manifest = [manifests stringByAppendingPathComponent:
+                              [dirName stringByAppendingString:@".manifest"]];
+        [fm createDirectoryAtPath:asmDir withIntermediateDirectories:YES attributes:nil error:nil];
+
+        /* Build the manifest and the directory together so the <file> list
+         * and the directory cannot disagree: a file missing from the farm is
+         * left out of both. UTF-8, LF, no BOM. */
+        NSMutableString *text = [NSMutableString stringWithString:
+            @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+            @"<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">\n"];
+        [text appendFormat:@"  <assemblyIdentity type=\"win32\" name=\"%s\" version=\"%s\" "
+                           @"processorArchitecture=\"x86\" publicKeyToken=\"%s\"/>\n",
+                           def->name, def->version, def->key];
+        BOOL ok = YES;
+        for (size_t f = 0; f < sizeof(def->files) / sizeof(def->files[0]) && def->files[f].in_assembly; f++)
+        {
+            NSString *src = [source stringByAppendingPathComponent:
+                             [NSString stringWithUTF8String:def->files[f].in_farm]];
+            NSString *link = [asmDir stringByAppendingPathComponent:
+                              [NSString stringWithUTF8String:def->files[f].in_assembly]];
+            [fm removeItemAtPath:link error:nil];  /* the bundle path changes on reinstall */
+            if (![fm fileExistsAtPath:src]) continue;
+            if (![fm createSymbolicLinkAtPath:link withDestinationPath:src error:nil]) { ok = NO; break; }
+            if (body)
+                [text appendFormat:@"  <file name=\"%s\">\n%s  </file>\n", def->files[f].in_assembly, body];
+            else
+                [text appendFormat:@"  <file name=\"%s\"/>\n", def->files[f].in_assembly];
+        }
+        [text appendString:@"</assembly>\n"];
+        if (!ok || ![[text dataUsingEncoding:NSUTF8StringEncoding] writeToFile:manifest atomically:YES])
+        {
+            dprintf(STDERR_FILENO, "[WineProc] winsxs: x86 %s FAILED\n", def->name);
+            skipped++;
+            continue;
+        }
+        seeded++;
+    }
+    dprintf(STDERR_FILENO, "[WineProc] winsxs: %d/%zu x86 assemblies seeded, %d skipped\n",
+            seeded, count, skipped);
+}
+
+/* FEX's WOW64 module cannot call sysctl, and without an answer it assumes the
+ * newest cores' feature set. A wrong "present" is silent corruption, not a
+ * crash (FEAT_AFP claimed on a core without it leaves FPCR.NEP RES0, so every
+ * scalar SSE operation zeroes the upper lanes of its destination), so the app
+ * asks and passes the answers in FEX_MADEIRA_HOSTPROBE. Only the WOW64 module
+ * reads it (FEX Source/Windows/Common/CPUFeatures.cpp, !ARCHITECTURE_arm64ec);
+ * "?" means the sysctl does not exist and keeps FEX's assumption. */
+static void madeira_publish_host_probe(void)
+{
+    static const struct { const char *key, *sysctl; } probes[] = {
+        { "AFP",     "hw.optional.arm.FEAT_AFP" },
+        { "FLAGM",   "hw.optional.arm.FEAT_FlagM" },
+        { "FLAGM2",  "hw.optional.arm.FEAT_FlagM2" },
+        { "FCMA",    "hw.optional.arm.FEAT_FCMA" },
+        { "RCPC",    "hw.optional.arm.FEAT_LRCPC" },
+        { "AES",     "hw.optional.arm.FEAT_AES" },
+        { "PMULL",   "hw.optional.arm.FEAT_PMULL" },
+        { "SHA",     "hw.optional.arm.FEAT_SHA256" },
+        { "CRC",     "hw.optional.armv8_crc32" },
+        { "ATOMICS", "hw.optional.arm.FEAT_LSE" },
+    };
+    char buf[256];
+    size_t len = 0;
+
+    buf[0] = 0;
+    for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++)
+    {
+        int32_t v = 0;
+        size_t sz = sizeof(v);
+        const char *val = sysctlbyname(probes[i].sysctl, &v, &sz, NULL, 0) == 0 ? (v ? "1" : "0") : "?";
+        len += snprintf(buf + len, sizeof(buf) - len, "%s%s=%s", i ? "," : "", probes[i].key, val);
+        if (len >= sizeof(buf)) return;
+    }
+    setenv("FEX_MADEIRA_HOSTPROBE", buf, 1);
+    dprintf(STDERR_FILENO, "[WineProc] FEX host feature probe: %s\n", buf);
+}
+
 static void *wine_process_thread(void *arg) {
     @autoreleasepool {
-        int launch_client_fd = (int)(intptr_t)arg;
-        char *configured_exe = NULL, *configured_args = NULL;
-        int configured_ec = -1, configured_desktop = -1;
-        snapshot_launch_config(&configured_exe, &configured_args,
-                               &configured_ec, &configured_desktop);
-        if (configured_exe) setenv("MADEIRA_EXE", configured_exe, 1);
-        if (configured_args) setenv("MADEIRA_ARGS", configured_args, 1);
-        if (configured_desktop >= 0)
-            setenv("MADEIRA_DESKTOP", configured_desktop ? "1" : "0", 1);
-        if (configured_ec >= 0)
-            setenv("MADEIRA_USE_ARM64EC", configured_ec ? "1" : "0", 1);
-
         /* Perf: the guest main thread runs ON this pthread. Promote to
          * USER_INTERACTIVE so it schedules on P-cores with minimal kernel
          * timer coalescing (same rationale as start_thread in
@@ -674,13 +891,60 @@ static void *wine_process_thread(void *arg) {
          * is the pure branch-feeder) or a writer-side fix. Healer stays
          * opt-in-off. */
 
-        /* Steam identity is intentionally not hard-coded.  The old values
-         * advertised Thumper to every imported game and broke launchers that
-         * use SteamAppPath as their asset root.  A title-specific steam_appid
-         * file is discovered after the executable path is known below. */
-        unsetenv("SteamAppPath");
-        unsetenv("SteamGameId");
-        unsetenv("SteamAppId");
+        /* Steam game vars. One title reads SteamAppPath as its asset base path and
+         * queries it dozens of times during init, so it must be present before that
+         * title starts.
+         *
+         * KNOWN DEFECT, deliberately left in place for now: this publishes ONE title's
+         * identity to EVERY guest, with overwrite=1. A different title that links a Steam
+         * wrapper therefore sees the wrong app ID. Removing it outright was tested and is
+         * NOT the fix -- it regresses the title that needs the path, and it did not change
+         * the behaviour of the title that was mis-identified, so the mismatch is real but
+         * was not the failure being chased.
+         *
+         * The durable design belongs in the title-launch layer: publish nothing by
+         * default, take the ID from explicit title metadata or the game's own
+         * steam_appid.txt, set SteamAppPath to that game's directory, and give each child
+         * its own environment rather than mutating one process-global set shared by every
+         * pseudo-process. This path usually launches explorer.exe and cannot know which
+         * title the desktop will start later, so a conditional here cannot work.
+         *
+         * A Madeira Dock session is the one launch that can know: it runs Valve's
+         * client inside the host process, and the client gives every game it
+         * starts that game's own identity. The fixed identity above reached the
+         * client and the game (both inherit this environment), so a Dock launch
+         * publishes none of the three. ContentView sets MADEIRA_DOCK_SESSION=1 for
+         * a Dock launch only and clears it for every other launch, which keeps
+         * the fixed identity exactly as before.
+         *
+         * A Steam game the library starts as its own program ("Start with: The
+         * game", LibraryEntry.configureLaunch) knows its title too. It passes that
+         * game's App ID and install folder in MADEIRA_STEAM_APPID / MADEIRA_STEAM_APPPATH,
+         * and this launch publishes the game's own identity instead of the fixed one. Both
+         * are cleared here, so no later launch inherits them. */
+        const char *dock_session = getenv("MADEIRA_DOCK_SESSION");
+        const char *direct_app = getenv("MADEIRA_STEAM_APPID");    /* set by the library for one direct Steam start (Start with: The game); not a setting */
+        const char *direct_path = getenv("MADEIRA_STEAM_APPPATH"); /* that game's install folder, with MADEIRA_STEAM_APPID; not a setting */
+        if (dock_session && dock_session[0] == '1') {
+            unsetenv("SteamAppPath");
+            unsetenv("SteamGameId");
+            unsetenv("SteamAppId");
+            dprintf(STDERR_FILENO, "[steam-env] Madeira Dock session: no fixed Steam game identity published\n");
+        } else if (direct_app && direct_app[0] && strlen(direct_app) <= 10 &&
+            strspn(direct_app, "0123456789") == strlen(direct_app) &&
+            direct_path && (direct_path[0] == 'C' || direct_path[0] == 'c') && direct_path[1] == ':' &&
+            direct_path[2] == '\\' && strlen(direct_path) < 1024 && !strstr(direct_path, "..")) {
+            setenv("SteamAppPath", direct_path, 1);
+            setenv("SteamGameId", direct_app, 1);
+            setenv("SteamAppId",  direct_app, 1);
+            dprintf(STDERR_FILENO, "[steam-start] direct start: the game's own Steam identity (app %s) published\n", direct_app);
+        } else {
+            setenv("SteamAppPath", "C:\\Program Files\\Thumper", 1);
+            setenv("SteamGameId", "356400", 1);
+            setenv("SteamAppId",  "356400", 1);
+        }
+        unsetenv("MADEIRA_STEAM_APPID");
+        unsetenv("MADEIRA_STEAM_APPPATH");
 
         /* iOS-Madeira 2026-07-02: publish the TRUE JIT-pool RX->RW offset to
          * xtajit64.dll (its own FEXCore copy reads this via getenv in
@@ -730,6 +994,81 @@ static void *wine_process_thread(void *arg) {
             LOG("Wine log file: %{public}s", logPath.UTF8String);
             /* Expose the app Documents dir to Wine code (e.g. for fex-jit-dump.bin) */
             setenv("MADEIRA_DOCS_DIR", docs.UTF8String, 1);
+            dprintf(STDERR_FILENO, "[config-dir] early MADEIRA_DOCS_DIR=%s; native madeira.cfg readers that run "
+                    "before this point (wineserver start: madsync inproc-sync) use it (MADEIRA_CFG_EARLY_DOCS=0 disables)\n",
+                    g_madeira_docs_early);
+
+            /* ml1076: file-backed memory canary (Astra's memory-backing-canary.c,
+             * run in-app on the phone, gated by Documents/madeira-swap-canary.txt).
+             * Question: do dirty pages of a MAP_SHARED mapping of a private temp file
+             * stay OUT of phys_footprint on iOS the way they do on macOS? If yes, a
+             * file-backed tier for large guest commits is a real capacity lever. */
+            if (madeira_cfg_bool("swap-canary", 0)) {   /* ml1095: madeira.cfg swap-canary = 1 */
+                extern void madeira_memory_canary(const char *tmpdir);
+                madeira_memory_canary(NSTemporaryDirectory().UTF8String);
+            }
+
+            /* ml1077: file-backed guest data tier. Documents/madeira-swap-mb.txt = cap
+             * in MB; the sparse backing file lives in tmp with NO file protection so
+             * the mapping survives the screen locking. See virtual_ios.c ml1077. */
+            {
+                long capMB = (long)madeira_cfg_int("swap-mb", 0);   /* ml1095: madeira.cfg swap-mb = N */
+                if (capMB >= 64) {
+                    NSString *swapPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"madeira-swap.bin"];
+                    [[NSFileManager defaultManager] removeItemAtPath:swapPath error:nil];
+                    if ([[NSFileManager defaultManager] createFileAtPath:swapPath contents:nil attributes:@{NSFileProtectionKey: NSFileProtectionNone}]) {
+                        setenv("MADEIRA_SWAP_FILE", swapPath.UTF8String, 1);
+                        setenv("MADEIRA_SWAP_MB", [NSString stringWithFormat:@"%ld", capMB].UTF8String, 1);
+                        LOG("ml1077 swap tier armed: %{public}s, %ld MB", swapPath.UTF8String, capMB);
+                        fprintf(stderr, "[swap] ml1077 app: backing file %s, cap %ld MB\n", swapPath.UTF8String, capMB);
+                    }
+                }
+            }
+
+            /* ml1062: Documents/madeira-env.txt -- one KEY=VALUE per line, exported
+             * before Wine starts. FEX reads its whole configuration from FEX_*
+             * environment variables (EnvLoader over the process environment, which
+             * Wine builds from ours), so this turns every FEX option -- TSO emulation,
+             * multiblock, SMC checks, x87 precision -- into a file edit instead of a
+             * rebuild. Lines starting with # are comments. Logged, so a run's log
+             * always says what it ran with. */
+            {
+                /* ml1095: "env.NAME = value" lines of madeira.cfg; the legacy
+                 * madeira-env.txt (KEY=VALUE lines) only when madeira.cfg is absent. */
+                NSString *text = nil;
+                if (madeira_cfg_present()) {
+                    NSMutableString *acc = [NSMutableString string];
+                    NSString *cfg = [NSString stringWithContentsOfFile:[docs stringByAppendingPathComponent:@MADEIRA_CFG_FILE] encoding:NSUTF8StringEncoding error:nil];
+                    for (NSString *raw in [cfg componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+                        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        NSRange eq = [line rangeOfString:@"="];
+                        if (![line hasPrefix:@"env."] || eq.location == NSNotFound) continue;
+                        NSString *k = [[line substringWithRange:NSMakeRange(4, eq.location - 4)] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        NSString *v = [[line substringFromIndex:eq.location + 1] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                        if (k.length) [acc appendFormat:@"%@=%@\n", k, v];
+                    }
+                    text = acc;
+                } else {
+                    text = [NSString stringWithContentsOfFile:[docs stringByAppendingPathComponent:@"madeira-env.txt"] encoding:NSUTF8StringEncoding error:nil];
+                }
+                for (NSString *raw in [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+                    NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    NSRange eq = [line rangeOfString:@"="];
+                    if (!line.length || [line hasPrefix:@"#"] || eq.location == NSNotFound || eq.location == 0) continue;
+                    NSString *k = [line substringToIndex:eq.location], *v = [line substringFromIndex:eq.location + 1];
+                    setenv(k.UTF8String, v.UTF8String, 1);
+                    LOG("madeira.cfg env: %{public}s=%{public}s", k.UTF8String, v.UTF8String);
+                    fprintf(stderr, "[madeira-env] ml1062 %s=%s\n", k.UTF8String, v.UTF8String);
+                }
+                /* Fastsync is the default sync engine: with neither inproc-sync nor
+                 * env.MADEIRA_FASTSYNC in madeira.cfg, Wine gets MADEIRA_FASTSYNC=auto,
+                 * the value Settings > Sync engine > Fastsync writes. Never overrides a
+                 * value already set (a game's own fastsync switch sets 0). */
+                if (madeira_cfg_sync_engine() == MADEIRA_SYNC_FASTSYNC && !getenv("MADEIRA_FASTSYNC")) {
+                    setenv("MADEIRA_FASTSYNC", "auto", 0);
+                    fprintf(stderr, "[madeira-env] sync engine: fastsync (default), MADEIRA_FASTSYNC=auto\n");
+                }
+            }
         }
 
         // Steam S0: root CA trust. iOS has no API to enumerate system
@@ -758,28 +1097,38 @@ static void *wine_process_thread(void *arg) {
             }
         }
 
-        // Pick which exe to run.  The library supplies an explicit Windows
-        // path and PE-header-derived architecture; environment variables are
-        // retained only for old developer buttons and cold-start smoke tests.
-        const char *madeira_exe = configured_exe;
-        if (!madeira_exe || !*madeira_exe) madeira_exe = getenv("MADEIRA_EXE");
+        // Pick which exe to run (env var override, default = cube.exe).
+        // Set MADEIRA_EXE=hello-x64.exe in env to launch the ARM64EC test path.
+        const char *madeira_exe = getenv("MADEIRA_EXE");
         if (!madeira_exe || !*madeira_exe) madeira_exe = "cube.exe";
-
+        // Heuristic: x86_64 guest exes (cube-x64, hello-x64, real games like
+        // Thumper) need the arm64ec-windows bundle (ARM64EC hybrid system
+        // DLLs that interop with FEX-translated x86_64 code). ARM64-native
+        // tests (cube.exe) use the aarch64-windows bundle.
+        // MADEIRA_USE_ARM64EC=1 forces the arm64ec path explicitly.
+        // Otherwise: detect "x64" in the exe name (cube-x64, fib-x64, etc.)
+        // OR a Win32 full path (real game launches typically need ARM64EC).
         const char *force_ec = getenv("MADEIRA_USE_ARM64EC");
-        BOOL use_arm64ec;
-        if (configured_ec >= 0) use_arm64ec = configured_ec ? YES : NO;
-        else if (force_ec && *force_ec == '0') use_arm64ec = NO;
-        else if (force_ec && *force_ec == '1') use_arm64ec = YES;
-        else {
-            /* Legacy fallback for the built-in probes only.  Imported games
-             * never use this branch because GameLibrary sets configured_ec. */
-            use_arm64ec = (strstr(madeira_exe, "x64") != NULL) ||
-                          (strchr(madeira_exe, '\\') != NULL);
-        }
+        BOOL use_arm64ec = (force_ec && *force_ec == '1') ||
+                           (strstr(madeira_exe, "x64") != NULL) ||
+                           (strchr(madeira_exe, '\\') != NULL);
+
+        /* WoW64: a 32-bit (i386) target, from the PE header on disk rather
+         * than the name. Its 64-bit half runs on the plain aarch64 core (the
+         * unix loader resolves aarch64-windows for a process whose main image
+         * is i386), whatever the heuristic above chose. Any other target
+         * keeps the heuristic's answer unchanged. */
+        NSString *bundleForProbe = [[NSBundle mainBundle] bundlePath];
+        const BOOL has_i386_set = madeira_bundle_has_i386(bundleForProbe);
+        const uint16_t target_machine = madeira_target_machine(madeira_exe, g_prefix_path, bundleForProbe);
+        const BOOL is_i386_target = has_i386_set && target_machine == MADEIRA_IMAGE_FILE_MACHINE_I386;
+        dprintf(STDERR_FILENO, "[WineProc] PE probe: machine=0x%x%s\n", target_machine,
+                is_i386_target ? " (i386: WoW64)" :
+                target_machine == MADEIRA_IMAGE_FILE_MACHINE_I386 ? " (i386, but the bundle has no i386-windows)" : "");
+        if (is_i386_target) use_arm64ec = NO;
         const char *bundle_subdir = use_arm64ec ? "arm64ec-windows" : "aarch64-windows";
         LOG("Target exe: %{public}s (bundle=%{public}s)", madeira_exe, bundle_subdir);
         dprintf(STDERR_FILENO, "[WineProc] Target exe: %s (bundle=%s)\n", madeira_exe, bundle_subdir);
-        configure_steam_identity(madeira_exe, g_prefix_path);
 
         // Ensure Wine prefix has system32 directory with DLLs from bundle
         {
@@ -868,6 +1217,21 @@ static void *wine_process_thread(void *arg) {
                 }
             }
 
+            /* WoW64: the i386 farm, syswow64\wbem and the x86 side-by-side
+             * store for every session once the bundle has it (docs/WOW64.md).
+             * The store was seeded for a 32-bit target only, but a 64-bit
+             * target (a launcher, the Dock host) starts 32-bit children too,
+             * and their activation contexts redirect comctl32 and the VC80/
+             * VC90 CRT into the store. Its links name the bundle path, which
+             * changes on every reinstall: a session with a 64-bit target after
+             * a reinstall left them dangling, and such a child died in the
+             * loader with c0000135 for DLLs syswow64 still had. */
+            if (has_i386_set) {
+                madeira_link_syswow64(fm, prefix, bundlePath);
+                madeira_link_syswow64_wbem(fm, prefix, bundlePath);
+                madeira_seed_winsxs_x86(fm, prefix, bundlePath);
+            }
+
             /* ml719: REPAIR THE SHELL FOLDERS. They ship as symlinks to the BUILD
              * MACHINE's home directory.
              *
@@ -897,9 +1261,8 @@ static void *wine_process_thread(void *arg) {
                 };
                 int repaired = 0, already = 0;
                 for (int i = 0; i < 6; i++) {
-                    NSString *profileDir = madeira_active_profile_dir(prefix);
-                    NSString *sp = [profileDir stringByAppendingPathComponent:
-                        [NSString stringWithUTF8String:shell_dirs[i]]];
+                    NSString *sp = [prefix stringByAppendingPathComponent:
+                        [NSString stringWithFormat:@"drive_c/users/madeira/%s", shell_dirs[i]]];
                     const char *cp = sp.fileSystemRepresentation;
                     struct stat lst;
                     if (lstat(cp, &lst) != 0) {          /* nothing there at all */
@@ -989,51 +1352,34 @@ static void *wine_process_thread(void *arg) {
         // (e.g. "C:\\Program Files\\Thumper\\THUMPER_win10.exe"), use it
         // as-is. Otherwise treat it as a bare exe name in system32 (legacy
         // path used by cube/fib/hello tests).
-        char exe_path[2048];
-        int exe_path_len;
+        char exe_path[512];
         if (strchr(madeira_exe, '\\') || (madeira_exe[0] && madeira_exe[1] == ':')) {
-            exe_path_len = snprintf(exe_path, sizeof(exe_path), "%s", madeira_exe);
+            snprintf(exe_path, sizeof(exe_path), "%s", madeira_exe);
+        } else if (is_i386_target) {
+            /* WoW64: a bare i386 name lives in the syswow64 farm */
+            snprintf(exe_path, sizeof(exe_path), "C:\\windows\\syswow64\\%s", madeira_exe);
         } else {
-            exe_path_len = snprintf(exe_path, sizeof(exe_path),
-                                    "C:\\windows\\system32\\%s", madeira_exe);
-        }
-        if (exe_path_len < 0 || exe_path_len >= (int)sizeof(exe_path)) {
-            dprintf(STDERR_FILENO, "[WineProc] executable path is too long\n");
-            wineserver_stop();
-            close(launch_client_fd);
-            unsetenv("WINESERVERSOCKET");
-            free(configured_exe);
-            free(configured_args);
-            atomic_store_explicit(&g_wine_running, 0, memory_order_release);
-            return NULL;
+            snprintf(exe_path, sizeof(exe_path), "C:\\windows\\system32\\%s", madeira_exe);
         }
 
-        // Optional MADEIRA_ARGS env var: parse Windows-style quoting instead
-        // of strtok(" "), so Ren’Py paths and flags containing spaces survive.
-        static char args_buf[4096];
-        char *extra_argv[64] = {0};
+        // Optional MADEIRA_ARGS env var: space-separated args appended to argv.
+        // Tokenized in-place; max 16 extra tokens.
+        static char args_buf[1024];
+        char *extra_argv[16] = {0};
         int extra_argc = 0;
-        const char *madeira_args = configured_args;
-        if (!madeira_args || !*madeira_args) madeira_args = getenv("MADEIRA_ARGS");
+        const char *madeira_args = getenv("MADEIRA_ARGS");
         if (madeira_args && *madeira_args) {
-            if (strlen(madeira_args) >= sizeof(args_buf)) {
-                dprintf(STDERR_FILENO, "[WineProc] launch arguments exceed %zu bytes\n",
-                        sizeof(args_buf) - 1);
-                wineserver_stop();
-                close(launch_client_fd);
-                unsetenv("WINESERVERSOCKET");
-                free(configured_exe);
-                free(configured_args);
-                atomic_store_explicit(&g_wine_running, 0, memory_order_release);
-                return NULL;
-            }
             strncpy(args_buf, madeira_args, sizeof(args_buf) - 1);
             args_buf[sizeof(args_buf) - 1] = 0;
-            extra_argc = parse_launch_arguments(args_buf, extra_argv,
-                                                (int)(sizeof(extra_argv) / sizeof(extra_argv[0])));
+            char *saveptr = NULL;
+            for (char *tok = strtok_r(args_buf, " ", &saveptr);
+                 tok && extra_argc < 16;
+                 tok = strtok_r(NULL, " ", &saveptr)) {
+                extra_argv[extra_argc++] = tok;
+            }
         }
 
-        char *argv[68];
+        char *argv[24];
         int argc = 0;
         argv[argc++] = "wine";
         argv[argc++] = exe_path;
@@ -1050,51 +1396,52 @@ static void *wine_process_thread(void *arg) {
          * Wine path — and Thumper's relative cache opens (e.g.,
          * "cache/721e72f7.pc") then resolve to doubled paths that don't
          * exist. Per GPT diagnosis 2026-05-12. Only chdir for full-path EXE
-         * launches; bare-name launches (cube, hello-x64) use C:\windows\system32. */
-        if (strchr(madeira_exe, '\\') || (madeira_exe[0] && madeira_exe[1] == ':')) {
+         * launches; bare-name launches (cube, hello-x64) use C:\windows\system32.
+         *
+         * A Steam game started as its own program ("Start with: The game") may carry
+         * the working folder Steam's launch configuration names, in MADEIRA_WORKDIR
+         * (a C:\ folder of the prefix, for this launch only; cleared here). That folder
+         * is used instead of the exe's own. */
+        const char *launch_workdir = getenv("MADEIRA_WORKDIR");   /* set by the library for one launch: Steam's working folder; not a setting */
+        char workdir[512] = "";
+        if (launch_workdir && (launch_workdir[0] == 'C' || launch_workdir[0] == 'c') && launch_workdir[1] == ':' &&
+            launch_workdir[2] == '\\' && launch_workdir[3] && !strstr(launch_workdir, "..") &&
+            strlen(launch_workdir) < sizeof(workdir) - 2)
+            snprintf(workdir, sizeof(workdir), "%s", launch_workdir);
+        unsetenv("MADEIRA_WORKDIR");
+        if (workdir[0]) {
+            char unix_dir[1024], windir[512], wine_cwd[520];
+            snprintf(windir, sizeof(windir), "%s", workdir + 3);
+            for (char *p = windir; *p; p++) if (*p == '\\') *p = '/';
+            snprintf(unix_dir, sizeof(unix_dir), "%s/drive_c/%s", g_prefix_path, windir);
+            int rc = chdir(unix_dir);
+            setenv("PWD", unix_dir, 1);
+            snprintf(wine_cwd, sizeof(wine_cwd), "%s\\", workdir);
+            setenv("MADEIRA_INITIAL_CWD", wine_cwd, 1);
+            dprintf(STDERR_FILENO, "[WineProc] working folder from the launch: chdir(%s) = %d errno=%d, MADEIRA_INITIAL_CWD=%s\n",
+                    unix_dir, rc, rc ? errno : 0, wine_cwd);
+        } else if (strchr(madeira_exe, '\\') || (madeira_exe[0] && madeira_exe[1] == ':')) {
             /* Convert "C:\Program Files\Thumper\X.exe" → unix path */
-            char unix_dir[PATH_MAX];
+            char unix_dir[1024];
             const char *drive_c = "drive_c";
             const char *after_drive = madeira_exe + 3; /* skip "C:\" */
             char *last_sep = strrchr(madeira_exe, '\\');
             if (last_sep && last_sep > madeira_exe + 3) {
                 /* Get "Program Files\Thumper" from "C:\Program Files\Thumper\X.exe" */
                 size_t dir_len = (size_t)(last_sep - after_drive);
-                /* exe_path is capped at 2048 above; keep the directory buffer
-                 * equally large so a nested imported game cannot overflow it. */
-                char windir[2048];
-                if (dir_len >= sizeof(windir)) {
-                    dprintf(STDERR_FILENO, "[WineProc] executable directory path is too long\n");
-                    wineserver_stop();
-                    close(launch_client_fd);
-                    unsetenv("WINESERVERSOCKET");
-                    free(configured_exe);
-                    free(configured_args);
-                    atomic_store_explicit(&g_wine_running, 0, memory_order_release);
-                    return NULL;
-                }
+                char windir[512];
                 memcpy(windir, after_drive, dir_len);
                 windir[dir_len] = 0;
                 /* Translate backslashes to forward slashes */
                 for (char *p = windir; *p; p++) if (*p == '\\') *p = '/';
-                int unix_len = snprintf(unix_dir, sizeof(unix_dir), "%s/%s/%s",
-                                        g_prefix_path, drive_c, windir);
-                if (unix_len < 0 || unix_len >= (int)sizeof(unix_dir)) {
-                    dprintf(STDERR_FILENO, "[WineProc] executable Unix directory is too long\n");
-                    wineserver_stop();
-                    close(launch_client_fd);
-                    unsetenv("WINESERVERSOCKET");
-                    free(configured_exe);
-                    free(configured_args);
-                    atomic_store_explicit(&g_wine_running, 0, memory_order_release);
-                    return NULL;
-                }
+                snprintf(unix_dir, sizeof(unix_dir), "%s/%s/%s",
+                         g_prefix_path, drive_c, windir);
                 int rc = chdir(unix_dir);
-                if (rc == 0) setenv("PWD", unix_dir, 1);
+                setenv("PWD", unix_dir, 1);
                 /* Also set the iOS-specific override so env_ios.c's
                  * get_initial_directory bypasses unix_to_nt_file_name (which
                  * fails to resolve drive_c via dosdevices on iOS). */
-                char wine_cwd[2048] = {0};
+                char wine_cwd[768];
                 /* Strip trailing exe name from madeira_exe to get the dir part */
                 {
                     const char *exe = madeira_exe;
@@ -1117,6 +1464,12 @@ static void *wine_process_thread(void *arg) {
 
         LOG("Calling __wine_main...");
 
+        /* WoW64: publish the main image's machine so the unix side reserves
+         * this process's guest window before its first TEB, and hand FEX's
+         * WOW64 module the host features it cannot query itself. */
+        ios_main_image_i386 = is_i386_target ? 1 : 0;
+        if (has_i386_set) madeira_publish_host_probe();
+
         if (setjmp(wine_ios_exit_jmpbuf) == 0) {
             __wine_main(argc, argv);
             dprintf(STDERR_FILENO, "[WineProc] __wine_main returned normally\n");
@@ -1124,39 +1477,34 @@ static void *wine_process_thread(void *arg) {
             dprintf(STDERR_FILENO, "[WineProc] Wine exited with code %d (caught by longjmp)\n", wine_ios_exit_code);
         }
 
+        g_wine_running = 0;
+
         // Stop wineserver to prevent CPU spin (iOS kills for excessive CPU)
         dprintf(STDERR_FILENO, "[WineProc] stopping wineserver...\n");
         wineserver_stop();
 
         dprintf(STDERR_FILENO, "[WineProc] Wine process thread finished cleanly\n");
 
-        /* Clear only the pthread key Wine actually owns. Slot 275 was an old
-         * hard-coded guess; on iPad it can belong to Metal, and writing it here
-         * corrupts an unrelated framework TLS value. loader_ios discovers the
-         * dynamic raw slot from this owned key for FEX's x18 trampolines. */
+        // Steam S0: this thread's TEB was mirrored into pthread TSD slot
+        // 275 (FEX's hardcoded 0x898) which we don't own via
+        // pthread_key_create. Returning from a pthread runs foreign key
+        // destructors on whatever's in the slot -> objc_release(TEB)
+        // crash wedged the app after every net-test run. Clear it, same
+        // as ntdll's pthread_exit_wrapper does for Wine worker threads.
         {
-            extern pthread_key_t ios_teb_tls_key;
-            extern int ios_teb_tls_key_created;
-            if (ios_teb_tls_key_created)
-                pthread_setspecific(ios_teb_tls_key, NULL);
+            uintptr_t tsd_base;
+            __asm__ volatile("mrs %0, TPIDRRO_EL0" : "=r"(tsd_base));
+            tsd_base &= ~7ULL;
+            *(void **)(tsd_base + 275 * 8) = NULL;
         }
-        free(configured_exe);
-        free(configured_args);
-        unsetenv("WINESERVERSOCKET");
-        /* Publish idle only after wineserver and thread-local teardown. A new
-         * launch must never overlap the tail of the previous pseudo-process. */
-        atomic_store_explicit(&g_wine_running, 0, memory_order_release);
     }
     return NULL;
 }
 
 int wine_process_start(const char *prefix_path) {
-    int expected = 0;
-    if (!atomic_compare_exchange_strong_explicit(&g_wine_running, &expected, 1,
-                                                  memory_order_acq_rel,
-                                                  memory_order_acquire)) {
+    if (g_wine_running) {
         LOG("Wine process already running");
-        return -2;
+        return 0;
     }
 
     if (g_prefix_path) free(g_prefix_path);
@@ -1164,13 +1512,15 @@ int wine_process_start(const char *prefix_path) {
 
     LOG("Starting Wine process with prefix: %{public}s", prefix_path);
 
+    g_wine_running = 1;
+
     // Create socketpair to bypass broken iOS UDS accept()
     // pair[0] = wineserver side (injected as client fd)
     // pair[1] = ntdll side (used as fd_socket)
     int pair[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == -1) {
         LOG("socketpair failed: %{public}s", strerror(errno));
-        atomic_store_explicit(&g_wine_running, 0, memory_order_release);
+        g_wine_running = 0;
         return -1;
     }
     LOG("socketpair created: server_fd=%d, client_fd=%d", pair[0], pair[1]);
@@ -1182,8 +1532,7 @@ int wine_process_start(const char *prefix_path) {
     setenv("WINESERVERSOCKET", fd_str, 1);
 
     // Inject wineserver side — the event loop will pick this up
-    int stale_server_fd = wineserver_inject_client_fd(pair[0]);
-    if (stale_server_fd >= 0) close(stale_server_fd);
+    wineserver_inject_client_fd(pair[0]);
 
     // Lower priority so Wine init doesn't starve the main thread
     pthread_attr_t attr;
@@ -1191,16 +1540,13 @@ int wine_process_start(const char *prefix_path) {
     struct sched_param sched = { .sched_priority = 20 };  // lower than default (31)
     pthread_attr_setschedparam(&attr, &sched);
 
-    int ret = pthread_create(&g_wine_thread, &attr, wine_process_thread,
-                             (void *)(intptr_t)pair[1]);
+    int ret = pthread_create(&g_wine_thread, &attr, wine_process_thread, NULL);
     pthread_attr_destroy(&attr);
     if (ret != 0) {
         LOG("Failed to create Wine process thread: %d", ret);
-        int pending_server_fd = wineserver_inject_client_fd(-1);
-        if (pending_server_fd >= 0) close(pending_server_fd);
+        close(pair[0]);
         close(pair[1]);
-        unsetenv("WINESERVERSOCKET");
-        atomic_store_explicit(&g_wine_running, 0, memory_order_release);
+        g_wine_running = 0;
         return -1;
     }
 
@@ -1210,7 +1556,7 @@ int wine_process_start(const char *prefix_path) {
 }
 
 int wine_process_is_running(void) {
-    return atomic_load_explicit(&g_wine_running, memory_order_acquire);
+    return g_wine_running;
 }
 
 int madeira_write_continue_flag(void) {
@@ -1225,4 +1571,157 @@ int madeira_write_continue_flag(void) {
     close(fd);
     LOG("continue flag written: %{public}s", path);
     return 0;
+}
+
+
+/* ---- ml1076: in-app memory-backing canary --------------------------------- */
+#include <sys/mman.h>
+#include <os/proc.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <mach/mach.h>
+static void mc_sample(const char *mode, const char *phase, uint64_t *fp_out) {
+    task_vm_info_data_t v; mach_msg_type_number_t n = TASK_VM_INFO_COUNT;
+    memset(&v, 0, sizeof v);
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&v, &n) != KERN_SUCCESS) return;
+    if (fp_out) *fp_out = v.phys_footprint;
+    fprintf(stderr, "[mem-canary] ml1076 %s %s: footprint=%llu MB resident=%llu MB internal=%llu MB external=%llu MB compressed=%llu MB available=%lld MB\n",
+            mode, phase, (unsigned long long)v.phys_footprint >> 20, (unsigned long long)v.resident_size >> 20,
+            (unsigned long long)v.internal >> 20, (unsigned long long)v.external >> 20,
+            (unsigned long long)v.compressed >> 20, (long long)os_proc_available_memory() >> 20);
+}
+static uint64_t mc_next(uint64_t *s) { *s ^= *s << 13; *s ^= *s >> 7; *s ^= *s << 17; return *s; }
+static void mc_run(const char *mode, size_t bytes, int flags, const char *tmpdir, int punch) {
+    char path[1024]; int fd = -1; uint64_t before = 0, after = 0, seed = 0x192834756abcdefULL;
+    snprintf(path, sizeof path, "%s/madeira-memory-probe-XXXXXX", tmpdir);
+    if (!(flags & MAP_ANON)) {
+        fd = mkstemp(path);
+        if (fd < 0) { fprintf(stderr, "[mem-canary] %s: mkstemp failed errno=%d\n", mode, errno); return; }
+        /* the mapping must survive the device locking: no file protection */
+        [[NSFileManager defaultManager] setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:[NSString stringWithUTF8String:path] error:nil];
+        unlink(path);
+        if (ftruncate(fd, (off_t)bytes)) { fprintf(stderr, "[mem-canary] %s: ftruncate failed errno=%d\n", mode, errno); close(fd); return; }
+    }
+    mc_sample(mode, "before", &before);
+    uint64_t *p = mmap(NULL, bytes, PROT_READ | PROT_WRITE, flags, fd, 0);
+    if (p == MAP_FAILED) { fprintf(stderr, "[mem-canary] %s: mmap failed errno=%d\n", mode, errno); if (fd >= 0) close(fd); return; }
+    for (size_t i = 0; i < bytes / 8; i++) p[i] = mc_next(&seed);
+    mc_sample(mode, "written", &after);
+    fprintf(stderr, "[mem-canary] ml1076 %s: %zu MB written -> footprint +%lld MB\n", mode, bytes >> 20, (long long)(after - before) >> 20);
+    if (fd >= 0) {
+        if (msync(p, bytes, MS_SYNC)) fprintf(stderr, "[mem-canary] %s: msync errno=%d\n", mode, errno);
+        mc_sample(mode, "synced", NULL);
+        if (flags & MAP_SHARED) {
+            /* ask the kernel to drop the pages; a re-read must come back from the file */
+            if (madvise(p, bytes, MADV_DONTNEED)) fprintf(stderr, "[mem-canary] %s: madvise errno=%d\n", mode, errno);
+            mc_sample(mode, "advised", NULL);
+        }
+    }
+    seed = 0x192834756abcdefULL;
+    { size_t bad = 0; for (size_t i = 0; i < bytes / 8; i++) if (p[i] != mc_next(&seed)) { bad++; if (bad == 1) fprintf(stderr, "[mem-canary] %s: DATA MISMATCH at byte %zu\n", mode, i * 8); }
+      fprintf(stderr, "[mem-canary] ml1076 %s: verify %s (%zu bad words)\n", mode, bad ? "FAILED" : "ok", bad); }
+    mc_sample(mode, "verified", NULL);
+    if (punch && fd >= 0) {
+        /* decommit semantics: punch a hole under the first half; it must read as zero and cost nothing */
+        struct fpunchhole ph; memset(&ph, 0, sizeof ph); ph.fp_offset = 0; ph.fp_length = (off_t)(bytes / 2);
+        int r = fcntl(fd, F_PUNCHHOLE, &ph);
+        fprintf(stderr, "[mem-canary] ml1076 %s: F_PUNCHHOLE first half -> %d (errno %d); word0 now %llx, word at half %llx\n",
+                mode, r, r ? errno : 0, (unsigned long long)p[0], (unsigned long long)p[bytes / 16]);
+        mc_sample(mode, "punched", NULL);
+    }
+    munmap(p, bytes);
+    if (fd >= 0) close(fd);
+    mc_sample(mode, "released", NULL);
+}
+void madeira_memory_canary(const char *tmpdir) {
+    fprintf(stderr, "[mem-canary] ml1076 start (page %ld, tmp %s)\n", sysconf(_SC_PAGESIZE), tmpdir);
+    mc_run("anonymous", 64u << 20, MAP_PRIVATE | MAP_ANON, tmpdir, 0);
+    mc_run("file-private-COW", 64u << 20, MAP_PRIVATE, tmpdir, 0);
+    mc_run("file-shared-64MB", 64u << 20, MAP_SHARED, tmpdir, 1);
+    mc_run("file-shared-512MB", 512u << 20, MAP_SHARED, tmpdir, 0);
+    /* ml1079: CONTENTION. ph-rdr46 stalled with a thread blocked in a first-touch
+     * page fault on a fresh 32 MB extent while ~886 MB of earlier extents in the
+     * SAME file were dirty (presumably being written back). Does a fault on a
+     * sparse region block behind writeback of the same vnode? And does a separate
+     * file avoid it? Dirty 512 MB, kick writeback, then time 64 first touches on
+     * a fresh region of the same file and of a second file, several times. */
+    {
+        char pa[1024], pb[1024]; int fa, fb; size_t big = 512u << 20, probe = 64u << 20; unsigned round;
+        snprintf(pa, sizeof pa, "%s/madeira-memory-probe-A-XXXXXX", tmpdir); snprintf(pb, sizeof pb, "%s/madeira-memory-probe-B-XXXXXX", tmpdir);
+        fa = mkstemp(pa); fb = mkstemp(pb);
+        if (fa >= 0 && fb >= 0) {
+            [[NSFileManager defaultManager] setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:[NSString stringWithUTF8String:pa] error:nil];
+            [[NSFileManager defaultManager] setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:[NSString stringWithUTF8String:pb] error:nil];
+            unlink(pa); unlink(pb);
+            ftruncate(fa, (off_t)(big + 8 * probe)); ftruncate(fb, (off_t)(8 * probe));
+            uint64_t *dirty = mmap(NULL, big, PROT_READ | PROT_WRITE, MAP_SHARED, fa, 0);
+            if (dirty != MAP_FAILED) {
+                uint64_t seed = 1;
+                for (size_t i = 0; i < big / 8; i++) dirty[i] = mc_next(&seed);
+                msync(dirty, big, MS_ASYNC);
+                for (round = 0; round < 6; round++) {
+                    struct timeval t0, t1, t2; unsigned k; volatile char sink = 0;
+                    char *ra = mmap(NULL, probe, PROT_READ | PROT_WRITE, MAP_SHARED, fa, (off_t)(big + round * probe));
+                    char *rb = mmap(NULL, probe, PROT_READ | PROT_WRITE, MAP_SHARED, fb, (off_t)(round * probe));
+                    if (ra == MAP_FAILED || rb == MAP_FAILED) break;
+                    gettimeofday(&t0, NULL);
+                    for (k = 0; k < 64; k++) sink += ra[(probe / 64) * k];
+                    gettimeofday(&t1, NULL);
+                    for (k = 0; k < 64; k++) sink += rb[(probe / 64) * k];
+                    gettimeofday(&t2, NULL);
+                    fprintf(stderr, "[mem-canary] ml1079 round %u (%s): same-file first-touch %ld us/64 pages, other-file %ld us/64 pages\n", round,
+                            round == 0 ? "right after dirtying 512 MB" : "later",
+                            (long)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_usec - t0.tv_usec)),
+                            (long)((t2.tv_sec - t1.tv_sec) * 1000000 + (t2.tv_usec - t1.tv_usec)));
+                    (void)sink;
+                    munmap(ra, probe); munmap(rb, probe);
+                    usleep(500000);
+                }
+                mc_sample("contention", "after", NULL);
+                munmap(dirty, big);
+            }
+        }
+        if (fa >= 0) close(fa); if (fb >= 0) close(fb);
+    }
+    /* ml1080: SUSTAINED DIRTYING THROUGHPUT. Hypothesis for the ph-rdr46 stall:
+     * xnu throttles producers of dirty file-backed pages once the dirty backlog
+     * passes a threshold, pacing them to the (wear-limited) writeback rate. Write
+     * 1.5 GB through one shared mapping in 128 MB chunks and time each chunk; a
+     * cliff after N chunks is the threshold, and the slow rate is the ceiling any
+     * file-backed tier would impose on the game's loading writes. */
+    {
+        char pc[1024]; int fc; size_t total = 1536u << 20, chunk = 128u << 20;
+        snprintf(pc, sizeof pc, "%s/madeira-memory-probe-C-XXXXXX", tmpdir);
+        fc = mkstemp(pc);
+        if (fc >= 0) {
+            [[NSFileManager defaultManager] setAttributes:@{NSFileProtectionKey: NSFileProtectionNone} ofItemAtPath:[NSString stringWithUTF8String:pc] error:nil];
+            unlink(pc); ftruncate(fc, (off_t)total);
+            uint64_t *m = mmap(NULL, total, PROT_READ | PROT_WRITE, MAP_SHARED, fc, 0);
+            if (m != MAP_FAILED) {
+                size_t c; struct timeval t0, t1;
+                for (c = 0; c < total / chunk; c++) {
+                    uint64_t *q = m + (c * chunk) / 8; size_t i;
+                    gettimeofday(&t0, NULL);
+                    for (i = 0; i < chunk / 8; i += 2048) q[i] = (uint64_t)i ^ c;   /* one word per 16 KB page: dirty every page, minimal CPU */
+                    gettimeofday(&t1, NULL);
+                    long us = (t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_usec - t0.tv_usec);
+                    task_vm_info_data_t v; mach_msg_type_number_t n = TASK_VM_INFO_COUNT; memset(&v, 0, sizeof v);
+                    task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&v, &n);
+                    fprintf(stderr, "[mem-canary] ml1080 chunk %zu: dirtied 128 MB in %ld us (%ld MB/s); footprint=%llu MB external=%llu MB\n",
+                            c, us, us > 0 ? (long)(128000000L / us) : -1L, (unsigned long long)v.phys_footprint >> 20, (unsigned long long)v.external >> 20);
+                }
+                {   /* and a re-read of the first chunk after the rest was written: still cheap? */
+                    volatile uint64_t sink = 0; size_t i; gettimeofday(&t0, NULL);
+                    for (i = 0; i < chunk / 8; i += 2048) sink += m[i];
+                    gettimeofday(&t1, NULL);
+                    fprintf(stderr, "[mem-canary] ml1080 re-read of chunk 0: %ld us\n", (long)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_usec - t0.tv_usec)));
+                    (void)sink;
+                }
+                munmap(m, total);
+            }
+            close(fc);
+        }
+        mc_sample("throughput", "after", NULL);
+    }
+    fprintf(stderr, "[mem-canary] ml1076 done\n");
 }

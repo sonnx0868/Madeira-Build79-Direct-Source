@@ -62,6 +62,50 @@ extern void winios_pWindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_h
 
 static struct user_driver_funcs winios_user_driver;
 
+/* Direct mode (no virtual desktop) has no compositor to draw the Windows
+ * cursor, so the app draws the program's own cursor over the game view while a
+ * hardware mouse is in use (app/Madeira/Winios/WiniosCursor.c and
+ * HardwareInput.swift). The driver reports the cursor image, whether the
+ * program hides it, and where Wine's cursor is after clipping; it changes
+ * nothing the program sees, and does nothing until the app has asked for the
+ * reports (MADEIRA_DIRECT_CURSOR=0 or MADEIRA_HWINPUT=0 in the app: never). */
+extern int winios_direct_cursor_wanted( void ) __attribute__((weak));
+extern void winios_direct_cursor_set( unsigned int id, int w, int h, int hot_x, int hot_y,
+                                      const void *bgra ) __attribute__((weak));
+extern void winios_direct_cursor_show( int show ) __attribute__((weak));
+extern void winios_direct_cursor_pos( int x, int y ) __attribute__((weak));
+
+static int winios_desktop_mode(void);
+
+static int winios_direct_cursor_on(void)
+{
+    return !winios_desktop_mode() && winios_direct_cursor_wanted && winios_direct_cursor_wanted();
+}
+
+/* Wine's cursor position, read the way NtUserGetCursorPos does but without the
+ * DPI mapping: the app posts and draws in the server's screen pixels. */
+static void winios_report_cursor_pos(void)
+{
+    struct object_lock lock = OBJECT_LOCK_INIT;
+    const desktop_shm_t *desktop_shm;
+    NTSTATUS status;
+    int x = 0, y = 0;
+
+    while ((status = get_shared_desktop( &lock, &desktop_shm )) == STATUS_PENDING)
+    {
+        x = desktop_shm->cursor.x;
+        y = desktop_shm->cursor.y;
+    }
+    if (!status) winios_direct_cursor_pos( x, y );
+}
+
+/* A program moved its cursor itself (SetCursorPos). Direct mode only. */
+static BOOL winios_drv_set_cursor_pos( INT x, INT y )
+{
+    if (winios_direct_cursor_on()) winios_direct_cursor_pos( x, y );
+    return TRUE;
+}
+
 /* C bridge for Winios.m to inject mouse input without pulling in Wine
  * headers into Obj-C (where INPUT/HWND/etc. would conflict with UIKit
  * types). Call this from pProcessEvents drain or directly from a
@@ -92,7 +136,33 @@ void winios_drv_post_mouse(int x, int y, unsigned int flags, unsigned int mouse_
             dprintf(2, "[winios] drv_post_mouse hwnd=%p flags=0x%x x=%d y=%d -> status=0x%x\n",
                     hwnd, flags, x, y, (unsigned)st);
     }
+    /* The server has already moved (and clipped) its cursor for a MOVE. */
+    if ((flags & MOUSEEVENTF_MOVE) && winios_direct_cursor_on()) winios_report_cursor_pos();
 }
+
+/* The dedicated navigation keys (arrows, Insert/Delete, Home/End, Page
+ * Up/Down) share their scan codes with the numpad, and Wine's US table lists
+ * the numpad position first, so MAPVK_VK_TO_VSC_EX answers 0x48 for VK_UP,
+ * not 0xe048. A raw-input or DirectInput reader then sees numpad 8. The app
+ * never posts these virtual keys for a numpad key (a numpad key is
+ * VK_NUMPAD0-9 or VK_DECIMAL), so one of them here always means the dedicated
+ * key: mark it extended, as the physical key's E0 prefix is.
+ * MADEIRA_NAV_KEYS_E0=0 restores the previous flags.
+ * tests/host/check-nav-keys.py compiles this function on its own. */
+static UINT winios_key_extended_flag( UINT vk, UINT scan, int nav_e0 )
+{
+    if (scan & 0xe000) return KEYEVENTF_EXTENDEDKEY;
+    if (!nav_e0) return 0;
+    switch (vk)
+    {
+    case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
+    case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN:
+    case VK_INSERT: case VK_DELETE:
+        return KEYEVENTF_EXTENDEDKEY;
+    }
+    return 0;
+}
+/* end winios_key_extended_flag */
 
 /* Keyboard sibling of winios_drv_post_key: packages an INPUT_KEYBOARD
  * event. vk is a Windows virtual-key code (VK_RETURN=0x0D, VK_SPACE=0x20,
@@ -104,6 +174,7 @@ void winios_drv_post_key(unsigned short vk, unsigned int flags)
     INPUT input = {0};
     NTSTATUS st;
     UINT scan;
+    static int nav_e0 = -1;
 
     /* ml647: DERIVE THE SCAN CODE. This used to hardcode wScan = 0 while the
      * comment above claimed it was "derived via the default layout" — the
@@ -127,7 +198,12 @@ void winios_drv_post_key(unsigned short vk, unsigned int flags)
      * KEYEVENTF_EXTENDEDKEY, or a scan-code reader sees the numpad twin
      * instead: without E0, "up arrow" is numpad 8. */
     scan = NtUserMapVirtualKeyEx( vk, MAPVK_VK_TO_VSC_EX, NtUserGetKeyboardLayout(0) );
-    if (scan & 0xe000) flags |= KEYEVENTF_EXTENDEDKEY;
+    if (nav_e0 < 0)
+    {
+        const char *e = getenv( "MADEIRA_NAV_KEYS_E0" );
+        nav_e0 = !(e && e[0] == '0');
+    }
+    flags |= winios_key_extended_flag( vk, scan, nav_e0 );
 
     input.type           = INPUT_KEYBOARD;
     input.ki.wVk         = vk;
@@ -238,6 +314,77 @@ void winios_dump_window_tree(void)
     }
 }
 
+/* Window census helpers for app/Madeira/Winios/Winios.m, which keeps the
+ * library's starting screen up over a Madeira Dock start until the game's own
+ * window is shown (see winios_window_census_enable in Winios.h). Winios.m
+ * cannot include the Wine headers, so the win32u and ntdll calls live here.
+ * All of them run on a Wine thread, only while the app has the census on. */
+
+/* A top-level window's owning process id and style bits. Returns 0 for a
+ * child window, the desktop window itself, or a window that is gone. */
+int winios_drv_census_owner( HWND hwnd, unsigned int *pid, unsigned int *style )
+{
+    DWORD process = 0, bits;
+
+    *pid = 0;
+    *style = 0;
+    bits = get_window_long( hwnd, GWL_STYLE );
+    if (bits & WS_CHILD) return 0;
+    if (!NtUserGetAncestor( hwnd, GA_PARENT )) return 0;   /* the desktop window */
+    if (!get_window_thread( hwnd, &process )) return 0;
+    *pid = process;
+    *style = bits;
+    return 1;
+}
+
+/* The executable path of process `pid`, as the server recorded it when the
+ * process started (no handle is opened): lower-case, with the NT "\??\"
+ * prefix removed, so "\??\C:\Windows\explorer.exe" reads
+ * "c:\windows\explorer.exe". Characters outside printable ASCII become '?';
+ * a path longer than the buffer is cut. Returns 1 when the path was read. */
+int winios_drv_process_image( unsigned int pid, char *out, unsigned int size )
+{
+    WCHAR path[MAX_PATH + 8];
+    SYSTEM_PROCESS_ID_INFORMATION info;
+    unsigned int i, j = 0, n;
+
+    if (!out || !size) return 0;
+    out[0] = 0;
+    if (!pid) return 0;
+    memset( &info, 0, sizeof(info) );
+    info.ProcessId = pid;
+    info.ImageName.Buffer = path;
+    info.ImageName.MaximumLength = sizeof(path);
+    if (NtQuerySystemInformation( SystemProcessIdInformation, &info, sizeof(info), NULL )) return 0;
+    n = info.ImageName.Length / sizeof(WCHAR);
+    if (n > ARRAY_SIZE(path)) n = ARRAY_SIZE(path);
+    i = (n >= 4 && path[0] == '\\' && (path[1] == '?' || path[1] == '\\') && path[2] == '?' && path[3] == '\\') ? 4 : 0;
+    for (; i < n && j + 1 < size; i++)
+    {
+        WCHAR c = path[i];
+        if (c == '/') c = '\\';
+        out[j++] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (c >= 32 && c < 127) ? (char)c : '?';
+    }
+    out[j] = 0;
+    return j > 0;
+}
+
+/* What a taskbar click sends to a minimized window. Posted, never sent: the
+ * caller runs inside the window's WindowPosChanged. */
+int winios_drv_post_restore( HWND hwnd )
+{
+    return NtUserPostMessage( hwnd, WM_SYSCOMMAND, SC_RESTORE, 0 ) ? 1 : 0;
+}
+
+/* A taskbar click also brings the window to the front. Only the window's own
+ * thread does that, from its event pump (not inside SetWindowPos). Returns 0
+ * on another thread, 1 when the window is now foreground, -1 on failure. */
+int winios_drv_foreground_if_owner( HWND hwnd )
+{
+    if (!hwnd || get_window_thread( hwnd, NULL ) != GetCurrentThreadId()) return 0;
+    return NtUserSetForegroundWindow( hwnd ) ? 1 : -1;
+}
+
 /* ============================================================ *
  * winios window surfaces (S2): GDI window content → app compositor.
  * Modeled on win32u's offscreen surface (dce.c): the generic
@@ -250,7 +397,7 @@ void winios_dump_window_tree(void)
 /* Implemented in app/Madeira/Winios/Winios.m (weak, same pattern as the
  * driver hooks below). Called on wine threads — the app side copies the
  * bits before returning and uploads on the main thread. */
-extern void winios_surface_present( HWND hwnd, int dirty_x, int dirty_y, int dirty_w, int dirty_h,
+extern int winios_surface_present( HWND hwnd, int dirty_x, int dirty_y, int dirty_w, int dirty_h,
                                     int surf_w, int surf_h, int stride, const void *bits ) __attribute__((weak));
 extern void winios_window_frame( HWND hwnd, int x, int y, int w, int h, int visible,
                                  int cx, int cy, int cw, int ch ) __attribute__((weak));
@@ -263,7 +410,9 @@ static int winios_desktop_mode(void);
 /* pSetCursor: extract the cursor image as straight-alpha BGRA and forward
  * to the app-side compositor cursor layer. win32u calls this on every
  * cursor CHANGE (WM_SETCURSOR → NtUserSetCursor), so resize arrows,
- * I-beam and app cursors all arrive here. */
+ * I-beam and app cursors all arrive here. In direct mode the same image and
+ * visibility go to the app's direct-mode cursor instead (see
+ * winios_direct_cursor_on). */
 static void winios_drv_set_cursor( HWND hwnd, HCURSOR cursor )
 {
     static HCURSOR last_cursor;
@@ -274,14 +423,22 @@ static void winios_drv_set_cursor( HWND hwnd, HCURSOR cursor )
     int w, h, i, has_alpha = 0;
     char bmibuf[sizeof(BITMAPINFOHEADER) + 256 * sizeof(RGBQUAD)];
     BITMAPINFO *bmi = (BITMAPINFO *)bmibuf;
+    void (*cursor_set)( unsigned int, int, int, int, int, const void * ) = winios_cursor_set;
+    void (*cursor_show)( int ) = winios_cursor_show;
 
-    if (!winios_desktop_mode() || !winios_cursor_set) return;
+    if (!winios_desktop_mode())
+    {
+        if (!winios_direct_cursor_on()) return;
+        cursor_set = winios_direct_cursor_set;
+        cursor_show = winios_direct_cursor_show;
+    }
+    if (!cursor_set) return;
     if (!cursor)
     {
-        if (winios_cursor_show) winios_cursor_show( 0 );
+        if (cursor_show) cursor_show( 0 );
         return;
     }
-    if (winios_cursor_show) winios_cursor_show( 1 );
+    if (cursor_show) cursor_show( 1 );
     if (cursor == last_cursor) return;
 
     if (!NtUserGetIconInfo( cursor, &info, NULL, NULL, NULL, 0 )) return;
@@ -339,8 +496,8 @@ static void winios_drv_set_cursor( HWND hwnd, HCURSOR cursor )
     }
 #undef WINIOS_BMI_INIT
 
-    winios_cursor_set( (unsigned int)(UINT_PTR)cursor, w, h,
-                       (int)info.xHotspot, (int)info.yHotspot, color );
+    cursor_set( (unsigned int)(UINT_PTR)cursor, w, h,
+                (int)info.xHotspot, (int)info.yHotspot, color );
     last_cursor = cursor;
     dprintf( 2, "[winios] cursor set hcursor=%p %dx%d hot=(%u,%u)\n",
              cursor, w, h, (unsigned)info.xHotspot, (unsigned)info.yHotspot );
@@ -419,10 +576,15 @@ static BOOL winios_surface_flush( struct window_surface *surface, const RECT *re
         int surf_w = color_info->bmiHeader.biWidth;
         int surf_h = color_info->bmiHeader.biHeight;
         if (surf_h < 0) surf_h = -surf_h;
-        winios_surface_present( surface->hwnd,
-                                dirty->left, dirty->top,
-                                dirty->right - dirty->left, dirty->bottom - dirty->top,
-                                surf_w, surf_h, surf_w * 4, color_bits );
+        /* ml1028: propagate the snapshot allocation result. dce.c only calls
+         * reset_bounds() when we return TRUE, so returning FALSE keeps the
+         * dirty region and the frame is repainted on a later flush instead of
+         * the copy throwing an uncaught ObjC exception and killing us. */
+        if (!winios_surface_present( surface->hwnd,
+                                     dirty->left, dirty->top,
+                                     dirty->right - dirty->left, dirty->bottom - dirty->top,
+                                     surf_w, surf_h, surf_w * 4, color_bits ))
+            return FALSE;
     }
     return TRUE;
 }
@@ -516,6 +678,29 @@ static void winios_drv_window_pos_changed( HWND hwnd, HWND insert_after, HWND ow
             dprintf( 2, "[win-pos] #%u hwnd=%p after=%p flags=%08x vis={%d,%d,%d,%d} "
                      "surface=%p rev=ml505\n", n, hwnd, insert_after, (unsigned)swp_flags,
                      (int)v->left, (int)v->top, (int)v->right, (int)v->bottom, surface );
+            /* ml853: name the window. A dialog nobody can see (nothing is
+             * presenting) is otherwise just a rectangle; the class and the
+             * text of every window, children included, make it readable
+             * from the log. Static controls carry a message box's body. */
+            {
+                WCHAR clsW[64], txtW[200];
+                char cls[64], txt[200];
+                UNICODE_STRING us = { 0, sizeof(clsW), clsW };
+                int j, tn;
+                cls[0] = 0;
+                if (NtUserGetClassName( hwnd, FALSE, &us ) > 0)
+                {
+                    for (j = 0; j < us.Length / (int)sizeof(WCHAR) && j < 63; j++)
+                        cls[j] = (clsW[j] >= 32 && clsW[j] < 127) ? (char)clsW[j] : '?';
+                    cls[j] = 0;
+                }
+                tn = NtUserInternalGetWindowText( hwnd, txtW, ARRAY_SIZE(txtW) );
+                for (j = 0; j < tn && j < 199; j++)
+                    txt[j] = (txtW[j] >= 32 && txtW[j] < 127) ? (char)txtW[j] : '?';
+                txt[j] = 0;
+                if (cls[0] || txt[0])
+                    dprintf( 2, "[win-name] #%u hwnd=%p class='%s' text=\"%s\" rev=ml853\n", n, hwnd, cls, txt );
+            }
         }
     }
 
@@ -1566,7 +1751,11 @@ static void load_display_driver(void)
         if (winios_pDestroyWindow)       winios_user_driver.pDestroyWindow       = winios_pDestroyWindow;
         if (winios_pProcessEvents)       winios_user_driver.pProcessEvents       = winios_pProcessEvents;
         if (winios_desktop_mode())       winios_user_driver.pSetCursor           = winios_drv_set_cursor;
+        /* direct mode: inert (like winios_pSetCursor) until the app enables it */
+        else if (winios_direct_cursor_set) winios_user_driver.pSetCursor         = winios_drv_set_cursor;
         else if (winios_pSetCursor)      winios_user_driver.pSetCursor           = winios_pSetCursor;
+        if (!winios_desktop_mode() && winios_direct_cursor_pos)
+            winios_user_driver.pSetCursorPos = winios_drv_set_cursor_pos;
         if (winios_pDestroyCursorIcon)   winios_user_driver.pDestroyCursorIcon   = winios_pDestroyCursorIcon;
         if (winios_pShowWindow)          winios_user_driver.pShowWindow          = winios_pShowWindow;
         /* window-pos wrapper dereferences window_rects on this side and
@@ -2035,4 +2224,98 @@ static const struct client_surface_funcs nulldrv_surface_funcs =
 struct client_surface *nulldrv_client_surface_create( HWND hwnd )
 {
     return client_surface_create( sizeof(struct client_surface), &nulldrv_surface_funcs, hwnd );
+}
+
+/* ml1920: same-task controller snapshots supplied by the app. */
+#include "../../app/Madeira/Winios/WiniosGamepad.h"
+
+/* Byte-for-byte XINPUT_STATE (a DWORD packet number followed by
+ * XINPUT_GAMEPAD). Not #included from xinput.h: that is a PE-side SDK header
+ * and this is the unix half of win32u. */
+struct ios_xinput_gamepad
+{
+    WORD  buttons;
+    BYTE  left_trigger;
+    BYTE  right_trigger;
+    SHORT thumb_lx, thumb_ly, thumb_rx, thumb_ry;
+};
+
+struct ios_xinput_state
+{
+    DWORD packet_number;
+    struct ios_xinput_gamepad gamepad;
+};
+
+/* Byte-for-byte XINPUT_CAPABILITIES. */
+struct ios_xinput_caps
+{
+    BYTE  type;
+    BYTE  sub_type;
+    WORD  flags;
+    struct ios_xinput_gamepad gamepad;
+    WORD  left_motor_speed, right_motor_speed;
+};
+
+C_ASSERT( sizeof(struct ios_xinput_state) == 16 );
+C_ASSERT( sizeof(struct ios_xinput_caps) == 20 );
+C_ASSERT( sizeof(struct winios_gamepad) == 20 );
+
+/***********************************************************************
+ *           ios_gamepad_query
+ *
+ * The body of NtUserCallTwoParam_GetGamepadState. `index` is the XInput user
+ * index (0-3) and `op` selects the payload; see NtUserGamepadOp_* in
+ * wine/include/ntuser.h. Returns 1 when a pad is connected in that slot and
+ * `buffer` was filled, 0 otherwise — which is also what an upstream,
+ * non-Madeira win32u returns for a code it does not know, so xinput1_3's
+ * runtime probe falls back to the existing HID path.
+ */
+ULONG_PTR ios_gamepad_query( UINT index, UINT op, void *buffer )
+{
+    struct winios_gamepad pad;
+
+    if (!buffer || index >= 4) return 0;
+    if (!winios_gamepad_get_state( index, &pad )) return 0;
+
+    switch (op)
+    {
+    case 0:   /* NtUserGamepadOp_State */
+    {
+        struct ios_xinput_state *state = buffer;
+
+        state->packet_number        = pad.packet;
+        state->gamepad.buttons      = pad.buttons;
+        state->gamepad.left_trigger  = pad.left_trigger;
+        state->gamepad.right_trigger = pad.right_trigger;
+        state->gamepad.thumb_lx     = pad.lx;
+        state->gamepad.thumb_ly     = pad.ly;
+        state->gamepad.thumb_rx     = pad.rx;
+        state->gamepad.thumb_ry     = pad.ry;
+        return 1;
+    }
+    case 1:   /* NtUserGamepadOp_Caps */
+    {
+        struct ios_xinput_caps *caps = buffer;
+
+        /* XINPUT_DEVTYPE_GAMEPAD / XINPUT_DEVSUBTYPE_GAMEPAD. The `gamepad`
+         * member of XINPUT_CAPABILITIES is not a reading — it is a MASK of
+         * what the device can report, which is why every field is saturated
+         * rather than copied from `pad`. 0xf3ff is every XINPUT_GAMEPAD_* bit
+         * except the two reserved gaps; the thumbs report 16-bit resolution
+         * (low bits clear, as real XInput reports them) and the triggers 8. */
+        caps->type     = 1;
+        caps->sub_type = 1;
+        /* Controller rumble is not implemented by this transport. */
+        caps->flags    = 0;
+        caps->gamepad.buttons       = 0xf3ff;
+        caps->gamepad.left_trigger  = 0xff;
+        caps->gamepad.right_trigger = 0xff;
+        caps->gamepad.thumb_lx = caps->gamepad.thumb_ly = (SHORT)0xffc0;
+        caps->gamepad.thumb_rx = caps->gamepad.thumb_ry = (SHORT)0xffc0;
+        caps->left_motor_speed = caps->right_motor_speed = 0;
+        return 1;
+    }
+    default:
+        return 0;
+    }
 }

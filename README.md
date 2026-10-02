@@ -1,160 +1,156 @@
-# Madeira
+<p align="center">
+  <img src="docs/assets/banner.png" alt="Madeira — Bringing PC gaming to your iPhone." width="100%">
+</p>
 
-Run Windows PC games on a non-jailbroken iPhone.
+<p align="center">
+  <a href="https://discord.gg/4t5mNjwCn7"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Finvites%2F4t5mNjwCn7%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&suffix=%20members&label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Join the Madeira Discord"></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://github.com/willfaust/Madeira/releases"><img src="https://img.shields.io/github/v/release/willfaust/Madeira?label=Release&style=for-the-badge&color=brightgreen" alt="Latest release"></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0--or--later-yellow?style=for-the-badge" alt="License: GPL-3.0-or-later"></a>
+</p>
 
-Madeira combines [Wine](https://www.winehq.org/) (ARM64EC),
-[FEX-Emu](https://github.com/FEX-Emu/FEX) for x86-64 → ARM64 translation, and
-[DXMT](https://github.com/3Shain/DXMT) for D3D11 → Metal, running as a single
-Mach process on iOS with wineserver as a thread rather than a separate process.
+Madeira runs Windows PC games on an iPhone, with no jailbreak. Games run as they
+are, unmodified, inside a single iOS app.
 
-## Status
+> [!NOTE]
+> Madeira is an active research project. Many games start and some play well,
+> but performance and compatibility vary from game to game, and things change
+> quickly. Expect rough edges.
 
-Thumper and ULTRAKILL are playable. Marvel Cosmic Invasion has reached
-gameplay, though a run has also ended in an unexplained termination and its
-controls are not yet reliable. Others reach gameplay at low frame rates. This
-is a research project, not a product: expect rough edges, per-title quirks and
-breaking changes.
+## How it works
 
-The iOS target currently supports **64-bit Windows PE** executables (x86-64
-through FEX/ARM64EC, plus ARM64 PE). It does not ship a working 32-bit x86
-address space, and its accelerated graphics path is D3D11 through DXMT. Plain
-OpenGL, D3D12/Vulkan, anti-cheat and DRM-heavy programs are not universal
-compatibility targets; an `.exe` suffix alone does not imply that a program can
-run.
+| Layer | What it does |
+|---|---|
+| **[FEX-Emu](https://github.com/FEX-Emu/FEX)** | Translates the game's x86 and x86-64 code to ARM64 as it runs. |
+| **[Wine](https://www.winehq.org/)** 11.4 | Provides Windows. It is built for ARM64EC, so Wine itself runs natively and only the game's own code is translated. 32-bit games run through WoW64. |
+| **[DXMT](https://github.com/3Shain/DXMT)** | Draws Direct3D 9, 10 and 11 with Metal. |
+| **[madeira-d3d12](madeira-d3d12)** | Madeira's own Direct3D 12 implementation on Metal, converting DXIL shaders at run time with Apple's Metal Shader Converter. |
 
-## Using the game library
+iOS apps cannot start other programs, so everything runs in one process: even
+Wine's server runs as a thread instead of a separate program.
 
-1. Enable JIT with StikDebug from Madeira's setup card.
-2. Choose **Add → game folder**. A complete folder is strongly preferred over
-   one `.exe`, especially for Ren'Py (which also needs `game/`, `renpy/`,
-   Python/SDL DLLs and assets).
-3. Madeira copies the game into `C:\Games`, reads the PE architecture, detects
-   common Ren'Py layouts and chooses a 64-bit executable. If a folder contains
-   several executables, use **Edit** to select the correct one and adjust quoted
-   command-line arguments.
-4. Press Play. One Wine/FEX session is supported per app process; relaunch
-   Madeira before switching games so the process-lifetime JIT pool is not
-   duplicated.
+## Features
 
-On iPad, a USB/Bluetooth hardware keyboard and mouse/trackpad are detected
-automatically while a game is running. Madeira forwards held keys, modifiers,
-arrows, F1–F12, left/right/middle clicks, relative movement and scrolling to
-Wine. iPadOS-reserved shortcuts such as Command-H remain system shortcuts.
+- **Game library** with artwork, search and a Windows desktop session.
+- **Steam**: sign in, browse the games you own, install and update them, and
+  start them through Valve's own Windows Steam client (Madeira Dock).
+- **Controllers**: Bluetooth controllers through XInput, plus customisable
+  on-screen touch controls.
+- **Keyboard, mouse and trackpad** passed through to games as real input.
+- **Video and audio** for cutscenes and music, through FFmpeg, VideoToolbox and AudioToolbox.
 
 ## Requirements
 
-- A non-jailbroken iPhone. Development has been on an A15 (iPhone 13 Pro).
-- JIT, which on iOS requires a debugger to attach —
-  [StikDebug](https://github.com/0-Blu/StikJIT) is what this project uses.
-- An Apple ID for signing. A free account works; its provisioning profiles
-  expire after 7 days, so the app must be rebuilt and reinstalled weekly. The
-  app's container survives reinstall, so prefixes and saves are preserved.
+- An iPhone on **iOS 26 or later**, the only version Madeira currently runs
+  on reliably. Development happens on recent Pro iPhones.
+- **JIT**, which iOS only allows while a debugger is attached. Madeira uses
+  [StikDebug](https://github.com/StikDebug/StikDebug) for this.
+- An **Apple ID** to sideload the app. A free account works; its signing
+  expires after 7 days, so the app needs refreshing weekly. Your games and
+  saves are kept across reinstalls.
 
-Because JIT requires debugger attach, this app cannot be distributed through the
-App Store. It is installed by sideloading.
+Because JIT needs a debugger, Madeira cannot be offered on the App Store.
 
-## Building
+## Installing
 
-The build is split across several chains — the unix-side Wine libraries, the
-ARM64EC PE modules, FEX, DXMT and the iOS app itself. `build/*/build.sh` covers
-the native pieces; the app is built with `xcodebuild`.
+1. Download the IPA from the [latest release](https://github.com/willfaust/Madeira/releases).
+2. Sideload it with your own Apple ID using SideStore, AltStore, Sideloadly,
+   Plume or a similar tool.
+3. Open Madeira and enable JIT with StikDebug.
+4. In **Settings**, check that **JIT** and **Memory+** both show a green check:
+   Madeira then says **Ready to play**.
 
-Use the **Debug** app configuration for device packages. The upstream Madeira
-device workflow is validated with Debug; Release has previously crashed the
-guest runtime. CI sets `ENABLE_DEBUG_DYLIB=NO` so an unsigned Xcode build stays
-monolithic and can be ad-hoc signed before it is zipped into `Payload/`.
+Some 64-bit games need Microsoft's Visual C++ runtime, which is not included
+(see [Licensing](#licensing)).
 
-```sh
-git clone --recurse-submodules <this repo>
-```
-
-Note that `FEX`, `wine` and `research/dxmt` are submodules pointing at forks
-containing the iOS work; upstream clones will not build here.
-
-The root repository pins the exact public component revisions recorded in
-`Build79/PROVENANCE.json`. A small set of release-materialized changes is kept
-as auditable root patches instead of pointing the submodules at unpushed local
-commits. After cloning, run:
+## Building from source
 
 ```sh
-git submodule update --init --recursive
-bash scripts/apply-lineage-patches.sh
+git clone --recurse-submodules https://github.com/willfaust/Madeira.git
 ```
 
-This source snapshot does not contain every generated/static or redistributable
-binary. On macOS, run the read-only preflight first:
+`FEX`, `wine`, `dxmt` and `madeira-dock` are submodules that point at Madeira's
+own forks; upstream checkouts will not build here. The build has several parts
+(the Wine unix libraries, the ARM64EC Windows modules, FEX, DXMT and the app)
+and some inputs that are not in the repository, such as the toolchains.
+[`docs/BUILDING.md`](docs/BUILDING.md) walks through all of it.
 
-```sh
-bash scripts/check-ios-build.sh
-```
+### Repository layout
 
-It reports missing FEX/Wine/DXMT archives, PE resource trees and Microsoft VC++
-runtime files before Xcode reaches an opaque linker error. Follow the relevant
-`build/*/build.sh` stages and `tools/fetch-vcruntime.md`, then select your own
-Apple Development team in Xcode. Madeira requires development signing and JIT;
-it is not an App Store/distribution-signing build.
-
-### Codemagic
-
-`codemagic.yaml` provides three workflows:
-
-- `madeira-bootstrap-sideload` cold-builds the missing native dependencies
-  directly from their pinned sources, packages them for reuse, then builds an
-  ad-hoc sideload IPA. Run this first when no native-deps bundle exists. The
-  upstream project never verified this complete clean-machine path, so the
-  first run may expose a platform-specific compile gap and can approach the
-  120-minute Codemagic limit;
-- `madeira-sideload-ipa` creates an ad-hoc IPA for re-signing/installing with
-  SideStore or AltStore from a previously packaged dependency bundle;
-- `madeira-development-ipa` uses a matching Apple Development certificate and
-  development provisioning profile configured in Codemagic.
-
-The public repo intentionally excludes generated FEX/Wine/DXMT archives and
-Microsoft VC++ redistributables. Build them once on a known-good Mac, run
-`scripts/package-native-deps.sh`, upload the ZIP to private/versioned storage,
-then create the Codemagic environment group `madeira_build_inputs` containing:
-
-- `MADEIRA_NATIVE_DEPS_URL`
-- `MADEIRA_NATIVE_DEPS_SHA256`
-- `MADEIRA_NATIVE_DEPS_TOKEN` (optional)
-
-Codemagic verifies the SHA-256 before extracting anything. A clean CI build is
-deliberately stopped by the preflight when these inputs are absent, rather than
-producing a misleading or partially functional IPA.
-
-## License
-
-**GPL-3.0-or-later** — see [`LICENSE`](LICENSE). Derivatives that are
-distributed must remain open source.
-
-### Upstream licenses vs. this project's forks
-
-Those are the licenses of the **upstream projects**: Wine and GnuTLS
-LGPL-2.1-or-later, GMP and Nettle LGPL-3.0-or-later, FEX-Emu and DXMT MIT,
-rpmalloc 0BSD. Their texts are in [`LICENSES/`](LICENSES), and upstream code
-remains available under them **from upstream**.
-
-**The forks used here are not licensed identically to their upstreams.** Each
-carries its own `LICENSE-MADEIRA.md` saying exactly what applies:
-
-| Fork | Terms |
+| Path | Contents |
 |---|---|
-| [`wine`](https://github.com/willfaust/wine) | relicensed to **GPL-3.0-or-later** under LGPL-2.1 §3 |
-| [`FEX`](https://github.com/willfaust/FEX), [`dxmt`](https://github.com/willfaust/dxmt) | upstream MIT preserved; modifications **GPL-3.0-or-later** |
-| [`rpmalloc`](https://github.com/willfaust/rpmalloc) | upstream 0BSD preserved; Will Faust's modifications **GPL-3.0-or-later** |
+| [`app/`](app) | The iOS app: SwiftUI front end, Wine bridge and bundled resources |
+| [`wine/`](https://github.com/willfaust/wine), [`FEX/`](https://github.com/willfaust/FEX), [`dxmt/`](https://github.com/willfaust/dxmt), [`madeira-dock/`](https://github.com/willfaust/madeira-dock) | Madeira's forks and the Steam client launcher (submodules) |
+| [`madeira-d3d12/`](madeira-d3d12) | The native Direct3D 12 runtime |
+| [`build/`](build) | Build scripts and iOS-side sources, one folder per component |
+| [`tests/`](tests) | Host checks and x86, x86-64 and DXMT test programs |
+| [`tools/`](tools) | Helper scripts |
+| [`docs/`](docs) | Documentation |
+| [`research/`](research) | Experiments that are not part of the app |
 
-This is not retroactive: those forks were public beforehand, so anything
-already obtained under a permissive license stays available under it.
+## Documentation
 
-[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) has the per-component
-breakdown. Note in particular that the Microsoft Visual C++ runtime DLLs are
-not distributed here and must be supplied yourself — see
+| Topic | Document |
+|---|---|
+| Building from a clean checkout | [`docs/BUILDING.md`](docs/BUILDING.md) |
+| The game library | [`docs/LIBRARY.md`](docs/LIBRARY.md) |
+| Steam sign-in, library and downloads | [`docs/STEAM_SIGNIN.md`](docs/STEAM_SIGNIN.md), [`docs/STEAM_LIBRARY.md`](docs/STEAM_LIBRARY.md) |
+| Madeira Dock (the Steam client) | [`docs/MADEIRA_DOCK.md`](docs/MADEIRA_DOCK.md) |
+| 32-bit games (WoW64) | [`docs/WOW64.md`](docs/WOW64.md) |
+| Controllers and touch controls | [`docs/CONTROLLERS.md`](docs/CONTROLLERS.md) |
+| Keyboard, mouse and trackpad | [`docs/KEYBOARD_MOUSE.md`](docs/KEYBOARD_MOUSE.md) |
+| Audio and video | [`docs/MEDIA.md`](docs/MEDIA.md) |
+| Licensing in detail | [`docs/LICENSING.md`](docs/LICENSING.md) |
+
+## Licensing
+
+Madeira is licensed under **GPL-3.0-or-later** ([`LICENSE`](LICENSE)) with
+the **Madeira Converter Exception** ([`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md)),
+an additional permission that allows it to work with Apple's Metal Shader
+Converter.
+
+The projects it builds on keep their own licenses upstream, but Madeira's forks
+are not all licensed the same way as their upstreams:
+
+| Component | License |
+|---|---|
+| [Wine fork](https://github.com/willfaust/wine) | LGPL-2.1-or-later, like upstream Wine |
+| [FEX-Emu fork](https://github.com/willfaust/FEX), [DXMT fork](https://github.com/willfaust/dxmt) | Upstream code stays MIT; Madeira's changes are GPL-3.0-or-later with the exception |
+| [rpmalloc fork](https://github.com/willfaust/rpmalloc) | Upstream code stays 0BSD; Madeira's changes are GPL-3.0-or-later with the exception |
+| [Madeira Dock](https://github.com/willfaust/madeira-dock) | GPL-3.0-or-later with the exception |
+
+Anything obtained earlier under a permissive license stays available under it.
+Per-component details, including GnuTLS, Nettle, GMP, FFmpeg and LLVM, are in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md); the license texts are in
+[`LICENSES/`](LICENSES).
+
+Microsoft's Visual C++ runtime DLLs are **not** distributed with Madeira. To
+build with them, supply them yourself as described in
 [`tools/fetch-vcruntime.md`](tools/fetch-vcruntime.md).
 
-## A note on upstream contributions
+## Contributing
 
-The forks here contain substantial AI-assisted work. FEX-Emu's contribution
-policy states that AI must not be used to generate code for contributions to
-that project, so **do not submit AI-generated changes from this fork upstream**.
-The MIT license permits the fork itself; the policy governs contributions back.
-Check each upstream's contribution policy before proposing changes to it.
+Contributions are welcome under GPL-3.0-or-later; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+Madeira's forks contain a lot of AI-assisted work. FEX-Emu does not accept
+AI-generated code, so please **do not send changes from these forks upstream**
+to FEX-Emu, and check each upstream project's contribution policy before
+proposing anything to it.
+
+## Credits
+
+- **Will Faust** ([@willfaust](https://github.com/willfaust)): created Madeira
+- **Nick** ([@125hz](https://github.com/125hz)): 32-bit game support, the game library and Madeira Dock
+- **Jfishin** ([@Jfishin](https://github.com/Jfishin)): the original native Steam sign-in, library and downloads
+
+Madeira is built on [Wine](https://www.winehq.org/), [FEX-Emu](https://github.com/FEX-Emu/FEX),
+[DXMT](https://github.com/3Shain/DXMT) by Feifan He (3Shain) with the Direct3D 9
+frontend by David Acevedo (dacevedo12), [rpmalloc](https://github.com/mjansson/rpmalloc)
+by Mattias Jansson, and [StikDebug](https://github.com/StikDebug/StikDebug)
+for enabling JIT. Thank you to everyone who contributes to them.
+
+<p align="center">
+  <a href="https://discord.gg/4t5mNjwCn7"><b>Join the community on Discord</b></a>
+</p>

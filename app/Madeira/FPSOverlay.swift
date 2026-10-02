@@ -2,28 +2,81 @@ import SwiftUI
 import UIKit
 import QuartzCore
 
-/// Keeps the ProMotion panel promoted to 120Hz while MAX mode is on.
-/// CAMetalLayer presents alone don't express frame-rate intent — iOS
-/// parks the display at 60Hz and only promotes on touch (observed
-/// 2026-07-05: MAX mode ran 60 except ~119 bursts while touching). An
-/// active CADisplayLink with preferredFrameRateRange(120) is the
-/// documented way for present-driven Metal apps to hold the panel at
-/// 120. The tick itself does nothing.
+/// Frame-rate intent for the ProMotion panel. CAMetalLayer presents alone
+/// don't express one: iOS parks the display at 60Hz and only promotes on
+/// touch (observed 2026-07-05: MAX mode ran 60 except ~119 bursts while
+/// touching). An active CADisplayLink with a preferredFrameRateRange is the
+/// documented way for present-driven Metal apps to hold the panel higher.
+/// The tick itself does nothing.
+///
+/// Default (as on main): armed only outside the 60 and 30 caps, i.e. for
+/// MAX and RAW, where the game is meant to run above 60.
+///
+/// Opt-in `env.MADEIRA_PROMOTE = 1` (Settings > Display > Hold the display
+/// at its maximum rate) also arms it in the 60 cap. The panel rate is the
+/// grid a present snaps to: the 60 cap is a minimum spacing between
+/// presentations (afterMinimumDuration), and a drawable becomes visible at
+/// a vblank, never between two. With the panel parked at 60Hz a frame
+/// ready at 17-25ms waits for the 33.3ms vblank, so a 20ms pipeline reports
+/// 30 FPS; at 120Hz the same frame lands at 25ms (40 FPS). The cap itself is
+/// unchanged, but the panel runs at 120Hz for the whole session, which
+/// costs power, so it is not the default. The 30 cap keeps a 60Hz intent
+/// (33.3ms is an exact multiple of 16.67ms).
 final class ProMotionIntent {
     static let shared = ProMotionIntent()
     private var link: CADisplayLink?
+    private var activeMax: Float = 0
 
-    func setActive(_ active: Bool) {
-        if active {
-            guard link == nil else { return }
+    /// Honest report of what the panel can do, for the native `[frame]` line.
+    static var panelMaxFPS: Int { UIScreen.main.maximumFramesPerSecond }
+
+    /// The opt-in above; read when a session's pacing is applied.
+    static var holdMaximum: Bool { MadeiraConfig.flag("MADEIRA_PROMOTE", fallback: false) }
+
+    /// Whether DXMT has the 30 FPS cap (vsync mode 3) and the display-rate
+    /// hook. Both arrive with willfaust/dxmt#1; without it mode 3 would run
+    /// uncapped, so the 30 choice is offered only when this is true.
+    static var has30Cap: Bool = {
+        madeira_set_display_max_fps(Int32(panelMaxFPS), 0)
+        return madeira_dxmt_has_display_pacing() != 0
+    }()
+
+    /// `maxHz` 0 means "tear it down".
+    func setActive(_ active: Bool, maxHz: Int = ProMotionIntent.panelMaxFPS) {
+        let want = Float(max(maxHz, 0))
+        if active && want > 0 {
+            if link != nil && activeMax == want { return }
+            link?.invalidate()
             let l = CADisplayLink(target: self, selector: #selector(tick))
-            l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            // `minimum` must not exceed the panel's own maximum or CoreAnimation
+            // clamps the whole range away (a 60Hz device asked for min 60 /
+            // max 120 gets nothing useful).
+            let lo = Float(min(60, maxHz))
+            l.preferredFrameRateRange = CAFrameRateRange(minimum: lo, maximum: want, preferred: want)
             l.add(to: .main, forMode: .common)
             link = l
+            activeMax = want
+            fputs("[promote] display link armed preferred=\(Int(want))Hz panel_max=\(ProMotionIntent.panelMaxFPS)Hz\n", stderr)
         } else {
+            if link != nil { fputs("[promote] display link released\n", stderr) }
             link?.invalidate()
             link = nil
+            activeMax = 0
         }
+    }
+
+    /// The intent that belongs to a given pacing mode (0 = none). See the type comment.
+    static func maxHz(for mode: Int32) -> Int {
+        if mode == 3 { return holdMaximum ? min(60, panelMaxFPS) : 0 }   // 30 cap
+        if mode == 1 { return holdMaximum ? panelMaxFPS : 0 }            // 60 cap
+        return panelMaxFPS                                                // MAX, RAW
+    }
+
+    /// Arms or releases the link for `mode` and publishes the rates to DXMT.
+    static func apply(mode: Int32) {
+        let hz = maxHz(for: mode)
+        shared.setActive(hz > 0, maxHz: hz)
+        madeira_set_display_max_fps(Int32(panelMaxFPS), Int32(hz))
     }
 
     @objc private func tick(_ sender: CADisplayLink) {}
@@ -51,7 +104,9 @@ struct FPSOverlay: View {
     @State private var displayTimer: Timer? = nil
     /// Mirrors DXMT's g_madeira_vsync_mode (read per present, live-safe).
     /// 1 = locked 60, 0 = display max (120 ProMotion), 2 = raw (frame-skip
-    /// mailbox — game unthrottled, panel shows ≤ display rate).
+    /// mailbox — game unthrottled, panel shows ≤ display rate), 3 = locked 30
+    /// (added 2026-09-15, same afterMinimumDuration mechanism as 60 — see
+    /// winemetal_unix.c's _MTLCommandBuffer_presentDrawable).
     @State private var vsyncMode: Int32 = 1
     /// Ring buffer of (timestamp, count) pairs, 100ms cadence, 5s window.
     @State private var samples: [(t: CFAbsoluteTime, c: UInt64)] = []
@@ -95,6 +150,9 @@ struct FPSOverlay: View {
                     Text(String(format: "%.1f", fps))
                         .foregroundColor(fpsColor)
                     pacingPill
+                    capturePill
+                    ecoPill
+                    fencePill
                 }
                 .font(.system(.caption, design: .monospaced))
                 .padding(6)
@@ -123,6 +181,9 @@ struct FPSOverlay: View {
                         .foregroundColor(fpsColor)
                         .frame(width: 40, alignment: .trailing)
                     pacingPill
+                    capturePill
+                    ecoPill
+                    fencePill
                 }
                 .font(.system(.caption, design: .monospaced))
                 .padding(.horizontal, 8)
@@ -140,13 +201,18 @@ struct FPSOverlay: View {
         .onDisappear { stopTimers() }
     }
 
-    /// Pacing pill, cycles 60 → MAX(n) → RAW → 60. Shared by the wide
+    /// Pacing pill, cycles 60 → MAX(n) → RAW → 30 → 60. Shared by the wide
     /// (portrait) and compact (landscape bar) overlay variants.
     ///   60: presents paced to exactly 60Hz.
     ///   MAX(n): free-run to display refresh; n = current cap
     ///     (120 = ProMotion; 60 = thermal/LPM capped).
     ///   RAW: game unthrottled (frame-skip mailbox) — FPS readout =
     ///     raw stack throughput.
+    ///   30: presents paced to exactly 30Hz — device feedback (2026-09-15)
+    ///     asked for a cap below 60 (thermal/battery headroom); appended
+    ///     rather than reordering the existing three so a saved/expected
+    ///     cycle position never silently changes meaning. Offered only when
+    ///     DXMT has the 30 cap (ProMotionIntent.has30Cap); else RAW → 60.
     private var pacingPill: some View {
         Text(pillLabel)
             .foregroundColor(pillColor)
@@ -155,23 +221,97 @@ struct FPSOverlay: View {
             .overlay(RoundedRectangle(cornerRadius: 4)
                 .stroke(pillColor, lineWidth: 1))
             .onTapGesture {
-                vsyncMode = vsyncMode == 1 ? 0 : (vsyncMode == 0 ? 2 : 1)
+                vsyncMode = Self.nextVsyncMode(vsyncMode)
+                fputs("[hud] tap fps-cap -> \(pillLabel(for: vsyncMode))\n", stderr)
                 madeira_set_vsync_locked(vsyncMode)
-                ProMotionIntent.shared.setActive(vsyncMode != 1)
+                ProMotionIntent.apply(mode: vsyncMode)
             }
     }
 
-    private var pillLabel: String {
-        switch vsyncMode {
+    private static func nextVsyncMode(_ mode: Int32) -> Int32 {
+        switch mode {
+        case 1: return 0    // 60 -> MAX
+        case 0: return 2    // MAX -> RAW
+        case 2: return ProMotionIntent.has30Cap ? 3 : 1   // RAW -> 30 (when DXMT has it) or 60
+        default: return 1   // 30 -> 60
+        }
+    }
+
+    /// ml1098: one tap = capture the next frame (every render pass's attachments
+    /// to Documents/capture/, plus the full draw-dump in the log). The pill
+    /// flashes for a second so a tap is visibly taken.
+    @State private var captureFlash = false
+    private var capturePill: some View {
+        Text("CAP")
+            .foregroundColor(captureFlash ? .black : .cyan)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(captureFlash ? Color.cyan : Color.clear)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.cyan, lineWidth: 1))
+            .onTapGesture {
+                madeira_capture_request(1)
+                captureFlash = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { captureFlash = false }
+            }
+    }
+
+    /// ml1133: ECO. The SoC clamps the CPU clock once ~250 J of CPU energy has
+    /// been spent above ~2.3 W, and a loading screen at full clock spends nearly
+    /// all of it before gameplay starts. ECO on = guest threads run at a low QoS
+    /// class (efficiency cores, lower clocks): loading is slower but keeps the
+    /// budget for gameplay. Turn it off once in game. Green = on.
+    @State private var ecoOn = madeira_get_eco() != 0
+    private var ecoPill: some View {
+        Text("ECO")
+            .foregroundColor(ecoOn ? .black : .green)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(ecoOn ? Color.green : Color.clear)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.green, lineWidth: 1))
+            .onTapGesture {
+                ecoOn.toggle()
+                madeira_set_eco(ecoOn ? 1 : 0)
+            }
+    }
+
+    /// ml1136: GPU encoder-sync mode, switchable live for in-place A/B tests.
+    /// F1 = every encoder waits for the one before (accurate, default),
+    /// F6 = barrier-driven, F5 = render passes wait at the fragment stage,
+    /// F0 = no fences at all (diagnostic ceiling; expect flicker).
+    // ml1137: the overlay view is recreated on layout changes, which reset a plain
+    // @State to the config value (ph-rdr93: taps re-requested F6 three times).
+    // The mode lives in a static so it survives, and @State mirrors it for redraws.
+    @State private var fenceMode: Int = FPSOverlayFenceMode.current
+    private var fencePill: some View {
+        let color: Color = fenceMode == 1 ? .white : fenceMode == 6 ? .purple : fenceMode == 5 ? .blue : .red
+        return Text("F\(fenceMode)")
+            .foregroundColor(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(color, lineWidth: 1))
+            .onTapGesture {
+                fenceMode = FPSOverlayFenceMode.current
+                fenceMode = fenceMode == 1 ? 6 : fenceMode == 6 ? 5 : fenceMode == 5 ? 0 : 1
+                FPSOverlayFenceMode.current = fenceMode
+                madeira_set_fence_mode(Int32(fenceMode == 0 ? 7 : fenceMode))
+            }
+    }
+
+    private func pillLabel(for mode: Int32) -> String {
+        switch mode {
         case 1: return "60"
+        case 3: return "30"
         case 0: return "MAX(\(UIScreen.main.maximumFramesPerSecond))"
         default: return "RAW"
         }
     }
 
+    private var pillLabel: String { pillLabel(for: vsyncMode) }
+
     private var pillColor: Color {
         switch vsyncMode {
         case 1: return .cyan
+        case 3: return .indigo
         case 0: return .pink
         default: return .orange
         }
@@ -192,7 +332,7 @@ struct FPSOverlay: View {
         samples = [(now, c)]
         presentCount = c
         vsyncMode = madeira_get_vsync_locked()
-        ProMotionIntent.shared.setActive(vsyncMode != 1)
+        ProMotionIntent.apply(mode: vsyncMode)
 
         // 100ms sampling — keeps the buffer fresh
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
@@ -248,4 +388,9 @@ struct FPSOverlay: View {
         guard dt > 0.0001 else { return 0 }
         return Double(dc) / dt
     }
+}
+
+/// ml1137: process-wide fence-mode display state for the overlay pill.
+enum FPSOverlayFenceMode {
+    static var current: Int = Int(MadeiraConfig.get("fence-chain") ?? "1") ?? 1
 }
