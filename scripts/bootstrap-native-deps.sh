@@ -78,7 +78,11 @@ bash "$root/build/win32u-unix/build.sh"
 
 log "Build LLVM and DXMT"
 bash "$root/build/llvm-ios/build.sh"
-if ! xcrun -sdk macosx -f metal >/dev/null 2>&1; then xcodebuild -downloadComponent MetalToolchain; fi
+# `xcrun -f metal` can resolve Apple's placeholder launcher even when the
+# separately distributed Metal Toolchain is absent. Always ask Xcode to
+# install/verify the component; the command is a quick no-op when cached.
+xcodebuild -downloadComponent MetalToolchain
+xcrun -sdk macosx metal -v >/dev/null
 bash "$root/build/dxmt-ios/build.sh"
 
 log "Build Madeira Dock"

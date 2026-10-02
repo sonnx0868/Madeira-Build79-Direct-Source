@@ -275,7 +275,10 @@ echo ""
 echo "Results: $SUCCEEDED succeeded, $FAILED failed"
 if [ -n "$FAILED_FILES" ]; then
     echo "Failed:$FAILED_FILES"
-    echo "See .err files in $OBJ_DIR/"
+    for name in $FAILED_FILES; do
+        echo "--- $OBJ_DIR/$name.err ---" >&2
+        sed -n '1,240p' "$OBJ_DIR/$name.err" >&2
+    done
     exit 1
 fi
 
