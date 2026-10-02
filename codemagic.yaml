@@ -8,6 +8,7 @@ workflows:
       vars:
         XCODE_PROJECT: app/Madeira.xcodeproj
         XCODE_SCHEME: Madeira
+        APP_CONFIGURATION: Debug
         DERIVED_DATA: /tmp/madeira-derived
     cache:
       cache_paths:
@@ -41,15 +42,16 @@ workflows:
           xcodebuild \
             -project "$CM_BUILD_DIR/$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
-            -configuration Release \
+            -configuration "$APP_CONFIGURATION" \
             -sdk iphoneos \
             -derivedDataPath "$DERIVED_DATA" \
+            ENABLE_DEBUG_DYLIB=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
       - name: Package ad-hoc IPA for SideStore or AltStore
         script: |
           set -euo pipefail
-          app="$DERIVED_DATA/Build/Products/Release-iphoneos/Madeira.app"
+          app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
           codesign --force --sign - \
             --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" \
@@ -80,6 +82,7 @@ workflows:
       vars:
         XCODE_PROJECT: app/Madeira.xcodeproj
         XCODE_SCHEME: Madeira
+        APP_CONFIGURATION: Debug
         DERIVED_DATA: /tmp/madeira-derived
     scripts:
       - name: Checkout pinned submodules
@@ -96,15 +99,16 @@ workflows:
           xcodebuild \
             -project "$CM_BUILD_DIR/$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
-            -configuration Release \
+            -configuration "$APP_CONFIGURATION" \
             -sdk iphoneos \
             -derivedDataPath "$DERIVED_DATA" \
+            ENABLE_DEBUG_DYLIB=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
       - name: Package ad-hoc IPA for SideStore or AltStore
         script: |
           set -euo pipefail
-          app="$DERIVED_DATA/Build/Products/Release-iphoneos/Madeira.app"
+          app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
           codesign --force --sign - \
             --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" \
@@ -134,6 +138,7 @@ workflows:
       vars:
         XCODE_PROJECT: app/Madeira.xcodeproj
         XCODE_SCHEME: Madeira
+        APP_CONFIGURATION: Debug
     scripts:
       - name: Checkout pinned submodules
         script: git submodule update --init --recursive

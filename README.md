@@ -59,6 +59,11 @@ The build is split across several chains — the unix-side Wine libraries, the
 ARM64EC PE modules, FEX, DXMT and the iOS app itself. `build/*/build.sh` covers
 the native pieces; the app is built with `xcodebuild`.
 
+Use the **Debug** app configuration for device packages. The upstream Madeira
+device workflow is validated with Debug; Release has previously crashed the
+guest runtime. CI sets `ENABLE_DEBUG_DYLIB=NO` so an unsigned Xcode build stays
+monolithic and can be ad-hoc signed before it is zipped into `Payload/`.
+
 ```sh
 git clone --recurse-submodules <this repo>
 ```
