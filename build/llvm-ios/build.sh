@@ -43,28 +43,33 @@ if [[ ! -x "$host_build/bin/llvm-tblgen" ]]; then
     cmake --build "$host_build" --parallel "$jobs" --target llvm-tblgen
 fi
 
-if [[ ! -f "$ios_build/CMakeCache.txt" ]]; then
-    cmake -S "$source_dir/llvm" -B "$ios_build" -G Ninja \
-        -DCMAKE_SYSTEM_NAME=iOS \
-        -DCMAKE_OSX_ARCHITECTURES=arm64 \
-        -DCMAKE_OSX_SYSROOT=iphoneos \
-        -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DLLVM_TABLEGEN="$host_build/bin/llvm-tblgen" \
-        -DLLVM_HOST_TRIPLE=arm64-apple-ios17.0 \
-        -DLLVM_DEFAULT_TARGET_TRIPLE=arm64-apple-ios17.0 \
-        -DLLVM_TARGET_ARCH=host \
-        -DLLVM_TARGETS_TO_BUILD= \
-        -DLLVM_ENABLE_PROJECTS= \
-        -DLLVM_BUILD_TOOLS=OFF \
-        -DLLVM_BUILD_UTILS=OFF \
-        -DLLVM_INCLUDE_TESTS=OFF \
-        -DLLVM_INCLUDE_EXAMPLES=OFF \
-        -DLLVM_INCLUDE_BENCHMARKS=OFF \
-        -DLLVM_ENABLE_ZLIB=OFF \
-        -DLLVM_ENABLE_ZSTD=OFF \
-        -DLLVM_ENABLE_TERMINFO=OFF
-fi
+# Reconfigure on every run so a restored Codemagic cache picks up option
+# changes. DXMT needs LLVM's static libraries and generated headers only;
+# excluding tools prevents the iOS build from trying to link libLTO.dylib and
+# LLVM executables with host/GNU linker flags such as `-z`.
+cmake -S "$source_dir/llvm" -B "$ios_build" -G Ninja \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+    -DCMAKE_OSX_SYSROOT=iphoneos \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_TABLEGEN="$host_build/bin/llvm-tblgen" \
+    -DLLVM_HOST_TRIPLE=arm64-apple-ios17.0 \
+    -DLLVM_DEFAULT_TARGET_TRIPLE=arm64-apple-ios17.0 \
+    -DLLVM_TARGET_ARCH=host \
+    -DLLVM_TARGETS_TO_BUILD= \
+    -DLLVM_ENABLE_PROJECTS= \
+    -DLLVM_INCLUDE_TOOLS=OFF \
+    -DLLVM_BUILD_TOOLS=OFF \
+    -DLLVM_INCLUDE_UTILS=OFF \
+    -DLLVM_BUILD_UTILS=OFF \
+    -DLLVM_BUILD_LLVM_DYLIB=OFF \
+    -DLLVM_INCLUDE_TESTS=OFF \
+    -DLLVM_INCLUDE_EXAMPLES=OFF \
+    -DLLVM_INCLUDE_BENCHMARKS=OFF \
+    -DLLVM_ENABLE_ZLIB=OFF \
+    -DLLVM_ENABLE_ZSTD=OFF \
+    -DLLVM_ENABLE_TERMINFO=OFF
 
 cmake --build "$ios_build" --parallel "$jobs"
 test -n "$(find "$ios_build/lib" -maxdepth 1 -name 'libLLVM*.a' -print -quit)"
