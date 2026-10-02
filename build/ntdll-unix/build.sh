@@ -41,6 +41,7 @@ compile_one() {
         SUCCEEDED=$((SUCCEEDED + 1))
     else
         echo "FAILED"
+        sed -n '1,240p' "$OBJ_DIR/$name.err" >&2
         FAILED=$((FAILED + 1))
         FAILED_FILES="$FAILED_FILES $name"
     fi
@@ -76,6 +77,7 @@ compile_unixlib() {
         SUCCEEDED=$((SUCCEEDED + 1))
     else
         echo "FAILED"
+        sed -n '1,240p' "$OBJ_DIR/$name.err" >&2
         FAILED=$((FAILED + 1))
         FAILED_FILES="$FAILED_FILES $name"
     fi
@@ -91,7 +93,7 @@ compile_one "$BUILD_DIR/../madsync/madsync.c" "madsync"   # ml1058: userspace nt
 
 # iOS-Madeira 2026-07-05 (Steam S0): network + crypto unix sides.
 echo "=== Building crypto/network unixlibs ==="
-"$CRYPTO_DIR/gen_gnutls_symtab.sh" > /dev/null
+bash "$CRYPTO_DIR/gen_gnutls_symtab.sh" > /dev/null
 compile_one "$CRYPTO_DIR/gnutls_symtab_ios.c" "gnutls_symtab_ios"
 compile_unixlib "$WINE_SRC/dlls/ws2_32/unixlib.c" "ws2_32_unixlib" "ws2_32" \
     -I"$WINE_SRC/dlls/ws2_32"
@@ -202,6 +204,11 @@ echo ""
 echo "Results: $SUCCEEDED succeeded, $FAILED failed"
 if [ -n "$FAILED_FILES" ]; then
     echo "Failed:$FAILED_FILES"
+fi
+
+if [ "$FAILED" -gt 0 ]; then
+    echo "Refusing to archive an incomplete libntdll_unix.a" >&2
+    exit 1
 fi
 
 echo ""

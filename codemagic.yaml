@@ -1,0 +1,93 @@
+workflows:
+  madeira-upstream-bootstrap:
+    name: Upstream Madeira native bootstrap + IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: app/Madeira.xcodeproj
+        XCODE_SCHEME: Madeira
+        APP_CONFIGURATION: Debug
+        DERIVED_DATA: /tmp/madeira-derived
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/FEX/build-ios
+        - $CM_BUILD_DIR/wine/build-macos
+        - $CM_BUILD_DIR/wine/build-arm64ec
+        - $CM_BUILD_DIR/toolchains
+        - $CM_BUILD_DIR/build/gnutls-ios/obj
+        - $CM_BUILD_DIR/build/ffmpeg/obj
+        - $CM_BUILD_DIR/build/freetype-ios/build
+        - $CM_BUILD_DIR/build/wineserver/obj
+        - $CM_BUILD_DIR/build/ntdll-unix/obj
+        - $CM_BUILD_DIR/build/win32u-unix/obj
+        - $CM_BUILD_DIR/build/dxmt-ios/obj
+        - $CM_BUILD_DIR/research/freetype
+        - $CM_BUILD_DIR/app/Madeira/x86_64-vcruntime
+    scripts:
+      - name: Build upstream native dependencies
+        script: bash scripts/bootstrap-native-deps.sh
+      - name: Package reusable native bundle
+        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-upstream-native-deps.zip"
+      - name: Build unsigned Debug app
+        script: |
+          set -euo pipefail
+          xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
+            -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
+            ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build
+      - name: Package ad-hoc IPA
+        script: |
+          set -euo pipefail
+          app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
+          test -d "$app"
+          codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
+          out="$CM_BUILD_DIR/build/upstream-bootstrap"
+          rm -rf "$out"; mkdir -p "$out/Payload"
+          ditto "$app" "$out/Payload/Madeira.app"
+          (cd "$out" && /usr/bin/zip -qry Madeira-upstream-bootstrap.ipa Payload)
+    artifacts:
+      - build/upstream-bootstrap/Madeira-upstream-bootstrap.ipa
+      - madeira-upstream-native-deps.zip
+      - build/ntdll-unix/obj/*.err
+      - build/win32u-unix/obj/*.err
+      - build/wineserver/obj/*.txt
+      - build/dxmt-ios/obj/*.err
+
+  madeira-upstream-ipa:
+    name: Upstream Madeira IPA from cached native bundle
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+      groups:
+        - madeira_build_inputs
+      vars:
+        XCODE_PROJECT: app/Madeira.xcodeproj
+        XCODE_SCHEME: Madeira
+        APP_CONFIGURATION: Debug
+        DERIVED_DATA: /tmp/madeira-derived
+    scripts:
+      - name: Initialize upstream submodules
+        script: git submodule update --init FEX wine dxmt madeira-dock
+      - name: Restore native bundle
+        script: bash scripts/restore-native-deps.sh
+      - name: Build unsigned Debug app
+        script: |
+          set -euo pipefail
+          xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
+            -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
+            ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build
+      - name: Package ad-hoc IPA
+        script: |
+          set -euo pipefail
+          app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
+          test -d "$app"
+          codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
+          out="$CM_BUILD_DIR/build/upstream"
+          rm -rf "$out"; mkdir -p "$out/Payload"
+          ditto "$app" "$out/Payload/Madeira.app"
+          (cd "$out" && /usr/bin/zip -qry Madeira-upstream.ipa Payload)
+    artifacts:
+      - build/upstream/Madeira-upstream.ipa
+      - /tmp/xcodebuild_logs/*.log
