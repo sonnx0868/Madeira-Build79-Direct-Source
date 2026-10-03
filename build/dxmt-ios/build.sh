@@ -229,17 +229,17 @@ echo "=== MADEIRA: dxmt_madeira_native -- internal command library ==="
 # with the metalir/metallib/xxd generator chain (src/dxmt/meson.build:24-32).
 # Same chain, same symbol names (xxd -n dxmt_command gives dxmt_command /
 # dxmt_command_len, which is what dxmt_command.cpp:16 expects).
-if [ ! -f "$BUILD_DIR/shader-headers/dxmt_command.h" ] \
-   || [ "$DXMT_SRC/dxmt/dxmt_command.metal" -nt "$BUILD_DIR/shader-headers/dxmt_command.h" ]; then
-    mkdir -p "$BUILD_DIR/shader-headers"
-    (cd "$BUILD_DIR/shader-headers" \
-     && xcrun -sdk macosx metal -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
-     && xcrun -sdk macosx metallib -o dxmt_command.metallib dxmt_command.air \
-     && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h)
-    echo "  dxmt_command.h                           OK"
-else
-    echo "  dxmt_command.h                           CACHED"
-fi
+mkdir -p "$BUILD_DIR/shader-headers"
+# Xcode 26.6 defaults to Metal 4.1. A metallib produced with that default is
+# rejected by iPadOS 26.1 before Unity can create its first D3D11 device.
+# Regenerate unconditionally so a cached Metal-4 header cannot survive a CI
+# toolchain change, and target the same Metal 3.1 baseline as airconv.
+(cd "$BUILD_DIR/shader-headers" \
+ && xcrun -sdk macosx metal -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
+      -std=metal3.1 --target=air64-apple-macos14.0 \
+ && xcrun -sdk macosx metallib -o dxmt_command.metallib dxmt_command.air \
+ && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h)
+echo "  dxmt_command.h                           OK (Metal 3.1)"
 
 echo "=== MADEIRA: dxmt_madeira_native -- util ==="
 # MADEIRA (WOW64_DESIGN.md, ml1070): util_futex.cpp carries dxmt::futex's
