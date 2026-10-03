@@ -34,7 +34,7 @@ if [[ "$missing_vcrt" = 1 ]]; then
         *) echo "Unsafe VC runtime work path: $work" >&2; exit 1 ;;
     esac
     rm -rf "$work"
-    mkdir -p "$work/outer" "$work/inner" "$vcrt"
+    mkdir -p "$work/inner" "$vcrt"
 
     curl --fail --location --retry 3 \
       https://aka.ms/vs/17/release/vc_redist.x64.exe \
@@ -42,22 +42,52 @@ if [[ "$missing_vcrt" = 1 ]]; then
     vc_sha="${VC_REDIST_X64_SHA256:-CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B}"
     printf '%s  %s\n' "$vc_sha" "$work/vc_redist.x64.exe" | shasum -a 256 -c -
 
-    7zz x -y "$work/vc_redist.x64.exe" -o"$work/outer" >/dev/null
+    # A WiX Burn redistributable contains two concatenated CABs. 7-Zip 26.01
+    # opens only the first (the small UI container, whose files are u0, u1,
+    # ...); the runtime packages live in the much larger attached container.
+    # Locate every structurally valid CAB and carve the largest one instead of
+    # relying on 7-Zip's choice or on version-specific offsets.
+    python3 - "$work/vc_redist.x64.exe" "$work/attached.cab" <<'PY'
+from pathlib import Path
+import struct
+import sys
 
-    # 7-Zip may preserve CAB names, or expose PE resources as u0, u1, ...
-    # Detect Microsoft Cabinet payloads by their MSCF signature as well as by
-    # extension so this keeps working across 7-Zip and redistributable updates.
+source, output = Path(sys.argv[1]), Path(sys.argv[2])
+data = source.read_bytes()
+cabinets = []
+offset = 0
+while True:
+    offset = data.find(b"MSCF", offset)
+    if offset < 0:
+        break
+    if offset + 12 <= len(data):
+        size = struct.unpack_from("<I", data, offset + 8)[0]
+        if size >= 36 and offset + size <= len(data):
+            cabinets.append((size, offset))
+    offset += 4
+if not cabinets:
+    raise SystemExit("No structurally valid CAB found in VC_redist.x64.exe")
+size, offset = max(cabinets)
+output.write_bytes(data[offset:offset + size])
+print(f"Carved attached VC container at {offset} ({size} bytes)")
+PY
+
+    mkdir -p "$work/attached"
+    7zz x -y "$work/attached.cab" -o"$work/attached" >/dev/null
+
+    # The attached container contains MSI files, Windows update CABs and the
+    # actual runtime CABs under anonymous names such as a12 and a13.
     cabs=()
     while IFS= read -r -d '' payload; do
         magic="$(od -An -tx1 -N4 "$payload" 2>/dev/null | tr -d ' \n' || true)"
         if [[ "$payload" == *.cab || "$payload" == *.CAB || "$magic" == 4d534346 ]]; then
             cabs+=("$payload")
         fi
-    done < <(find "$work/outer" -type f -print0)
+    done < <(find "$work/attached" -type f -print0)
 
     if (( ${#cabs[@]} == 0 )); then
         echo "No CAB payload found in VC_redist.x64.exe; extracted files:" >&2
-        find "$work/outer" -maxdepth 5 -type f -print >&2
+        find "$work/attached" -maxdepth 5 -type f -print >&2
         exit 1
     fi
 
@@ -66,7 +96,7 @@ if [[ "$missing_vcrt" = 1 ]]; then
     for cab in "${cabs[@]}"; do
         cab_out="$work/inner/$cab_index"
         mkdir -p "$cab_out"
-        echo "Extracting VC runtime payload: ${cab#$work/outer/}"
+        echo "Extracting VC payload: ${cab#$work/attached/}"
         7zz x -y "$cab" -o"$cab_out" >/dev/null
         cab_index=$((cab_index + 1))
     done
@@ -74,10 +104,26 @@ if [[ "$missing_vcrt" = 1 ]]; then
     python3 - "$work/inner" "$vcrt" "${required_vcrt[@]}" <<'PY'
 from pathlib import Path
 import shutil
+import struct
 import sys
 
 src, dst = Path(sys.argv[1]), Path(sys.argv[2])
-files = {p.name.lower(): p for p in src.rglob("*") if p.is_file()}
+files = {}
+for path in src.rglob("*"):
+    if not path.is_file():
+        continue
+    name = path.name.lower()
+    # Microsoft's CAB members are named e.g. msvcp140.dll_amd64. Accept
+    # direct names too, but never select the arm64 payload from the same bundle.
+    key = name[:-6] if name.endswith("_amd64") else name
+    try:
+        data = path.read_bytes()
+        pe = struct.unpack_from("<I", data, 0x3C)[0]
+        machine = struct.unpack_from("<H", data, pe + 4)[0]
+    except (OSError, struct.error):
+        continue
+    if machine == 0x8664:
+        files[key] = path
 for name in sys.argv[3:]:
     source = files.get(name.lower())
     if source is None:
