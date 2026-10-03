@@ -85,6 +85,19 @@ own forks; upstream checkouts will not build here. The build has several parts
 and some inputs that are not in the repository, such as the toolchains.
 [`docs/BUILDING.md`](docs/BUILDING.md) walks through all of it.
 
+### Codemagic source build
+
+The `codex/v0.1.1-source-build` branch starts at the public Madeira `v0.1.1`
+tag (`ca3183e`) and adds clean-checkout CI portability fixes. It compiles the
+native dependencies and application from source; it does not unpack a released
+IPA. Run `Madeira v0.1.1 source bootstrap + IPA` first. The workflow publishes
+`Madeira-v0.1.1-source.ipa` plus a reusable native dependency ZIP for later app
+or UI-only builds.
+
+This branch also pins DXMT's embedded command shaders to Metal 3.1 for iPadOS
+26.1 compatibility and stages Microsoft's signed x64 VC++ 2008 and v14 runtime
+payloads supplied by their official redistributable packages.
+
 ### Repository layout
 
 | Path | Contents |
