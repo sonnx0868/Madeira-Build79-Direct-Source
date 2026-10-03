@@ -230,16 +230,17 @@ echo "=== MADEIRA: dxmt_madeira_native -- internal command library ==="
 # Same chain, same symbol names (xxd -n dxmt_command gives dxmt_command /
 # dxmt_command_len, which is what dxmt_command.cpp:16 expects).
 mkdir -p "$BUILD_DIR/shader-headers"
-# Xcode 26.6 defaults to Metal 4.1. A metallib produced with that default is
-# rejected by iPadOS 26.1 before Unity can create its first D3D11 device.
-# Regenerate unconditionally so a cached Metal-4 header cannot survive a CI
-# toolchain change, and target the same Metal 3.1 baseline as airconv.
+# Xcode 26.6 defaults to Metal 4.1. A macOS-targeted metallib produced by that
+# toolchain is rejected by iPadOS 26.1 before Unity can create its first D3D11
+# device. Regenerate unconditionally so a cached Metal-4 header cannot survive
+# a CI toolchain change. Use the iPhoneOS SDK and an explicit minimum OS; the
+# Metal command-line compiler otherwise defaults to its SDK's deployment target.
 (cd "$BUILD_DIR/shader-headers" \
- && xcrun -sdk macosx metal -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
-      -std=metal3.1 --target=air64-apple-macos14.0 \
- && xcrun -sdk macosx metallib -o dxmt_command.metallib dxmt_command.air \
+ && xcrun -sdk iphoneos metal -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
+      -std=metal3.1 -mios-version-min=18.0 --target=air64-apple-ios18.0 \
+ && xcrun -sdk iphoneos metallib -o dxmt_command.metallib dxmt_command.air \
  && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h)
-echo "  dxmt_command.h                           OK (Metal 3.1)"
+echo "  dxmt_command.h                           OK (iOS 18 / Metal 3.1)"
 
 echo "=== MADEIRA: dxmt_madeira_native -- util ==="
 # MADEIRA (WOW64_DESIGN.md, ml1070): util_futex.cpp carries dxmt::futex's
