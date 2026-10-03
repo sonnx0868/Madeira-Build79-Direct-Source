@@ -99,9 +99,11 @@ compile_unixlib "$WINE_SRC/dlls/ws2_32/unixlib.c" "ws2_32_unixlib" "ws2_32" \
     -I"$WINE_SRC/dlls/ws2_32"
 compile_unixlib "$WINE_SRC/dlls/bcrypt/gnutls.c" "bcrypt_unixlib" "bcrypt" \
     -I"$WINE_SRC/dlls/bcrypt" -I"$GNUTLS_PREFIX/include" \
+    -DHAVE_GNUTLS_CIPHER_INIT=1 -DSONAME_LIBGNUTLS=\"libgnutls.dylib\" \
     -include "$CRYPTO_DIR/ios_gnutls_shim.h"
 compile_unixlib "$WINE_SRC/dlls/secur32/schannel_gnutls.c" "secur32_unixlib" "secur32" \
     -I"$WINE_SRC/dlls/secur32" -I"$GNUTLS_PREFIX/include" \
+    -DSONAME_LIBGNUTLS=\"libgnutls.dylib\" \
     -include "$CRYPTO_DIR/ios_gnutls_shim.h"
 # iOS-Madeira ml494 (#61 text wall): dwrite had NO unixlib, so every
 # __wine_unix_call from dwrite.dll failed and get_glyph_bbox never ran —
@@ -229,5 +231,12 @@ ar rcs "$OBJ_DIR/libntdll_unix.a" \
 
 echo "Copying to app..."
 cp "$OBJ_DIR/libntdll_unix.a" "$APP_LIB"
+for symbol in bcrypt_unix_call_funcs bcrypt_unix_call_wow64_funcs \
+              secur32_unix_call_funcs secur32_unix_call_wow64_funcs; do
+    if ! xcrun nm -gU "$APP_LIB" | grep -Eq "[ _]_${symbol}$"; then
+        echo "Missing required unixlib symbol in libntdll_unix.a: $symbol" >&2
+        exit 1
+    fi
+done
 echo "libntdll_unix.a: $(wc -c < "$APP_LIB" | tr -d ' ') bytes"
 echo "Done!"
