@@ -14,11 +14,11 @@ missing=()
 for formula in "${formulae[@]}"; do brew list "$formula" >/dev/null 2>&1 || missing+=("$formula"); done
 if (( ${#missing[@]} )); then brew install "${missing[@]}"; fi
 
-log "Initialize pinned upstream submodules"
-git -C "$root" submodule update --init FEX wine dxmt madeira-dock
+log "Initialize Madeira v0.1.0 pinned submodules"
+git -C "$root" submodule update --init FEX wine research/dxmt research/madeira-dock
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \
     External/fmt External/xxhash External/range-v3 External/unordered_dense
-git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
+git -C "$root/research/dxmt" submodule update --init --depth 1 include/native/directx
 
 log "Install pinned llvm-mingw"
 mingw_name="llvm-mingw-20260421-ucrt-macos-universal"

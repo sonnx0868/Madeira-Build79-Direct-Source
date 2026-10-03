@@ -40,6 +40,20 @@ git clone --recurse-submodules <this repo>
 Note that `FEX`, `wine` and `research/dxmt` are submodules pointing at forks
 containing the iOS work; upstream clones will not build here.
 
+### Codemagic source build
+
+The `codex/v0.1.0-source-build` branch starts at the public Madeira `v0.1.0`
+tag (`3ccbf9b`) and adds only clean-checkout build/CI portability changes. It
+does not unpack or repackage the released IPA.
+
+Run the `Madeira v0.1.0 source bootstrap + IPA` workflow first. It compiles
+FEX, Wine, LLVM/DXMT, Madeira Dock and the iOS app from their pinned sources,
+then publishes both `Madeira-v0.1.0-bootstrap.ipa` and a reusable native
+dependency ZIP. The shorter `Madeira v0.1.0 IPA from cached native bundle`
+workflow is for later Swift/Objective-C/UI changes after that ZIP has been
+made available through the `madeira_build_inputs` environment group described
+in `codemagic.yaml`.
+
 ## License
 
 **GPL-3.0-or-later** — see [`LICENSE`](LICENSE). Derivatives that are
