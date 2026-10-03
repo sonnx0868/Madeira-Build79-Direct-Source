@@ -4,9 +4,10 @@ Games built with MSVC need the Visual C++ runtime. Those DLLs are authored by
 Microsoft and are **not** redistributable under this project's license, so they
 are not committed here. You supply them yourself.
 
-Twelve files are expected in `app/Madeira/x86_64-vcruntime/`:
+Fourteen files are expected in `app/Madeira/x86_64-vcruntime/`:
 
 ```
+msvcp90.dll                msvcr90.dll
 concrt140.dll              msvcp140_codecvt_ids.dll   vcruntime140.dll
 msvcp140.dll               vcamp140.dll               vcruntime140_1.dll
 msvcp140_1.dll             vccorlib140.dll            vcruntime140_threads.dll
@@ -16,8 +17,11 @@ msvcp140_atomic_wait.dll
 
 ## How to get them
 
-Download the official x64 redistributable from Microsoft
-(`VC_redist.x64.exe`) and extract it. On macOS, 7-Zip can do this:
+Download the official x64 v14 redistributable (`VC_redist.x64.exe`) and the
+official Visual C++ 2008 SP1 x64 redistributable (`vcredist_x64.exe`) from
+Microsoft and extract them. `scripts/fetch-vcruntime.sh` performs the nested
+CAB extraction, checks both package hashes and stages only AMD64 binaries.
+For the v14 package alone, the basic macOS extraction is:
 
 ```sh
 brew install sevenzip
@@ -25,7 +29,7 @@ brew install sevenzip
 7zz x /tmp/vcredist/.rsrc/1033/CABINET/*.cab -oapp/Madeira/x86_64-vcruntime
 ```
 
-Exact layout varies by redistributable version; the goal is simply the twelve
+Exact layout varies by redistributable version; the goal is simply the fourteen
 files above, **byte-for-byte as Microsoft shipped them**.
 
 ## Do not modify them

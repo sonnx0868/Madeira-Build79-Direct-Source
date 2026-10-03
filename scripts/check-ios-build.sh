@@ -18,7 +18,8 @@ for path in \
   app/Madeira/libswresample.a app/Madeira/libavutil.a \
   app/Madeira/arm64ec-windows/dockhost.exe; do need "$path"; done
 
-for dll in concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll \
+for dll in msvcp90.dll msvcr90.dll \
+  concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll \
   msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcamp140.dll \
   vccorlib140.dll vcomp140.dll vcruntime140.dll vcruntime140_1.dll \
   vcruntime140_threads.dll; do need "app/Madeira/x86_64-vcruntime/$dll"; done

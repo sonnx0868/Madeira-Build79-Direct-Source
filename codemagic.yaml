@@ -1,6 +1,6 @@
 workflows:
-  madeira-upstream-bootstrap:
-    name: Upstream Madeira native bootstrap + IPA
+  madeira-v011-bootstrap:
+    name: Madeira v0.1.1 source bootstrap + IPA
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
@@ -26,10 +26,10 @@ workflows:
         - $CM_BUILD_DIR/research/freetype
         - $CM_BUILD_DIR/app/Madeira/x86_64-vcruntime
     scripts:
-      - name: Build upstream native dependencies
+      - name: Build Madeira v0.1.1 native dependencies
         script: bash scripts/bootstrap-native-deps.sh
       - name: Package reusable native bundle
-        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-upstream-native-deps.zip"
+        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-v0.1.1-native-deps.zip"
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
@@ -42,20 +42,20 @@ workflows:
           app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
-          out="$CM_BUILD_DIR/build/upstream-bootstrap"
+          out="$CM_BUILD_DIR/build/v0.1.1-bootstrap"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-upstream-bootstrap.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.1-source.ipa Payload)
     artifacts:
-      - build/upstream-bootstrap/Madeira-upstream-bootstrap.ipa
-      - madeira-upstream-native-deps.zip
+      - build/v0.1.1-bootstrap/Madeira-v0.1.1-source.ipa
+      - madeira-v0.1.1-native-deps.zip
       - build/ntdll-unix/obj/*.err
       - build/win32u-unix/obj/*.err
       - build/wineserver/obj/*.txt
       - build/dxmt-ios/obj/*.err
 
-  madeira-upstream-ipa:
-    name: Upstream Madeira IPA from cached native bundle
+  madeira-v011-ipa:
+    name: Madeira v0.1.1 IPA from cached native bundle
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -84,10 +84,10 @@ workflows:
           app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
-          out="$CM_BUILD_DIR/build/upstream"
+          out="$CM_BUILD_DIR/build/v0.1.1"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-upstream.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.1-source.ipa Payload)
     artifacts:
-      - build/upstream/Madeira-upstream.ipa
+      - build/v0.1.1/Madeira-v0.1.1-source.ipa
       - /tmp/xcodebuild_logs/*.log

@@ -1334,8 +1334,9 @@ static void *wine_process_thread(void *arg) {
             // builtins — Wine then loads the real MS x86_64 implementation
             // (via FEX) instead of its partial ARM64EC reimplementation.
             //
-            // Same pattern Proton/Winlator use: drop in the real concrt140 /
-            // msvcp140 / vcruntime140 binaries from VC_redist.x64.exe so games
+            // Same pattern Proton/Winlator use: drop in VC90 plus the real
+            // concrt140 / msvcp140 / vcruntime140 binaries from Microsoft's
+            // redistributables so games
             // that exercise the full C++ runtime (parallel_for, atomic_wait,
             // <filesystem>, etc.) don't trip __wine_unimplemented stubs.
             if (use_arm64ec) {
