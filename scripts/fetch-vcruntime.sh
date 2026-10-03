@@ -244,4 +244,3 @@ for name in sys.argv[2:]:
         raise SystemExit(f"VC runtime is missing its Authenticode payload: {path}")
 print(f"Validated {len(sys.argv) - 2} signed Microsoft runtime DLLs")
 PY
-
