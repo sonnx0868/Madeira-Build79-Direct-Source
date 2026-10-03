@@ -239,8 +239,14 @@ mkdir -p "$BUILD_DIR/shader-headers"
  && xcrun -sdk iphoneos metal -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
       -std=metal3.1 -mios-version-min=18.0 --target=air64-apple-ios18.0 \
  && xcrun -sdk iphoneos metallib -o dxmt_command.metallib dxmt_command.air \
- && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h)
+ && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h \
+ && xxd -n dxmt_command_source -i "$DXMT_SRC/dxmt/dxmt_command.metal" dxmt_command_source.h)
 echo "  dxmt_command.h                           OK (iOS 18 / Metal 3.1)"
+
+# Objective-C bridge used only if the embedded metallib is newer than the
+# installed iOS Metal runtime. It compiles the generated source header above
+# through MTLDevice newLibraryWithSource with languageVersion=Metal 3.1.
+compile_objc "$BUILD_DIR/metal_source_fallback.m" metal_source_fallback
 
 echo "=== MADEIRA: dxmt_madeira_native -- util ==="
 # MADEIRA (WOW64_DESIGN.md, ml1070): util_futex.cpp carries dxmt::futex's

@@ -44,3 +44,48 @@ index 1cb6542..eef3898 100644
  #include "winemetal.h"
  
  static inline enum wmtw_pack_status
+diff --git a/src/dxmt/dxmt_command.cpp b/src/dxmt/dxmt_command.cpp
+--- a/src/dxmt/dxmt_command.cpp
++++ b/src/dxmt/dxmt_command.cpp
+@@ -4,6 +4,12 @@
+ #include "dxmt_format.hpp"
+ 
+ #include "dxmt_command.h"
++#include "dxmt_command_source.h"
++
++extern "C" uint64_t madeira_mtl_new_library_source(uint64_t device_handle,
++                                                    const char *source,
++                                                    uint64_t source_length,
++                                                    uint64_t *error_out);
+ 
+ #include <cfloat>
+ #define CREATE_PIPELINE(name)                                                                                          \
+@@ -16,7 +22,26 @@ InternalCommandLibrary::InternalCommandLibrary(WMT::Device device) {
+   library_ = device.newLibrary(dxmt_command, dxmt_command_len, error);
+ 
+   if (error) {
+-    ERR("Failed to create internal command library: ", error.description().getUTF8String());
+-    abort();
++    WARN("Embedded internal command library was rejected; compiling Metal 3.1 source: ",
++         error.description().getUTF8String());
++    error = nullptr;
++
++    uint64_t source_error_handle = 0;
++    auto source_library = madeira_mtl_new_library_source(
++        device.handle,
++        reinterpret_cast<const char *>(dxmt_command_source),
++        dxmt_command_source_len,
++        &source_error_handle);
++    library_ = WMT::Reference<WMT::Library>(source_library);
++    WMT::Reference<WMT::Error> source_error(source_error_handle);
++
++    if (!library_) {
++      if (source_error)
++        ERR("Failed to compile internal Metal 3.1 source: ", source_error.description().getUTF8String());
++      else
++        ERR("Failed to compile internal Metal 3.1 source without an NSError");
++      abort();
++    }
++    WARN("DXMT internal command library compiled on-device as Metal 3.1");
+   }
+ };
