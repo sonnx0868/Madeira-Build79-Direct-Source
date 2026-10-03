@@ -2,6 +2,23 @@ diff --git a/FEXCore/Source/Interface/Core/Core.cpp b/FEXCore/Source/Interface/C
 index be5431125..952ffe144 100644
 --- a/FEXCore/Source/Interface/Core/Core.cpp
 +++ b/FEXCore/Source/Interface/Core/Core.cpp
+@@ -76,6 +76,16 @@ struct rpm_cas_snapshot {
+   unsigned int block_count, block_used, is_full, which_loop;
+ };
++#if defined(__APPLE__)
++/* Apple builds disable FEX's rpmalloc subproject in the pinned CMake tree.
++ * Keep this optional allocator diagnostic a no-op instead of leaving the app
++ * with an unresolved rpm_cas_snapshot_take reference at final link. */
++static int rpm_cas_snapshot_take(struct rpm_cas_snapshot* out) {
++  (void)out;
++  return 0;
++}
++#else
+ int rpm_cas_snapshot_take(struct rpm_cas_snapshot* out);
++#endif
+ }
+ #include <condition_variable>
+ #include <fcntl.h>
 @@ -1464,6 +1464,7 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
    }
  #endif
