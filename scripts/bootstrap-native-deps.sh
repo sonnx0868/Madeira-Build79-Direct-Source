@@ -20,6 +20,9 @@ bash "$root/scripts/fetch-vcruntime.sh"
 log "Fetch LÖVE LuaJIT GC64 compatibility runtime"
 bash "$root/scripts/fetch-love-luajit-gc64.sh"
 
+log "Fetch ANGLE OpenGL ES to D3D11 compatibility runtime"
+bash "$root/scripts/fetch-angle-d3d11.sh"
+
 log "Initialize pinned upstream submodules"
 git -C "$root" submodule update --init FEX wine dxmt madeira-dock
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \

@@ -25,11 +25,31 @@ for dll in win32u.dll dinput.dll dinput8.dll \
   xinput1_1.dll xinput1_2.dll xinput1_3.dll xinput1_4.dll \
   xinput9_1_0.dll; do need "app/Madeira/arm64ec-windows/$dll"; done
 need "app/Madeira/arm64ec-windows/lua51-gc64.dll"
+need "app/Madeira/arm64ec-windows/libEGL.dll"
+need "app/Madeira/arm64ec-windows/libGLESv2.dll"
+need "app/Madeira/licenses/ANGLE-BSD-3.txt"
+need "app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html"
 need "build/wine-pe/controller-pe.version"
 
 if [[ -s "$root/app/Madeira/arm64ec-windows/lua51-gc64.dll" ]]; then
   printf '%s  %s\n' 94fb3e3d4b1f6acce0110e46aadf1ecab1fa17c4ed1ab34caef3c5c2121c208e \
     "$root/app/Madeira/arm64ec-windows/lua51-gc64.dll" | shasum -a 256 -c - >/dev/null || missing=1
+fi
+
+if [[ -s "$root/app/Madeira/arm64ec-windows/libEGL.dll" ]]; then
+  printf '%s  %s\n' d9c8541eaf0293c67ece10e97d00a8b689d5e043a8356d43224aac1af3a21a5f \
+    "$root/app/Madeira/arm64ec-windows/libEGL.dll" | shasum -a 256 -c - >/dev/null || missing=1
+fi
+if [[ -s "$root/app/Madeira/arm64ec-windows/libGLESv2.dll" ]]; then
+  printf '%s  %s\n' a1275f57b47575db9aa3a577e5eacba1d7f1d5578ef6a8072468d788c93c85ff \
+    "$root/app/Madeira/arm64ec-windows/libGLESv2.dll" | shasum -a 256 -c - >/dev/null || missing=1
+  grep -a -q 'D3D11CreateDevice' "$root/app/Madeira/arm64ec-windows/libGLESv2.dll" || {
+    echo "INVALID: libGLESv2.dll has no ANGLE D3D11 backend"; missing=1;
+  }
+fi
+if [[ -s "$root/app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html" ]]; then
+  printf '%s  %s\n' 000ae5775ffa701d57afe7ac3831b76799e8250a2d0c328d1785cba935aab38d \
+    "$root/app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html" | shasum -a 256 -c - >/dev/null || missing=1
 fi
 
 if [[ -s "$root/build/wine-pe/controller-pe.version" && -e "$root/wine/.git" ]]; then

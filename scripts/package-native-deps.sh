@@ -24,7 +24,10 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/xinput1_4.dll \
   app/Madeira/arm64ec-windows/xinput9_1_0.dll \
   app/Madeira/arm64ec-windows/lua51-gc64.dll \
+  app/Madeira/arm64ec-windows/libEGL.dll \
+  app/Madeira/arm64ec-windows/libGLESv2.dll \
   app/Madeira/arm64ec-windows/dockhost.exe \
-  app/Madeira/arm64ec-windows/dock-notices.txt)
+  app/Madeira/arm64ec-windows/dock-notices.txt \
+  app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html)
 echo "Created $output"
 shasum -a 256 "$output"

@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <sys/sysctl.h>
@@ -1075,6 +1076,15 @@ static void *wine_process_thread(void *arg) {
              * rebuild. Lines starting with # are comments. Logged, so a run's log
              * always says what it ran with. */
             {
+                /* Per-game compatibility variables live in one iOS process, so
+                 * remove only values that the previous auto route installed.
+                 * The config file below can then deliberately set its own values. */
+                if (getenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV")) {
+                    unsetenv("SDL_OPENGL_ES_DRIVER");
+                    unsetenv("LOVE_GRAPHICS_USE_OPENGLES");
+                    unsetenv("ANGLE_DEFAULT_PLATFORM");
+                    unsetenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV");
+                }
                 /* ml1095: "env.NAME = value" lines of madeira.cfg; the legacy
                  * madeira-env.txt (KEY=VALUE lines) only when madeira.cfg is absent. */
                 NSString *text = nil;
@@ -1112,6 +1122,36 @@ static void *wine_process_thread(void *arg) {
                 }
             }
 
+            /* Generic OpenGL ES route for detected LÖVE and SDL runtimes:
+             * SDL's Windows backend officially loads libEGL/libGLESv2 when
+             * SDL_OPENGL_ES_DRIVER is enabled. ANGLE emits D3D11 calls, DXMT
+             * translates those calls to Metal, and no game file is modified.
+             * LÖVE additionally needs its documented GLES preference hint.
+             * env.MADEIRA_OPENGL_ANGLE=0 is the per-install escape hatch. */
+            {
+                NSString *compatBundlePath = [[NSBundle mainBundle] bundlePath];
+                const char *mode = getenv("_MADEIRA_OPENGL_ANGLE_MODE");
+                const char *option = getenv("MADEIRA_OPENGL_ANGLE");
+                BOOL disabled = option && (!strcmp(option, "0") || !strcasecmp(option, "false") ||
+                                           !strcasecmp(option, "off") || !strcasecmp(option, "no"));
+                if (mode && *mode && !disabled) {
+                    NSString *egl = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/libEGL.dll"];
+                    NSString *gles = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/libGLESv2.dll"];
+                    if ([[NSFileManager defaultManager] fileExistsAtPath:egl] &&
+                        [[NSFileManager defaultManager] fileExistsAtPath:gles]) {
+                        setenv("SDL_OPENGL_ES_DRIVER", "1", 1);
+                        setenv("ANGLE_DEFAULT_PLATFORM", "d3d11", 1);
+                        if (!strcmp(mode, "love")) setenv("LOVE_GRAPHICS_USE_OPENGLES", "1", 1);
+                        setenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV", "1", 1);
+                        fprintf(stderr, "[opengl-angle] mode=%s EGL=%s GLES=%s "
+                                "route=OpenGL-ES->ANGLE-D3D11->DXMT-Metal\n",
+                                mode, egl.UTF8String, gles.UTF8String);
+                    } else {
+                        fprintf(stderr, "[opengl-angle] requested but bundled libEGL/libGLESv2 is missing\n");
+                    }
+                }
+            }
+
             /* Madeira Dock has its own session UI and controller transport. Its
              * launch profile marks the injected Valve overlay off by default;
              * append the Wine disable override AFTER madeira.cfg was exported,
@@ -1142,10 +1182,11 @@ static void *wine_process_thread(void *arg) {
                 fprintf(stderr, "[steam-modules] overlay/video disabled for this Dock session overrides=%s\n", joined.UTF8String);
             }
             if (getenv("_MADEIRA_LUA51_GC64")) {
-                NSString *gc64 = [bundlePath stringByAppendingPathComponent:@"arm64ec-windows/lua51-gc64.dll"];
+                NSString *compatBundlePath = [[NSBundle mainBundle] bundlePath];
+                NSString *gc64 = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/lua51-gc64.dll"];
                 if ([[NSFileManager defaultManager] fileExistsAtPath:gc64]) {
                     setenv("_MADEIRA_LUA51_GC64_PATH", gc64.UTF8String, 1);
-                    fprintf(stderr, "[luajit-gc64] Balatro compatibility runtime=%s\n", gc64.UTF8String);
+                    fprintf(stderr, "[luajit-gc64] LÖVE 11.5 compatibility runtime=%s\n", gc64.UTF8String);
                 } else {
                     unsetenv("_MADEIRA_LUA51_GC64_PATH");
                     fprintf(stderr, "[luajit-gc64] requested but lua51-gc64.dll is missing from the app bundle\n");

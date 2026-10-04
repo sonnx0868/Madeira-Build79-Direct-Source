@@ -84,8 +84,10 @@ OVERLAY = {
     "env.MADEIRA_DINPUT_PAD": {"title": "DirectInput joystick from the host gamepad"},
     "env.MADEIRA_UNITY_D3D11": {"title": "Force Direct3D 11 for copied Unity games", "category": "App & front end",
                 "note": "On by default. Adds -force-d3d11 only when UnityPlayer.dll sits beside a directly launched game and no renderer argument was supplied. Steam Dock launches are untouched."},
-    "env.MADEIRA_LUAJIT_GC64": {"title": "Balatro LuaJIT GC64 compatibility", "category": "Memory & JIT pool",
-                "note": "On by default for Balatro only. Redirects its low-address LuaJIT runtime to the pinned official LÖVE 11.5 GC64 lua51.dll without modifying the game's files."},
+    "env.MADEIRA_LUAJIT_GC64": {"title": "LOVE 11.5 LuaJIT GC64 compatibility", "category": "Memory & JIT pool",
+                "note": "On by default for detected LOVE 11.5 games (including Balatro). Redirects the low-address LuaJIT runtime to the pinned official GC64 lua51.dll without modifying game files."},
+    "env.MADEIRA_OPENGL_ANGLE": {"title": "OpenGL ES through ANGLE and DXMT", "category": "Direct3D 9/10/11 (DXMT)",
+                "note": "On by default for detected LOVE and SDL games. Routes OpenGL ES through ANGLE D3D11, then DXMT to Metal. Turn off only when a game supplies a better EGL/GLES route."},
     "env.MADEIRA_PROMOTE": {"title": "Hold the display at its maximum rate"},
     "dxmt": {"title": "DXMT options (a=b;c=d)"},
 }
@@ -155,11 +157,12 @@ def scan():
         out = subprocess.run(["git", "-C", base, "ls-files", "--"] + dirs,
                              capture_output=True, text=True).stdout.split()
         for rel in out:
-            path = os.path.normpath(os.path.join(repo, rel))
+            # Keep generated source paths stable on Windows and macOS.
+            path = os.path.normpath(os.path.join(repo, rel)).replace("\\", "/")
             if not path.endswith(EXT) or any(s in path for s in SKIP):
                 continue
             try:
-                txt = open(os.path.join(ROOT, path), errors="ignore").read()
+                txt = open(os.path.join(ROOT, path), encoding="utf-8", errors="ignore").read()
             except OSError:
                 continue
             lines = txt.split("\n")
@@ -227,13 +230,13 @@ def render(opts):
 def main():
     text = render(scan())
     if "--check" in sys.argv:
-        cur = open(OUT).read() if os.path.exists(OUT) else ""
+        cur = open(OUT, encoding="utf-8").read() if os.path.exists(OUT) else ""
         if cur != text:
             print("ConfigCatalog.generated.swift is out of date: run build/tools/gen-config-catalog.py")
             return 1
         print("ConfigCatalog.generated.swift is current")
         return 0
-    open(OUT, "w").write(text)
+    open(OUT, "w", encoding="utf-8", newline="\n").write(text)
     print(f"wrote {OUT}")
     return 0
 

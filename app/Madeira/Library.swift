@@ -463,18 +463,85 @@ enum ControllerCompatibility {
 /// renderer Madeira implements and reports third-party launch layers that may
 /// behave differently from the original game.
 enum ExternalGameCompatibility {
+    private struct WindowsRuntime {
+        var hasSDL = false
+        var hasLove = false
+        var hasLove115 = false
+    }
+
+    /// Probe the launch directory, Steam's selected program directory, and one
+    /// directory level below the install root. This is engine detection, not a
+    /// title allow-list: every compatible LÖVE/SDL game gets the same route.
+    private static func windowsRuntime(_ entry: LibraryEntry, drive: URL) -> WindowsRuntime {
+        let fm = FileManager.default
+        let launch = drive.appendingPathComponent(entry.launchRelativePath)
+        var roots: [URL] = []
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: launch.path, isDirectory: &isDirectory) {
+            roots.append(isDirectory.boolValue ? launch : launch.deletingLastPathComponent())
+        }
+        if let program = entry.steamProgram, !program.isEmpty {
+            roots.append(drive.appendingPathComponent(entry.relativePath, isDirectory: true)
+                .appendingPathComponent(program).deletingLastPathComponent())
+        }
+
+        var seen = Set<String>()
+        var directories: [(URL, Int)] = roots.map { ($0.standardizedFileURL, 0) }
+        var result = WindowsRuntime()
+        var index = 0
+        while index < directories.count && index < 192 {
+            let (directory, depth) = directories[index]; index += 1
+            guard seen.insert(directory.path.lowercased()).inserted,
+                  let children = try? fm.contentsOfDirectory(at: directory,
+                      includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { continue }
+            let names = Set(children.map { $0.lastPathComponent.lowercased() })
+            let hasSDLHere = names.contains("sdl2.dll") || names.contains("sdl3.dll")
+            let loveURL = children.first { $0.lastPathComponent.lowercased() == "love.dll" }
+            if hasSDLHere { result.hasSDL = true }
+            if hasSDLHere, let loveURL {
+                result.hasLove = true
+                // The bundled replacement is from official LÖVE 11.5. Keep
+                // automatic Lua replacement on that exact ABI generation;
+                // ANGLE itself remains available to every detected SDL game.
+                if let data = try? Data(contentsOf: loveURL, options: .mappedIfSafe),
+                   data.range(of: Data("LuaJIT 2.1".utf8)) != nil,
+                   data.range(of: Data("11.5".utf8)) != nil { result.hasLove115 = true }
+            }
+            if depth == 0 {
+                for child in children {
+                    let values = try? child.resourceValues(forKeys: [.isDirectoryKey])
+                    if values?.isDirectory == true {
+                        directories.append((child, 1))
+                    }
+                }
+            }
+        }
+        return result
+    }
+
     static func prepare(_ entry: LibraryEntry) -> [String] {
+        unsetenv("_MADEIRA_OPENGL_ANGLE_MODE")
+        unsetenv("_MADEIRA_LUA51_GC64")
         guard entry.desktop != true else { return [] }
         var applied: [String] = []
         let identity = (entry.title + " " + entry.launchWindowsPath).lowercased()
         let balatro = entry.steamAppID == 2379780 || identity.contains("balatro")
-        if balatro && MadeiraConfig.flag("MADEIRA_LUAJIT_GC64") {
-            setenv("_MADEIRA_LUA51_GC64", "1", 1)
-            applied.append("luajit-gc64")
-        } else { unsetenv("_MADEIRA_LUA51_GC64") }
 
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let executable = docs.appendingPathComponent("wine/drive_c").appendingPathComponent(entry.launchRelativePath)
+        let drive = docs.appendingPathComponent("wine/drive_c", isDirectory: true)
+        let runtime = windowsRuntime(entry, drive: drive)
+        let loveRuntime = runtime.hasLove || balatro
+        if (runtime.hasSDL || loveRuntime) && MadeiraConfig.flag("MADEIRA_OPENGL_ANGLE") {
+            setenv("_MADEIRA_OPENGL_ANGLE_MODE", loveRuntime ? "love" : "sdl", 1)
+            applied.append(loveRuntime ? "angle-gles-love" : "angle-gles-sdl")
+            fputs("[opengl-angle] detected mode=\(loveRuntime ? "love" : "sdl") route=GLES->ANGLE-D3D11->DXMT-Metal\n", stderr)
+        }
+        if (balatro || runtime.hasLove115) && MadeiraConfig.flag("MADEIRA_LUAJIT_GC64") {
+            setenv("_MADEIRA_LUA51_GC64", "1", 1)
+            applied.append("luajit-gc64")
+        }
+
+        let executable = drive.appendingPathComponent(entry.launchRelativePath)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: executable.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             return applied.isEmpty ? ["none"] : applied

@@ -165,3 +165,6 @@ app/Madeira/i386-windows/*
 app/Madeira/arm64ec-windows/dockhost.exe
 app/Madeira/arm64ec-windows/dock-notices.txt
 app/Madeira/arm64ec-windows/lua51-gc64.dll
+app/Madeira/arm64ec-windows/libEGL.dll
+app/Madeira/arm64ec-windows/libGLESv2.dll
+app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html

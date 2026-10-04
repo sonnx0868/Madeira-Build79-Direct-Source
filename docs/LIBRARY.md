@@ -27,13 +27,22 @@ also reports a large third-party Steam API replacement, but never modifies it,
 swaps it for the original DLL or bypasses DRM. Such a build may behave
 differently from the same game launched through Madeira Dock and Valve's client.
 
-Balatro is a separate LÖVE/LuaJIT case. iOS enforces a hard 4 GB Mach-O
-`__PAGEZERO`, while the older bundled LuaJIT requests GC memory below 2 GB and
-fails before graphics starts. For Balatro only, Madeira redirects `lua51.dll`
-to the pinned official LÖVE 11.5 GC64 runtime in the app bundle. GC64 accepts
-high addresses; the original game DLL remains untouched. Disable the profile
-with `env.MADEIRA_LUAJIT_GC64 = 0` if a modified build has incompatible native
-Lua modules.
+LÖVE 11.5 games are a separate LuaJIT and renderer case. iOS enforces a hard
+4 GB Mach-O `__PAGEZERO`, while old non-GC64 LuaJIT builds request GC memory
+below 2 GB and fail before graphics starts. Madeira detects the LÖVE runtime
+instead of relying on a game-name list, then redirects `lua51.dll` to the
+pinned official LÖVE 11.5 GC64 runtime in the app bundle. GC64 accepts high
+virtual addresses, and the original game file is never modified. Balatro's
+Steam App ID remains a fallback when its install folder has not been indexed.
+Set `env.MADEIRA_LUAJIT_GC64 = 0` in `Documents/madeira.cfg` to disable it.
+
+For graphics, Madeira detects LÖVE and SDL runtimes and enables SDL's official
+EGL path. Bundled ANGLE translates OpenGL ES 2/3 to D3D11; DXMT then translates
+D3D11 to Metal. This is a shared engine/API route for compatible x64 games,
+not a Balatro-only patch, and it does not replace files in a game directory.
+Set `env.MADEIRA_OPENGL_ANGLE = 0` to disable it for a game that supplies a
+better EGL/GLES stack. Desktop OpenGL-only programs which cannot create an
+OpenGL ES context still require a future full WGL compatibility layer.
 
 The library reads the executable's PE imports (and those of the DLLs next to
 it, plus bounded scans for dynamically loaded renderer DLL names) to show a
@@ -302,6 +311,9 @@ math, controller commands, the exit hook, and the presence of the details and
 in-game menu options), `tests/host/check-runtime-settings.py`
 (`MadeiraConfig.set` and the Settings defaults) and
 `tests/host/check-library-api.py` (renderer detection and the badge).
+`tests/host/check-angle-runtime.py` verifies the shared SDL/LÖVE EGL hints,
+pinned ANGLE hashes, D3D11 backend marker, native-bundle packaging and licence
+inputs; `tests/love-angle-smoke/` is the engine-level renderer probe.
 `tests/host/check-onboarding.py` covers first-run setup: the JIT choices,
 pairing import, pages with and without Dock, the done key, the
 `MADEIRA_ONBOARDING` switch, and the wiring (no Wine session, no pool or

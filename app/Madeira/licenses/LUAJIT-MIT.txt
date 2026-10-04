@@ -12,6 +12,10 @@ ba6e56be2685e53c817749c4a5007f51137136fe5a3ab64920508babc2e74369
 DLL SHA-256:
 94fb3e3d4b1f6acce0110e46aadf1ecab1fa17c4ed1ab34caef3c5c2121c208e
 
+Madeira enables it only for a detected LÖVE 11.5 runtime (with Balatro's
+Steam App ID as a fallback before metadata is available), and leaves the
+game's original DLL untouched.
+
 LuaJIT is Copyright (C) 2005-2026 Mike Pall.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
