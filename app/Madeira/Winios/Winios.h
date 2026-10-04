@@ -112,6 +112,13 @@ void winios_window_census_enable(int on);
 /* Main thread. Copies up to `max` entries; returns how many were copied. */
 int winios_window_census(struct winios_census_window *out, int max);
 
+/* A Windows error/assertion window can exist before a direct game ever
+ * presents, while the starting screen still covers Wine's invisible GDI
+ * surface. The driver forwards its readable static text here so the native
+ * starting screen can show the actual failure instead of spinning forever. */
+void winios_window_alert_reset(void);
+int winios_window_alert_copy(char *out, int size);
+
 #ifdef __cplusplus
 }
 #endif

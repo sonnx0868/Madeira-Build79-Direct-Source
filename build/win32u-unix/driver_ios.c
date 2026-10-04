@@ -25,6 +25,8 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <string.h>
+#include <strings.h>
 
 #include "ntstatus.h"
 #include "ntgdi_private.h"
@@ -398,11 +400,30 @@ extern int winios_surface_present( HWND hwnd, int dirty_x, int dirty_y, int dirt
                                     int surf_w, int surf_h, int stride, const void *bits ) __attribute__((weak));
 extern void winios_window_frame( HWND hwnd, int x, int y, int w, int h, int visible,
                                  int cx, int cy, int cw, int ch ) __attribute__((weak));
+extern void winios_window_alert( const char *text ) __attribute__((weak));
 extern void winios_cursor_set( unsigned int id, int w, int h, int hot_x, int hot_y,
                                const void *bgra ) __attribute__((weak));
 extern void winios_cursor_show( int show ) __attribute__((weak));
 
 static int winios_desktop_mode(void);
+
+static int winios_ascii_contains_ci( const char *text, const char *word )
+{
+    size_t n = strlen( word );
+    for (; *text; text++) if (!strncasecmp( text, word, n )) return 1;
+    return 0;
+}
+
+static int winios_is_alert_text( const char *text )
+{
+    static const char * const words[] = {
+        "error", "failed", "not found", "missing", "exception", "assertion"
+    };
+    if (!text || strlen(text) < 8) return 0;
+    for (size_t i = 0; i < ARRAY_SIZE(words); i++)
+        if (winios_ascii_contains_ci( text, words[i] )) return 1;
+    return 0;
+}
 
 /* pSetCursor: extract the cursor image as straight-alpha BGRA and forward
  * to the app-side compositor cursor layer. win32u calls this on every
@@ -697,6 +718,7 @@ static void winios_drv_window_pos_changed( HWND hwnd, HWND insert_after, HWND ow
                 txt[j] = 0;
                 if (cls[0] || txt[0])
                     dprintf( 2, "[win-name] #%u hwnd=%p class='%s' text=\"%s\" rev=ml853\n", n, hwnd, cls, txt );
+                if (winios_window_alert && winios_is_alert_text( txt )) winios_window_alert( txt );
             }
         }
     }

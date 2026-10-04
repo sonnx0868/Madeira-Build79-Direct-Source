@@ -4,6 +4,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 missing=0
 need() { if [[ ! -s "$root/$1" ]]; then echo "MISSING: $1"; missing=1; fi; }
 
+python3 "$root/tools/patch-dxmt-query-log.py" --check || missing=1
+
 for path in \
   FEX/build-ios/FEXCore/Source/libFEXCore.a \
   FEX/build-ios/FEXCore/Source/libFEXCore_Base.a \

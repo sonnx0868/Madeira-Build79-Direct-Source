@@ -737,6 +737,47 @@ static void madeira_seed_winsxs_x86(NSFileManager *fm, NSString *prefix, NSStrin
             seeded, count, skipped);
 }
 
+/* 64-bit VC++ 2008 side-by-side assembly. Steam may run an x64 game from an
+ * aarch64 desktop/Dock session, so this must exist independently of the main
+ * process architecture and independently of the optional i386 farm. Merely
+ * placing MSVCR90.dll in system32 triggers R6034: VC90 requires its activation
+ * context to resolve Microsoft.VC90.CRT first. Wine accepts a later build in
+ * the same major.minor line, so 9.0.30729.6161 satisfies 9.0.21022.8. */
+static void madeira_seed_winsxs_amd64_vc90(NSFileManager *fm, NSString *prefix, NSString *bundle)
+{
+    static const char * const files[] = { "msvcr90.dll", "msvcp90.dll" };
+    NSString *source = [bundle stringByAppendingPathComponent:@"x86_64-vcruntime"];
+    NSString *winsxs = [prefix stringByAppendingPathComponent:@"drive_c/windows/winsxs"];
+    NSString *manifests = [winsxs stringByAppendingPathComponent:@"manifests"];
+    NSString *dirName = @"amd64_microsoft.vc90.crt_1fc8b3b9a1e18e3b_9.0.30729.6161_none_deadbeef";
+    NSString *assembly = [winsxs stringByAppendingPathComponent:dirName];
+    NSString *manifest = [manifests stringByAppendingPathComponent:[dirName stringByAppendingString:@".manifest"]];
+
+    [fm createDirectoryAtPath:manifests withIntermediateDirectories:YES attributes:nil error:nil];
+    [fm createDirectoryAtPath:assembly withIntermediateDirectories:YES attributes:nil error:nil];
+    NSMutableString *text = [NSMutableString stringWithString:
+        @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        @"<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">\n"
+        @"  <assemblyIdentity type=\"win32\" name=\"Microsoft.VC90.CRT\" "
+        @"version=\"9.0.30729.6161\" processorArchitecture=\"amd64\" "
+        @"publicKeyToken=\"1fc8b3b9a1e18e3b\"/>\n"];
+    BOOL ok = YES;
+    for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++)
+    {
+        NSString *name = [NSString stringWithUTF8String:files[i]];
+        NSString *src = [source stringByAppendingPathComponent:name];
+        NSString *dst = [assembly stringByAppendingPathComponent:name];
+        [fm removeItemAtPath:dst error:nil];
+        if (![fm fileExistsAtPath:src] ||
+            ![fm createSymbolicLinkAtPath:dst withDestinationPath:src error:nil]) { ok = NO; break; }
+        [text appendFormat:@"  <file name=\"%@\"/>\n", name];
+    }
+    [text appendString:@"</assembly>\n"];
+    if (ok) ok = [[text dataUsingEncoding:NSUTF8StringEncoding] writeToFile:manifest atomically:YES];
+    dprintf(STDERR_FILENO, "[WineProc] winsxs: amd64 Microsoft.VC90.CRT %s (%s)\n",
+            ok ? "seeded" : "FAILED", manifest.fileSystemRepresentation);
+}
+
 /* FEX's WOW64 module cannot call sysctl, and without an answer it assumes the
  * newest cores' feature set. A wrong "present" is silent corruption, not a
  * crash (FEAT_AFP claimed on a core without it leaves FPCR.NEP RES0, so every
@@ -1354,6 +1395,9 @@ static void *wine_process_thread(void *arg) {
                 madeira_link_syswow64_wbem(fm, prefix, bundlePath);
                 madeira_seed_winsxs_x86(fm, prefix, bundlePath);
             }
+            /* x64 children also start from an aarch64 Dock desktop, so their
+             * side-by-side VC90 assembly cannot be gated on use_arm64ec. */
+            madeira_seed_winsxs_amd64_vc90(fm, prefix, bundlePath);
 
             /* ml719: REPAIR THE SHELL FOLDERS. They ship as symlinks to the BUILD
              * MACHINE's home directory.

@@ -43,6 +43,18 @@ for wine_patch in \
     fi
 done
 
+dxmt_patch="$root/patches/dxmt-madeira-query-log.patch"
+if git -C "$root/dxmt" apply --check "$dxmt_patch"; then
+    git -C "$root/dxmt" apply "$dxmt_patch"
+elif ! git -C "$root/dxmt" apply --reverse --check "$dxmt_patch"; then
+    echo "DXMT source no longer matches $dxmt_patch" >&2
+    exit 1
+fi
+
+# The ARM64EC PE modules are tracked build inputs today. Patch the same source
+# fix into them deterministically until their rebuild joins this bootstrap.
+python3 "$root/tools/patch-dxmt-query-log.py"
+
 log "Install pinned llvm-mingw"
 mingw_name="llvm-mingw-20260421-ucrt-macos-universal"
 mingw_dir="$root/toolchains/$mingw_name"

@@ -615,6 +615,9 @@ final class LibraryModel: ObservableObject {
     }
     @Published var error: String?
     @Published var sessionMessage = ""
+    /// Text from a Windows error/assertion dialog that appeared before a
+    /// direct game produced a frame. Shown on the native starting screen.
+    @Published var launchAttention: String?
     @Published var launching = false
     @Published var overlayFields = ["FPS", "Frame time", "RAM", "Battery"]
     private var launchPresent: UInt64 = 0
@@ -940,6 +943,8 @@ final class LibraryModel: ObservableObject {
     /// `dock`: the game a Madeira Dock start launches (DockStartScreen).
     func begin(_ entry: LibraryEntry, remember: Bool = true, dock: DockGame? = nil) {
         wine_exit_status_reset()
+        winios_window_alert_reset()
+        launchAttention = nil
         quitRequested = false
         LibraryController.shared.configure(enabled: enabled, ownsInput: false)
         Self.sessionsThisRun += 1
@@ -994,6 +999,11 @@ final class LibraryModel: ObservableObject {
                 showGameView(reason: "surface")
             } else if Date().timeIntervalSince(launchStarted) > 30 { launchSlow = true }
         }
+        if launching && !dockStart.active && launchAttention == nil, let attention = Self.windowAlert() {
+            launchAttention = attention
+            launchSlow = true
+            LogStore.shared.log("[launch-view] Windows error before first frame: \(attention)", level: .error)
+        }
         if wine_process_is_running() != 0 {
             sawProcess = true
             if sessionMessage == "Starting…" { sessionMessage = "" }
@@ -1003,6 +1013,14 @@ final class LibraryModel: ObservableObject {
             laidOutAfterFirstPresent = true
             MetalBackedView.refreshDisplayMode(reason: "first-present")
         }
+    }
+    private static func windowAlert() -> String? {
+        var buffer = [CChar](repeating: 0, count: 512)
+        let count = buffer.withUnsafeMutableBufferPointer { ptr in
+            Int(winios_window_alert_copy(ptr.baseAddress, Int32(ptr.count)))
+        }
+        guard count > 0 else { return nil }
+        return String(cString: buffer)
     }
     /// `reason`: what stopped the launch, when the caller knows (the JIT pool's failure).
     /// `offerJIT`: the launch failed because no debugger is attached, so the alert
@@ -1105,7 +1123,8 @@ final class LibraryModel: ObservableObject {
         controls.editing = false; controls.selected = nil
         controls.controls = savedControls; controls.visible = savedVisible; controls.sizeScale = savedSize
         if ControlPresetsModel.enabled { controls.layoutID = savedLayout }
-        current = nil; activeEntry = nil; menu = false; sessionMessage = ""
+        current = nil; activeEntry = nil; menu = false; sessionMessage = ""; launchAttention = nil
+        winios_window_alert_reset()
         displayMode = .fit
         LogStore.shared.setDisplayActive(true)
         launching = false; launchLogs = false; LibraryKeyboard.hide()
@@ -3353,11 +3372,22 @@ struct LibraryHUD: View {
                         }
                     }
                 } else {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                    if let attention = model.launchAttention {
                         VStack(spacing: 8) {
-                            Text(model.launchSlow ? "Still starting…" : "Starting your game…").foregroundStyle(.white.opacity(0.7))
-                            Text("\(Int(context.date.timeIntervalSince(model.launchStartedAt)))s")
-                                .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.4))
+                            Label("Windows reported an error", systemImage: "exclamationmark.triangle.fill")
+                                .font(.headline).foregroundStyle(.orange)
+                            Text(attention).font(.caption.monospaced()).multilineTextAlignment(.center)
+                                .textSelection(.enabled).frame(maxWidth: 560)
+                            Text("The game has not produced a frame. Check its files or use the original Steam build.")
+                                .font(.caption).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
+                        }
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            VStack(spacing: 8) {
+                                Text(model.launchSlow ? "Still starting…" : "Starting your game…").foregroundStyle(.white.opacity(0.7))
+                                Text("\(Int(context.date.timeIntervalSince(model.launchStartedAt)))s")
+                                    .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.4))
+                            }
                         }
                     }
                 }

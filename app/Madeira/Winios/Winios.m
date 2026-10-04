@@ -562,6 +562,35 @@ int winios_window_census(struct winios_census_window *out, int max) {
     return n;
 }
 
+/* Last meaningful Windows error text observed by driver_ios.c. Unlike the
+ * desktop compositor this also works for direct games, whose GDI dialogs are
+ * intentionally not layered over the fullscreen Metal view. */
+static pthread_mutex_t g_window_alert_lock = PTHREAD_MUTEX_INITIALIZER;
+static char g_window_alert[512];
+
+void winios_window_alert(const char *text) {
+    if (!text || !*text) return;
+    pthread_mutex_lock(&g_window_alert_lock);
+    snprintf(g_window_alert, sizeof(g_window_alert), "%s", text);
+    pthread_mutex_unlock(&g_window_alert_lock);
+    dprintf(STDERR_FILENO, "[window-alert] %s\n", text);
+}
+
+void winios_window_alert_reset(void) {
+    pthread_mutex_lock(&g_window_alert_lock);
+    g_window_alert[0] = 0;
+    pthread_mutex_unlock(&g_window_alert_lock);
+}
+
+int winios_window_alert_copy(char *out, int size) {
+    if (!out || size <= 0) return 0;
+    pthread_mutex_lock(&g_window_alert_lock);
+    snprintf(out, (size_t)size, "%s", g_window_alert);
+    int len = (int)strlen(out);
+    pthread_mutex_unlock(&g_window_alert_lock);
+    return len;
+}
+
 void winios_pDestroyWindow(HWND hwnd) {
     WLOG("pDestroyWindow hwnd=%p", hwnd);
     uintptr_t pending = (uintptr_t)hwnd;

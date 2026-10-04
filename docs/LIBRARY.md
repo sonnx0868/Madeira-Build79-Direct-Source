@@ -49,6 +49,13 @@ Set `env.MADEIRA_OPENGL_ANGLE = 0` to disable it for a game that supplies a
 better EGL/GLES stack. Desktop OpenGL-only programs which cannot create an
 OpenGL ES context still require a future full WGL compatibility layer.
 
+A direct game can open a Win32 error/assertion dialog before it ever presents
+a frame. Those dialogs use the otherwise-hidden GDI path, so the old native
+starting screen kept saying “Still starting”. Madeira now forwards bounded
+error text from the window driver and shows it on that starting screen. This
+reports missing files and modified third-party Steam-layer configuration; it
+does not create emulator configuration or bypass Steam licensing.
+
 The library reads the executable's PE imports (and those of the DLLs next to
 it, plus bounded scans for dynamically loaded renderer DLL names) to show a
 graphics-API badge, and measures the install folder's size. The badge names an
