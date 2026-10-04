@@ -11,25 +11,28 @@ cursor report in `app/Madeira/Winios/WiniosCursor.c` and
 
 ## Keyboard
 
-`GCKeyboard` delivers one callback per physical key transition. UIKit's press
-pipeline is not used: it reports modifiers only as flags on the next key and
-re-delivers held keys as repeated presses.
+`GCKeyboard` is the primary path and delivers one callback per physical key
+transition. The game view also accepts UIKit physical-key presses as a
+fallback for OS/device combinations whose `GCKeyboard.keyboardInput` is nil or
+incomplete. Both paths use the USB HID usage and are de-duplicated before Wine,
+so a key never arrives twice. UIKit text events remain separate and are used
+only for keys the physical map does not understand.
 
 - The key's USB HID usage is mapped to a Windows virtual key. Modifiers keep
   their side (`VK_LSHIFT`, `VK_RCONTROL`, ...); the wineserver derives the
   generic `VK_SHIFT`/`VK_CONTROL`/`VK_MENU` state from them. Numpad keys are
   sent as `VK_NUMPAD0`-`VK_NUMPAD9`/`VK_DECIMAL` (Num Lock on).
-- The driver (`winios_drv_post_key` in `build/win32u-unix/driver_ios.c`)
-  derives the scan code from the virtual key with Wine's US layout, so
-  DirectInput and raw-input readers see the key's PC scan code. The dedicated
-  arrows, Insert/Delete, Home/End and Page Up/Down carry their E0 prefix
-  (`MADEIRA_NAV_KEYS_E0`, from the navigation-key change this builds on).
+- Common physical keys carry their PC/AT set-1 scan code and E0 bit directly
+  from the HID usage, so Win32 messages, Raw Input and DirectInput all see the
+  same physical key. This preserves distinctions a virtual key alone loses,
+  especially main Enter versus numpad Enter and dedicated arrows versus the
+  numpad. Uncommon locale-specific keys fall back to Wine's active-layout
+  mapping (`winios_drv_post_key` in `build/win32u-unix/driver_ios.c`).
 - While a hardware keyboard is connected, the text bridge (the keyboard button,
   `UIKeyInput` on the game view) ignores typed text, because the same presses
   already arrived raw.
-- Known differences from a PC keyboard, all pinned by the host test: numpad
-  Enter is sent as Enter (no E0); Print Screen maps to the SysRq scan code;
-  the Japanese yen key shares the backslash key; keypad `=`, keypad comma,
+- Known layout-fallback differences, all pinned by the host test: the Japanese
+  yen key shares the backslash key; keypad `=`, keypad comma,
   Select and the Japanese/Korean IME keys have no scan code in the US layout.
   Execute, Stop, Again, Undo, Cut, Copy, Paste and Find have no Windows virtual
   key and are not sent (the unmapped usage is logged).
@@ -64,8 +67,9 @@ released, even if focus comes back first. Focus is re-evaluated on each key and
 button, when the pointer enters or leaves the game view, on taps, when the app
 changes state, when a text field or text view starts or ends editing, when a
 window becomes or stops being key, and four times a second while a keyboard,
-mouse or controller is attached. Everything held is also released on a memory
-warning and when a device disconnects.
+mouse or controller is attached. Everything held is also released on a
+device disconnect or app deactivation. A memory warning deliberately does not
+change input state, because it can arrive in the middle of play.
 
 Not detected: a menu that is neither presented as a view controller nor takes
 first responder. Upstream's developer layout has none.
@@ -100,6 +104,15 @@ How motion reaches the program depends on the program's cursor:
 Buttons are left, right, middle and the two side buttons
 (`XBUTTON1`/`XBUTTON2`); continuous scrolling is summed into wheel notches of
 120, vertical and horizontal.
+
+Mouse samples and key/button edges share the iOS-to-Wine input queue. Adjacent
+pure mouse moves are coalesced (relative deltas are summed; absolute motion
+keeps the latest position), while keys, buttons and wheel events retain exact
+ordering. The queue is 1024 entries, and if it ever fills, a key or button edge
+displaces an old motion sample instead of being dropped. This prevents a
+high-polling-rate mouse from losing a key-up or button-up and leaving an input
+stuck. Per-event queue logging is removed from the hot path; aggregate queue
+statistics are logged periodically.
 
 **Gain:** relative mouse motion has its own sensitivity (`sensMouse`, default
 1.0 = the device's deltas unchanged).
@@ -207,6 +220,8 @@ turning on and off. With diagnostics on (the ladybug), also every mouse focus
 change, pointer route changes, the first raw deltas, a 10 s delivery-rate line
 and a 1 Hz activity line while input is moving or held. The driver logs each
 new cursor image (`[winios] cursor set`), as in the desktop session.
+`[winios-input-q]` periodically reports coalesced motion and any queue drops;
+`dropped-critical` should remain zero.
 
 ## Validation
 
@@ -216,13 +231,13 @@ python3 tests/host/check-nav-keys.py
 ```
 
 `check-hardware-input.py` compiles the pure part of `HardwareInput.swift` (key
-map, mouse button edges, held-key diffing, motion carry, wheel notches, the
+map, physical scan codes, mouse button edges, held-key diffing, motion carry, wheel notches, the
 AssistiveTouch classifier, the desktop cursor clamp, the right-stick velocity,
 the view-to-screen mapping against `mapTouch`'s arithmetic, focus gating of
 held keys, click focus, the pointer route and the automatic lock) and the
-driver's extended-key function, takes every mapped HID usage through Wine's US
-layout, and compares the result with the scan code and E0 prefix a PC keyboard
-sends. It compiles `WiniosCursor.c` and exercises it, including from four
+driver's fallback extended-key function, takes every mapped HID usage through
+the physical or active-layout path, and compares the result with the scan code
+and E0 prefix a PC keyboard sends. It compiles `WiniosCursor.c` and exercises it, including from four
 threads at once. It also checks the driver's reports, the focus gating on every
 path to the program, the app wiring, the switches and this document.
 

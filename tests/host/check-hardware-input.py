@@ -8,13 +8,11 @@ Four parts:
      view-to-screen mapping, focus gating of held keys, click focus, the
      pointer route and the automatic pointer lock) is compiled with swiftc and
      exercised.
-  2. Every HID keyboard usage is taken through the production chain
-     HID usage -> virtual key (HardwareInput.swift) -> scan code (Wine's
-     NtUserMapVirtualKeyEx(MAPVK_VK_TO_VSC_EX) on its built-in US layout, which
-     is what the iOS driver uses) -> extended flag (winios_key_extended_flag,
-     compiled from build/win32u-unix/driver_ios.c) and compared with the scan
-     code a real PC keyboard sends for that key (USB HID to PS/2 set 1).
-     check-nav-keys.py covers the navigation-key flag itself.
+  2. Every HID keyboard usage is taken through the production physical-key
+     mapping (USB HID -> virtual key + PC/AT set-1 scan + E0). Uncommon keys
+     which deliberately have no physical mapping use Wine's active-layout
+     fallback, compiled from driver_ios.c. The result is compared with the
+     scan code a real PC keyboard sends. check-nav-keys.py covers the fallback.
   3. app/Madeira/Winios/WiniosCursor.c, the direct-mode cursor state the driver
      reports into, is compiled with cc and exercised, including from threads.
   4. Source checks for the driver's reports, the app wiring and the switches.
@@ -33,7 +31,7 @@ import tempfile
 root = Path(__file__).resolve().parents[2]
 wine = Path(os.environ.get('WINE_SRC', root / 'wine'))
 app = root / 'app/Madeira'
-source = (app / 'HardwareInput.swift').read_text()
+source = (app / 'HardwareInput.swift').read_text(encoding='utf-8')
 pure = source.split('// MARK: - Pure input mapping', 1)[1].split('// MARK: - Device glue', 1)[0]
 for banned in ('UIKit', 'UITouch', 'winios_', 'GameController'):
     assert banned not in pure.replace('UIKit or Wine', ''), f'pure section uses {banned}'
@@ -50,13 +48,25 @@ def check(cond, what):
 swift_tests = r'''
 // Key map: every usage the map knows, dumped for the scan-code comparison.
 for u in 0..<256 {
-    if let vk = HardwareKeyMap.vk(forHIDUsage: u) { print("MAP \(u) \(vk)") }
+    if let key = HardwareKeyMap.stroke(forHIDUsage: u) {
+        print("MAP \(u) \(key.vk)")
+        print("PHYS \(u) \(key.scan) \(key.extended ? 1 : 0)")
+    }
 }
 assert(HardwareKeyMap.vk(forHIDUsage: 0x04) == 0x41)        // a -> VK_A
 assert(HardwareKeyMap.vk(forHIDUsage: 0x27) == 0x30)        // 0 -> VK_0
 assert(HardwareKeyMap.vk(forHIDUsage: 0x45) == 0x7B)        // F12
 assert(HardwareKeyMap.vk(forHIDUsage: 0x73) == 0x87)        // F24
 assert(HardwareKeyMap.vk(forHIDUsage: 0xE1) == 0xA0)        // left shift is VK_LSHIFT
+assert(HardwareKeyMap.stroke(forHIDUsage: 0x28)?.scan == 0x1C)
+assert(HardwareKeyMap.stroke(forHIDUsage: 0x28)?.extended == false) // main Enter
+assert(HardwareKeyMap.stroke(forHIDUsage: 0x58)?.scan == 0x1C)
+assert(HardwareKeyMap.stroke(forHIDUsage: 0x58)?.extended == true)  // numpad Enter
+assert(HardwareKeyMap.stroke(forHIDUsage: 0x52)?.scan == 0x48)
+assert(HardwareKeyMap.stroke(forHIDUsage: 0x52)?.extended == true)  // dedicated Up
+assert(HardwareKeyMap.canonicalPressUsage(0x9E) == 0x28)            // Apple Return alias
+assert(HardwareKeyMap.canonicalPressUsage(0x9F) == 0x85)            // Apple Separator alias
+assert(HardwareKeyMap.canonicalPressUsage(0x04) == 0x04)
 for u in [0x00, 0x01, 0x02, 0x03, 0x74, 0x76, 0x78, 0x7E, 0xE8, 0xFF] {
     assert(HardwareKeyMap.vk(forHIDUsage: u) == nil, "usage \(u) must stay unmapped")
 }
@@ -236,6 +246,8 @@ with tempfile.TemporaryDirectory(prefix='madeira-hwinput-') as tmp:
     out = subprocess.run([str(exe)], check=True, capture_output=True, text=True).stdout
 check('SWIFT-OK' in out, 'Swift pure-section checks')
 hid_to_vk = {int(u): int(v) for u, v in re.findall(r'^MAP (\d+) (-?\d+)$', out, re.M)}
+physical = {int(u): (int(scan), bool(int(ext)))
+            for u, scan, ext in re.findall(r'^PHYS (\d+) (\d+) ([01])$', out, re.M)}
 print(f'PASS: pure mapping ({len(hid_to_vk)} HID usages mapped), button edges, held sets, '
       'carry, wheel, classifier, desktop cursor, stick velocity')
 
@@ -247,9 +259,9 @@ if not input_c.exists():
 vk_values = {}
 for header in ('include/winuser.rh', 'include/winuser.h', 'include/kbd.h'):
     for name, val in re.findall(r'#define\s+VK_(\w+)\s+(?:\(\w+\))?(0x[0-9A-Fa-f]+|\d+)\b',
-                                (wine / header).read_text(errors='replace')):
+                                (wine / header).read_text(encoding='utf-8', errors='replace')):
         vk_values.setdefault(name, int(val, 0))
-kbd = (wine / 'include/kbd.h').read_text(errors='replace')
+kbd = (wine / 'include/kbd.h').read_text(encoding='utf-8', errors='replace')
 kbd_type = 4                                            # kbd.h's default KBD_TYPE
 macros = dict(re.findall(r'#define\s+([TXY][0-9A-F]{2})\s+(.+)', kbd))
 
@@ -267,7 +279,7 @@ def macro_vk(token):
     raise ValueError(f'unparsed kbd.h macro {token} = {body}')
 
 
-text = input_c.read_text(errors='replace')
+text = input_c.read_text(encoding='utf-8', errors='replace')
 main_table = re.search(r'static const USHORT vsc_to_vk\[\] =\s*\{(.*?)\};', text, re.S).group(1)
 vsc2vk = {}
 for vsc, entry in enumerate(t.strip() for t in main_table.split(',') if t.strip()):
@@ -300,7 +312,7 @@ def vk_to_vsc_ex(vk):
 
 
 # The driver's extended-flag decision, compiled from the production source.
-driver = (root / 'build/win32u-unix/driver_ios.c').read_text()
+driver = (root / 'build/win32u-unix/driver_ios.c').read_text(encoding='utf-8')
 start = driver.index('static UINT winios_key_extended_flag(')
 helper = driver[start:driver.index('/* end winios_key_extended_flag */', start)]
 names = ('PRIOR', 'NEXT', 'END', 'HOME', 'LEFT', 'UP', 'RIGHT', 'DOWN', 'INSERT', 'DELETE')
@@ -331,6 +343,8 @@ for line in res.split('\n'):
 
 def sent(usage, nav_e0=True):
     """(scan byte, extended) the driver sends for this HID usage."""
+    if physical.get(usage, (0, False))[0]:
+        return physical[usage]
     vk = hid_to_vk[usage]
     ext = (ext_on if nav_e0 else ext_off)[vk]
     return (queries[vk] & 0xff, bool(ext))
@@ -351,12 +365,13 @@ pc.update({0x28: (0x1C, False), 0x29: (0x01, False), 0x2A: (0x0E, False), 0x2B: 
 for i in range(10):
     pc[0x3A + i] = (0x3B + i, False)                                       # F1-F10
 pc.update({0x44: (0x57, False), 0x45: (0x58, False),                      # F11, F12
+           0x46: (0x37, True),                                            # Print Screen
            0x47: (0x46, False), 0x48: (0x1D, True),                        # Scroll Lock, Pause (E1 1D)
            0x49: (0x52, True), 0x4A: (0x47, True), 0x4B: (0x49, True), 0x4C: (0x53, True),
            0x4D: (0x4F, True), 0x4E: (0x51, True), 0x4F: (0x4D, True), 0x50: (0x4B, True),
            0x51: (0x50, True), 0x52: (0x48, True),                         # nav cluster, arrows
            0x53: (0x45, False), 0x54: (0x35, True), 0x55: (0x37, False), 0x56: (0x4A, False),
-           0x57: (0x4E, False),
+           0x57: (0x4E, False), 0x58: (0x1C, True),                        # +, numpad Enter
            0x59: (0x4F, False), 0x5A: (0x50, False), 0x5B: (0x51, False), 0x5C: (0x4B, False),
            0x5D: (0x4C, False), 0x5E: (0x4D, False), 0x5F: (0x47, False), 0x60: (0x48, False),
            0x61: (0x49, False), 0x62: (0x52, False), 0x63: (0x53, False),  # numpad
@@ -371,8 +386,6 @@ for i, sc in enumerate([0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x
 # Known, documented differences (docs/KEYBOARD_MOUSE.md). Each is pinned to what
 # is sent today, so a change in either direction is noticed.
 known = {
-    0x46: ((0x54, False), 'Print Screen: VK_SNAPSHOT maps to the SysRq position 0x54'),
-    0x58: ((0x1C, False), 'numpad Enter: posted as VK_RETURN, so no E0'),
     0x67: ((0x00, False), 'keypad = (VK_OEM_NEC_EQUAL): not in the US layout'),
     0x75: ((0x63, False), 'Help: no PC make code; VK_HELP maps to 0x63'),
     0x77: ((0x00, False), 'Select: not in the US layout'),
@@ -394,8 +407,8 @@ for usage, want in sorted(pc.items()):
 for usage, (want, why) in sorted(known.items()):
     if usage in hid_to_vk:
         check(sent(usage) == want, f'known difference changed, HID 0x{usage:02x} ({why}): sent {sent(usage)}')
-print(f'PASS: {len(pc)} keys send the PC scan code and E0 flag through Wine\'s US layout '
-      f'({len(known)} documented differences pinned)')
+print(f'PASS: {len(pc)} keys send the PC scan code and E0 flag through the physical path '
+      f'({len(known)} layout-fallback differences pinned)')
 
 # ------------------------------------------------ 3. Direct-mode cursor (C) ---
 cursor_test = r'''
@@ -533,30 +546,37 @@ check('winios_user_driver.pSetCursorPos = winios_drv_set_cursor_pos;' in driver
       'pSetCursorPos reports and succeeds, as nulldrv does')
 check('if ((flags & MOUSEEVENTF_MOVE) && winios_direct_cursor_on()) winios_report_cursor_pos();' in driver,
       'every posted move reports where the server put the cursor')
+check('void winios_drv_post_key_scan(' in driver and
+      'winios_drv_send_key( vk, scan & 0xff, flags, "physical" )' in driver,
+      'hardware keys preserve their physical scan code into Wine')
 check(re.search(r'static int winios_direct_cursor_on\(void\)\s*\{\s*return !winios_desktop_mode\(\) && '
                 r'winios_direct_cursor_wanted && winios_direct_cursor_wanted\(\);', driver) is not None,
       'the reports are gated on direct mode and the app')
 for sym in ('winios_direct_cursor_wanted', 'winios_direct_cursor_set', 'winios_direct_cursor_show',
             'winios_direct_cursor_pos'):
     check(re.search(sym + r'\([^;]*\)\s*__attribute__\(\(weak\)\);', driver) is not None, f'{sym} is a weak import')
-bridging = (app / 'Madeira-Bridging-Header.h').read_text()
+bridging = (app / 'Madeira-Bridging-Header.h').read_text(encoding='utf-8')
 check('#import "Winios/WiniosCursor.h"' in bridging, 'the bridging header imports WiniosCursor.h')
 
-cv = (app / 'ContentView.swift').read_text()
+cv = (app / 'ContentView.swift').read_text(encoding='utf-8')
 for phase in ('began', 'moved', 'ended', 'cancelled'):
     check(f'HardwareInput.shared.interceptTouches(touches, event, .{phase})' in cv,
           f'MetalBackedView touches{phase.capitalize()} must ask HardwareInput first')
 check(cv.count('PointerFallback.install(on: self)') == 2, 'both MetalBackedView initialisers install the pointer fallback')
 check(cv.count('if HardwareInput.shared.handlesTyping { return }') == 2, 'text bridge stands aside for a hardware keyboard')
+check('override func pressesBegan(' in cv and 'override func pressesChanged(' in cv and
+      'override func pressesEnded(' in cv and 'override func pressesCancelled(' in cv and
+      'HardwareInput.shared.uikitKey(key, down)' in cv,
+      'MetalBackedView supplies a UIKit physical-key fallback')
 check('HardwareInputSettings(open: pointerPanel)' in cv, 'settings row in the pointer panel')
 for key, default in (('sensMouse', '1.0'), ('ignoreTouchesWithMouse', 'true'), ('padRightStickMouse', 'false')):
     check(f'"{key}": {key}' in cv and f'{key} = j["{key}"]' in cv and f'?? {default}' in cv,
           f'InputSettings persists {key}')
-check('HardwareInput.shared.start()' in (app / 'MadeiraApp.swift').read_text(), 'MadeiraApp starts HardwareInput')
-plist = (app / 'Info.plist').read_text()
+check('HardwareInput.shared.start()' in (app / 'MadeiraApp.swift').read_text(encoding='utf-8'), 'MadeiraApp starts HardwareInput')
+plist = (app / 'Info.plist').read_text(encoding='utf-8')
 check(re.search(r'<key>UIApplicationSupportsIndirectInputEvents</key>\s*<true/>', plist) is not None,
       'Info.plist opts into indirect input events')
-pbx = (root / 'app/Madeira.xcodeproj/project.pbxproj').read_text()
+pbx = (root / 'app/Madeira.xcodeproj/project.pbxproj').read_text(encoding='utf-8')
 check('HardwareInput.swift in Sources */,' in pbx and 'path = HardwareInput.swift;' in pbx, 'HardwareInput.swift is built')
 check('Winios/WiniosCursor.c in Sources */,' in pbx and 'path = "Winios/WiniosCursor.c";' in pbx,
       'WiniosCursor.c is built')
@@ -566,8 +586,10 @@ for switch in switches:
     check(f'flag("{switch}", defaultOn: true)' in source, f'{switch} switch, default on')
 glue = source.split('// MARK: - Device glue', 1)[1]
 # Every path to the program goes through the focus decision.
-check('keys.wanted(focused: keyboardFocused)' in glue and 'keys.press(vk, focused: keyboardFocused)' in glue,
+check('keys.wanted(focused: keyboardFocused)' in glue and 'keys.press(stroke, focused: keyboardFocused)' in glue,
       'keys reach the program only with keyboard focus')
+check('winios_post_hardware_key(key.vk, key.scan' in glue and 'duplicateKeyWindow' in glue,
+      'GCKeyboard and UIKit converge on one de-duplicated physical-key route')
 check('if r == .relative { postMotion(dx, -dy) }' in glue, 'GCMouse motion is posted only on the relative route')
 check('let blocked = route == .blocked' in glue, 'the wheel is gated on focus')
 check('let allowed = baseFocused ? want : []' in glue, 'UIKit pointer buttons are gated on focus')
@@ -579,7 +601,13 @@ check('presentedViewController != nil' in glue and 'fr is UIKeyInput' in glue
 check('GCController' not in source.split('final class PadStickMouse', 1)[0].split('// MARK: - Device glue', 1)[1]
       .replace('GCControllerButtonInput', '').replace('GCControllerDirectionPad', ''),
       'only PadStickMouse may touch controllers; GamepadInput owns them')
-docs = (root / 'docs/KEYBOARD_MOUSE.md').read_text()
+winios_m = (app / 'Winios/Winios.m').read_text(encoding='utf-8')
+check('#define WINIOS_RING_SIZE 1024' in winios_m and 'g_input_q.coalesced_moves++' in winios_m,
+      'the shared input queue is enlarged and adjacent motion is coalesced')
+check('Never let a mouse flood strand a key or button DOWN' in winios_m and
+      'dropped_critical' in winios_m and 'winios_post_hardware_key' in winios_m,
+      'key/button edges displace disposable motion when the queue is full')
+docs = (root / 'docs/KEYBOARD_MOUSE.md').read_text(encoding='utf-8')
 for name in switches + ('MADEIRA_NAV_KEYS_E0', 'sensMouse', 'padRightStickMouse', 'ignoreTouchesWithMouse',
                         'Ctrl+Alt+P'):
     check(name in docs, f'docs/KEYBOARD_MOUSE.md mentions {name}')

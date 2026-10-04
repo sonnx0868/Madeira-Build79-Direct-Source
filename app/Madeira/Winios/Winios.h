@@ -42,6 +42,10 @@ void winios_post_touch_up(int x, int y);
 /* Key press bridge (VK codes: RETURN=0x0D SPACE=0x20 ESCAPE=0x1B).
  * down=1 press, down=0 release. */
 void winios_post_key(int vk, int down);
+/* Physical hardware-key path. `scan` is the PC/AT set-1 make-code byte and
+ * `extended` is the E0 prefix. Preserving it lets Raw Input and DirectInput
+ * distinguish keys that share a virtual key (notably numpad Enter). */
+void winios_post_hardware_key(int vk, int scan, int extended, int down);
 
 /* S2 desktop compositor placement. Called by the Swift presentation
  * placeholder (MetalBackedView) with its bounds in UIWindow coords —

@@ -31,6 +31,7 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <limits.h>
 
 /* The window census struct is shared with Swift through this header;
  * including it here keeps both sides' definitions the same. */
@@ -657,36 +658,100 @@ void winios_pWindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
 extern void winios_drv_post_mouse(int x, int y, unsigned int flags, unsigned int mouse_data, void *hwnd);
 extern void winios_drv_post_key(unsigned short vk, unsigned int flags);
+extern void winios_drv_post_key_scan(unsigned short vk, unsigned short scan, unsigned int flags);
 extern void winios_dump_window_tree(void);
 extern void ios_dump_all_thread_stacks(void);
 
-#define WINIOS_RING_SIZE 256
+#define WINIOS_RING_SIZE 1024
 #define WINIOS_EV_MOUSE 0
 #define WINIOS_EV_KEY   1
 #define KEYEVENTF_KEYUP 0x0002
+#define KEYEVENTF_EXTENDEDKEY 0x0001
 typedef struct {
     unsigned int type;       /* WINIOS_EV_MOUSE / WINIOS_EV_KEY */
     int x, y;                /* mouse: coords; key: x = virtual-key code */
     unsigned int flags;      /* mouse: MOUSEEVENTF_*; key: KEYEVENTF_* */
-    unsigned int data;       /* mouse: mouseData (wheel delta) */
+    unsigned int data;       /* mouse: mouseData; key: 1 when y is a physical scan */
 } winios_input_event_t;
 
 static struct {
     winios_input_event_t buf[WINIOS_RING_SIZE];
     unsigned int head;       /* producer cursor (Swift side) */
     unsigned int tail;       /* consumer cursor (Wine drain) */
+    unsigned long coalesced_moves;
+    unsigned long dropped_moves;
+    unsigned long dropped_critical;
     pthread_mutex_t lock;
 } g_input_q = { .lock = PTHREAD_MUTEX_INITIALIZER };
 
+static unsigned int winios_q_next(unsigned int i) { return (i + 1) % WINIOS_RING_SIZE; }
+static unsigned int winios_q_prev(unsigned int i) { return (i + WINIOS_RING_SIZE - 1) % WINIOS_RING_SIZE; }
+
+static int winios_q_is_plain_move(const winios_input_event_t *e)
+{
+    unsigned int extra = e->flags & ~(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE);
+    return e->type == WINIOS_EV_MOUSE && (e->flags & MOUSEEVENTF_MOVE) && !extra && !e->data;
+}
+
+static int winios_q_add_clamped(int a, int b)
+{
+    long long sum = (long long)a + b;
+    if (sum > INT_MAX) return INT_MAX;
+    if (sum < INT_MIN) return INT_MIN;
+    return (int)sum;
+}
+
 static void winios_q_push_ev(unsigned int type, int x, int y, unsigned int flags, unsigned int data) {
+    winios_input_event_t incoming = {type, x, y, flags, data};
     pthread_mutex_lock(&g_input_q.lock);
-    unsigned int next = (g_input_q.head + 1) % WINIOS_RING_SIZE;
-    if (next != g_input_q.tail) {
-        g_input_q.buf[g_input_q.head] = (winios_input_event_t){type, x, y, flags, data};
-        g_input_q.head = next;
+
+    /* High-rate motion never needs hundreds of stale intermediate samples.
+     * Coalesce only adjacent pure moves so key/button/wheel ordering is exact. */
+    if (winios_q_is_plain_move(&incoming) && g_input_q.head != g_input_q.tail) {
+        winios_input_event_t *last = &g_input_q.buf[winios_q_prev(g_input_q.head)];
+        if (winios_q_is_plain_move(last) &&
+            ((last->flags ^ incoming.flags) & MOUSEEVENTF_ABSOLUTE) == 0) {
+            if (incoming.flags & MOUSEEVENTF_ABSOLUTE) {
+                last->x = incoming.x;
+                last->y = incoming.y;
+            } else {
+                last->x = winios_q_add_clamped(last->x, incoming.x);
+                last->y = winios_q_add_clamped(last->y, incoming.y);
+            }
+            g_input_q.coalesced_moves++;
+            pthread_mutex_unlock(&g_input_q.lock);
+            return;
+        }
     }
-    /* If buffer is full we drop the oldest event by simply not advancing —
-     * better than blocking the UI thread on a Wine event drain. */
+
+    unsigned int next = winios_q_next(g_input_q.head);
+    if (next == g_input_q.tail) {
+        if (winios_q_is_plain_move(&incoming)) {
+            g_input_q.dropped_moves++;
+            pthread_mutex_unlock(&g_input_q.lock);
+            return;
+        }
+
+        /* Never let a mouse flood strand a key or button DOWN. Remove the
+         * oldest disposable motion sample and compact this rare full queue. */
+        unsigned int hole = g_input_q.tail;
+        while (hole != g_input_q.head && !winios_q_is_plain_move(&g_input_q.buf[hole]))
+            hole = winios_q_next(hole);
+        if (hole == g_input_q.head) {
+            g_input_q.dropped_critical++;
+            pthread_mutex_unlock(&g_input_q.lock);
+            return;
+        }
+        for (unsigned int src = winios_q_next(hole); src != g_input_q.head; src = winios_q_next(src)) {
+            g_input_q.buf[hole] = g_input_q.buf[src];
+            hole = src;
+        }
+        g_input_q.head = winios_q_prev(g_input_q.head);
+        g_input_q.dropped_moves++;
+        next = winios_q_next(g_input_q.head);
+    }
+    g_input_q.buf[g_input_q.head] = incoming;
+    g_input_q.head = next;
     pthread_mutex_unlock(&g_input_q.lock);
 }
 
@@ -715,8 +780,13 @@ void winios_post_touch_up(int x, int y) {
 /* Key press bridge. vk = Windows virtual-key code, down = 1 for press,
  * 0 for release. Queued like mouse events; drained in pProcessEvents. */
 void winios_post_key(int vk, int down) {
-    fprintf(stderr, "[winios] post_key vk=0x%x down=%d\n", vk, down); fflush(stderr);
     winios_q_push_ev(WINIOS_EV_KEY, vk, 0, down ? 0 : KEYEVENTF_KEYUP, 0);
+}
+
+void winios_post_hardware_key(int vk, int scan, int extended, int down) {
+    unsigned int flags = down ? 0 : KEYEVENTF_KEYUP;
+    if (extended) flags |= KEYEVENTF_EXTENDEDKEY;
+    winios_q_push_ev(WINIOS_EV_KEY, vk, scan & 0xff, flags, 1);
 }
 
 BOOL winios_pProcessEvents(DWORD mask) {
@@ -760,12 +830,25 @@ BOOL winios_pProcessEvents(DWORD mask) {
         g_input_q.tail = (g_input_q.tail + 1) % WINIOS_RING_SIZE;
         pthread_mutex_unlock(&g_input_q.lock);
 
-        fprintf(stderr, "[winios] drain type=%u x=%d y=%d flags=0x%x\n", e.type, e.x, e.y, e.flags); fflush(stderr);
-        if (e.type == WINIOS_EV_KEY)
-            winios_drv_post_key((unsigned short)e.x, e.flags);
+        if (e.type == WINIOS_EV_KEY) {
+            if (e.data) winios_drv_post_key_scan((unsigned short)e.x, (unsigned short)e.y, e.flags);
+            else winios_drv_post_key((unsigned short)e.x, e.flags);
+        }
         else
             winios_drv_post_mouse(e.x, e.y, e.flags, e.data, NULL);
         drained = TRUE;
+    }
+    if ((cnt & 0xff) == 0) {
+        unsigned long coalesced, dropped_moves, dropped_critical;
+        pthread_mutex_lock(&g_input_q.lock);
+        coalesced = g_input_q.coalesced_moves;
+        dropped_moves = g_input_q.dropped_moves;
+        dropped_critical = g_input_q.dropped_critical;
+        pthread_mutex_unlock(&g_input_q.lock);
+        if ((coalesced || dropped_moves || dropped_critical) && !quiet) {
+            fprintf(stderr, "[winios-input-q] coalesced=%lu dropped-motion=%lu dropped-critical=%lu\n",
+                    coalesced, dropped_moves, dropped_critical);
+        }
     }
     return drained;
 }

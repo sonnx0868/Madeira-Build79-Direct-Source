@@ -96,6 +96,38 @@ final class MetalBackedView: UIView {
         else { v.becomeFirstResponder() }
     }
 
+    /// UIKit physical-key fallback for devices/OS builds where GCKeyboard is
+    /// present but its key stream is nil or incomplete. HardwareInput merges
+    /// and de-duplicates this with GCKeyboard by HID usage, so forwarding both
+    /// paths cannot type a key twice. Unknown keys stay in UIKit's responder
+    /// chain (important for IME/text services).
+    private func hardwarePresses(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
+        Set(presses.filter { press in
+            guard let key = press.key else { return false }
+            return HardwareInput.shared.uikitKey(key, down)
+        })
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining = presses.subtracting(hardwarePresses(presses, down: true))
+        if !remaining.isEmpty { super.pressesBegan(remaining, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining = presses.subtracting(hardwarePresses(presses, down: false))
+        if !remaining.isEmpty { super.pressesEnded(remaining, with: event) }
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining = presses.subtracting(hardwarePresses(presses, down: true))
+        if !remaining.isEmpty { super.pressesChanged(remaining, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining = presses.subtracting(hardwarePresses(presses, down: false))
+        if !remaining.isEmpty { super.pressesCancelled(remaining, with: event) }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         GamepadEventClaim.install(on: self)

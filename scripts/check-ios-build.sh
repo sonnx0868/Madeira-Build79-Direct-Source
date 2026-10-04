@@ -71,6 +71,12 @@ if [[ -s "$root/app/Madeira/arm64ec-windows/dinput8.dll" ]]; then
   }
 fi
 
+if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
+  nm -g "$root/app/Madeira/libwin32u_unix.a" 2>/dev/null | grep -q 'winios_drv_post_key_scan' || {
+    echo "INVALID: libwin32u_unix.a predates the physical keyboard scan-code bridge"; missing=1;
+  }
+fi
+
 for dll in msvcp90.dll msvcr90.dll \
   concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll \
   msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcamp140.dll \

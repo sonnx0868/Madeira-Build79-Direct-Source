@@ -26,11 +26,11 @@ import ObjectiveC
 // on GCKeyCode's named constants, which are an SDK-dependent subset (F13-F24
 // and most international keys have none).
 //
-// Scan codes and the extended-key bit are not chosen here: driver_ios.c derives
-// them from the virtual key with MAPVK_VK_TO_VSC_EX and marks the navigation
-// keys extended, and the wineserver synthesises the generic VK_SHIFT/
-// VK_CONTROL/VK_MENU from the left/right ones. Posting VK_LSHIFT is therefore
-// both more precise than VK_SHIFT and fully compatible.
+// Physical scan codes and the E0 bit are carried from the HID usage into Wine,
+// so Raw Input/DirectInput can distinguish keys that share a virtual key (for
+// example main Enter and numpad Enter). Uncommon international keys fall back
+// to driver_ios.c's MAPVK_VK_TO_VSC_EX mapping. The wineserver synthesises the
+// generic VK_SHIFT/VK_CONTROL/VK_MENU from the left/right ones.
 // tests/host/check-hardware-input.py checks the combined HID -> VK ->
 // scan code result against Wine's US layout.
 //
@@ -99,6 +99,22 @@ import ObjectiveC
 // section on its own, up to the "Device glue" marker below.
 
 enum HardwareKeyMap {
+    struct Stroke: Hashable, Comparable {
+        let usage: Int
+        let vk: Int32
+        /// PC/AT scan-code set 1 byte. Zero asks the Wine driver to derive it
+        /// from the virtual key for uncommon international keys.
+        let scan: Int32
+        let extended: Bool
+
+        static func < (a: Stroke, b: Stroke) -> Bool { a.usage < b.usage }
+    }
+
+    private static let letterScans: [Int32] = [
+        0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32,
+        0x31, 0x18, 0x19, 0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, 0x15, 0x2C,
+    ]
+
     /// Windows virtual-key code for a USB HID keyboard/keypad usage (page
     /// 0x07), or nil for a key Windows has no virtual key for. Ordered exactly
     /// as the HID table is, so a gap is visible as a gap.
@@ -199,6 +215,104 @@ enum HardwareKeyMap {
         case 0xE7: return 0x5C                       // VK_RWIN
 
         default: return nil
+        }
+    }
+
+    /// Physical USB HID keyboard usage -> PC/AT scan-code set 1. Keeping this
+    /// identity avoids collapsing pairs which share a Windows virtual key
+    /// (main Enter/numpad Enter, backslash/ISO hash) before Raw Input and
+    /// DirectInput see them. `nil` deliberately falls back to Wine's layout
+    /// mapping for uncommon locale-specific keys.
+    static func scan(forHIDUsage u: Int) -> (code: Int32, extended: Bool)? {
+        if (0x04...0x1D).contains(u) { return (letterScans[u - 0x04], false) }
+        if (0x1E...0x26).contains(u) { return (Int32(0x02 + u - 0x1E), false) }
+        if (0x3A...0x43).contains(u) { return (Int32(0x3B + u - 0x3A), false) }
+        if (0x68...0x72).contains(u) { return (Int32(0x64 + u - 0x68), false) }
+        switch u {
+        case 0x27: return (0x0B, false)                    // 0
+        case 0x28: return (0x1C, false)                    // main Enter
+        case 0x29: return (0x01, false)
+        case 0x2A: return (0x0E, false)
+        case 0x2B: return (0x0F, false)
+        case 0x2C: return (0x39, false)
+        case 0x2D: return (0x0C, false)
+        case 0x2E: return (0x0D, false)
+        case 0x2F: return (0x1A, false)
+        case 0x30: return (0x1B, false)
+        case 0x31, 0x32: return (0x2B, false)
+        case 0x33: return (0x27, false)
+        case 0x34: return (0x28, false)
+        case 0x35: return (0x29, false)
+        case 0x36: return (0x33, false)
+        case 0x37: return (0x34, false)
+        case 0x38: return (0x35, false)
+        case 0x39: return (0x3A, false)
+        case 0x44: return (0x57, false)                    // F11
+        case 0x45: return (0x58, false)                    // F12
+        case 0x46: return (0x37, true)                     // Print Screen
+        case 0x47: return (0x46, false)                    // Scroll Lock
+        // Pause has an E1 sequence which INPUT cannot represent faithfully;
+        // keep Wine's VK_PAUSE fallback instead of pretending it is E0.
+        case 0x49: return (0x52, true)
+        case 0x4A: return (0x47, true)
+        case 0x4B: return (0x49, true)
+        case 0x4C: return (0x53, true)
+        case 0x4D: return (0x4F, true)
+        case 0x4E: return (0x51, true)
+        case 0x4F: return (0x4D, true)
+        case 0x50: return (0x4B, true)
+        case 0x51: return (0x50, true)
+        case 0x52: return (0x48, true)
+        case 0x53: return (0x45, false)
+        case 0x54: return (0x35, true)
+        case 0x55: return (0x37, false)
+        case 0x56: return (0x4A, false)
+        case 0x57: return (0x4E, false)
+        case 0x58: return (0x1C, true)                     // numpad Enter
+        case 0x59: return (0x4F, false)
+        case 0x5A: return (0x50, false)
+        case 0x5B: return (0x51, false)
+        case 0x5C: return (0x4B, false)
+        case 0x5D: return (0x4C, false)
+        case 0x5E: return (0x4D, false)
+        case 0x5F: return (0x47, false)
+        case 0x60: return (0x48, false)
+        case 0x61: return (0x49, false)
+        case 0x62: return (0x52, false)
+        case 0x63: return (0x53, false)
+        case 0x64: return (0x56, false)                    // ISO < >
+        case 0x65: return (0x5D, true)                     // Application
+        case 0x73: return (0x76, false)                    // F24
+        case 0x7F: return (0x20, true)
+        case 0x80: return (0x30, true)
+        case 0x81: return (0x2E, true)
+        case 0x87: return (0x73, false)                    // JIS ro
+        case 0xE0: return (0x1D, false)
+        case 0xE1: return (0x2A, false)
+        case 0xE2: return (0x38, false)
+        case 0xE3: return (0x5B, true)
+        case 0xE4: return (0x1D, true)
+        case 0xE5: return (0x36, false)
+        case 0xE6: return (0x38, true)
+        case 0xE7: return (0x5C, true)
+        default: return nil
+        }
+    }
+
+    static func stroke(forHIDUsage usage: Int) -> Stroke? {
+        guard let vk = vk(forHIDUsage: usage) else { return nil }
+        let physical = scan(forHIDUsage: usage)
+        return Stroke(usage: usage, vk: vk, scan: physical?.code ?? 0,
+                      extended: physical?.extended ?? false)
+    }
+
+    /// The press-event API exposes a few Apple keyboard usages in addition to the ordinary
+    /// USB Return-or-Enter / keypad-comma usages used by GCKeyboard.
+    static func canonicalPressUsage(_ usage: Int) -> Int {
+        switch usage {
+        case 0x9E: return 0x28    // UIKeyboardHIDUsage.keyboardReturn
+        case 0x9F: return 0x85    // UIKeyboardHIDUsage.keyboardSeparator
+        default: return usage
         }
     }
 
@@ -586,8 +700,13 @@ final class HardwareInput: ObservableObject {
 
     // MARK: held state (main thread)
 
-    private var keys = FocusGate<Int32>()
-    private var keysPosted = HeldEdges<Int32>()
+    private var keys = FocusGate<HardwareKeyMap.Stroke>()
+    private var keysPosted = HeldEdges<HardwareKeyMap.Stroke>()
+    /// GCKeyboard and UIKit can report the same physical transition. Both run
+    /// on main; suppress the second edge while retaining UIKit as a fallback
+    /// on OS/device combinations whose GCKeyboard stream is empty.
+    private var lastKeyTransition: [Int: (pressed: Bool, at: CFTimeInterval)] = [:]
+    private static let duplicateKeyWindow: CFTimeInterval = 0.040
     /// Buttons whose press went to the program and are still down.
     private var gameButtons: Set<MouseButton> = []
     private var buttonsPosted = HeldEdges<MouseButton>()
@@ -902,7 +1021,7 @@ final class HardwareInput: ObservableObject {
         }
         kb.handlerQueue = .main
         input.keyChangedHandler = { [weak self] _, _, code, pressed in
-            self?.key(code, pressed)
+            self?.keyUsage(code.rawValue, pressed, source: "GCKeyboard")
         }
         if !keyboardConnected {
             keyboardConnected = true
@@ -914,37 +1033,67 @@ final class HardwareInput: ObservableObject {
     private func detachKeyboard() {
         // A key held while the keyboard's battery dies never sends its up.
         keys.reset()
+        lastKeyTransition.removeAll()
         syncKeys()
         keyboardConnected = GCKeyboard.coalesced?.keyboardInput != nil
         log("keyboard disconnected (coalesced still present=\(keyboardConnected))")
         refreshFocus("keyboard disconnected")
     }
 
-    private func key(_ code: GCKeyCode, _ pressed: Bool) {
+    /// UIKit physical-key fallback. MetalBackedView forwards presses here;
+    /// callers use the return value to keep unknown keys in UIKit's pipeline.
+    @discardableResult
+    func uikitKey(_ key: UIKey, _ pressed: Bool) -> Bool {
+        let usage = HardwareKeyMap.canonicalPressUsage(Int(key.keyCode.rawValue))
+        return keyUsage(usage, pressed, source: "UIKit")
+    }
+
+    @discardableResult
+    private func keyUsage(_ usage: Int, _ pressed: Bool, source: String) -> Bool {
         tickKeys += 1
-        guard let vk = HardwareKeyMap.vk(forHIDUsage: code.rawValue) else {
+        guard let stroke = HardwareKeyMap.stroke(forHIDUsage: usage) else {
             // An unmapped key is a key the program did not receive; the usage
             // number names it exactly.
-            if pressed { log("unmapped HID usage 0x\(String(code.rawValue, radix: 16))") }
-            return
+            if pressed { log("unmapped HID usage 0x\(String(usage, radix: 16)) via=\(source)") }
+            return false
+        }
+        let now = CACurrentMediaTime()
+        if let last = lastKeyTransition[usage], last.pressed == pressed,
+           now - last.at >= 0, now - last.at < Self.duplicateKeyWindow {
+            return true
+        }
+        lastKeyTransition[usage] = (pressed, now)
+        if source == "UIKit", !keyboardConnected {
+            keyboardConnected = true
+            log("keyboard active via UIKit physical-key fallback")
         }
         refreshFocus("key")
-        if pressed { keys.press(vk, focused: keyboardFocused) } else { keys.release(vk) }
+        if pressed { keys.press(stroke, focused: keyboardFocused) } else { keys.release(stroke) }
+        let heldVKs = Set(keys.physical.map(\.vk))
         if pressed, keyboardFocused, Self.pointerLockAvailable,
-           HardwareKeyMap.isPointerLockChord(vk, held: keys.physical) {
-            keys.block(vk)
+           HardwareKeyMap.isPointerLockChord(stroke.vk, held: heldVKs) {
+            keys.block(stroke)
             syncKeys()
             togglePointerLock(why: "Ctrl+Alt+P")
-            return
+            return true
         }
         syncKeys()
         startTicker()
+        return true
     }
 
     private func syncKeys() {
         let edges = keysPosted.update(keys.wanted(focused: keyboardFocused))
-        for vk in edges.up { winios_post_key(vk, 0) }
-        for vk in edges.down { winios_post_key(vk, 1) }
+        for key in edges.up { postKey(key, down: false) }
+        for key in edges.down { postKey(key, down: true) }
+    }
+
+    private func postKey(_ key: HardwareKeyMap.Stroke, down: Bool) {
+        if key.scan != 0 {
+            winios_post_hardware_key(key.vk, key.scan, key.extended ? 1 : 0, down ? 1 : 0)
+        } else {
+            winios_post_key(key.vk, down ? 1 : 0)
+        }
     }
 
     // MARK: - mouse
@@ -1579,7 +1728,9 @@ final class HardwareInput: ObservableObject {
             motionLock.lock(); tickerArmed = false; motionLock.unlock()
             return
         }
-        let keyList = keysPosted.down.sorted().map { String(format: "%02x", $0) }.joined(separator: ",")
+        let keyList = keysPosted.down.sorted().map {
+            String(format: "%02x/%02x%@", $0.vk, $0.scan, $0.extended ? "e" : "")
+        }.joined(separator: ",")
         log("keys_down=[\(keyList)] mouse_dx=\(Int(dx)) mouse_dy=\(Int(dy)) "
             + "buttons=\(gameButtons.sorted().map(\.rawValue)) wheel=\(wheelN) "
             + "lock=\(pointerLocked ? "on" : "off") path=\(mousePath.rawValue) route=\(currentRoute.rawValue) "
