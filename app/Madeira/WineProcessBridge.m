@@ -1141,6 +1141,16 @@ static void *wine_process_thread(void *arg) {
                 setenv("WINEDLLOVERRIDES", joined.UTF8String, 1);
                 fprintf(stderr, "[steam-modules] overlay/video disabled for this Dock session overrides=%s\n", joined.UTF8String);
             }
+            if (getenv("_MADEIRA_LUA51_GC64")) {
+                NSString *gc64 = [bundlePath stringByAppendingPathComponent:@"arm64ec-windows/lua51-gc64.dll"];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:gc64]) {
+                    setenv("_MADEIRA_LUA51_GC64_PATH", gc64.UTF8String, 1);
+                    fprintf(stderr, "[luajit-gc64] Balatro compatibility runtime=%s\n", gc64.UTF8String);
+                } else {
+                    unsetenv("_MADEIRA_LUA51_GC64_PATH");
+                    fprintf(stderr, "[luajit-gc64] requested but lua51-gc64.dll is missing from the app bundle\n");
+                }
+            } else { unsetenv("_MADEIRA_LUA51_GC64_PATH"); }
         }
 
         // Steam S0: root CA trust. iOS has no API to enumerate system

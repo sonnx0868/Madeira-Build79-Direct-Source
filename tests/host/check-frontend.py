@@ -37,6 +37,7 @@ root = Path(__file__).resolve().parents[2]
 lib = (root / 'app/Madeira/Library.swift').read_text()
 display = (root / 'app/Madeira/GuestDisplay.swift').read_text()
 bridge = (root / 'app/Madeira/WineProcessBridge.m').read_text()
+loader = (root / 'build/ntdll-unix/loader_ios.c').read_text()
 server = (root / 'build/ntdll-unix/server_ios.c').read_text()
 content = (root / 'app/Madeira/ContentView.swift').read_text()
 gamepad = (root / 'app/Madeira/GamepadInput.swift').read_text()
@@ -222,6 +223,13 @@ MadeiraConfig.values = ["env.MADEIRA_CONTROLLER_AUTO_PREFS": "0", "env.MADEIRA_S
 unsetenv("_MADEIRA_STEAM_OVERLAY_OFF"); hollow.controllerMode = nil; hollow.applyEnvironment()
 expect(env("_MADEIRA_STEAM_OVERLAY_OFF") == nil, "Steam overlay has an explicit opt-in")
 MadeiraConfig.values = [:]
+var balatro = LibraryEntry(title: "Balatro", relativePath: "Games/Balatro/Balatro.exe", bits: 64)
+unsetenv("_MADEIRA_LUA51_GC64")
+balatro.applyEnvironment()
+expect(env("_MADEIRA_LUA51_GC64") == "1", "Balatro selects the GC64 LuaJIT compatibility runtime")
+MadeiraConfig.values = ["env.MADEIRA_LUAJIT_GC64": "0"]; balatro.applyEnvironment()
+expect(env("_MADEIRA_LUA51_GC64") == nil, "Balatro GC64 compatibility has a kill switch")
+MadeiraConfig.values = [:]
 // FPS limit: 30 needs DXMT's 30 FPS cap; without it a saved 30 runs as 60.
 game.fpsMode = 3; game.applyEnvironment()
 expect(vsync == 3, "30 FPS applied when DXMT has the cap")
@@ -390,6 +398,8 @@ check('__attribute__((weak)) void madeira_set_display_max_fps' in shim and 'ProM
 check('LibraryView(play: launchLibraryEntry' in content, 'ContentView shows the library when it is the chosen interface')
 check('runWineFullSequence(profile: entry)' in content and 'profile.applyEnvironment()' in content,
       'library launches use the shared launch path with the profile applied')
+check('_MADEIRA_LUA51_GC64_PATH' in loader and '[luajit-gc64] redirect' in loader
+      and 'lua51-gc64.dll' in bridge, 'Balatro loads the bundled GC64 LuaJIT without replacing the game file')
 check('Button("Use New Interface")' in content, 'the developer interface can switch back to the library')
 check('LibraryController.shared' in gamepad and 'library.ownsInput' in gamepad,
       'player 1 pad drives the library and is neutral while the library owns input')

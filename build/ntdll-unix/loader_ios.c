@@ -1504,6 +1504,19 @@ static NTSTATUS open_dll_file( const char *name, OBJECT_ATTRIBUTES *attr, HANDLE
     LARGE_INTEGER size;
     NTSTATUS status;
     HANDLE handle;
+#ifdef WINE_IOS
+    const char *gc64 = getenv( "_MADEIRA_LUA51_GC64_PATH" );
+    static const WCHAR lua51W[] = {'l','u','a','5','1','.','d','l','l',0};
+    const UNICODE_STRING *object_name = attr ? attr->ObjectName : NULL;
+    unsigned int chars = object_name ? object_name->Length / sizeof(WCHAR) : 0;
+
+    if (gc64 && *gc64 && chars >= ARRAY_SIZE(lua51W) - 1 &&
+        !wcsnicmp( object_name->Buffer + chars - (ARRAY_SIZE(lua51W) - 1), lua51W, ARRAY_SIZE(lua51W) - 1 ))
+    {
+        dprintf( 2, "[luajit-gc64] redirect %s -> %s (original game file remains untouched)\n", name, gc64 );
+        name = gc64;
+    }
+#endif
 
     if ((status = open_unix_file( &handle, name, GENERIC_READ | SYNCHRONIZE, attr, 0,
                                   FILE_SHARE_READ | FILE_SHARE_DELETE, FILE_OPEN,

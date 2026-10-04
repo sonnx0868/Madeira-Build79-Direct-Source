@@ -465,12 +465,21 @@ enum ControllerCompatibility {
 enum ExternalGameCompatibility {
     static func prepare(_ entry: LibraryEntry) -> [String] {
         guard entry.desktop != true else { return [] }
+        var applied: [String] = []
+        let identity = (entry.title + " " + entry.launchWindowsPath).lowercased()
+        let balatro = entry.steamAppID == 2379780 || identity.contains("balatro")
+        if balatro && MadeiraConfig.flag("MADEIRA_LUAJIT_GC64") {
+            setenv("_MADEIRA_LUA51_GC64", "1", 1)
+            applied.append("luajit-gc64")
+        } else { unsetenv("_MADEIRA_LUA51_GC64") }
+
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let executable = docs.appendingPathComponent("wine/drive_c").appendingPathComponent(entry.launchRelativePath)
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: executable.path, isDirectory: &isDirectory), !isDirectory.boolValue else { return [] }
+        guard FileManager.default.fileExists(atPath: executable.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return applied.isEmpty ? ["none"] : applied
+        }
         let directory = executable.deletingLastPathComponent()
-        var applied: [String] = []
 
         let unityPlayer = directory.appendingPathComponent("UnityPlayer.dll")
         if FileManager.default.fileExists(atPath: unityPlayer.path), MadeiraConfig.flag("MADEIRA_UNITY_D3D11") {

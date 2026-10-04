@@ -84,6 +84,8 @@ OVERLAY = {
     "env.MADEIRA_DINPUT_PAD": {"title": "DirectInput joystick from the host gamepad"},
     "env.MADEIRA_UNITY_D3D11": {"title": "Force Direct3D 11 for copied Unity games", "category": "App & front end",
                 "note": "On by default. Adds -force-d3d11 only when UnityPlayer.dll sits beside a directly launched game and no renderer argument was supplied. Steam Dock launches are untouched."},
+    "env.MADEIRA_LUAJIT_GC64": {"title": "Balatro LuaJIT GC64 compatibility", "category": "Memory & JIT pool",
+                "note": "On by default for Balatro only. Redirects its low-address LuaJIT runtime to the pinned official LÖVE 11.5 GC64 lua51.dll without modifying the game's files."},
     "env.MADEIRA_PROMOTE": {"title": "Hold the display at its maximum rate"},
     "dxmt": {"title": "DXMT options (a=b;c=d)"},
 }

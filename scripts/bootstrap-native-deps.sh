@@ -17,6 +17,9 @@ if (( ${#missing[@]} )); then brew install "${missing[@]}"; fi
 log "Fetch Microsoft x64 VC runtime"
 bash "$root/scripts/fetch-vcruntime.sh"
 
+log "Fetch LÖVE LuaJIT GC64 compatibility runtime"
+bash "$root/scripts/fetch-love-luajit-gc64.sh"
+
 log "Initialize pinned upstream submodules"
 git -C "$root" submodule update --init FEX wine dxmt madeira-dock
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \

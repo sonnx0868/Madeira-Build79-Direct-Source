@@ -27,6 +27,14 @@ also reports a large third-party Steam API replacement, but never modifies it,
 swaps it for the original DLL or bypasses DRM. Such a build may behave
 differently from the same game launched through Madeira Dock and Valve's client.
 
+Balatro is a separate LÖVE/LuaJIT case. iOS enforces a hard 4 GB Mach-O
+`__PAGEZERO`, while the older bundled LuaJIT requests GC memory below 2 GB and
+fails before graphics starts. For Balatro only, Madeira redirects `lua51.dll`
+to the pinned official LÖVE 11.5 GC64 runtime in the app bundle. GC64 accepts
+high addresses; the original game DLL remains untouched. Disable the profile
+with `env.MADEIRA_LUAJIT_GC64 = 0` if a modified build has incompatible native
+Lua modules.
+
 The library reads the executable's PE imports (and those of the DLLs next to
 it, plus bounded scans for dynamically loaded renderer DLL names) to show a
 graphics-API badge, and measures the install folder's size. The badge names an
