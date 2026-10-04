@@ -255,7 +255,7 @@
 		B2000002 /* JITBuiltInHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JITBuiltInHost.swift; sourceTree = "<group>"; };
 		B2000003 /* JITBuiltInMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JITBuiltInMessages.swift; sourceTree = "<group>"; };
 		B2000040 /* JITPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JITPairing.swift; sourceTree = "<group>"; };
-		B2000041 /* libmadeira_rppairing.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libmadeira_rppairing.a; sourceTree = "<group>"; };
+		B2000041 /* libmadeira_rppairing.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Madeira/libmadeira_rppairing.a; sourceTree = "<group>"; };
 		B2000042 /* MadeiraRPPairing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MadeiraRPPairing.h; sourceTree = "<group>"; };
 		B2000004 /* madeira-jit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "madeira-jit.js"; sourceTree = "<group>"; };
 		B2000051 /* Madeira JIT.shortcut */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Madeira JIT.shortcut"; sourceTree = "<group>"; };

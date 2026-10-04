@@ -19,7 +19,7 @@ mkdir -p "$OBJ_DIR"
 
 PATCH="$BUILD_DIR/clean-build.patch"
 if git -C "$DXMT_ROOT" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
-    echo "DXMT clean-build patch already applied"
+    echo "DXMT iOS fallback patch already applied"
 else
     git -C "$DXMT_ROOT" apply --check "$PATCH"
     git -C "$DXMT_ROOT" apply "$PATCH"
@@ -242,6 +242,7 @@ echo "=== MADEIRA: dxmt_madeira_native -- internal command library ==="
 # the cache check so that a flag change here regenerates the header.
 DXMT_METAL_STD="${DXMT_METAL_STD:-metal3.1}"
 if [ ! -f "$BUILD_DIR/shader-headers/dxmt_command.h" ] \
+   || [ ! -f "$BUILD_DIR/shader-headers/dxmt_command_source.h" ] \
    || [ "$DXMT_SRC/dxmt/dxmt_command.metal" -nt "$BUILD_DIR/shader-headers/dxmt_command.h" ] \
    || [ "$0" -nt "$BUILD_DIR/shader-headers/dxmt_command.h" ]; then
     mkdir -p "$BUILD_DIR/shader-headers"
@@ -249,11 +250,14 @@ if [ ! -f "$BUILD_DIR/shader-headers/dxmt_command.h" ] \
      && xcrun -sdk macosx metal -std="$DXMT_METAL_STD" --target=air64-apple-macos14.0 \
           -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
      && xcrun -sdk macosx metallib -o dxmt_command.metallib dxmt_command.air \
-     && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h)
+     && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h \
+     && xxd -n dxmt_command_source -i "$DXMT_SRC/dxmt/dxmt_command.metal" dxmt_command_source.h)
     echo "  dxmt_command.h                           OK (-std=$DXMT_METAL_STD)"
 else
     echo "  dxmt_command.h                           CACHED"
 fi
+
+compile_objc "$BUILD_DIR/metal_source_fallback.m" metal_source_fallback
 
 echo "=== MADEIRA: dxmt_madeira_native -- util ==="
 # MADEIRA (WOW64_DESIGN.md, ml1070): util_futex.cpp carries dxmt::futex's

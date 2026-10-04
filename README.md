@@ -87,16 +87,17 @@ and some inputs that are not in the repository, such as the toolchains.
 
 ### Codemagic source build
 
-The `codex/v0.1.1-source-build` branch starts at the public Madeira `v0.1.1`
-tag (`ca3183e`) and adds clean-checkout CI portability fixes. It compiles the
+The `codex/v0.1.3-source-build` branch starts at the public Madeira `v0.1.3`
+tag (`4e9d45a`) and adds clean-checkout CI portability fixes. It compiles the
 native dependencies and application from source; it does not unpack a released
-IPA. Run `Madeira v0.1.1 source bootstrap + IPA` first. The workflow publishes
-`Madeira-v0.1.1-source.ipa` plus a reusable native dependency ZIP for later app
+IPA. Run `Madeira v0.1.3 source bootstrap + IPA` first. The workflow publishes
+`Madeira-v0.1.3-source.ipa` plus a reusable native dependency ZIP for later app
 or UI-only builds.
 
 This branch also pins DXMT's embedded command shaders to Metal 3.1 for iPadOS
 26.1 compatibility and stages Microsoft's signed x64 VC++ 2008 and v14 runtime
-payloads supplied by their official redistributable packages.
+payloads supplied by their official redistributable packages. The bootstrap
+also builds the Rust `libmadeira_rppairing.a` required by v0.1.3's in-app JIT.
 
 ### Repository layout
 

@@ -12,6 +12,7 @@ rm -f "$output"
   app/Madeira/libwin32u_unix.a app/Madeira/libdxmt_combined.a \
   app/Madeira/libavformat.a app/Madeira/libavcodec.a \
   app/Madeira/libswresample.a app/Madeira/libavutil.a \
+  app/Madeira/libmadeira_rppairing.a \
   app/Madeira/x86_64-vcruntime \
   app/Madeira/arm64ec-windows/dockhost.exe \
   app/Madeira/arm64ec-windows/dock-notices.txt)

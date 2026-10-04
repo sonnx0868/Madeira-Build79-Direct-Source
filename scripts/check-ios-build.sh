@@ -16,6 +16,9 @@ for path in \
   app/Madeira/libwin32u_unix.a app/Madeira/libdxmt_combined.a \
   app/Madeira/libavformat.a app/Madeira/libavcodec.a \
   app/Madeira/libswresample.a app/Madeira/libavutil.a \
+  app/Madeira/libmadeira_rppairing.a \
+  app/Frameworks/StikJIT.xcframework/ios-arm64/StikJIT.framework/StikJIT \
+  "app/Madeira/Madeira JIT.shortcut" \
   app/Madeira/arm64ec-windows/dockhost.exe; do need "$path"; done
 
 for dll in msvcp90.dll msvcr90.dll \
@@ -26,5 +29,6 @@ for dll in msvcp90.dll msvcr90.dll \
 
 plutil -lint "$root/app/Madeira/Info.plist" >/dev/null
 plutil -lint "$root/app/Madeira/Madeira.entitlements" >/dev/null
+plutil -lint "$root/app/MadeiraJITHelper/Info.plist" >/dev/null
 [[ "$missing" = 0 ]] || { echo "Native dependency preflight failed." >&2; exit 1; }
 echo "All native inputs required by Madeira.xcodeproj are present."

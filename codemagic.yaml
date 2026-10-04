@@ -1,6 +1,6 @@
 workflows:
-  madeira-v011-bootstrap:
-    name: Madeira v0.1.1 source bootstrap + IPA
+  madeira-v013-bootstrap:
+    name: Madeira v0.1.3 source bootstrap + IPA
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
@@ -23,13 +23,14 @@ workflows:
         - $CM_BUILD_DIR/build/ntdll-unix/obj
         - $CM_BUILD_DIR/build/win32u-unix/obj
         - $CM_BUILD_DIR/build/dxmt-ios/obj
+        - $CM_BUILD_DIR/build/rppairing-ios/target
         - $CM_BUILD_DIR/research/freetype
         - $CM_BUILD_DIR/app/Madeira/x86_64-vcruntime
     scripts:
-      - name: Build Madeira v0.1.1 native dependencies
+      - name: Build Madeira v0.1.3 native dependencies
         script: bash scripts/bootstrap-native-deps.sh
       - name: Package reusable native bundle
-        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-v0.1.1-native-deps.zip"
+        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-v0.1.3-native-deps.zip"
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
@@ -41,21 +42,26 @@ workflows:
           set -euo pipefail
           app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
+          test -d "$app/Frameworks/StikJIT.framework"
+          test -d "$app/PlugIns/MadeiraJITHelper.appex"
+          codesign --force --sign - --timestamp=none "$app/Frameworks/StikJIT.framework"
+          codesign --force --sign - --timestamp=none "$app/PlugIns/MadeiraJITHelper.appex"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
-          out="$CM_BUILD_DIR/build/v0.1.1-bootstrap"
+          codesign --verify --deep --strict "$app"
+          out="$CM_BUILD_DIR/build/v0.1.3-bootstrap"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.1-source.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.3-source.ipa Payload)
     artifacts:
-      - build/v0.1.1-bootstrap/Madeira-v0.1.1-source.ipa
-      - madeira-v0.1.1-native-deps.zip
+      - build/v0.1.3-bootstrap/Madeira-v0.1.3-source.ipa
+      - madeira-v0.1.3-native-deps.zip
       - build/ntdll-unix/obj/*.err
       - build/win32u-unix/obj/*.err
       - build/wineserver/obj/*.txt
       - build/dxmt-ios/obj/*.err
 
-  madeira-v011-ipa:
-    name: Madeira v0.1.1 IPA from cached native bundle
+  madeira-v013-ipa:
+    name: Madeira v0.1.3 IPA from cached native bundle
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -83,11 +89,16 @@ workflows:
           set -euo pipefail
           app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
+          test -d "$app/Frameworks/StikJIT.framework"
+          test -d "$app/PlugIns/MadeiraJITHelper.appex"
+          codesign --force --sign - --timestamp=none "$app/Frameworks/StikJIT.framework"
+          codesign --force --sign - --timestamp=none "$app/PlugIns/MadeiraJITHelper.appex"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
-          out="$CM_BUILD_DIR/build/v0.1.1"
+          codesign --verify --deep --strict "$app"
+          out="$CM_BUILD_DIR/build/v0.1.3"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.1-source.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.3-source.ipa Payload)
     artifacts:
-      - build/v0.1.1/Madeira-v0.1.1-source.ipa
+      - build/v0.1.3/Madeira-v0.1.3-source.ipa
       - /tmp/xcodebuild_logs/*.log

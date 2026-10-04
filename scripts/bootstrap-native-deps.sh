@@ -91,6 +91,17 @@ bash "$root/build/dxmt-ios/build.sh"
 log "Build Madeira Dock"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/madeira-dock/build.sh"
 
+log "Build Madeira on-device pairing library"
+if ! command -v rustup >/dev/null 2>&1; then
+    brew install rustup
+    export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
+fi
+if ! rustup toolchain list | grep -q '^stable.*default'; then
+    rustup default stable
+fi
+rustup target add aarch64-apple-ios
+bash "$root/build/rppairing-ios/build.sh"
+
 log "Stage licences and validate"
 bash "$root/build/stage-licenses.sh"
 bash "$root/scripts/check-ios-build.sh"
