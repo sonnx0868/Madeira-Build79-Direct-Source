@@ -73,6 +73,8 @@ OVERLAY = {
     "env.MADEIRA_ONBOARDING": {"title": "First-run Steam setup"},
     "env.MADEIRA_XINPUT": {"title": "Physical controllers (XInput)"},
     "env.MADEIRA_TOUCH_XINPUT": {"title": "Touch controller as XInput player 1"},
+    "env.MADEIRA_PAD_EARLY_SLOT": {"title": "Publish controller before the game starts", "category": "Controllers",
+                "note": "On by default so games that enumerate controllers only once at startup see player 1. Set to Off only to restore the old late-enumeration behaviour."},
     "env.MADEIRA_DINPUT_PAD": {"title": "DirectInput joystick from the host gamepad"},
     "env.MADEIRA_PROMOTE": {"title": "Hold the display at its maximum rate"},
     "dxmt": {"title": "DXMT options (a=b;c=d)"},

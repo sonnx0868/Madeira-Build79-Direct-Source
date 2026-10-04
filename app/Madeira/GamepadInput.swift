@@ -27,7 +27,8 @@ final class GamepadInput: @unchecked Sendable {
         queue.async { [self] in touchState.configure(allowed); sample() }
     }
 
-    /// Publish player 1 before the game looks (MADEIRA_PAD_EARLY_SLOT=1; default OFF).
+    /// Publish player 1 before the game looks (default ON;
+    /// MADEIRA_PAD_EARLY_SLOT=0 restores the old late-enumeration behaviour).
     ///
     /// Some input layers enumerate XInput once at startup and only rescan on a
     /// device-arrival broadcast, which this port does not deliver. Touch slot 0
@@ -38,15 +39,20 @@ final class GamepadInput: @unchecked Sendable {
     /// is connected at rest from the start; live input takes it over. The
     /// reservation lasts until the process exits (one Wine session per run),
     /// so player 1 then shows as connected for the whole session even while no
-    /// controller is in use. That is why it is opt-in: without the switch,
-    /// slot 0 connects only when a real source appears, as before.
+    /// controller is in use. Reserving is the safe default because games such
+    /// as Unity titles commonly enumerate XInput only once at startup. It is
+    /// still limited to sessions that actually have a physical or touch pad,
+    /// and keyboard-and-mouse mode does not publish the physical pad to XInput.
     @MainActor func reserveSessionSlot(touchControls: Bool) {
-        guard Self.enabled, Self.optIn("MADEIRA_PAD_EARLY_SLOT") else { return }
+        guard Self.enabled, Self.flag("MADEIRA_PAD_EARLY_SLOT") else { return }
         let touch = touchControls && Self.touchEnabled
-        let paired = !GCController.controllers().isEmpty
+        let paired = !keyboardMouseOn && !GCController.controllers().isEmpty
         guard touch || paired else { return }
-        queue.async { [self] in touchState.reserved = true; sample() }
-        LogStore.shared.log("[xinput] ml1990 slot=0 reserved for the session touch=\(touch ? 1 : 0) paired=\(paired ? 1 : 0)")
+        // This method runs on the main actor and Wine starts immediately after
+        // it returns. Publish synchronously so the guest's first XInput probe
+        // cannot race the queue and observe player 1 as disconnected.
+        queue.sync { [self] in touchState.reserved = true; sample() }
+        LogStore.shared.log("[xinput] ml1990 slot=0 reserved before Wine starts touch=\(touch ? 1 : 0) paired=\(paired ? 1 : 0)")
     }
 
     /// Documents/madeira.cfg `env.NAME`, else the process environment; only "0" disables.

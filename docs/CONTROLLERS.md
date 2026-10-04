@@ -103,14 +103,15 @@ connects only once the landscape overlay shows its controller mappings, and a
 paired controller may not have reported an extended profile yet, so such a game
 would never see a pad.
 
-This is **opt-in** (`env.MADEIRA_PAD_EARLY_SLOT = 1`), because the reserved
-player 1 stays connected for the whole session. With the switch, when a Wine
-session starts with visible touch controller mappings (or the built-in about
-to be applied by `MADEIRA_CONTROLS_XBOX_DEFAULT = 1`) or with a paired
-controller, slot 0 is published as connected with neutral input. Live touch or
-physical input takes it over. Hiding the controls or disconnecting the pad then
-leaves player 1 connected at rest until the app exits. Without the switch,
-slot 0 connects only when a real source appears, as before.
+This is **on by default**; `env.MADEIRA_PAD_EARLY_SLOT = 0` restores the old
+late-enumeration behaviour. When a Wine session starts with visible touch
+controller mappings (or the built-in about to be applied by
+`MADEIRA_CONTROLS_XBOX_DEFAULT = 1`) or with a paired controller, slot 0 is
+published as connected with neutral input. Live touch or physical input takes
+it over. Hiding the controls or disconnecting the pad then leaves player 1
+connected at rest until the app exits. A physical pad used in **Keyboard and
+mouse** mode is not reserved as XInput unless visible touch controller mappings
+also need player 1.
 
 ## A controller as keyboard and mouse
 
@@ -187,7 +188,7 @@ user sees are opt-in (only `1` enables); the others are on unless set to `0`:
 | `MADEIRA_CONTROL_PRESETS` | on | `0`: no layout menu, no write-back |
 | `MADEIRA_CONTROLS_EDITOR_DONE` | on | `0`: the checkmark and show/hide glyph while editing |
 | `MADEIRA_CONTROLS_XBOX_DEFAULT` | **off** | `1`: a user with no controls file gets the built-in once |
-| `MADEIRA_PAD_EARLY_SLOT` | **off** | `1`: player 1 is reserved at session start (see above) |
+| `MADEIRA_PAD_EARLY_SLOT` | **on** | `0`: restore late controller enumeration; otherwise player 1 is reserved at session start when a controller source exists (see above) |
 
 `[controls-layout] ml1970` logs layout loads, saves, creation and deletion
 (never layout names); `[xinput] ml1990` logs the session slot reservation.
@@ -263,8 +264,9 @@ merge, rebuild the paired components and test:
   delete it; the layout menu and its dialogs respond anywhere on screen; each
   kill switch at `0`. With `MADEIRA_CONTROLS_XBOX_DEFAULT = 1`: a user without
   a controls file gets the built-in once and an existing file is kept.
-- By default player 1 is not connected until a real source appears. With
-  `MADEIRA_PAD_EARLY_SLOT = 1`, a game that enumerates XInput only at startup
-  sees player 1 with touch controls shown or a controller paired before launch.
+- By default a game that enumerates XInput only at startup sees player 1 when
+  touch controls are shown or a controller was paired before launch. With
+  `MADEIRA_PAD_EARLY_SLOT = 0`, player 1 is not connected until a live source
+  appears, matching the old behaviour.
 
 The fork's existing device history does not prove this isolated extraction.
