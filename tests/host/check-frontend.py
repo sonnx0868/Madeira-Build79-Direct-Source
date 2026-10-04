@@ -188,6 +188,21 @@ MadeiraConfig.values = [:]; game.fastSync = nil; game.semaphoreFastPath = nil
 game.reducedX87 = true; game.applyEnvironment()
 expect(env("FEX_X87REDUCEDPRECISION") == "1", "reduced x87 exported when chosen")
 game.reducedX87 = false
+
+// Controller compatibility: Hollow Knight gets the legacy DirectInput view,
+// and Dock games keep Valve's injected overlay out unless explicitly enabled.
+var hollow = LibraryEntry(title: "Hollow Knight", relativePath: "Program Files (x86)/Steam/steamapps/common/Hollow Knight", bits: 64)
+hollow.steamAppID = 367520
+unsetenv("MADEIRA_DINPUT_PAD"); unsetenv("_MADEIRA_STEAM_OVERLAY_OFF")
+hollow.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == "1", "Hollow Knight automatically gets DirectInput")
+expect(env("_MADEIRA_STEAM_OVERLAY_OFF") == "1", "Dock marks the injected Steam overlay disabled")
+hollow.controllerMode = "keys"; unsetenv("MADEIRA_DINPUT_PAD"); hollow.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == nil, "keyboard/mouse mode does not expose Hollow Knight through DirectInput")
+MadeiraConfig.values = ["env.MADEIRA_STEAM_OVERLAY": "1"]
+unsetenv("_MADEIRA_STEAM_OVERLAY_OFF"); hollow.controllerMode = nil; hollow.applyEnvironment()
+expect(env("_MADEIRA_STEAM_OVERLAY_OFF") == nil, "Steam overlay has an explicit opt-in")
+MadeiraConfig.values = [:]
 // FPS limit: 30 needs DXMT's 30 FPS cap; without it a saved 30 runs as 60.
 game.fpsMode = 3; game.applyEnvironment()
 expect(vsync == 3, "30 FPS applied when DXMT has the cap")

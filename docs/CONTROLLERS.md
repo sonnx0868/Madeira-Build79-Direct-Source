@@ -20,6 +20,14 @@ only when the sample or connection changes. The win32u query copies state or
 capabilities into the Windows caller's buffer. Wine's paired XInput change tries
 this query before its existing HID path.
 
+Source builds run `build/wine-pe/build-controller.sh` and rebuild the complete
+ARM64EC guest side (`win32u`, the desktop XInput variants and DirectInput 7/8) from
+the pinned Wine submodule. Reusing an older PE farm is not
+supported: the call code in `ntuser.h` is an ABI shared with the iOS win32u
+unix library, and a mismatch otherwise looks exactly like a disconnected pad.
+`[xinput-publish]` logs app-side state transitions and `[xinput-guest]` logs the
+first guest queries, making the broken side of that boundary visible.
+
 ## Touch controls
 
 In the existing landscape touch editor, assign a control using its Controller
@@ -152,6 +160,17 @@ The Controller picker's third choice, **XInput and DirectInput**, is for games
 older than XInput: it exports `MADEIRA_DINPUT_PAD=1` for that launch only (the
 DirectInput device below), since a game reading both APIs may list two
 controllers.
+
+Hollow Knight (Steam App 367520, or `hollow_knight.exe`) selects this route
+automatically unless keyboard-and-mouse mode was explicitly chosen. Its older
+Unity input layer can enumerate DirectInput even though it also loads XInput.
+
+Madeira Dock disables Valve's injected game overlay by default. Madeira already
+owns the session UI and controller bridge; the injected DLL costs memory and
+can hook XInput ahead of the game. `env.MADEIRA_STEAM_OVERLAY = 1` restores it
+for a title that specifically needs the overlay. The same headless-session
+policy skips `video64.dll`, whose FFmpeg dependencies are not part of Dock's
+minimal client package and which otherwise retries the same failed imports.
 
 A layout can also bind an input: in the control editor, a touch control with
 a key or mouse action has a **Controller button for this action** row, and a

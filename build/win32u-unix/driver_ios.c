@@ -2273,9 +2273,37 @@ C_ASSERT( sizeof(struct winios_gamepad) == 20 );
 ULONG_PTR ios_gamepad_query( UINT index, UINT op, void *buffer )
 {
     struct winios_gamepad pad;
+    static unsigned int query_count, miss_count, active_count;
+    unsigned int n;
 
     if (!buffer || index >= 4) return 0;
-    if (!winios_gamepad_get_state( index, &pad )) return 0;
+    n = __atomic_load_n( &query_count, __ATOMIC_RELAXED );
+    if (n < 8) n = __atomic_add_fetch( &query_count, 1, __ATOMIC_RELAXED );
+    else n = 9;
+    if (!winios_gamepad_get_state( index, &pad ))
+    {
+        unsigned int miss = __atomic_load_n( &miss_count, __ATOMIC_RELAXED );
+        if (miss < 8) miss = __atomic_add_fetch( &miss_count, 1, __ATOMIC_RELAXED );
+        else miss = 9;
+        if (miss <= 8) dprintf( 2, "[xinput-guest] query#%u miss#%u slot=%u op=%u connected=0\n", n, miss, index, op );
+        return 0;
+    }
+    if (n <= 8)
+        dprintf( 2, "[xinput-guest] query#%u slot=%u op=%u packet=%u buttons=%#x "
+                 "lt=%u rt=%u ls=(%d,%d) rs=(%d,%d)\n", n, index, op, pad.packet,
+                 (unsigned int)pad.buttons, (unsigned int)pad.left_trigger, (unsigned int)pad.right_trigger,
+                 pad.lx, pad.ly, pad.rx, pad.ry );
+    if (op == 0 && (pad.buttons || pad.left_trigger || pad.right_trigger || pad.lx || pad.ly || pad.rx || pad.ry))
+    {
+        unsigned int active = __atomic_load_n( &active_count, __ATOMIC_RELAXED );
+        if (active < 16) active = __atomic_add_fetch( &active_count, 1, __ATOMIC_RELAXED );
+        else active = 17;
+        if (active <= 16)
+            dprintf( 2, "[xinput-guest] active#%u slot=%u packet=%u buttons=%#x "
+                     "lt=%u rt=%u ls=(%d,%d) rs=(%d,%d)\n", active, index, pad.packet,
+                     (unsigned int)pad.buttons, (unsigned int)pad.left_trigger, (unsigned int)pad.right_trigger,
+                     pad.lx, pad.ly, pad.rx, pad.ry );
+    }
 
     switch (op)
     {

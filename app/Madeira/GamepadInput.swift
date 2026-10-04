@@ -24,7 +24,14 @@ final class GamepadInput: @unchecked Sendable {
 
     @MainActor func configureTouch(controls: Set<UUID>) {
         let allowed = Self.touchEnabled ? controls : []
-        queue.async { [self] in touchState.configure(allowed); sample() }
+        queue.async { [self] in
+            if allowed.count != touchControlCount {
+                touchControlCount = allowed.count
+                fputs("[touch-xinput] route controls=\(allowed.count) active=\(active ? 1 : 0)\n", stderr)
+            }
+            touchState.configure(allowed)
+            sample()
+        }
     }
 
     /// Publish player 1 before the game looks (default ON;
@@ -109,6 +116,15 @@ final class GamepadInput: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private var active = false
     private var touchState = TouchGamepadState()
+    private var touchControlCount = -1
+    private struct DiagnosticState: Equatable {
+        var connected: UInt8
+        var buttons: UInt16
+        var lt, rt: UInt8
+        var lx, ly, rx, ry: Int16
+    }
+    private var diagnosticState = [DiagnosticState?](repeating: nil, count: 4)
+    private var diagnosticTransitions = 0
     @MainActor private var observers: [NSObjectProtocol] = []
     @MainActor private var started = false
 
@@ -273,6 +289,19 @@ final class GamepadInput: @unchecked Sendable {
                 state.buttons = merged.buttons
                 state.left_trigger = merged.lt; state.right_trigger = merged.rt
                 state.lx = merged.lx; state.ly = merged.ly; state.rx = merged.rx; state.ry = merged.ry
+            }
+            let diagnostic = DiagnosticState(connected: state.connected, buttons: state.buttons,
+                                             lt: state.left_trigger, rt: state.right_trigger,
+                                             lx: state.lx, ly: state.ly, rx: state.rx, ry: state.ry)
+            if diagnosticState[i] != diagnostic {
+                diagnosticState[i] = diagnostic
+                if diagnosticTransitions < 64 {
+                    diagnosticTransitions += 1
+                    fputs("[xinput-publish] #\(diagnosticTransitions) slot=\(i) packet-next " +
+                          "buttons=0x\(String(state.buttons, radix: 16)) lt=\(state.left_trigger) rt=\(state.right_trigger) " +
+                          "ls=(\(state.lx),\(state.ly)) rs=(\(state.rx),\(state.ry)) " +
+                          "physical=\(pad == nil ? 0 : 1) touch=\(touchConnected ? 1 : 0) active=\(active ? 1 : 0)\n", stderr)
+                }
             }
             winios_gamepad_set_state(Int32(i), &state)
         }

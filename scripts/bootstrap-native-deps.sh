@@ -23,6 +23,17 @@ git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \
     External/fmt External/xxhash External/range-v3 External/unordered_dense
 git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
 
+# Keep tiny integration fixes in the main source tree instead of relying on a
+# dirty, unpublished submodule checkout. Applying twice is harmless; any third
+# state is a real source drift and must fail rather than silently mispatch.
+wine_patch="$root/patches/wine-socket-cmsg-rate-limit.patch"
+if git -C "$root/wine" apply --check "$wine_patch"; then
+    git -C "$root/wine" apply "$wine_patch"
+elif ! git -C "$root/wine" apply --reverse --check "$wine_patch"; then
+    echo "Wine source no longer matches $wine_patch" >&2
+    exit 1
+fi
+
 log "Install pinned llvm-mingw"
 mingw_name="llvm-mingw-20260421-ucrt-macos-universal"
 mingw_dir="$root/toolchains/$mingw_name"
@@ -56,6 +67,9 @@ if [[ ! -f "$wine_ec/config.status" ]]; then
         --without-freetype --without-gnutls --disable-tests --enable-winegstreamer)
 fi
 make -C "$wine_ec" -j"$jobs" include/all tools/widl/all tools/winebuild/all
+
+log "Rebuild Wine controller PE bridge"
+bash "$root/build/wine-pe/build-controller.sh"
 
 log "Build FEX iOS"
 bash "$root/build/fex-ios/build.sh"

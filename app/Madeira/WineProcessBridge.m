@@ -1111,6 +1111,36 @@ static void *wine_process_thread(void *arg) {
                     fprintf(stderr, "[madeira-env] sync engine: fastsync (default), MADEIRA_FASTSYNC=auto\n");
                 }
             }
+
+            /* Madeira Dock has its own session UI and controller transport. Its
+             * launch profile marks the injected Valve overlay off by default;
+             * append the Wine disable override AFTER madeira.cfg was exported,
+             * so a user's unrelated WINEDLLOVERRIDES entries are preserved and
+             * cannot accidentally replace this session policy. */
+            if (getenv("_MADEIRA_STEAM_OVERLAY_OFF")) {
+                NSString *raw = getenv("WINEDLLOVERRIDES") ? [NSString stringWithUTF8String:getenv("WINEDLLOVERRIDES")] : @"";
+                NSMutableArray<NSString *> *entries = [NSMutableArray array];
+                NSMutableSet<NSString *> *named = [NSMutableSet set];
+                for (NSString *entry in [raw componentsSeparatedByString:@";"]) {
+                    NSString *trimmed = [entry stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    if (!trimmed.length) continue;
+                    [entries addObject:trimmed];
+                    NSString *modules = [[trimmed componentsSeparatedByString:@"="] firstObject] ?: @"";
+                    for (NSString *module in [modules componentsSeparatedByString:@","]) {
+                        NSString *name = [[module stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] lowercaseString];
+                        if (name.length) [named addObject:name];
+                    }
+                }
+                /* video64.dll is also useless in the headless host: the pinned
+                 * minimal client package has none of its libav dependencies,
+                 * so Steam repeatedly loads it only to fail the same imports. */
+                for (NSString *module in @[@"gameoverlayrenderer64", @"video64"]) {
+                    if (![named containsObject:module]) [entries addObject:[module stringByAppendingString:@"="]];
+                }
+                NSString *joined = [entries componentsJoinedByString:@";"];
+                setenv("WINEDLLOVERRIDES", joined.UTF8String, 1);
+                fprintf(stderr, "[steam-modules] overlay/video disabled for this Dock session overrides=%s\n", joined.UTF8String);
+            }
         }
 
         // Steam S0: root CA trust. iOS has no API to enumerate system

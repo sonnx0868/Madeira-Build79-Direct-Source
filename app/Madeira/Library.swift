@@ -307,11 +307,28 @@ struct LibraryEntry: Codable, Identifiable {
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
-        // "dinput": the host pad also as a DirectInput joystick (wine/dlls/dinput/joystick_ios.c,
-        // off by default because a game reading both APIs would see two controllers).
-        // Exported only for that choice; madeira.cfg's own MADEIRA_DINPUT_PAD still applies otherwise.
-        if GamepadInput.keyboardMouseAvailable, controllerMode == "dinput" { setenv("MADEIRA_DINPUT_PAD", "1", 1) }
+        // "dinput": the host pad also as a DirectInput joystick
+        // (wine/dlls/dinput/joystick_ios.c). Hollow Knight's older Unity input
+        // layer loads both APIs but can enumerate only DirectInput on Wine, so
+        // give that title the compatibility route automatically unless the
+        // user deliberately selected keyboard/mouse mode.
+        let hollowKnight = steamAppID == 367520 || launchWindowsPath.lowercased().hasSuffix("\\hollow_knight.exe")
+        let dinputSelected = GamepadInput.keyboardMouseAvailable && controllerMode == "dinput"
+        let dinputCompatibility = GamepadInput.keyboardMouseAvailable && controllerMode != "keys" && hollowKnight
+        if dinputSelected || dinputCompatibility { setenv("MADEIRA_DINPUT_PAD", "1", 1) }
         else if MadeiraConfig.get("env.MADEIRA_DINPUT_PAD") == nil { unsetenv("MADEIRA_DINPUT_PAD") }
+
+        // Madeira has its own controller, keyboard/mouse and session UI. Valve's
+        // injected overlay adds a large x64 DLL, hooks XInput and cannot present
+        // a useful desktop overlay here. Keep it out of Dock games by default;
+        // env.MADEIRA_STEAM_OVERLAY=1 is the escape hatch.
+        let dockGame = steamAppID != nil && !startsSteamGameDirectly
+        let steamOverlay = MadeiraConfig.bool("env.MADEIRA_STEAM_OVERLAY", default: false)
+        if dockGame && !steamOverlay {
+            setenv("_MADEIRA_STEAM_OVERLAY_OFF", "1", 1)
+        } else { unsetenv("_MADEIRA_STEAM_OVERLAY_OFF") }
+        fputs("[controller-route] mode=\(controllerMode ?? "xinput") dinput=\((dinputSelected || dinputCompatibility) ? 1 : 0) " +
+              "compat=\(dinputCompatibility ? "hollow-knight" : "none") steam-overlay=\((dockGame && steamOverlay) ? 1 : 0)\n", stderr)
         if let anisotropyLimit, [1, 2, 4, 8].contains(anisotropyLimit) { setenv("DXMT_D9_ANISO_LIMIT", String(anisotropyLimit), 1) }
         // Fastsync's per-game switches, only when Settings chose Fastsync; with Madsync
         // (the default) or Wine's standard sync nothing is exported here.

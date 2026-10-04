@@ -21,6 +21,30 @@ for path in \
   "app/Madeira/Madeira JIT.shortcut" \
   app/Madeira/arm64ec-windows/dockhost.exe; do need "$path"; done
 
+for dll in win32u.dll dinput.dll dinput8.dll \
+  xinput1_1.dll xinput1_2.dll xinput1_3.dll xinput1_4.dll \
+  xinput9_1_0.dll; do need "app/Madeira/arm64ec-windows/$dll"; done
+need "build/wine-pe/controller-pe.version"
+
+if [[ -s "$root/build/wine-pe/controller-pe.version" && -e "$root/wine/.git" ]]; then
+  expected="$(git -C "$root/wine" rev-parse HEAD)"
+  actual="$(tr -d '[:space:]' < "$root/build/wine-pe/controller-pe.version")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "INVALID: controller PE bridge came from $actual, Wine source is $expected"; missing=1
+  fi
+fi
+
+if [[ -s "$root/app/Madeira/arm64ec-windows/xinput1_3.dll" ]]; then
+  grep -a -q 'NtUserCallTwoParam' "$root/app/Madeira/arm64ec-windows/xinput1_3.dll" || {
+    echo "INVALID: xinput1_3.dll has no win32u controller bridge"; missing=1;
+  }
+fi
+if [[ -s "$root/app/Madeira/arm64ec-windows/dinput8.dll" ]]; then
+  grep -a -q 'MADEIRA-DINPUT-IOS' "$root/app/Madeira/arm64ec-windows/dinput8.dll" || {
+    echo "INVALID: dinput8.dll is not Madeira's iOS controller build"; missing=1;
+  }
+fi
+
 for dll in msvcp90.dll msvcr90.dll \
   concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll \
   msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcamp140.dll \

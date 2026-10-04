@@ -34,6 +34,9 @@ workflows:
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
+          stamp="v0.1.3-source-$(git -C "$CM_BUILD_DIR" rev-parse --short HEAD)"
+          /usr/libexec/PlistBuddy -c "Set :MadeiraBuild $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :MadeiraBuild string $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist"
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
             ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build
@@ -81,6 +84,9 @@ workflows:
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
+          stamp="v0.1.3-source-$(git -C "$CM_BUILD_DIR" rev-parse --short HEAD)"
+          /usr/libexec/PlistBuddy -c "Set :MadeiraBuild $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :MadeiraBuild string $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist"
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
             ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build

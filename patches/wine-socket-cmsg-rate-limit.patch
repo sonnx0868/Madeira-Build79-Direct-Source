@@ -1,0 +1,23 @@
+diff --git a/dlls/ntdll/unix/socket.c b/dlls/ntdll/unix/socket.c
+--- a/dlls/ntdll/unix/socket.c
++++ b/dlls/ntdll/unix/socket.c
+@@ -508,9 +508,17 @@ static int convert_control_headers(const struct msghdr *hdr, char *control, size_
+                     }
+ #endif /* IP_TTL */
+ 
+-                    default:
+-                        FIXME("Unhandled IPPROTO_IP message header type %d\n", cmsg_unix->cmsg_type);
++                    default:
++                    {
++                        static unsigned int unhandled_count;
++                        unsigned int n = __atomic_add_fetch( &unhandled_count, 1, __ATOMIC_RELAXED );
++
++                        if (n <= 8)
++                            FIXME("Unhandled IPPROTO_IP message header type %d\n", cmsg_unix->cmsg_type);
++                        else if (n == 9)
++                            FIXME("Further unhandled IPPROTO_IP message-header warnings suppressed\n");
+                         break;
++                    }
+                 }
+                 break;
+ 
