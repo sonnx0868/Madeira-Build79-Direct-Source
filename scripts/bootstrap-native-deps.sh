@@ -32,13 +32,16 @@ git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
 # Keep tiny integration fixes in the main source tree instead of relying on a
 # dirty, unpublished submodule checkout. Applying twice is harmless; any third
 # state is a real source drift and must fail rather than silently mispatch.
-wine_patch="$root/patches/wine-socket-cmsg-rate-limit.patch"
-if git -C "$root/wine" apply --check "$wine_patch"; then
-    git -C "$root/wine" apply "$wine_patch"
-elif ! git -C "$root/wine" apply --reverse --check "$wine_patch"; then
-    echo "Wine source no longer matches $wine_patch" >&2
-    exit 1
-fi
+for wine_patch in \
+    "$root/patches/wine-socket-cmsg-rate-limit.patch" \
+    "$root/patches/wine-luajit-gc64-file-redirect.patch"; do
+    if git -C "$root/wine" apply --check "$wine_patch"; then
+        git -C "$root/wine" apply "$wine_patch"
+    elif ! git -C "$root/wine" apply --reverse --check "$wine_patch"; then
+        echo "Wine source no longer matches $wine_patch" >&2
+        exit 1
+    fi
+done
 
 log "Install pinned llvm-mingw"
 mingw_name="llvm-mingw-20260421-ucrt-macos-universal"

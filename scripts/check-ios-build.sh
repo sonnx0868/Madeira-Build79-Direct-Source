@@ -76,6 +76,11 @@ if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
     echo "INVALID: libwin32u_unix.a predates the physical keyboard scan-code bridge"; missing=1;
   }
 fi
+if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
+  grep -a -q 'NtCreateFile redirect' "$root/app/Madeira/libntdll_unix.a" || {
+    echo "INVALID: libntdll_unix.a predates the effective LÖVE GC64 file redirect"; missing=1;
+  }
+fi
 
 for dll in msvcp90.dll msvcr90.dll \
   concrt140.dll msvcp140.dll msvcp140_1.dll msvcp140_2.dll \

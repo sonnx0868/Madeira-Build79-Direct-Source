@@ -1,0 +1,42 @@
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index b2f445e04ae..7e4e8d4ce7f 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -4710,6 +4710,36 @@ NTSTATUS WINAPI NtCreateFile( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBU
+     else status = get_nt_and_unix_names( &new_attr, &nt_name, &unix_name, disposition,
+                                          options & FILE_OPEN_REPARSE_POINT );
+-
++
++#ifdef WINE_IOS
++    /* Madeira: ordinary game DLLs are opened through NtCreateFile, not the
++     * builtin loader's open_dll_file. Redirect a detected LÖVE 11.5 session's
++     * lua51.dll here so the pinned GC64 runtime really reaches NtCreateSection.
++     * Read-only FILE_OPEN only; writes and every unrelated file are untouched. */
++    if (!status && disposition == FILE_OPEN && !(access & (FILE_WRITE_DATA | FILE_APPEND_DATA | GENERIC_WRITE)))
++    {
++        const char *gc64 = getenv( "_MADEIRA_LUA51_GC64_PATH" );
++        static const WCHAR lua51W[] = {'l','u','a','5','1','.','d','l','l'};
++        const UNICODE_STRING *obj = attr ? attr->ObjectName : NULL;
++        unsigned int chars = obj ? obj->Length / sizeof(WCHAR) : 0;
++
++        if (gc64 && *gc64 && chars >= ARRAY_SIZE(lua51W) &&
++            !wcsnicmp( obj->Buffer + chars - ARRAY_SIZE(lua51W), lua51W, ARRAY_SIZE(lua51W) ) &&
++            (chars == ARRAY_SIZE(lua51W) || obj->Buffer[chars - ARRAY_SIZE(lua51W) - 1] == '\\' ||
++             obj->Buffer[chars - ARRAY_SIZE(lua51W) - 1] == '/'))
++        {
++            char *replacement = strdup( gc64 );
++            if (!replacement) status = STATUS_NO_MEMORY;
++            else
++            {
++                dprintf( 2, "[luajit-gc64] NtCreateFile redirect %s -> %s (original untouched)\n",
++                         unix_name ? unix_name : "(none)", replacement );
++                free( unix_name );
++                unix_name = replacement;
++            }
++        }
++    }
++#endif
++
+     if (status == STATUS_BAD_DEVICE_TYPE)
+     {
+         status = server_open_file_object( handle, access, &new_attr, sharing, options );

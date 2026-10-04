@@ -35,6 +35,11 @@ pinned official LÖVE 11.5 GC64 runtime in the app bundle. GC64 accepts high
 virtual addresses, and the original game file is never modified. Balatro's
 Steam App ID remains a fallback when its install folder has not been indexed.
 Set `env.MADEIRA_LUAJIT_GC64 = 0` in `Documents/madeira.cfg` to disable it.
+The redirect is applied in Wine's ordinary `NtCreateFile` path because game
+DLLs do not pass through the builtin-DLL loader. A successful launch therefore
+logs `[luajit-gc64] NtCreateFile redirect ...` and maps `lua51.dll` with a
+`0x8e000` image size; seeing only the earlier "compatibility runtime" line
+means the bundle was selected but the game still opened its original DLL.
 
 For graphics, Madeira detects LÖVE and SDL runtimes and enables SDL's official
 EGL path. Bundled ANGLE translates OpenGL ES 2/3 to D3D11; DXMT then translates
