@@ -24,9 +24,8 @@ import UIKit
 //
 // Switches (Documents/madeira.cfg `env.NAME = value`, or the environment):
 //   MADEIRA_CONTROL_PRESETS=0        no layout menu, no write-back (default on)
-//   MADEIRA_CONTROLS_XBOX_DEFAULT=1  a user with no controls file gets the
-//                                    built-in once (default OFF: otherwise the
-//                                    built-in is only applied from the menu)
+//   MADEIRA_CONTROLS_XBOX_DEFAULT=0  do not seed the built-in Xbox layout for
+//                                    a user with no controls file (default ON)
 // ============================================================================
 
 // MARK: - Pure preset state (also compiled by the host regression test)
@@ -306,12 +305,10 @@ struct ControlPresetStore: Equatable {
 final class ControlPresetsModel: ObservableObject {
     static let shared = ControlPresetsModel()
     static let enabled = GamepadInput.flag("MADEIRA_CONTROL_PRESETS")
-    /// Opt-in. "No madeira-controls.json" is not a fresh install: the file is
-    /// only written once the controls or their visibility change, so an
-    /// existing user who never touched them has none either and would get an
-    /// 18-button overlay they did not ask for. Nothing on disk tells the two
-    /// apart reliably, so the built-in is applied automatically only on request.
-    static let xboxDefault = GamepadInput.optIn("MADEIRA_CONTROLS_XBOX_DEFAULT")
+    /// Default on: selecting Touch controls should produce a complete gamepad,
+    /// not an empty editor that requires eighteen manual mappings. Existing
+    /// control files (including an intentionally empty one) are never replaced.
+    static let xboxDefault = GamepadInput.flag("MADEIRA_CONTROLS_XBOX_DEFAULT")
 
     @Published private(set) var store = ControlPresetStore()
     /// A file that exists and cannot be read is left untouched: saving is

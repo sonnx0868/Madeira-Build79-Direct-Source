@@ -90,14 +90,11 @@ shipped: the edited controls become unsaved controls. Choosing another layout
 while unsaved controls are on screen asks first and offers to keep them as the
 next custom layout, so an existing hand-made layout is never lost.
 
-The built-in is never applied automatically by default: it is only loaded
-when chosen from the menu. A missing madeira-controls.json does not identify a
-new user (the file is only written once the controls or their visibility
-change, so an existing user who never touched them has none either), and
-nothing else on disk tells the two apart reliably. With
-`env.MADEIRA_CONTROLS_XBOX_DEFAULT = 1`, a user with no madeira-controls.json
-at launch gets the built-in the first time the landscape overlay appears; it is
-never applied over an existing controls file, even an empty one.
+The built-in is applied once by default when Touch controls are first shown and
+no `madeira-controls.json` exists. This makes the first touch-controller launch
+usable without opening the editor and mapping eighteen controls. It is never
+applied over an existing controls file, even an intentionally empty one;
+`env.MADEIRA_CONTROLS_XBOX_DEFAULT = 0` disables the automatic seed.
 
 The editor shows **Done** in place of the checkmark and hides the show/hide
 glyph while editing; **+** still adds a control. Menus and confirmation dialogs
@@ -126,8 +123,8 @@ also need player 1.
 For a game without controller support (or with it switched off), Game details
 and the in-game Session menu offer **Controller: Keyboard and mouse**. Steam
 Input does this for desktop players; Madeira Dock runs Valve's client headless,
-so Madeira does it itself (`PadKeyboardMouse.swift`). The default, **Game's own
-support**, is XInput as before.
+so Madeira does it itself (`PadKeyboardMouse.swift`). The default,
+**Automatic (XInput + DirectInput)**, publishes both standard Windows views.
 
 In keyboard-and-mouse mode the physical pad is not published to XInput at all
 (the game sees no controller; touch controller mappings still connect player 1),
@@ -156,14 +153,17 @@ While the right stick is the mouse, the page also has its **Vertical speed**
 scale the camera's pitch and yaw differently from a mouse, and a stick cannot
 be compensated by hand the way a wrist does.
 
-The Controller picker's third choice, **XInput and DirectInput**, is for games
-older than XInput: it exports `MADEIRA_DINPUT_PAD=1` for that launch only (the
-DirectInput device below), since a game reading both APIs may list two
-controllers.
+Automatic exports `MADEIRA_DINPUT_PAD=1` and publishes XInput too. This covers
+old DirectInput-only games and modern XInput games without asking the player to
+guess the API. **XInput only** is the per-game escape hatch when a title lists
+both views as two controllers. Existing profiles whose old value is `dinput`
+are treated as Automatic.
 
-Hollow Knight (Steam App 367520, or `hollow_knight.exe`) selects this route
-automatically unless keyboard-and-mouse mode was explicitly chosen. Its older
-Unity input layer can enumerate DirectInput even though it also loads XInput.
+For Hollow Knight and Silksong, Madeira also seeds the known Unity PlayerPrefs
+`NativeInput=1` and `XInput=1` before the first launch, backing up `user.reg`
+once and preserving unrelated values. This replaces the manual open-settings,
+save, quit and relaunch procedure. `MADEIRA_CONTROLLER_AUTO_PREFS=0` disables
+the compatibility profiles.
 
 Madeira Dock disables Valve's injected game overlay by default. Madeira already
 owns the session UI and controller bridge; the injected DLL costs memory and
@@ -199,25 +199,25 @@ to disable only touch gamepad input. `[xinput] ml1920` logs physical enablement
 and connections; `[touch-xinput] ml1930` logs touch enablement once.
 
 Each follow-up behaviour has its own switch (`env.NAME = value` in
-madeira.cfg, or the process environment). The two that change what an existing
-user sees are opt-in (only `1` enables); the others are on unless set to `0`:
+madeira.cfg, or the process environment). Compatibility defaults are on and
+can be rolled back independently with `0`:
 
 | Switch | Default | Effect |
 | --- | --- | --- |
 | `MADEIRA_CONTROL_PRESETS` | on | `0`: no layout menu, no write-back |
 | `MADEIRA_CONTROLS_EDITOR_DONE` | on | `0`: the checkmark and show/hide glyph while editing |
-| `MADEIRA_CONTROLS_XBOX_DEFAULT` | **off** | `1`: a user with no controls file gets the built-in once |
+| `MADEIRA_CONTROLLER_AUTO_PREFS` | **on** | `0`: do not seed known in-game controller preferences before launch |
+| `MADEIRA_CONTROLS_XBOX_DEFAULT` | **on** | `0`: do not seed the built-in Xbox layout for a user with no controls file |
 | `MADEIRA_PAD_EARLY_SLOT` | **on** | `0`: restore late controller enumeration; otherwise player 1 is reserved at session start when a controller source exists (see above) |
 
 `[controls-layout] ml1970` logs layout loads, saves, creation and deletion
 (never layout names); `[xinput] ml1990` logs the session slot reservation.
 
-DirectInput has a separate, opt-in device in the companion Wine change: one
+DirectInput has a separate device in the companion Wine change: one
 joystick with the standard XInput controller object set (X/Y and Rx/Ry sticks,
 Z as the combined triggers, an 8-way POV, ten buttons), read from the same host
-query. It is hidden unless `env.MADEIRA_DINPUT_PAD = 1` is in madeira.cfg
-(exported to the Wine environment), because a game that reads both APIs would
-otherwise see two controllers. `MADEIRA_DINPUT_TRACE=1` adds a rate-limited
+query. Automatic mode exports `MADEIRA_DINPUT_PAD=1`; XInput-only and
+keyboard/mouse modes leave it hidden. `MADEIRA_DINPUT_TRACE=1` adds a rate-limited
 state trace.
 
 Vibration, battery telemetry, controller-driven navigation of the app itself,
@@ -276,13 +276,13 @@ merge, rebuild the paired components and test:
 - Hold then hide, edit, remap, remove, rotate, background or interrupt the app;
   no input should remain stuck, and fresh touches should work afterward.
 - Both rollback flags, saved layouts, and existing keyboard/mouse controls.
-- Layouts: by default nothing is applied to a user with or without a controls
-  file; the built-in loads from the menu (the overlay's button, and in a library
-  session the Session menu's Controller layout row); switching away from unsaved controls
+- Layouts: without a controls file the built-in Xbox layout is applied once by
+  default; an existing file is never replaced. The same built-in also loads
+  from the menu (the overlay's button, and in a library session the Session menu's Controller layout row); switching away from unsaved controls
   asks first; create, edit with Done, relaunch and reload a custom layout;
   delete it; the layout menu and its dialogs respond anywhere on screen; each
-  kill switch at `0`. With `MADEIRA_CONTROLS_XBOX_DEFAULT = 1`: a user without
-  a controls file gets the built-in once and an existing file is kept.
+  kill switch at `0`. With `MADEIRA_CONTROLS_XBOX_DEFAULT = 0`, automatic
+  seeding is off and the layout remains available from the menu.
 - By default a game that enumerates XInput only at startup sees player 1 when
   touch controls are shown or a controller was paired before launch. With
   `MADEIRA_PAD_EARLY_SLOT = 0`, player 1 is not connected until a live source

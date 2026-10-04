@@ -210,13 +210,13 @@ def function(source, start):
 gamepad = (app / 'GamepadInput.swift').read_text()
 for flag, where in (('MADEIRA_CONTROL_PRESETS', presets), ('MADEIRA_CONTROLS_EDITOR_DONE', content)):
     assert f'.flag("{flag}")' in where, flag + ' is a kill switch'
-# The built-in layout remains opt-in. Early player 1 publication is on by
-# default so one-shot XInput enumeration works, with an explicit kill switch.
-assert '.optIn("MADEIRA_CONTROLS_XBOX_DEFAULT")' in presets and '.flag("MADEIRA_CONTROLS_XBOX_DEFAULT")' not in presets
+# A new touch user gets a complete controller automatically; existing files
+# remain protected by needsDefaultLayout. Both behaviours have kill switches.
+assert '.flag("MADEIRA_CONTROLS_XBOX_DEFAULT")' in presets and '.optIn("MADEIRA_CONTROLS_XBOX_DEFAULT")' not in presets
 assert '.flag("MADEIRA_PAD_EARLY_SLOT")' in gamepad and '.optIn("MADEIRA_PAD_EARLY_SLOT")' not in gamepad
 assert '!= "0"' in function(gamepad, 'static func flag('), 'only "0" disables'
 assert '== "1"' in function(gamepad, 'static func optIn('), 'only "1" enables'
-assert 'Self.xboxDefault' in function(presets, 'var defaultPending: Bool {'), 'the automatic built-in needs the opt-in'
+assert 'Self.xboxDefault' in function(presets, 'var defaultPending: Bool {'), 'the automatic built-in honours its kill switch'
 
 model = content[content.index('final class TouchControlsModel'):content.index('/// Click-through EXCEPT')]
 assert 'if oldValue && !editing { ControlPresetsModel.shared.editingEnded(baseline: editBaseline) }' in model

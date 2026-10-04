@@ -19,6 +19,14 @@ tap **+** and choose its `.exe`. Only x86 and x64 PE executables inside drive_c
 can be added; the library stores the path relative to drive_c, so a changed
 app container path does not break entries. Adding an entry installs nothing.
 
+For a directly added Unity game, Madeira detects `UnityPlayer.dll` beside the
+chosen executable and adds `-force-d3d11` unless the profile already chose a
+renderer. This avoids Unity selecting D3D12 or Vulkan paths that Madeira may
+not implement yet; `env.MADEIRA_UNITY_D3D11 = 0` disables it. The launch scan
+also reports a large third-party Steam API replacement, but never modifies it,
+swaps it for the original DLL or bypasses DRM. Such a build may behave
+differently from the same game launched through Madeira Dock and Valve's client.
+
 The library reads the executable's PE imports (and those of the DLLs next to
 it, plus bounded scans for dynamically loaded renderer DLL names) to show a
 graphics-API badge, and measures the install folder's size. The badge names an

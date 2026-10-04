@@ -195,10 +195,10 @@ struct LibraryEntry: Codable, Identifiable {
     /// nil = 1) in this game's sessions.
     var controlOpacity: Double?
     var controlSize: Double?
-    /// How a physical controller reaches this game: nil, the game's own support
-    /// (XInput, as before); "dinput", XInput and a DirectInput joystick of the same
-    /// pad (for games older than XInput; a game reading both APIs sees two
-    /// controllers); "keys", keyboard and mouse (PadKeyboardMouse: the pad
+    /// How a physical controller reaches this game: nil is Automatic (XInput
+    /// plus a DirectInput view of the same pad); "xinput" suppresses DirectInput
+    /// for games that would list both views; legacy "dinput" decodes as Automatic;
+    /// "keys" is keyboard and mouse (PadKeyboardMouse: the pad
     /// presses keys and moves the mouse, the game sees no controller). For games
     /// without controller support. Optional, so older files decode.
     var controllerMode: String?
@@ -307,16 +307,15 @@ struct LibraryEntry: Codable, Identifiable {
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
-        // "dinput": the host pad also as a DirectInput joystick
-        // (wine/dlls/dinput/joystick_ios.c). Hollow Knight's older Unity input
-        // layer loads both APIs but can enumerate only DirectInput on Wine, so
-        // give that title the compatibility route automatically unless the
-        // user deliberately selected keyboard/mouse mode.
-        let hollowKnight = steamAppID == 367520 || launchWindowsPath.lowercased().hasSuffix("\\hollow_knight.exe")
-        let dinputSelected = GamepadInput.keyboardMouseAvailable && controllerMode == "dinput"
-        let dinputCompatibility = GamepadInput.keyboardMouseAvailable && controllerMode != "keys" && hollowKnight
-        if dinputSelected || dinputCompatibility { setenv("MADEIRA_DINPUT_PAD", "1", 1) }
-        else if MadeiraConfig.get("env.MADEIRA_DINPUT_PAD") == nil { unsetenv("MADEIRA_DINPUT_PAD") }
+        // Automatic mode publishes one host pad through both Windows controller
+        // APIs. This covers old Unity/DirectInput titles and modern XInput games
+        // without a per-game first-run ritual. XInput-only remains an escape
+        // hatch for the few games that list both API views as separate pads.
+        let automaticPad = GamepadInput.keyboardMouseAvailable && controllerMode != "keys" && controllerMode != "xinput"
+        if automaticPad { setenv("MADEIRA_DINPUT_PAD", "1", 1) }
+        else { setenv("MADEIRA_DINPUT_PAD", "0", 1) }
+        let controllerPrefs = ControllerCompatibility.prepare(self)
+        let externalCompatibility = ExternalGameCompatibility.prepare(self)
 
         // Madeira has its own controller, keyboard/mouse and session UI. Valve's
         // injected overlay adds a large x64 DLL, hooks XInput and cannot present
@@ -327,8 +326,9 @@ struct LibraryEntry: Codable, Identifiable {
         if dockGame && !steamOverlay {
             setenv("_MADEIRA_STEAM_OVERLAY_OFF", "1", 1)
         } else { unsetenv("_MADEIRA_STEAM_OVERLAY_OFF") }
-        fputs("[controller-route] mode=\(controllerMode ?? "xinput") dinput=\((dinputSelected || dinputCompatibility) ? 1 : 0) " +
-              "compat=\(dinputCompatibility ? "hollow-knight" : "none") steam-overlay=\((dockGame && steamOverlay) ? 1 : 0)\n", stderr)
+        fputs("[controller-route] mode=\(controllerMode ?? "automatic") xinput=1 dinput=\(automaticPad ? 1 : 0) " +
+              "prefs=\(controllerPrefs ?? "none") steam-overlay=\((dockGame && steamOverlay) ? 1 : 0) " +
+              "external=\(externalCompatibility.joined(separator: ","))\n", stderr)
         if let anisotropyLimit, [1, 2, 4, 8].contains(anisotropyLimit) { setenv("DXMT_D9_ANISO_LIMIT", String(anisotropyLimit), 1) }
         // Fastsync's per-game switches, only when Settings chose Fastsync; with Madsync
         // (the default) or Wine's standard sync nothing is exported here.
@@ -370,6 +370,139 @@ struct LibraryEntry: Codable, Identifiable {
         // (MADEIRA_SCREEN_W/H, source "knob"); for the Desktop entry it is the
         // same size as its /desktop= argument.
         GuestDisplay.configureSessionDefault(view: CGSize(width: 1280, height: 720), knob: resolution)
+    }
+}
+
+/// Settings that a game itself normally writes only after the player visits a
+/// controller menu and restarts. Compatibility profiles seed only known keys,
+/// before Wine starts, and preserve every unrelated registry value.
+enum ControllerCompatibility {
+    struct Profile {
+        var name: String
+        var appIDs: Set<Int>
+        var executableFragments: [String]
+        var section: String
+        var values: [String: UInt32]
+    }
+
+    static let profiles = [
+        Profile(name: "hollow-knight", appIDs: [367520], executableFragments: ["hollow_knight.exe"],
+                section: "Software\\\\Team Cherry\\\\Hollow Knight",
+                values: ["NativeInput": 1, "XInput": 1]),
+        Profile(name: "silksong", appIDs: [1030300], executableFragments: ["silksong.exe"],
+                section: "Software\\\\Team Cherry\\\\Hollow Knight Silksong",
+                values: ["NativeInput": 1, "XInput": 1]),
+    ]
+
+    static func profile(for entry: LibraryEntry) -> Profile? {
+        let path = entry.launchWindowsPath.lowercased()
+        return profiles.first { profile in
+            entry.steamAppID.map(profile.appIDs.contains) == true ||
+                profile.executableFragments.contains { path.contains($0) }
+        }
+    }
+
+    /// Pure registry merge used by the host test. Returns nil when the desired
+    /// values are already present byte-for-byte.
+    static func mergedRegistry(_ text: String, section: String, values: [String: UInt32]) -> String? {
+        guard text.hasPrefix("WINE REGISTRY Version 2") else { return nil }
+        var lines = text.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+        let wanted = section.lowercased()
+        var start = lines.firstIndex { line in
+            guard line.hasPrefix("["), let close = line.firstIndex(of: "]") else { return false }
+            return line[line.index(after: line.startIndex)..<close].lowercased() == wanted
+        }
+        if start == nil {
+            if lines.last?.isEmpty == false { lines.append("") }
+            lines.append("[\(section)]")
+            start = lines.count - 1
+        }
+        guard let sectionStart = start else { return nil }
+        let sectionEnd = lines[(sectionStart + 1)...].firstIndex { $0.hasPrefix("[") } ?? lines.count
+        let names = Set(values.keys.map { $0.lowercased() })
+        for index in stride(from: sectionEnd - 1, through: sectionStart + 1, by: -1) {
+            let line = lines[index].trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("\""), let quote = line.dropFirst().firstIndex(of: "\"") else { continue }
+            let name = String(line[line.index(after: line.startIndex)..<quote]).lowercased()
+            if names.contains(name) || names.contains(where: { name.hasPrefix($0 + "_h") }) { lines.remove(at: index) }
+        }
+        var insert = sectionStart + 1
+        while insert < lines.count && (lines[insert].hasPrefix("#time=") || lines[insert].isEmpty) { insert += 1 }
+        for key in values.keys.sorted() {
+            let hex = String(format: "%08x", values[key] ?? 0)
+            lines.insert("\"\(key)\"=dword:\(hex)", at: insert)
+            insert += 1
+        }
+        let merged = lines.joined(separator: "\n") + "\n"
+        return merged == text ? nil : merged
+    }
+
+    static func prepare(_ entry: LibraryEntry) -> String? {
+        guard MadeiraConfig.flag("MADEIRA_CONTROLLER_AUTO_PREFS"), let profile = profile(for: entry) else { return nil }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let url = docs.appendingPathComponent("wine/user.reg")
+        guard let text = try? String(contentsOf: url, encoding: .utf8),
+              let merged = mergedRegistry(text, section: profile.section, values: profile.values) else {
+            return profile.name
+        }
+        let backup = url.appendingPathExtension("madeira-controller-backup")
+        do {
+            if !FileManager.default.fileExists(atPath: backup.path) { try FileManager.default.copyItem(at: url, to: backup) }
+            try merged.write(to: url, atomically: true, encoding: .utf8)
+            fputs("[controller-prefs] seeded \(profile.name) NativeInput=1 XInput=1 backup=\(backup.lastPathComponent)\n", stderr)
+        } catch {
+            fputs("[controller-prefs] could not seed \(profile.name): \(error.localizedDescription)\n", stderr)
+        }
+        return profile.name
+    }
+}
+
+/// Safe launch adjustments for games copied into drive_c. This never replaces
+/// Steam DLLs, patches executables or bypasses licensing; it only chooses a
+/// renderer Madeira implements and reports third-party launch layers that may
+/// behave differently from the original game.
+enum ExternalGameCompatibility {
+    static func prepare(_ entry: LibraryEntry) -> [String] {
+        guard entry.desktop != true else { return [] }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let executable = docs.appendingPathComponent("wine/drive_c").appendingPathComponent(entry.launchRelativePath)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: executable.path, isDirectory: &isDirectory), !isDirectory.boolValue else { return [] }
+        let directory = executable.deletingLastPathComponent()
+        var applied: [String] = []
+
+        let unityPlayer = directory.appendingPathComponent("UnityPlayer.dll")
+        if FileManager.default.fileExists(atPath: unityPlayer.path), MadeiraConfig.flag("MADEIRA_UNITY_D3D11") {
+            var args = getenv("MADEIRA_ARGS").map { String(cString: $0) } ?? ""
+            let lower = args.lowercased()
+            let rendererChosen = ["-force-d3d", "-force-vulkan", "-force-opengl"].contains { lower.contains($0) }
+            if !rendererChosen {
+                if !args.isEmpty { args += " " }
+                args += "-force-d3d11"
+                setenv("MADEIRA_ARGS", args, 1)
+                applied.append("unity-d3d11")
+                fputs("[external-game] Unity detected; added -force-d3d11\n", stderr)
+            }
+        }
+
+        let dataFolder = directory.appendingPathComponent(executable.deletingPathExtension().lastPathComponent + "_Data")
+        let steamCandidates = [directory.appendingPathComponent("steam_api64.dll"),
+                               dataFolder.appendingPathComponent("Plugins/x86_64/steam_api64.dll")]
+        for steamAPI in steamCandidates where FileManager.default.fileExists(atPath: steamAPI.path) {
+            guard let attrs = try? steamAPI.resourceValues(forKeys: [.fileSizeKey]),
+                  (attrs.fileSize ?? 0) > 2_000_000,
+                  let data = try? Data(contentsOf: steamAPI, options: .mappedIfSafe) else { continue }
+            let markers = [Data("gbe_fork".utf8), Data("steam_settings".utf8)]
+            if markers.allSatisfy({ data.range(of: $0) != nil }) {
+                applied.append("third-party-steam-api")
+                fputs("[external-game] third-party Steam API replacement detected (GBE fork); " +
+                      "Madeira will not modify it or bypass DRM, and compatibility can differ from the Steam build\n", stderr)
+                break
+            }
+        }
+        if applied.isEmpty { applied.append("none") }
+        return applied
     }
 }
 
@@ -2492,7 +2625,7 @@ struct LibraryDetail: View {
                     }
                     Text("Arrange buttons and choose XInput, mouse, or keyboard actions from the in-game menu.").font(.caption).foregroundStyle(.secondary)
                     if GamepadInput.keyboardMouseAvailable {
-                        Text("XInput and DirectInput: for games older than XInput, which read the pad through DirectInput. The same pad is offered through both APIs, so a game that reads both may list two controllers. Applies to the next launch.").font(.caption).foregroundStyle(.secondary)
+                        Text("Automatic publishes the pad through XInput and DirectInput before the game starts. Use XInput only if a game lists the same pad twice. Applies to the next launch.").font(.caption).foregroundStyle(.secondary)
                         Text("Keyboard and mouse: for games without controller support. The controller presses keys and moves the mouse (left stick WASD, right stick mouse, triggers click, D-pad arrows, Start Esc, Select Tab) and the game sees no controller. Change what each button does under Controller binds, here or in the in-game menu.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -2751,9 +2884,9 @@ struct ControllerModeChoice: View {
     @Binding var mode: String?
     var body: some View {
         LabeledContent("Controller") {
-            Picker("Controller", selection: Binding(get: { mode ?? "" }, set: { mode = $0.isEmpty ? nil : $0 })) {
-                Text("Game's own support").tag("")
-                Text("XInput and DirectInput").tag("dinput")
+            Picker("Controller", selection: Binding(get: { mode == "dinput" ? "" : (mode ?? "") }, set: { mode = $0.isEmpty ? nil : $0 })) {
+                Text("Automatic (XInput + DirectInput)").tag("")
+                Text("XInput only").tag("xinput")
                 Text("Keyboard and mouse").tag("keys")
             }.pickerStyle(.menu).labelsHidden()
         }

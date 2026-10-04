@@ -81,7 +81,7 @@ final class PassthroughSubject<Output, Failure: Error> {
 #endif
 enum MadeiraConfig {
     static var values: [String: String] = [:]   // stands in for madeira.cfg
-    static func flag(_ name: String, fallback: Bool = true) -> Bool { fallback }
+    static func flag(_ name: String, fallback: Bool = true) -> Bool { values["env." + name].map { $0 != "0" } ?? fallback }
     static func get(_ key: String) -> String? { values[key] }
     static func bool(_ key: String, default dflt: Bool = false) -> Bool { values[key].map { ["1", "on", "true", "yes"].contains($0) } ?? dflt }
     @discardableResult static func set(_ key: String, _ value: String?) -> Bool { values[key] = value; return true }
@@ -99,6 +99,8 @@ enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
+swift += block(lib, 'enum ControllerCompatibility') + '\n'
+swift += block(lib, 'enum ExternalGameCompatibility') + '\n'
 swift += block(lib, 'enum SyncEngine: String, CaseIterable, Identifiable') + '\n'
 swift += '\n'.join(l for l in display.splitlines() if not l.startswith('import ')) + '\n'
 swift += block(lib, 'final class LibraryController: ObservableObject, @unchecked Sendable') + '\n'
@@ -168,6 +170,10 @@ setenv("FEX_X87REDUCEDPRECISION", "1", 1)
 game.applyEnvironment()
 expect(env("FEX_X87REDUCEDPRECISION") == nil, "x87: nothing exported unless chosen")
 expect(env("MADEIRA_CPU_COUNT") == nil && env("DXMT_D9_ANISO_LIMIT") == nil, "no other engine switches are exported")
+expect(env("MADEIRA_DINPUT_PAD") == "1", "Automatic controller mode publishes DirectInput beside XInput")
+game.controllerMode = "xinput"; game.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == "0", "XInput-only mode suppresses the duplicate DirectInput view")
+game.controllerMode = nil
 expect(env("MADEIRA_FASTSYNC") == "auto" && env("MADEIRA_FASTSYNC_SEM") == "0",
        "no sync keys (Fastsync, the default): the game's fastsync switches are exported")
 expect(LogStore.shared.lines.last == "[display-shape] resolution=1280x720 mode=fit", "the profile's display shape is logged")
@@ -189,17 +195,30 @@ game.reducedX87 = true; game.applyEnvironment()
 expect(env("FEX_X87REDUCEDPRECISION") == "1", "reduced x87 exported when chosen")
 game.reducedX87 = false
 
-// Controller compatibility: Hollow Knight gets the legacy DirectInput view,
-// and Dock games keep Valve's injected overlay out unless explicitly enabled.
+// Controller compatibility: known in-game preferences are pre-seeded,
+// Automatic includes DirectInput, and Dock keeps Valve's injected overlay out.
+let sampleRegistry = """
+WINE REGISTRY Version 2
+
+[Software\\\\Team Cherry\\\\Hollow Knight]
+\"OtherSetting\"=dword:0000002a
+\"NativeInput_h123\"=dword:00000000
+"""
+let mergedRegistry = ControllerCompatibility.mergedRegistry(sampleRegistry, section: "Software\\\\Team Cherry\\\\Hollow Knight", values: ["NativeInput": 1, "XInput": 1])
+expect(mergedRegistry?.contains("\"NativeInput\"=dword:00000001") == true && mergedRegistry?.contains("\"XInput\"=dword:00000001") == true,
+       "controller preferences are seeded before first launch")
+expect(mergedRegistry?.contains("\"OtherSetting\"=dword:0000002a") == true && mergedRegistry?.contains("NativeInput_h123") == false,
+       "controller preference merge preserves unrelated registry values and retires hashed stale values")
 var hollow = LibraryEntry(title: "Hollow Knight", relativePath: "Program Files (x86)/Steam/steamapps/common/Hollow Knight", bits: 64)
 hollow.steamAppID = 367520
+MadeiraConfig.values = ["env.MADEIRA_CONTROLLER_AUTO_PREFS": "0"]
 unsetenv("MADEIRA_DINPUT_PAD"); unsetenv("_MADEIRA_STEAM_OVERLAY_OFF")
 hollow.applyEnvironment()
 expect(env("MADEIRA_DINPUT_PAD") == "1", "Hollow Knight automatically gets DirectInput")
 expect(env("_MADEIRA_STEAM_OVERLAY_OFF") == "1", "Dock marks the injected Steam overlay disabled")
 hollow.controllerMode = "keys"; unsetenv("MADEIRA_DINPUT_PAD"); hollow.applyEnvironment()
-expect(env("MADEIRA_DINPUT_PAD") == nil, "keyboard/mouse mode does not expose Hollow Knight through DirectInput")
-MadeiraConfig.values = ["env.MADEIRA_STEAM_OVERLAY": "1"]
+expect(env("MADEIRA_DINPUT_PAD") == "0", "keyboard/mouse mode does not expose Hollow Knight through DirectInput")
+MadeiraConfig.values = ["env.MADEIRA_CONTROLLER_AUTO_PREFS": "0", "env.MADEIRA_STEAM_OVERLAY": "1"]
 unsetenv("_MADEIRA_STEAM_OVERLAY_OFF"); hollow.controllerMode = nil; hollow.applyEnvironment()
 expect(env("_MADEIRA_STEAM_OVERLAY_OFF") == nil, "Steam overlay has an explicit opt-in")
 MadeiraConfig.values = [:]
