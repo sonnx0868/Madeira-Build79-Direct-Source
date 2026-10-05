@@ -4177,21 +4177,32 @@ void server_init_process_done(void)
          * so the histogram tracks the current phase. */
         /* ml875 [thread-sample]: ONE task-wide sampler (ml873 armed seven, one
          * per pseudo-process, each suspending the others' threads). Body in
-         * ios_thread_sampler_main() above. */
-        if (__sync_bool_compare_and_swap(&ios_ts_armed, 0, 1))
+         * ios_thread_sampler_main() above.
+         *
+         * These are forensic tools, not harmless counters. In particular the
+         * task sampler suspends up to 64 threads four times per burst, the RIP
+         * profile then suspends guest threads up to 200 more times, and wprof
+         * samples workers at 1 kHz for three seconds. Balatro's log showed the
+         * resulting periodic 0.9-6.4 second PRESENT_GAP spikes even though GPU
+         * work stayed below one frame. MADEIRA_QUIET only gated the older PROF
+         * loop, leaving all three of these running in release sessions.
+         *
+         * Make the entire family explicit opt-in. A diagnostic build can set
+         * MADEIRA_RUNTIME_PROFILERS=1; normal games pay zero task-enumeration,
+         * thread-suspend or sampling cost. */
+        const char *runtime_profilers_env = getenv("MADEIRA_RUNTIME_PROFILERS");
+        const int runtime_profilers = runtime_profilers_env && *runtime_profilers_env &&
+                                      strcmp(runtime_profilers_env, "0");
+        if (runtime_profilers && __sync_bool_compare_and_swap(&ios_ts_armed, 0, 1))
         {
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_thread_sampler_main(); });
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_xprobe_main(); });   /* ml1128 */
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ ios_wprof_main(); });   /* ml1129 */
         }
-        if (!getenv("MADEIRA_QUIET"))
+        if (runtime_profilers)
         {
-            /* iOS-Madeira 2026-07-05 quiet mode: the sampler thread_suspends
-             * the game thread ~500x/s (each suspend+get_state+resume steals
-             * wall time and adds jitter) — a few %% of frame time plus heat,
-             * and heat is what caps ProMotion at 60. MADEIRA_QUIET (set in
-             * WineProcessBridge.m) skips the profiler entirely; comment the
-             * setenv out for diagnostic sessions. */
+            /* The older high-frequency profiler is part of the same explicit
+             * opt-in family. It suspends the game thread around 500 times/s. */
             pthread_t prof_pthread = pthread_self();
             mach_port_t prof_thread_initial = pthread_mach_thread_np(prof_pthread);
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{

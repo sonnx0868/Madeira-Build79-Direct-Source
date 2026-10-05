@@ -926,14 +926,14 @@ static void *wine_process_thread(void *arg) {
          * "warning" keeps genuine failures and drops the chatter. */
         setenv("MONO_LOG_LEVEL", "warning", 0);
 
-        /* 2026-07-05 quiet/release mode: disables the heavyweight
-         * diagnostics — the PROF sampler (thread_suspends the game thread
-         * ~500x/s), per-present log lines (100+/s at RAW rates), winios
-         * poll heartbeat. Counters (present count for the FPS overlay,
+        /* 2026-07-05 quiet/release mode: disables noisy diagnostics,
+         * per-present log lines (100+/s at RAW rates), and the winios poll
+         * heartbeat. The thread-suspending runtime profilers are separately
+         * explicit opt-in through MADEIRA_RUNTIME_PROFILERS=1, so release
+         * sessions cannot accidentally start them. Counters (present count for the FPS overlay,
          * machexc, srvw) keep ticking; ERR-level and boot logging are
          * untouched. Worth a few %% of frame time and, more importantly,
-         * HEAT — thermals are what cap ProMotion at 60. COMMENT THIS OUT
-         * for diagnostic/profiling sessions. */
+         * HEAT — thermals are what cap ProMotion at 60. */
         setenv("MADEIRA_QUIET", "1", 1);
 
         /* task #34 share/purge-probe experiments CONCLUDED 2026-07-14

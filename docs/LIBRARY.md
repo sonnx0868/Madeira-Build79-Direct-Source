@@ -50,6 +50,13 @@ logs `[luajit-gc64] NtCreateFile redirect ...` and maps `lua51.dll` with a
 `0x8e000` image size; seeing only the earlier "compatibility runtime" line
 means the bundle was selected but the game still opened its original DLL.
 
+Runtime thread profilers are off during play. They repeatedly suspend Wine/FEX
+threads and are intended only for short diagnostic captures; leaving them on
+caused periodic multi-second presentation gaps in Balatro even while Metal was
+comfortably within its frame budget. Set
+`env.MADEIRA_RUNTIME_PROFILERS = 1` only when collecting `thread-sample`,
+`rip-profile`, `xprobe` or `wprof` evidence.
+
 For graphics, Madeira detects LÖVE and SDL runtimes and enables SDL's official
 EGL path. Bundled ANGLE translates OpenGL ES 2/3 to D3D11; DXMT then translates
 D3D11 to Metal. This is a shared engine/API route for compatible x64 games,
