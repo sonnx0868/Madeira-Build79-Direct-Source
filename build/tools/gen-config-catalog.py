@@ -86,6 +86,8 @@ OVERLAY = {
     "env.MADEIRA_DINPUT_PAD": {"title": "DirectInput joystick from the host gamepad"},
     "env.MADEIRA_UNITY_D3D11": {"title": "Force Direct3D 11 for copied Unity games", "category": "App & front end",
                 "note": "On by default. Adds -force-d3d11 only when UnityPlayer.dll sits beside a directly launched game and no renderer argument was supplied. Steam Dock launches are untouched."},
+    "env.MADEIRA_UNITY_OPTIMIZATIONS": {"title": "Unity smoothness profile", "category": "App & front end",
+                "note": "On by default for directly copied Unity games. Reports four CPU cores unless the game profile chooses a count and enables DXMT's pressure-aware mip clamp. Each game can opt out in Compatibility & performance."},
     "env.MADEIRA_LUAJIT_GC64": {"title": "LOVE 11.5 LuaJIT GC64 compatibility", "category": "Memory & JIT pool",
                 "note": "On by default for detected LOVE 11.5 games (including Balatro). Redirects the low-address LuaJIT runtime to the pinned official GC64 lua51.dll without modifying game files."},
     "env.MADEIRA_OPENGL_ANGLE": {"title": "OpenGL ES through ANGLE and DXMT", "category": "Direct3D 9/10/11 (DXMT)",

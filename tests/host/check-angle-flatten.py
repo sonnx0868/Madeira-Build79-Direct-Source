@@ -25,8 +25,11 @@ require("iff->flatten_type = HLSL_IF_FORCE_BRANCH" in flatten,
         "a forced flatten that cannot be lowered must become a semantic branch")
 require("return true;" in flatten[flatten.index("iff->flatten_type = HLSL_IF_FORCE_BRANCH"):],
         "demotion must count as progress so the fixed-point pass settles")
-require("dlls/d3dcompiler_47" in build and "arm64ec-windows/d3dcompiler_47.dll" in build,
-        "the changed compiler must have a reproducible staging script")
+require("libs/vkd3d" in build and "dlls/d3dcompiler_47" in build and "dlls/wined3d" in build,
+        "every consumer must relink against the changed vkd3d-shader archive")
+require("arm64ec-windows/$module.dll" in build and
+        "Flattening conditional blocks with non-discard jump instructions" in build,
+        "the staging script must copy both DLLs and reject a stale E5017 binary")
 require("E5017" in docs and "OpenGL ES -> ANGLE D3D11 -> DXMT -> Metal" in docs,
         "the route, symptom and rebuild must be documented")
 

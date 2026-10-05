@@ -18,14 +18,17 @@ def require(condition: bool, message: str) -> None:
 
 
 text = patch.read_text(encoding="utf-8")
-for path in ["dlls/ntdll/unix/file.c", "dlls/wintypes/buffer.c", "dlls/wintypes/wintypes.spec",
+for path in ["dlls/ntdll/unix/file.c", "dlls/user32/misc.c", "dlls/win32u/input.c",
+             "dlls/win32u/message.c", "dlls/win32u/ntuser_private.h", "dlls/win32u/sysparams.c",
+             "dlls/win32u/win32u_private.h", "dlls/wintypes/buffer.c", "dlls/wintypes/wintypes.spec",
              "libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c"]:
     require(f"diff --git a/{path} b/{path}" in text, f"patch omits {path}")
 require("apply --reverse --check" in apply and "apply --check" in apply,
         "patch application must be idempotent and fail closed")
 require("scripts/apply-wine-patches.sh" in bootstrap and "build-wintypes.sh" in bootstrap and
         "build-d3dcompiler.sh" in bootstrap, "cold build does not apply/rebuild Wine changes")
-require("arm64ec-windows/wintypes.dll" in package and "arm64ec-windows/d3dcompiler_47.dll" in package,
+require("arm64ec-windows/wintypes.dll" in package and "arm64ec-windows/d3dcompiler_47.dll" in package and
+        "arm64ec-windows/wined3d.dll" in package,
         "cached native bundle omits rebuilt PE modules")
 require("scripts/apply-wine-patches.sh" in ci, "cached workflow does not align Wine source")
 

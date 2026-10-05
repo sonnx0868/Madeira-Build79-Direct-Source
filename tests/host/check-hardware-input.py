@@ -66,6 +66,8 @@ assert(HardwareKeyMap.stroke(forHIDUsage: 0x52)?.scan == 0x48)
 assert(HardwareKeyMap.stroke(forHIDUsage: 0x52)?.extended == true)  // dedicated Up
 assert(HardwareKeyMap.canonicalPressUsage(0x9E) == 0x28)            // Apple Return alias
 assert(HardwareKeyMap.canonicalPressUsage(0x9F) == 0x85)            // Apple Separator alias
+assert(HardwareKeyMap.canonicalPressUsage(669) == 0x29)             // iPad Globe/Language -> Escape
+assert(HardwareKeyMap.stroke(forHIDUsage: HardwareKeyMap.canonicalPressUsage(669))?.vk == 0x1B)
 assert(HardwareKeyMap.canonicalPressUsage(0x04) == 0x04)
 for u in [0x00, 0x01, 0x02, 0x03, 0x74, 0x76, 0x78, 0x7E, 0xE8, 0xFF] {
     assert(HardwareKeyMap.vk(forHIDUsage: u) == nil, "usage \(u) must stay unmapped")
@@ -231,7 +233,7 @@ assert(lockAction(sinceReport: 5) == .none)                  // no program is dr
 assert(lockAction(sinceMotion: 3) == .none)                  // the mouse is not in use
 assert(lockAction(locked: true, byUs: true, shown: true) == .unlock)
 assert(lockAction(locked: true, byUs: true, focused: false) == .unlock)
-assert(lockAction(locked: true, byUs: true, sinceReport: 3) == .unlock)      // the program went away
+assert(lockAction(locked: true, byUs: true, sinceReport: 3) == .none)       // quiet reports do not release iPadOS containment
 assert(lockAction(locked: true, byUs: true, sinceReport: 3, sinceMotion: 3) == .none)
 assert(lockAction(locked: true, byUs: true, over: false) == .none)           // locked pointers do not hover
 assert(lockAction(locked: true, byUs: false, shown: true) == .none)          // the user's own lock stays
@@ -590,6 +592,8 @@ check('keys.wanted(focused: keyboardFocused)' in glue and 'keys.press(stroke, fo
       'keys reach the program only with keyboard focus')
 check('winios_post_hardware_key(key.vk, key.scan' in glue and 'duplicateKeyWindow' in glue,
       'GCKeyboard and UIKit converge on one de-duplicated physical-key route')
+check('HardwareKeyMap.canonicalPressUsage(code.rawValue)' in glue,
+      'GCKeyboard canonicalizes Apple-private key usages, including Globe')
 check('if r == .relative { postMotion(dx, -dy) }' in glue, 'GCMouse motion is posted only on the relative route')
 check('let blocked = route == .blocked' in glue, 'the wheel is gated on focus')
 check('let allowed = baseFocused ? want : []' in glue, 'UIKit pointer buttons are gated on focus')

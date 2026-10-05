@@ -36,6 +36,8 @@ only for keys the physical map does not understand.
   Select and the Japanese/Korean IME keys have no scan code in the US layout.
   Execute, Stop, Again, Undo, Cut, Copy, Paste and Find have no Windows virtual
   key and are not sent (the unmapped usage is logged).
+- The iPad keyboard's **Globe/Language** key is normalized from Apple's raw
+  usage 669 to USB Escape, so Windows games receive `VK_ESCAPE`/scan `0x01`.
 
 ## Focus
 
@@ -163,8 +165,9 @@ refused). iPhone has no lockable pointer and shows no lock control.
   second, so a program about to show one does not lock), the pointer is over
   the game view and the mouse is moving, the pointer is locked, as a PC game
   captures the mouse. The lock is released as soon as the program shows a
-  cursor, when the program loses focus, and when the program stops draining
-  the mouse (no report for 2 s while the mouse moves, e.g. it exited).
+  cursor or when the program loses focus. A quiet cursor-report stream does
+  not unlock: many games stop changing cursor state during mouse-look, and
+  releasing there would let iPadOS reclaim motion at a screen edge.
   `MADEIRA_POINTER_AUTOLOCK=0` turns this off.
 - **By hand:** the lock button in the pointer settings or **Ctrl+Alt+P** on the
   keyboard (P is not sent to the program). Touch keeps working while locked, so

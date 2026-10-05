@@ -219,6 +219,9 @@ struct LibraryEntry: Codable, Identifiable {
     /// Processors reported to Windows code in this game's sessions
     /// (MADEIRA_CPU_COUNT, ntdll); nil = automatic.
     var cpuCount: Int?
+    /// Direct-folder Unity smoothness profile. Nil is on for backward
+    /// compatibility; false is an explicit per-game opt-out.
+    var unityOptimizations: Bool?
     /// D3D9 anisotropic filtering limit (DXMT_D9_ANISO_LIMIT: 1, 2, 4 or 8);
     /// nil = the application's own choice.
     var anisotropyLimit: Int?
@@ -312,7 +315,10 @@ struct LibraryEntry: Codable, Identifiable {
         if reducedX87 { setenv("FEX_X87REDUCEDPRECISION", "1", 1) } else { unsetenv("FEX_X87REDUCEDPRECISION") }
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
+        let unityProfile = unityOptimizations != false && MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS")
+            && ExternalGameCompatibility.isUnity(self)
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
+        else if unityProfile { setenv("MADEIRA_CPU_COUNT", "4", 1) }
         // Automatic mode publishes one host pad through both Windows controller
         // APIs. This covers old Unity/DirectInput titles and modern XInput games
         // without a per-game first-run ritual. XInput-only remains an escape
@@ -563,7 +569,14 @@ enum ExternalGameCompatibility {
         let directory = executable.deletingLastPathComponent()
 
         let unityPlayer = directory.appendingPathComponent("UnityPlayer.dll")
-        if FileManager.default.fileExists(atPath: unityPlayer.path), MadeiraConfig.flag("MADEIRA_UNITY_D3D11") {
+        let unity = FileManager.default.fileExists(atPath: unityPlayer.path)
+        let unityProfile = unity && entry.steamAppID == nil && entry.unityOptimizations != false &&
+            MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS")
+        if unityProfile {
+            if entry.cpuCount == nil { applied.append("unity-cpu4") }
+            if enableUnityMipClamp() { applied.append("unity-mip-pressure") }
+        }
+        if unity, MadeiraConfig.flag("MADEIRA_UNITY_D3D11") {
             var args = getenv("MADEIRA_ARGS").map { String(cString: $0) } ?? ""
             let lower = args.lowercased()
             let rendererChosen = ["-force-d3d", "-force-vulkan", "-force-opengl"].contains { lower.contains($0) }
@@ -593,6 +606,25 @@ enum ExternalGameCompatibility {
         }
         if applied.isEmpty { applied.append("none") }
         return applied
+    }
+
+    static func isUnity(_ entry: LibraryEntry) -> Bool {
+        guard entry.desktop != true, entry.steamAppID == nil else { return false }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let executable = docs.appendingPathComponent("wine/drive_c", isDirectory: true)
+            .appendingPathComponent(entry.launchRelativePath)
+        return FileManager.default.fileExists(atPath:
+            executable.deletingLastPathComponent().appendingPathComponent("UnityPlayer.dll").path)
+    }
+
+    /// DXMT leaves 64-bit textures alone by default. Unity streams many large
+    /// mips during scene changes, so this profile enables its pressure-aware
+    /// clamp without overriding an explicit low-level setting.
+    private static func enableUnityMipClamp() -> Bool {
+        guard MadeiraConfig.get("env.MADEIRA_MIP_CLAMP_AUTO") == nil,
+              getenv("MADEIRA_MIP_CLAMP_AUTO") == nil else { return false }
+        setenv("MADEIRA_MIP_CLAMP_AUTO", "1", 1)
+        return true
     }
 }
 
@@ -2819,6 +2851,11 @@ struct LibraryDetail: View {
                         Text("Automatic").tag(0)
                         ForEach([1, 2, 4, 6], id: \.self) { Text("\($0)").tag($0) }
                     }
+                    if ExternalGameCompatibility.isUnity(entry) {
+                        Toggle("Unity smoothness profile", isOn: Binding(
+                            get: { entry.unityOptimizations ?? true },
+                            set: { entry.unityOptimizations = $0 }))
+                    }
                     Picker("D3D9 anisotropic filtering", selection: Binding(get: { entry.anisotropyLimit ?? 0 }, set: { entry.anisotropyLimit = $0 == 0 ? nil : $0 })) {
                         Text("Application default").tag(0)
                         ForEach([1, 2, 4, 8], id: \.self) { Text("Up to \($0)×").tag($0) }
@@ -2840,7 +2877,7 @@ struct LibraryDetail: View {
                         TextField("Launch arguments", text: $entry.arguments, axis: .vertical).autocorrectionDisabled().textInputAutocapitalization(.never)
                     }
                 } header: { Text("Compatibility & performance") } footer: {
-                    Text("Reduced-precision x87 can make older games faster at some cost in accuracy; it is off by default. With Fastsync, fast synchronization (on by default) handles events without a server round trip, and fast semaphore waits (off by default) does the same for semaphores. Settings apply to the next launch; a precision change may still require restarting Madeira.")
+                    Text("Reduced-precision x87 can make older games faster at some cost in accuracy; it is off by default. The Unity profile reports four CPU cores unless you choose a count and enables DXMT's memory-pressure mip clamp; turn it off per game if image quality or worker scaling is worse. With Fastsync, fast synchronization (on by default) handles events without a server round trip, and fast semaphore waits (off by default) does the same for semaphores. Settings apply to the next launch; a precision change may still require restarting Madeira.")
                 }
                 Section("On screen") {
                     Toggle("Performance overlay", isOn: $entry.performance)

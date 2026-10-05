@@ -180,6 +180,11 @@ static struct monitor virtual_monitor =
 };
 
 #ifdef WINE_IOS
+/* Stable identity shared by QueryDisplayConfig and DisplayConfigGetDeviceInfo.
+ * The virtual-monitor regime has no real gpu/source objects from which to get
+ * a LUID, but callers require every follow-up query to use the same adapter. */
+static const LUID ios_virtual_luid = { .LowPart = 0x4d414445, .HighPart = 0x495241 }; /* "MADEIRA" */
+
 /* The size of the virtual monitor -- the single monitor this port reports
  * (lock_display_devices always takes the virtual-monitor branch here).
  *
@@ -228,6 +233,9 @@ static void ios_screen_size( int *w, int *h )
     *w = ios_screen_cur_w;
     *h = ios_screen_cur_h;
 }
+
+/* Defined beside the virtual EnumDisplaySettings implementation below. */
+static BOOL ios_virtual_monitor_active(void);
 #endif
 
 /* the various registry keys that are used to store parameters */
@@ -3725,6 +3733,66 @@ LONG WINAPI NtUserQueryDisplayConfig( UINT32 flags, UINT32 *paths_count, DISPLAY
         FIXME( "setting toplogyid to DISPLAYCONFIG_TOPOLOGY_INTERNAL\n" );
         *topology_id = DISPLAYCONFIG_TOPOLOGY_INTERNAL;
     }
+
+#ifdef WINE_IOS
+    /* The iOS display is deliberately represented by virtual_monitor without
+     * a source/gpu object. The generic loop below used to count that monitor
+     * in GetDisplayConfigBufferSizes and then skip it here, returning zero
+     * paths. Unity 6 prefers QueryDisplayConfig over EnumDisplaySettings and
+     * interpreted the empty topology as an unsupported configured mode, then
+     * restored its stale 1408x648 window. Publish one self-consistent synthetic
+     * source/target path whose current mode is Madeira's selected resolution. */
+    if (ios_virtual_monitor_active())
+    {
+        static LONG log_count;
+        UINT32 required_modes = (flags & QDC_VIRTUAL_MODE_AWARE) ? 3 : 2;
+        int sw, sh;
+
+        if (*paths_count < 1 || *modes_count < required_modes)
+            return ERROR_INSUFFICIENT_BUFFER;
+
+        if (!lock_display_devices( FALSE )) return ERROR_GEN_FAILURE;
+        ios_screen_size( &sw, &sh );
+        unlock_display_devices();
+
+        memset( &devmode, 0, sizeof(devmode) );
+        devmode.dmSize = sizeof(devmode);
+        devmode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL |
+                           DM_DISPLAYFREQUENCY | DM_DISPLAYFLAGS | DM_POSITION;
+        devmode.dmPelsWidth = sw;
+        devmode.dmPelsHeight = sh;
+        devmode.dmBitsPerPel = 32;
+        devmode.dmDisplayFrequency = 60;
+        devmode.dmDisplayFlags = 0;
+        devmode.dmPosition.x = 0;
+        devmode.dmPosition.y = 0;
+
+        memset( paths, 0, sizeof(*paths) );
+        memset( modes, 0, required_modes * sizeof(*modes) );
+        paths[0].flags = DISPLAYCONFIG_PATH_ACTIVE;
+        set_mode_source_info( &modes[0], &ios_virtual_luid, 0, &devmode );
+        set_mode_target_info( &modes[1], &ios_virtual_luid, 0, flags, &devmode );
+        set_path_source_info( &paths[0].sourceInfo, &ios_virtual_luid, 0, 0, flags );
+        if (flags & QDC_VIRTUAL_MODE_AWARE)
+        {
+            paths[0].flags |= DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE;
+            set_mode_desktop_info( &modes[2], &ios_virtual_luid, 0, &modes[0].sourceMode );
+            set_path_target_info( &paths[0].targetInfo, &ios_virtual_luid, 0, 1, 2, flags, &devmode );
+        }
+        else
+            set_path_target_info( &paths[0].targetInfo, &ios_virtual_luid, 0, 1, ~0u, flags, &devmode );
+
+        paths[0].targetInfo.outputTechnology = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL;
+        paths[0].targetInfo.scanLineOrdering = DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE;
+        modes[1].targetMode.targetVideoSignalInfo.scanLineOrdering = DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE;
+        *paths_count = 1;
+        *modes_count = required_modes;
+        if (InterlockedIncrement( &log_count ) <= 4)
+            dprintf( STDERR_FILENO, "[vmode] QueryDisplayConfig virtual=%dx%d@60 modes=%u\n",
+                     sw, sh, required_modes );
+        return ERROR_SUCCESS;
+    }
+#endif
 
     if (!lock_display_devices( FALSE ))
         return ERROR_GEN_FAILURE;
@@ -8124,6 +8192,7 @@ static void thread_detach(void)
     struct user_thread_info *thread_info = get_user_thread_info();
 
     destroy_thread_windows();
+    destroy_thread_pointers();
     user_driver->pThreadDetach();
 
     free( thread_info->rawinput );
@@ -8329,6 +8398,83 @@ NTSTATUS WINAPI NtUserDisplayConfigGetDeviceInfo( DISPLAYCONFIG_DEVICE_INFO_HEAD
 
     if (!packet || packet->size < sizeof(*packet))
         return STATUS_UNSUCCESSFUL;
+
+#ifdef WINE_IOS
+    /* QueryDisplayConfig exposes ios_virtual_luid/id 0. Complete the modern
+     * display API contract here without touching virtual_monitor.source (it is
+     * intentionally NULL). Unity asks these follow-ups before accepting a mode. */
+    if (ios_virtual_monitor_active())
+    {
+        int sw, sh;
+
+        if (packet->id || memcmp( &packet->adapterId, &ios_virtual_luid, sizeof(ios_virtual_luid) ))
+            return STATUS_INVALID_PARAMETER;
+
+        switch (packet->type)
+        {
+        case DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME:
+        {
+            DISPLAYCONFIG_SOURCE_DEVICE_NAME *source_name = (DISPLAYCONFIG_SOURCE_DEVICE_NAME *)packet;
+            if (packet->size < sizeof(*source_name)) return STATUS_INVALID_PARAMETER;
+            asciiz_to_unicode( source_name->viewGdiDeviceName, "\\\\.\\DISPLAY1" );
+            return STATUS_SUCCESS;
+        }
+        case DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME:
+        {
+            DISPLAYCONFIG_TARGET_DEVICE_NAME *target_name = (DISPLAYCONFIG_TARGET_DEVICE_NAME *)packet;
+            if (packet->size < sizeof(*target_name)) return STATUS_INVALID_PARAMETER;
+            memset( &target_name->flags, 0,
+                    sizeof(*target_name) - offsetof(DISPLAYCONFIG_TARGET_DEVICE_NAME, flags) );
+            target_name->outputTechnology = DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL;
+            asciiz_to_unicode( target_name->monitorFriendlyDeviceName, "Madeira Display" );
+            asciiz_to_unicode( target_name->monitorDevicePath,
+                               "\\\\?\\DISPLAY#MADEIRA#VIRTUAL_MONITOR" );
+            return STATUS_SUCCESS;
+        }
+        case DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_PREFERRED_MODE:
+        {
+            DISPLAYCONFIG_TARGET_PREFERRED_MODE *preferred = (DISPLAYCONFIG_TARGET_PREFERRED_MODE *)packet;
+            DISPLAYCONFIG_VIDEO_SIGNAL_INFO *signal = &preferred->targetMode.targetVideoSignalInfo;
+            if (packet->size < sizeof(*preferred)) return STATUS_INVALID_PARAMETER;
+            if (!lock_display_devices( FALSE )) return STATUS_UNSUCCESSFUL;
+            ios_screen_size( &sw, &sh );
+            unlock_display_devices();
+            memset( &preferred->width, 0, sizeof(*preferred) - offsetof(DISPLAYCONFIG_TARGET_PREFERRED_MODE, width) );
+            preferred->width = sw;
+            preferred->height = sh;
+            signal->pixelRate = (UINT64)60 * sw * sh;
+            signal->hSyncFreq.Numerator = 60 * sw;
+            signal->hSyncFreq.Denominator = 1;
+            signal->vSyncFreq.Numerator = 60;
+            signal->vSyncFreq.Denominator = 1;
+            signal->activeSize.cx = signal->totalSize.cx = sw;
+            signal->activeSize.cy = signal->totalSize.cy = sh;
+            signal->videoStandard = D3DKMDT_VSS_OTHER;
+            signal->scanLineOrdering = DISPLAYCONFIG_SCANLINE_ORDERING_PROGRESSIVE;
+            return STATUS_SUCCESS;
+        }
+        case DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME:
+        {
+            DISPLAYCONFIG_ADAPTER_NAME *adapter_name = (DISPLAYCONFIG_ADAPTER_NAME *)packet;
+            if (packet->size < sizeof(*adapter_name)) return STATUS_INVALID_PARAMETER;
+            asciiz_to_unicode( adapter_name->adapterDevicePath,
+                               "\\\\?\\DISPLAY#MADEIRA#VIRTUAL_ADAPTER" );
+            return STATUS_SUCCESS;
+        }
+        case DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO:
+        {
+            DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO *color = (DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO *)packet;
+            if (packet->size < sizeof(*color)) return STATUS_INVALID_PARAMETER;
+            color->value = 0;
+            color->bitsPerColorChannel = 8;
+            color->colorEncoding = DISPLAYCONFIG_COLOR_ENCODING_RGB;
+            return STATUS_SUCCESS;
+        }
+        default:
+            break;
+        }
+    }
+#endif
 
     switch (packet->type)
     {

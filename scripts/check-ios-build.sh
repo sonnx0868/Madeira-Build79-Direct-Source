@@ -22,9 +22,11 @@ for path in \
   app/Frameworks/StikJIT.xcframework/ios-arm64/StikJIT.framework/StikJIT \
   "app/Madeira/Madeira JIT.shortcut" \
   app/Madeira/arm64ec-windows/wintypes.dll \
+  app/Madeira/arm64ec-windows/d3dcompiler_47.dll \
+  app/Madeira/arm64ec-windows/wined3d.dll \
   app/Madeira/arm64ec-windows/dockhost.exe; do need "$path"; done
 
-for dll in win32u.dll dinput.dll dinput8.dll \
+for dll in win32u.dll user32.dll dinput.dll dinput8.dll \
   xinput1_1.dll xinput1_2.dll xinput1_3.dll xinput1_4.dll \
   xinput9_1_0.dll; do need "app/Madeira/arm64ec-windows/$dll"; done
 need "app/Madeira/arm64ec-windows/lua51-gc64.dll"
@@ -73,6 +75,22 @@ if [[ -s "$root/app/Madeira/arm64ec-windows/dinput8.dll" ]]; then
     echo "INVALID: dinput8.dll is not Madeira's iOS controller build"; missing=1;
   }
 fi
+if [[ -s "$root/app/Madeira/arm64ec-windows/user32.dll" ]]; then
+  grep -a -q 'NtUserGetPointerInfoList' "$root/app/Madeira/arm64ec-windows/user32.dll" || {
+    echo "INVALID: user32.dll has no functional GetPointerInfo route"; missing=1;
+  }
+fi
+
+# Both DLLs link vkd3d-shader. ANGLE can resolve D3DCompile2VKD3D through
+# wined3d.dll, so checking only d3dcompiler_47.dll would allow Balatro's E5017
+# loading loop to reappear in a cached/native-bundle build.
+for dll in d3dcompiler_47.dll wined3d.dll; do
+  if [[ -s "$root/app/Madeira/arm64ec-windows/$dll" ]] &&
+     grep -a -q 'Flattening conditional blocks with non-discard jump instructions' \
+       "$root/app/Madeira/arm64ec-windows/$dll"; then
+    echo "INVALID: $dll still embeds the pre-fix E5017 compiler"; missing=1
+  fi
+done
 
 if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
   nm -g "$root/app/Madeira/libwin32u_unix.a" 2>/dev/null | grep -q 'winios_drv_post_key_scan' || {

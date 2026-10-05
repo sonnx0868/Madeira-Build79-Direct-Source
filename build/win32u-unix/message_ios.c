@@ -2499,6 +2499,16 @@ static void send_parent_notify( HWND hwnd, WORD event, WORD idChild, POINT pt )
  */
 static BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
 {
+    POINTER_INPUT_TYPE type = PT_POINTER;
+
+    switch (msg_data->source.origin)
+    {
+    case IMDT_PEN: type = PT_PEN; break;
+    case IMDT_MOUSE: type = PT_MOUSE; break;
+    case IMDT_TOUCH: type = PT_TOUCH; break;
+    case IMDT_TOUCHPAD: type = PT_TOUCHPAD; break;
+    }
+    update_pointer_from_msg( type, msg );
     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
     return TRUE;
 }
@@ -2713,7 +2723,21 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
             break;
         }
 
-        if (message) send_message( msg->hwnd, message, MAKELONG( 1, flags ), MAKELONG( msg->pt.x, msg->pt.y ) );
+        if (message)
+        {
+            MSG pointer_msg =
+            {
+                .hwnd = msg->hwnd,
+                .message = message,
+                .wParam = MAKELONG( 1, flags ),
+                .lParam = MAKELONG( msg->pt.x, msg->pt.y ),
+                .time = msg->time,
+                .pt = msg->pt,
+            };
+
+            update_pointer_from_msg( PT_MOUSE, &pointer_msg );
+            send_message( pointer_msg.hwnd, pointer_msg.message, pointer_msg.wParam, pointer_msg.lParam );
+        }
     }
 
     /* FIXME: is this really the right place for this hook? */

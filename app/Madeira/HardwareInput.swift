@@ -307,11 +307,14 @@ enum HardwareKeyMap {
     }
 
     /// The press-event API exposes a few Apple keyboard usages in addition to the ordinary
-    /// USB Return-or-Enter / keypad-comma usages used by GCKeyboard.
+    /// USB Return-or-Enter / keypad-comma usages used by GCKeyboard. iPadOS also reports
+    /// the Globe/Language key as the Apple-private raw usage 669; use it as the Windows
+    /// Escape key, which gives a physical iPad keyboard a reliable way out of game menus.
     static func canonicalPressUsage(_ usage: Int) -> Int {
         switch usage {
         case 0x9E: return 0x28    // UIKeyboardHIDUsage.keyboardReturn
         case 0x9F: return 0x85    // UIKeyboardHIDUsage.keyboardSeparator
+        case 669: return 0x29     // Apple Globe/Language -> USB Escape
         default: return usage
         }
     }
@@ -571,12 +574,14 @@ enum PointerPolicy {
 /// Pointer lock that follows the program's cursor (iPad): lock while it hides
 /// its cursor and the pointer is over the game view, release when it shows one
 /// or loses focus. Only a program that is live locks the pointer: its driver
-/// reported within `liveWindow`. A lock whose program stopped reporting while
-/// the mouse keeps moving (the program exited) is released after `staleAfter`.
+/// reported within `liveWindow`. Once captured, do not infer that a quiet
+/// cursor-report stream means the game exited: games commonly stop calling
+/// SetCursor/ShowCursor during mouse-look, while iPadOS needs the lock to keep
+/// motion away from the screen edges. Focus loss, cursor show, disconnect, or
+/// the explicit Ctrl+Alt+P/button escape remain authoritative release paths.
 enum AutoLock {
     static let hiddenDelay = 0.5
     static let liveWindow = 1.0
-    static let staleAfter = 2.0
     static let moving = 0.5
 
     enum Action: Equatable { case lock, unlock, none }
@@ -586,7 +591,6 @@ enum AutoLock {
         if locked {
             guard lockedByUs else { return .none }
             if cursorShown || !focused { return .unlock }
-            if sinceMotion < moving && sinceReport > staleAfter { return .unlock }
             return .none
         }
         if !cursorShown && hiddenFor >= hiddenDelay && pointerOver && focused
@@ -1021,7 +1025,8 @@ final class HardwareInput: ObservableObject {
         }
         kb.handlerQueue = .main
         input.keyChangedHandler = { [weak self] _, _, code, pressed in
-            self?.keyUsage(code.rawValue, pressed, source: "GCKeyboard")
+            let usage = HardwareKeyMap.canonicalPressUsage(code.rawValue)
+            self?.keyUsage(usage, pressed, source: "GCKeyboard")
         }
         if !keyboardConnected {
             keyboardConnected = true
@@ -1476,7 +1481,7 @@ final class HardwareInput: ObservableObject {
             setPointerLocked(true, byUs: true, why: "the program hides its cursor")
         case .unlock:
             setPointerLocked(false, byUs: true, why: cursorState.shown != 0 ? "the program shows its cursor"
-                             : baseFocused ? "the program stopped reporting" : "focus lost")
+                             : "focus lost")
         default:
             break
         }

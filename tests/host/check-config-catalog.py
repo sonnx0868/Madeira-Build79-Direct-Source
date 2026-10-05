@@ -10,8 +10,8 @@ video memory have pickers of their own."""
 import os, re, subprocess, sys
 R = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 rc = subprocess.run([sys.executable, os.path.join(R, "build/tools/gen-config-catalog.py"), "--check"]).returncode
-lib = open(os.path.join(R, "app/Madeira/Library.swift")).read()
-gen = open(os.path.join(R, "app/Madeira/ConfigCatalog.generated.swift")).read()
+lib = open(os.path.join(R, "app/Madeira/Library.swift"), encoding="utf-8").read()
+gen = open(os.path.join(R, "app/Madeira/ConfigCatalog.generated.swift"), encoding="utf-8").read()
 ok = rc == 0
 for what, cond in [
     ("swap sizes include 3072", "swapChoices = [0, 1024, 2048, 3072, 4096]" in lib),

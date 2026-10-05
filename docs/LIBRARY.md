@@ -27,6 +27,15 @@ also reports a large third-party Steam API replacement, but never modifies it,
 swaps it for the original DLL or bypasses DRM. Such a build may behave
 differently from the same game launched through Madeira Dock and Valve's client.
 
+The same detection exposes a per-game **Unity smoothness profile**. It reports
+four CPU cores when the profile has no explicit CPU choice, reducing Unity 6's
+worker/synchronization fan-out, and enables DXMT's pressure-aware mip clamp for
+new large textures when iOS memory headroom becomes low. It does not lower the
+selected resolution and it never overrides an explicit
+`env.MADEIRA_MIP_CLAMP_AUTO` value. The profile is on by default and can be
+turned off in the game's Compatibility & performance section; the global
+`env.MADEIRA_UNITY_OPTIMIZATIONS = 0` switch disables it for every game.
+
 LÖVE 11.5 games are a separate LuaJIT and renderer case. iOS enforces a hard
 4 GB Mach-O `__PAGEZERO`, while old non-GC64 LuaJIT builds request GC memory
 below 2 GB and fail before graphics starts. Madeira detects the LÖVE runtime

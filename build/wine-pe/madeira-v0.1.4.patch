@@ -282,3 +282,276 @@ index 6f61eb92a67..bb314c14688 100644
      }
      else if (!is_conditional_block_simple(&iff->then_block) || !is_conditional_block_simple(&iff->else_block))
      {
+
+diff --git a/dlls/user32/misc.c b/dlls/user32/misc.c
+index 5ba304ab1a3..397f968235e 100644
+--- a/dlls/user32/misc.c
++++ b/dlls/user32/misc.c
+@@ -559,10 +559,10 @@ BOOL WINAPI GetPointerType(UINT32 id, POINTER_INPUT_TYPE *type)
+ 
+ BOOL WINAPI GetPointerInfo(UINT32 id, POINTER_INFO *info)
+ {
+-    FIXME("(%d %p): stub\n", id, info);
++    UINT32 count = 1;
+ 
+-    SetLastError(ERROR_INVALID_PARAMETER);
+-    return FALSE;
++    TRACE( "id %d, info %p\n", id, info );
++    return NtUserGetPointerInfoList( id, PT_POINTER, 0, 0, sizeof(*info), &count, &count, info );
+ }
+ 
+ LRESULT WINAPI ImeWndProcA( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
+diff --git a/dlls/win32u/input.c b/dlls/win32u/input.c
+index d2d549e4724..7c06f65dbf9 100644
+--- a/dlls/win32u/input.c
++++ b/dlls/win32u/input.c
+@@ -405,6 +405,15 @@ static const KBDTABLES kbdus_tables =
+ 
+ static LONG clipping_cursor; /* clipping thread counter */
+ static LONG enable_mouse_in_pointer = -1;
++static LONG last_pointer_frame;
++
++struct pointer_state
++{
++    UINT32 id;
++    POINTER_INPUT_TYPE type;
++    struct list entry;
++    POINTER_INFO info;
++};
+ 
+ BOOL grab_pointer = TRUE;
+ BOOL grab_fullscreen = FALSE;
+@@ -2725,10 +2734,150 @@ BOOL clip_fullscreen_window( HWND hwnd, BOOL reset )
+ BOOL WINAPI NtUserGetPointerInfoList( UINT32 id, POINTER_INPUT_TYPE type, UINT_PTR unk0, UINT_PTR unk1, SIZE_T size,
+                                       UINT32 *entry_count, UINT32 *pointer_count, void *pointer_info )
+ {
+-    FIXME( "id %#x, type %#x, unk0 %#lx, unk1 %#lx, size %#lx, entry_count %p, pointer_count %p, pointer_info %p stub!\n",
++    struct user_thread_info *thread_info = get_user_thread_info();
++    struct pointer_state *pointer;
++    SIZE_T expected = 0;
++
++    TRACE( "id %#x, type %#x, unk0 %#lx, unk1 %#lx, size %#lx, entry_count %p, pointer_count %p, pointer_info %p\n",
+            id, type, (long)unk0, (long)unk1, size, entry_count, pointer_count, pointer_info );
+-    RtlSetLastWin32Error( ERROR_CALL_NOT_IMPLEMENTED );
++
++    switch (type)
++    {
++    case PT_MOUSE:
++    case PT_PEN: expected = sizeof(POINTER_PEN_INFO); break;
++    case PT_POINTER: expected = sizeof(POINTER_INFO); break;
++    case PT_TOUCH:
++    case PT_TOUCHPAD: expected = sizeof(POINTER_TOUCH_INFO); break;
++    }
++    if (!id || type == PT_MOUSE || size != expected || !entry_count || !pointer_count || !pointer_info)
++    {
++        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
++        return FALSE;
++    }
++    if (!thread_info->known_pointers.next)
++    {
++        RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
++        return FALSE;
++    }
++    LIST_FOR_EACH_ENTRY( pointer, &thread_info->known_pointers, struct pointer_state, entry )
++        if (pointer->id == id) goto found;
++
++    RtlSetLastWin32Error( ERROR_INVALID_PARAMETER );
+     return FALSE;
++
++found:
++    if (type != PT_POINTER) FIXME( "pointer detail type %#x is not implemented\n", type );
++    *entry_count = 1;
++    *pointer_count = 1;
++    memset( pointer_info, 0, size );
++    *(POINTER_INFO *)pointer_info = pointer->info;
++    return TRUE;
++}
++
++static struct list *get_pointer_list(void)
++{
++    struct user_thread_info *thread_info = get_user_thread_info();
++
++    /* Win32ClientInfo is zero-filled. This fork predates Wine's explicit
++     * per-thread constructor, so initialise the new list on first use. */
++    if (!thread_info->known_pointers.next) list_init( &thread_info->known_pointers );
++    return &thread_info->known_pointers;
++}
++
++static struct pointer_state *find_pointer_state( UINT32 id )
++{
++    struct pointer_state *pointer;
++    struct list *list = get_pointer_list();
++
++    LIST_FOR_EACH_ENTRY( pointer, list, struct pointer_state, entry )
++        if (pointer->id == id) return pointer;
++    return NULL;
++}
++
++static struct pointer_state *create_pointer_state( UINT32 id, POINTER_INPUT_TYPE type )
++{
++    struct pointer_state *pointer;
++
++    if (!(pointer = calloc( 1, sizeof(*pointer) ))) return NULL;
++    pointer->id = id;
++    pointer->type = type;
++    list_add_tail( get_pointer_list(), &pointer->entry );
++    return pointer;
++}
++
++static POINTER_BUTTON_CHANGE_TYPE pointer_button_change( const POINTER_INFO *old, const POINTER_INFO *new )
++{
++    static const struct
++    {
++        POINTER_FLAGS flag;
++        POINTER_BUTTON_CHANGE_TYPE down, up;
++    } buttons[] =
++    {
++        { POINTER_FLAG_FIRSTBUTTON, POINTER_CHANGE_FIRSTBUTTON_DOWN, POINTER_CHANGE_FIRSTBUTTON_UP },
++        { POINTER_FLAG_SECONDBUTTON, POINTER_CHANGE_SECONDBUTTON_DOWN, POINTER_CHANGE_SECONDBUTTON_UP },
++        { POINTER_FLAG_THIRDBUTTON, POINTER_CHANGE_THIRDBUTTON_DOWN, POINTER_CHANGE_THIRDBUTTON_UP },
++        { POINTER_FLAG_FOURTHBUTTON, POINTER_CHANGE_FOURTHBUTTON_DOWN, POINTER_CHANGE_FOURTHBUTTON_UP },
++        { POINTER_FLAG_FIFTHBUTTON, POINTER_CHANGE_FIFTHBUTTON_DOWN, POINTER_CHANGE_FIFTHBUTTON_UP },
++    };
++    POINTER_FLAGS down = ~old->pointerFlags & new->pointerFlags;
++    POINTER_FLAGS up = old->pointerFlags & ~new->pointerFlags;
++    unsigned int i;
++
++    for (i = 0; i < ARRAY_SIZE(buttons); i++)
++    {
++        if (down & buttons[i].flag) return buttons[i].down;
++        if (up & buttons[i].flag) return buttons[i].up;
++    }
++    return POINTER_CHANGE_NONE;
++}
++
++void update_pointer_from_msg( POINTER_INPUT_TYPE type, const MSG *msg )
++{
++    UINT32 id = GET_POINTERID_WPARAM( msg->wParam );
++    struct pointer_state *pointer;
++    LARGE_INTEGER counter;
++    POINT location = { (SHORT)LOWORD(msg->lParam), (SHORT)HIWORD(msg->lParam) };
++    UINT dpi = get_system_dpi();
++    POINTER_INFO info;
++
++    if (!id) return;
++    if (!(pointer = find_pointer_state( id )) && !(pointer = create_pointer_state( id, type ))) return;
++
++    memset( &info, 0, sizeof(info) );
++    info.pointerType = pointer->type;
++    info.pointerId = id;
++    info.frameId = InterlockedIncrement( &last_pointer_frame );
++    info.pointerFlags = HIWORD( msg->wParam );
++    if (msg->message == WM_POINTERUPDATE) info.pointerFlags |= POINTER_FLAG_UPDATE;
++    else if (msg->message == WM_POINTERDOWN) info.pointerFlags |= POINTER_FLAG_DOWN;
++    else if (msg->message == WM_POINTERUP) info.pointerFlags |= POINTER_FLAG_UP;
++    info.sourceDevice = INVALID_HANDLE_VALUE;
++    info.hwndTarget = msg->hwnd;
++    info.ptPixelLocation = info.ptPixelLocationRaw = location;
++    if (!dpi) dpi = USER_DEFAULT_SCREEN_DPI;
++    info.ptHimetricLocation.x = location.x * 2540 / dpi;
++    info.ptHimetricLocation.y = location.y * 2540 / dpi;
++    info.ptHimetricLocationRaw = info.ptHimetricLocation;
++    info.dwTime = msg->time ? msg->time : NtGetTickCount();
++    info.historyCount = 1;
++    NtQueryPerformanceCounter( &counter, NULL );
++    info.PerformanceCount = counter.QuadPart;
++    info.ButtonChangeType = pointer_button_change( &pointer->info, &info );
++    pointer->info = info;
++}
++
++void destroy_thread_pointers(void)
++{
++    struct user_thread_info *thread_info = get_user_thread_info();
++    struct pointer_state *pointer, *next;
++
++    if (!thread_info->known_pointers.next) return;
++    LIST_FOR_EACH_ENTRY_SAFE( pointer, next, &thread_info->known_pointers, struct pointer_state, entry )
++    {
++        list_remove( &pointer->entry );
++        free( pointer );
++    }
++    list_init( &thread_info->known_pointers );
+ }
+ 
+ static BOOL get_clip_cursor( RECT *rect, UINT dpi, MONITOR_DPI_TYPE type )
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 5e5ea28d8df..28c5e2dd10e 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2463,6 +2463,16 @@ static void send_parent_notify( HWND hwnd, WORD event, WORD idChild, POINT pt )
+  */
+ static BOOL process_pointer_message( MSG *msg, UINT hw_id, const struct hardware_msg_data *msg_data )
+ {
++    POINTER_INPUT_TYPE type = PT_POINTER;
++
++    switch (msg_data->source.origin)
++    {
++    case IMDT_PEN: type = PT_PEN; break;
++    case IMDT_MOUSE: type = PT_MOUSE; break;
++    case IMDT_TOUCH: type = PT_TOUCH; break;
++    case IMDT_TOUCHPAD: type = PT_TOUCHPAD; break;
++    }
++    update_pointer_from_msg( type, msg );
+     msg->pt = point_phys_to_win_dpi( msg->hwnd, msg->pt );
+     return TRUE;
+ }
+@@ -2677,7 +2687,21 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
+             break;
+         }
+ 
+-        if (message) send_message( msg->hwnd, message, MAKELONG( 1, flags ), MAKELONG( msg->pt.x, msg->pt.y ) );
++        if (message)
++        {
++            MSG pointer_msg =
++            {
++                .hwnd = msg->hwnd,
++                .message = message,
++                .wParam = MAKELONG( 1, flags ),
++                .lParam = MAKELONG( msg->pt.x, msg->pt.y ),
++                .time = msg->time,
++                .pt = msg->pt,
++            };
++
++            update_pointer_from_msg( PT_MOUSE, &pointer_msg );
++            send_message( pointer_msg.hwnd, pointer_msg.message, pointer_msg.wParam, pointer_msg.lParam );
++        }
+     }
+ 
+     /* FIXME: is this really the right place for this hook? */
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index ec6cf02ffb1..071ef62b6bd 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -128,6 +128,7 @@ struct user_thread_info
+     DWORD                         clipping_reset;         /* time when clipping was last reset */
+     struct session_thread_data   *session_data;           /* shared session thread data */
+     struct mouse_tracking_info   *mouse_tracking_info;    /* NtUserTrackMouseEvent handling */
++    struct list                   known_pointers;         /* pointer state queried by GetPointerInfo */
+ };
+ 
+ C_ASSERT( sizeof(struct user_thread_info) <= sizeof(((TEB *)0)->Win32ClientInfo) );
+diff --git a/dlls/win32u/sysparams.c b/dlls/win32u/sysparams.c
+index 67d1e3da913..70178ff59e1 100644
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -7456,6 +7456,7 @@ static void thread_detach(void)
+     struct user_thread_info *thread_info = get_user_thread_info();
+ 
+     destroy_thread_windows();
++    destroy_thread_pointers();
+     user_driver->pThreadDetach();
+ 
+     free( thread_info->rawinput );
+diff --git a/dlls/win32u/win32u_private.h b/dlls/win32u/win32u_private.h
+index be0c010c9fb..6a430393094 100644
+--- a/dlls/win32u/win32u_private.h
++++ b/dlls/win32u/win32u_private.h
+@@ -110,6 +110,8 @@ extern void update_current_mouse_window( HWND hwnd, INT hittest, POINT pos );
+ extern BOOL process_wine_clipcursor( HWND hwnd, UINT flags, BOOL reset );
+ extern BOOL clip_fullscreen_window( HWND hwnd, BOOL reset );
+ extern USHORT map_scan_to_kbd_vkey( USHORT scan, HKL layout );
++extern void destroy_thread_pointers(void);
++extern void update_pointer_from_msg( POINTER_INPUT_TYPE type, const MSG *msg );
+ 
+ /* menu.c */
+ extern UINT draw_nc_menu_bar( HDC hdc, RECT *rect, HWND hwnd );

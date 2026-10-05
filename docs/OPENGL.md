@@ -4,8 +4,9 @@
 
 `OpenGL ES -> ANGLE D3D11 -> DXMT -> Metal`.
 
-ANGLE generates HLSL at run time and compiles it through Wine's
-`d3dcompiler_47.dll`, backed by the in-tree vkd3d-shader compiler. Some dynamic
+ANGLE generates HLSL at run time and compiles it through Wine's in-tree
+vkd3d-shader compiler. Depending on which export ANGLE resolves, that compiler
+is linked into `wined3d.dll` as well as `d3dcompiler_47.dll`. Some dynamic
 pixel shaders contain an HLSL `[flatten]` hint around control flow with early
 returns. Microsoft's compiler retains a branch when that hint cannot be
 lowered. The previous vkd3d path instead emitted E5017, rejected the pixel
@@ -14,7 +15,8 @@ shader and left the game presenting valid but mostly black frames.
 Madeira keeps the shader semantics: if a forced flatten is impossible, the
 compiler demotes that one conditional to `HLSL_IF_FORCE_BRANCH` and continues.
 Side effects and jumps stay inside the original branch; successful flattening
-is unchanged. Rebuild and stage the affected ARM64EC compiler with:
+is unchanged. Rebuild and stage the vkd3d archive and both affected ARM64EC
+DLLs with:
 
 ```sh
 bash build/wine-pe/build-d3dcompiler.sh

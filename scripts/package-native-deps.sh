@@ -16,6 +16,7 @@ rm -f "$output"
   app/Madeira/libmadeira_rppairing.a \
   app/Madeira/x86_64-vcruntime \
   app/Madeira/arm64ec-windows/win32u.dll \
+  app/Madeira/arm64ec-windows/user32.dll \
   app/Madeira/arm64ec-windows/dinput.dll \
   app/Madeira/arm64ec-windows/dinput8.dll \
   app/Madeira/arm64ec-windows/xinput1_1.dll \
@@ -28,6 +29,7 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/libGLESv2.dll \
   app/Madeira/arm64ec-windows/wintypes.dll \
   app/Madeira/arm64ec-windows/d3dcompiler_47.dll \
+  app/Madeira/arm64ec-windows/wined3d.dll \
   app/Madeira/arm64ec-windows/dockhost.exe \
   app/Madeira/arm64ec-windows/dock-notices.txt \
   app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html)

@@ -16,7 +16,9 @@ export PATH="$TC:$PATH"
 [ -x "$STRIP" ] || { echo "llvm-mingw not found at $TC" >&2; exit 1; }
 [ -f "$B/config.status" ] || { echo "Wine ARM64EC tree is not configured: $B" >&2; exit 1; }
 
-modules=(win32u xinput1_1 xinput1_2 xinput1_3 xinput1_4 xinput9_1_0 dinput dinput8)
+# user32 owns the public GetPointerInfo wrapper; win32u owns its tracked mouse
+# state. Rebuild and stage both halves together so Unity never sees a mixed API.
+modules=(win32u user32 xinput1_1 xinput1_2 xinput1_3 xinput1_4 xinput9_1_0 dinput dinput8)
 targets=()
 for module in "${modules[@]}"; do
     targets+=("dlls/$module/arm64ec-windows/$module.dll")
@@ -40,5 +42,6 @@ done
 grep -a -q 'NtUserCallTwoParam' "$DEST/xinput1_3.dll"
 grep -a -q 'NtUserCallTwoParam' "$DEST/dinput8.dll"
 grep -a -q 'MADEIRA-DINPUT-IOS' "$DEST/dinput8.dll"
+grep -a -q 'NtUserGetPointerInfoList' "$DEST/user32.dll"
 git -C "$R/wine" rev-parse HEAD > "$R/build/wine-pe/controller-pe.version"
 echo "Controller PE bridge rebuilt from $(git -C "$R/wine" rev-parse --short HEAD)."
