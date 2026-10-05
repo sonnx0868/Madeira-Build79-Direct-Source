@@ -1,0 +1,284 @@
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index b2f445e04ae..2691bdce504 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -4341,6 +4341,159 @@ static void remove_trailing_backslash( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *
+     nt_name->Buffer[len - 1] = 0;
+ }
+ 
++#ifdef WINE_IOS
++/* Folder-game compatibility: some packed launchers and native plugins build a
++ * sidecar path from their own module name without first removing the filename.
++ * A common result is
++ *
++ *     C:\\game\\plugins\\foo.dll\\settings.ini
++ *
++ * (and a few packers additionally lose the final 'l' or 'e').  Windows games
++ * distributed as folders often keep that sidecar next to the module instead.
++ *
++ * Do not turn this into a basename search.  The repair is deliberately narrow:
++ * the failing component must itself name an existing .dll/.exe (or be exactly
++ * one final character short), the leaf must be a data/config file, and the
++ * sibling leaf must already exist.  It is read/open-only and is enabled by the
++ * front end only for directly launched folder-library entries. */
++static BOOL ios_folder_compat_suffix( const WCHAR *str, ULONG len, const WCHAR *suffix )
++{
++    ULONG suffix_len = wcslen( suffix ), i;
++
++    if (len < suffix_len) return FALSE;
++    str += len - suffix_len;
++    for (i = 0; i < suffix_len; i++)
++    {
++        WCHAR a = str[i], b = suffix[i];
++        if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
++        if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
++        if (a != b) return FALSE;
++    }
++    return TRUE;
++}
++
++static BOOL ios_folder_compat_sidecar( const WCHAR *leaf, ULONG len )
++{
++    static const WCHAR iniW[]  = {'.','i','n','i',0};
++    static const WCHAR cfgW[]  = {'.','c','f','g',0};
++    static const WCHAR confW[] = {'.','c','o','n','f',0};
++    static const WCHAR jsonW[] = {'.','j','s','o','n',0};
++    static const WCHAR xmlW[]  = {'.','x','m','l',0};
++    static const WCHAR tomlW[] = {'.','t','o','m','l',0};
++    static const WCHAR yamlW[] = {'.','y','a','m','l',0};
++    static const WCHAR ymlW[]  = {'.','y','m','l',0};
++    static const WCHAR datW[]  = {'.','d','a','t',0};
++    static const WCHAR binW[]  = {'.','b','i','n',0};
++    static const WCHAR txtW[]  = {'.','t','x','t',0};
++    static const WCHAR *extensions[] =
++    {
++        iniW, cfgW, confW, jsonW, xmlW, tomlW, yamlW, ymlW, datW, binW, txtW
++    };
++    unsigned int i;
++
++    for (i = 0; i < ARRAY_SIZE(extensions); i++)
++        if (ios_folder_compat_suffix( leaf, len, extensions[i] )) return TRUE;
++    return FALSE;
++}
++
++static BOOL ios_try_folder_module_sidecar( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name,
++                                           char **unix_name_ret, UINT disposition,
++                                           BOOL open_reparse )
++{
++    static const WCHAR dllW[] = {'.','d','l','l',0};
++    static const WCHAR dlW[]  = {'.','d','l',0};
++    static const WCHAR exeW[] = {'.','e','x','e',0};
++    static const WCHAR exW[]  = {'.','e','x',0};
++    const WCHAR *name, *component, *last, *leaf;
++    ULONG name_len, component_len, leaf_len, prefix_len, module_len, sidecar_len;
++    WCHAR missing = 0, *module_buffer = NULL, *sidecar_buffer = NULL;
++    UNICODE_STRING module_name, module_redirect = {0}, sidecar_name, sidecar_redirect = {0};
++    OBJECT_ATTRIBUTES module_attr, sidecar_attr;
++    char *module_unix = NULL, *sidecar_unix = NULL;
++    struct stat st;
++    NTSTATUS status;
++    const char *enabled = getenv( "MADEIRA_FOLDER_COMPAT" );
++    BOOL repaired = FALSE;
++
++    if (!enabled || strcmp( enabled, "1" )) return FALSE;
++    if (disposition != FILE_OPEN) return FALSE;
++    if (!attr || !attr->ObjectName || !attr->ObjectName->Buffer) return FALSE;
++
++    name = attr->ObjectName->Buffer;
++    name_len = attr->ObjectName->Length / sizeof(WCHAR);
++    if (!name_len) return FALSE;
++
++    for (last = name + name_len; last > name && last[-1] != '\\'; last--);
++    if (last == name || last == name + name_len) return FALSE;
++    leaf = last;
++    leaf_len = name + name_len - leaf;
++    if (!ios_folder_compat_sidecar( leaf, leaf_len )) return FALSE;
++
++    for (component = last - 1; component > name && component[-1] != '\\'; component--);
++    if (component == name || component == last - 1) return FALSE;
++    component_len = last - component - 1;
++
++    if (ios_folder_compat_suffix( component, component_len, dllW ) ||
++        ios_folder_compat_suffix( component, component_len, exeW ))
++        missing = 0;
++    else if (ios_folder_compat_suffix( component, component_len, dlW ))
++        missing = 'l';
++    else if (ios_folder_compat_suffix( component, component_len, exW ))
++        missing = 'e';
++    else
++        return FALSE;
++
++    module_len = (last - name - 1) + (missing != 0);
++    if (!(module_buffer = malloc( (module_len + 1) * sizeof(WCHAR) ))) goto done;
++    memcpy( module_buffer, name, (last - name - 1) * sizeof(WCHAR) );
++    if (missing) module_buffer[module_len - 1] = missing;
++    module_buffer[module_len] = 0;
++    module_name.Buffer = module_buffer;
++    module_name.Length = module_len * sizeof(WCHAR);
++    module_name.MaximumLength = (module_len + 1) * sizeof(WCHAR);
++    module_attr = *attr;
++    module_attr.ObjectName = &module_name;
++
++    status = nt_to_unix_file_name( &module_attr, &module_redirect, &module_unix, FILE_OPEN, TRUE );
++    if (status || stat( module_unix, &st ) == -1 || !S_ISREG(st.st_mode)) goto done;
++
++    prefix_len = component - name;
++    sidecar_len = prefix_len + leaf_len;
++    if (!(sidecar_buffer = malloc( (sidecar_len + 1) * sizeof(WCHAR) ))) goto done;
++    memcpy( sidecar_buffer, name, prefix_len * sizeof(WCHAR) );
++    memcpy( sidecar_buffer + prefix_len, leaf, leaf_len * sizeof(WCHAR) );
++    sidecar_buffer[sidecar_len] = 0;
++    sidecar_name.Buffer = sidecar_buffer;
++    sidecar_name.Length = sidecar_len * sizeof(WCHAR);
++    sidecar_name.MaximumLength = (sidecar_len + 1) * sizeof(WCHAR);
++    sidecar_attr = *attr;
++    sidecar_attr.ObjectName = &sidecar_name;
++
++    status = nt_to_unix_file_name( &sidecar_attr, &sidecar_redirect, &sidecar_unix,
++                                   FILE_OPEN, open_reparse );
++    if (status || stat( sidecar_unix, &st ) == -1 || !S_ISREG(st.st_mode)) goto done;
++
++    free( nt_name->Buffer );
++    *nt_name = sidecar_name;
++    attr->ObjectName = nt_name;
++    *unix_name_ret = sidecar_unix;
++    sidecar_unix = NULL;
++    sidecar_buffer = NULL;
++    repaired = TRUE;
++    dprintf( 2, "[folder-compat] module-sidecar repaired %s -> %s\n",
++             debugstr_us(&module_name), debugstr_us(nt_name) );
++
++done:
++    free( module_unix );
++    free( module_redirect.Buffer );
++    free( sidecar_unix );
++    free( sidecar_redirect.Buffer );
++    free( module_buffer );
++    free( sidecar_buffer );
++    return repaired;
++}
++#endif
++
+ /***********************************************************************
+  *           get_nt_and_unix_names
+  *
+@@ -4389,6 +4542,12 @@ NTSTATUS get_nt_and_unix_names( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name
+         get_redirect( attr, nt_name );
+ #endif
+         status = nt_to_unix_file_name( attr, nt_name, unix_name_ret, disposition, open_reparse );
++#ifdef WINE_IOS
++        if (status && (status == STATUS_OBJECT_PATH_NOT_FOUND ||
++                       status == STATUS_OBJECT_NAME_NOT_FOUND || status == STATUS_NO_SUCH_FILE) &&
++            ios_try_folder_module_sidecar( attr, nt_name, unix_name_ret, disposition, open_reparse ))
++            status = STATUS_SUCCESS;
++#endif
+     }
+ 
+     if (!status || status == STATUS_NO_SUCH_FILE)
+diff --git a/dlls/wintypes/buffer.c b/dlls/wintypes/buffer.c
+index 620cb39709e..81941431ea7 100644
+--- a/dlls/wintypes/buffer.c
++++ b/dlls/wintypes/buffer.c
+@@ -23,6 +23,19 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(wintypes);
+ 
++/* The full Windows IBuffer marshal-by-value object is not implemented yet,
++ * but an ordinary HRESULT failure is safe for callers to handle. A Wine spec
++ * `stub` raises EXCEPTION_WINE_STUB instead, so merely probing this API can
++ * terminate a modern Unity process after the loader has successfully resolved
++ * api-ms-win-core-winrt-robuffer-l1-1-0. */
++HRESULT WINAPI RoGetBufferMarshaler( IMarshal **marshaler )
++{
++    FIXME( "marshaler %p: IBuffer marshaling is not implemented.\n", marshaler );
++    if (!marshaler) return E_POINTER;
++    *marshaler = NULL;
++    return E_NOTIMPL;
++}
++
+ struct buffer_factory_statics
+ {
+     IActivationFactory IActivationFactory_iface;
+diff --git a/dlls/wintypes/wintypes.spec b/dlls/wintypes/wintypes.spec
+index a1eb0f3830d..1a31c1959a6 100644
+--- a/dlls/wintypes/wintypes.spec
++++ b/dlls/wintypes/wintypes.spec
+@@ -3,7 +3,7 @@
+ @ stdcall -private DllGetClassObject(ptr ptr ptr)
+ @ stub RoCreateNonAgilePropertySet
+ @ stub RoCreatePropertySetSerializer
+-@ stub RoGetBufferMarshaler
++@ stdcall RoGetBufferMarshaler(ptr)
+ @ stub RoGetMetaDataFile
+ @ stdcall RoIsApiContractMajorVersionPresent(wstr long ptr)
+ @ stub RoIsApiContractPresent
+diff --git a/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c b/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
+index 6f61eb92a67..bb314c14688 100644
+--- a/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
++++ b/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
+@@ -4243,6 +4243,8 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
+ {
+     struct hlsl_ir_node *instr;
+ 
++    (void)ctx;
++
+     LIST_FOR_EACH_ENTRY(instr, &cond_block->instrs, struct hlsl_ir_node, entry)
+     {
+         switch (instr->type)
+@@ -4251,23 +4253,20 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
+             case HLSL_IR_RESOURCE_STORE:
+             case HLSL_IR_INTERLOCKED:
+             case HLSL_IR_SYNC:
+-                goto fail;
++                return false;
+ 
+             case HLSL_IR_JUMP:
+             {
+                 struct hlsl_ir_jump *jump = hlsl_ir_jump(instr);
+ 
+                 if (jump->type != HLSL_IR_JUMP_DISCARD_NZ && jump->type != HLSL_IR_JUMP_DISCARD_NEG)
+-                {
+-                    hlsl_fixme(ctx, &instr->loc, "Flattening conditional blocks with non-discard jump instructions.");
+                     return false;
+-                }
+                 break;
+             }
+ 
+             case HLSL_IR_STORE:
+                 if (hlsl_ir_store(instr)->lhs.var->is_tgsm)
+-                    goto fail;
++                    return false;
+                 break;
+ 
+             case HLSL_IR_IF:
+@@ -4318,11 +4317,6 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
+     }
+ 
+     return true;
+-
+-fail:
+-    hlsl_error(ctx, &instr->loc, VKD3D_SHADER_ERROR_HLSL_CANNOT_FLATTEN,
+-            "Conditional branches with side effects cannot be flattened.");
+-    return false;
+ }
+ 
+ static bool lower_conditional_block_stores(struct hlsl_ctx *ctx, struct hlsl_ir_node *instr,
+@@ -4474,7 +4468,17 @@ static bool flatten_conditional_branches(struct hlsl_ctx *ctx, struct hlsl_ir_no
+     {
+         if (!can_flatten_conditional_block(ctx, &iff->then_block)
+                 || !can_flatten_conditional_block(ctx, &iff->else_block))
+-            return false;
++        {
++            /* Madeira: [flatten] is an optimisation hint, not permission to
++             * reject an otherwise valid shader. ANGLE emits forced-flatten
++             * branches containing early returns in dynamic pixel shaders;
++             * Microsoft's compiler keeps those branches, while vkd3d used to
++             * raise E5017 and leave LÖVE games presenting a black frame.
++             * Preserve program semantics by compiling the branch normally and
++             * mark it FORCE_BRANCH so the fixed-point pass does not retry it. */
++            iff->flatten_type = HLSL_IF_FORCE_BRANCH;
++            return true;
++        }
+     }
+     else if (!is_conditional_block_simple(&iff->then_block) || !is_conditional_block_simple(&iff->else_block))
+     {

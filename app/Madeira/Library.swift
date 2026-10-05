@@ -191,6 +191,12 @@ struct LibraryEntry: Codable, Identifiable {
     var overlayFields: [String]?
     /// The Wine desktop (explorer and services in a virtual desktop).
     var desktop: Bool?
+    /// A transient Components & installers / winecfg session. Optional so it
+    /// never changes existing library JSON; transient profiles are not saved.
+    var temporarySession: Bool?
+    /// Explorer /desktop command for a transient utility session. A regular
+    /// Desktop entry leaves this nil and starts services.exe as before.
+    var desktopCommand: String?
     /// Touch controls' opacity (0.15...1, nil = 0.7) and overall size (0.5...2,
     /// nil = 1) in this game's sessions.
     var controlOpacity: Double?
@@ -232,7 +238,7 @@ struct LibraryEntry: Codable, Identifiable {
     var displayMode: DisplayMode { display.flatMap(DisplayMode.init(rawValue:)) ?? .fit }
 
     var launchArguments: String {
-        if desktop == true { return "/desktop=shell,\(resolution) C:\\windows\\system32\\services.exe" }
+        if desktop == true { return desktopCommand ?? "/desktop=shell,\(resolution) C:\\windows\\system32\\services.exe" }
         if startsSteamGameDirectly { return steamProgramArguments ?? "" }
         return arguments
     }
@@ -310,6 +316,7 @@ struct LibraryEntry: Codable, Identifiable {
         // "The game"'s identity and working folder for this launch only (the bridge
         // reads and clears them); every other launch starts without them.
         unsetenv("MADEIRA_STEAM_APPID"); unsetenv("MADEIRA_STEAM_APPPATH"); unsetenv("MADEIRA_WORKDIR")
+        unsetenv("MADEIRA_FOLDER_COMPAT")
         if steamAppID != nil {
             // A Steam game through Madeira Dock: Dock has set what starts (ContentView.startDock);
             // the virtual monitor follows this entry's Resolution, as below. "The game" starts
@@ -321,6 +328,13 @@ struct LibraryEntry: Codable, Identifiable {
         }
         setenv("MADEIRA_EXE", desktop == true ? "explorer.exe" : launchWindowsPath, 1)
         setenv("MADEIRA_ARGS", launchArguments, 1)
+        // Directly imported folder games commonly carry native plugins and config
+        // sidecars. Enable the ntdll read-only module-sidecar repair for these
+        // launches only; Steam/Dock and Desktop sessions keep strict Windows paths.
+        if steamAppID == nil && desktop != true,
+           MadeiraConfig.get("env.MADEIRA_FOLDER_COMPAT") != "0" {
+            setenv("MADEIRA_FOLDER_COMPAT", "1", 1)
+        }
         if desktop == true { setenv("MADEIRA_DESKTOP", "1", 1) } else { unsetenv("MADEIRA_DESKTOP") }
         if startsSteamGameDirectly, let steamAppID {
             // The game's own Steam identity (SteamAppId, SteamGameId, SteamAppPath = its install
@@ -2185,6 +2199,13 @@ struct LibraryDetail: View {
     @State private var remove = false
     @State private var leaving = false
     @State private var error: String?
+    @State private var componentReport: FolderComponentReport?
+    @State private var componentsLoading = false
+    @State private var importInstaller = false
+    @State private var importRuntimeDLLs = false
+    @State private var installerArguments = ""
+    @State private var installerResult: String?
+    @State private var componentMessage: String?
     /// Settings › Sync engine, read when the details open: the fastsync switches
     /// below only apply while it is Fastsync.
     @State private var syncEngine = SyncEngine.current
@@ -2227,6 +2248,70 @@ struct LibraryDetail: View {
         // Give the pressed state a display turn before saving and handing off.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             model.save(profile); play(profile)
+        }
+    }
+    private func launchUtility(_ profile: LibraryEntry) {
+        guard !leaving else { return }
+        model.save(entry)
+        leaving = true
+        play(profile)
+    }
+    private func runInstaller(_ source: URL, copy: Bool) {
+        guard !leaving else { return }
+        do {
+            let profile = try FolderInstallerRunner.prepare(source: source, copy: copy, gameID: entry.id,
+                                                            gameTitle: entry.title, arguments: installerArguments,
+                                                            drive: LibraryModel.drive)
+            LogStore.shared.log("[folder-components] installer=\(source.lastPathComponent) source=\(copy ? "picker" : "game")")
+            launchUtility(profile)
+        } catch { self.error = error.localizedDescription }
+    }
+    private func runInstaller(_ candidate: FolderInstallerCandidate) {
+        guard let source = FolderInstallerRunner.source(candidate, drive: LibraryModel.drive) else {
+            error = "The installer is no longer present in the game folder."; return
+        }
+        runInstaller(source, copy: false)
+    }
+    private func installRuntimeDLLs(_ urls: [URL]) {
+        var accessed: [URL] = []
+        for url in urls where url.startAccessingSecurityScopedResource() { accessed.append(url) }
+        defer { for url in accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let executable = try LibraryModel.executable(entry.relativePath)
+            let result = try FolderComponents.installAppLocalDLLs(urls, executable: executable,
+                                                                  bits: entry.bits, drive: LibraryModel.drive)
+            componentMessage = "Installed \(result.copied) app-local DLL\(result.copied == 1 ? "" : "s"): " + result.names.joined(separator: ", ")
+            LogStore.shared.log("[folder-components] app-local-dlls=\(result.copied) game=\(entry.id.uuidString)")
+            componentReport = nil
+            Task { await refreshComponents() }
+        } catch { self.error = error.localizedDescription }
+    }
+    @MainActor private func refreshComponents() async {
+        guard entry.desktop != true, entry.steamAppID == nil,
+              let executable = try? LibraryModel.executable(entry.relativePath) else { return }
+        componentsLoading = true
+        let bits = entry.bits, drive = LibraryModel.drive, resource = Bundle.main.resourceURL
+        let report = await Task.detached(priority: .utility) {
+            FolderComponents.analyze(executable: executable, bits: bits, drive: drive, resource: resource)
+        }.value
+        guard !Task.isCancelled else { return }
+        componentReport = report
+        componentsLoading = false
+        installerResult = FolderInstallerRunner.lastResult(gameID: entry.id, drive: drive)
+    }
+    private func componentColor(_ state: FolderComponentFinding.State) -> Color {
+        switch state {
+        case .ready, .game: return .green
+        case .attention: return .orange
+        case .missing: return .red
+        }
+    }
+    private func componentIcon(_ state: FolderComponentFinding.State) -> String {
+        switch state {
+        case .ready: return "checkmark.circle.fill"
+        case .game: return "shippingbox.fill"
+        case .attention: return "exclamationmark.triangle.fill"
+        case .missing: return "xmark.circle.fill"
         }
     }
     /// A Steam game without a chosen cover shows Steam's store artwork.
@@ -2272,6 +2357,68 @@ struct LibraryDetail: View {
                 // How a Steam game starts sits under its library details (SteamGames.swift).
                 if entry.steamAppID != nil {
                     SteamEntrySection(entry: $entry) { leaving = true; dismiss() }
+                }
+                if entry.desktop != true && entry.steamAppID == nil {
+                    Section {
+                        if componentsLoading {
+                            HStack { ProgressView(); Text("Scanning PE dependencies…").foregroundStyle(.secondary) }
+                        } else if let report = componentReport {
+                            ForEach(report.findings) { finding in
+                                HStack(alignment: .top, spacing: 12) {
+                                    Image(systemName: componentIcon(finding.state)).foregroundStyle(componentColor(finding.state)).frame(width: 20)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(finding.title)
+                                        Text(finding.detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                                    }
+                                }
+                            }
+                            LabeledContent("Scanned PE files", value: "\(report.scannedPEs)\(report.truncated ? "+" : "")")
+                            if !report.installers.isEmpty {
+                                DisclosureGroup("Installers found in game folder") {
+                                    ForEach(report.installers) { installer in
+                                        Button {
+                                            runInstaller(installer)
+                                        } label: {
+                                            HStack {
+                                                VStack(alignment: .leading) {
+                                                    Text(installer.name)
+                                                    Text(installer.architecture).font(.caption).foregroundStyle(.secondary)
+                                                }
+                                                Spacer(); Image(systemName: "play.circle")
+                                            }
+                                        }.disabled(leaving)
+                                    }
+                                }
+                            }
+                        }
+                        TextField("Installer arguments (optional)", text: $installerArguments, axis: .vertical)
+                            .autocorrectionDisabled().textInputAutocapitalization(.never)
+                        Button("Choose installer…", systemImage: "shippingbox.and.arrow.backward") { importInstaller = true }
+                            .disabled(leaving)
+                        Button("Import app-local DLLs…", systemImage: "doc.on.doc") { importRuntimeDLLs = true }
+                            .disabled(leaving)
+                        Button("Open Wine configuration", systemImage: "gearshape.2") {
+                            launchUtility(FolderInstallerRunner.winecfgProfile())
+                        }.disabled(leaving)
+                        if !DockInstallers.bundleHas32Bit {
+                            Label("This build has no i386 runtime; 32-bit installers are reported but cannot run.", systemImage: "info.circle")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if !DockInstallers.bundleHasMsiexec {
+                            Label("This build has no msiexec.exe; use an EXE installer or add Wine's msiexec module to the bundle.", systemImage: "info.circle")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let installerResult, !installerResult.isEmpty {
+                            DisclosureGroup("Last installer result") {
+                                Text(installerResult).font(.caption.monospaced()).textSelection(.enabled)
+                            }
+                        }
+                        if let componentMessage {
+                            Text(componentMessage).font(.caption).foregroundStyle(.green).textSelection(.enabled)
+                        }
+                    } header: { Text("Components & installers") } footer: {
+                        Text("Installers run in a Wine virtual desktop and use this app run's single Wine session. Restart Madeira before launching the game. Dependency status comes from PE imports; Madeira never downloads or copies a Windows System32 DLL automatically.")
+                    }
                 }
                 Section("Display") {
                     // The Windows screen the game renders for (and the Desktop's size).
@@ -2366,15 +2513,36 @@ struct LibraryDetail: View {
                     let name = entry.id.uuidString + ".jpg"; try jpeg.write(to: dir.appendingPathComponent(name), options: .atomic); entry.coverFile = name
                 } catch { self.error = error.localizedDescription }
             }
+            .fileImporter(isPresented: $importInstaller,
+                          allowedContentTypes: [UTType(filenameExtension: "exe") ?? .data,
+                                                UTType(filenameExtension: "msi") ?? .data]) { result in
+                do {
+                    let url = try result.get()
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                    guard values.isRegularFile == true, (values.fileSize ?? Int.max) <= 1_500_000_000 else {
+                        throw LibraryError.message("Choose a regular installer file smaller than 1.5 GB.")
+                    }
+                    runInstaller(url, copy: true)
+                } catch { self.error = error.localizedDescription }
+            }
+            .fileImporter(isPresented: $importRuntimeDLLs,
+                          allowedContentTypes: [UTType(filenameExtension: "dll") ?? .data],
+                          allowsMultipleSelection: true) { result in
+                do { installRuntimeDLLs(try result.get()) }
+                catch { self.error = error.localizedDescription }
+            }
             .confirmationDialog("Remove this library entry? Your executable and saves stay in drive_c.", isPresented: $remove, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) { leaving = true; model.remove(entry.id); dismiss() }
             }
             .task {
                 if entry.graphicsAPI == nil, entry.desktop != true, let url = try? LibraryModel.executable(entry.relativePath) { entry.graphicsAPI = LibraryModel.graphicsImports(url) }
+                await refreshComponents()
             }
             .onDisappear { if !leaving { model.save(entry) } }
             .onReceive(LibraryController.shared.commands) { command in
-                guard !leaving, !findCover, !importCover, !remove else { return }
+                guard !leaving, !findCover, !importCover, !importInstaller, !importRuntimeDLLs, !remove else { return }
                 if command == "back" { model.save(entry); dismiss() }
                 if command == "accept" { start() }
             }

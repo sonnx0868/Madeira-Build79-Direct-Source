@@ -29,6 +29,13 @@ remediation; steps marked UNVERIFIED have not yet been re-run from scratch.
 Run in this order after the inputs above are in place. Outputs are
 git-ignored and consumed by the app project.
 
+`scripts/bootstrap-native-deps.sh` first applies
+`build/wine-pe/madeira-v0.1.4.patch` to the pinned Wine submodule through
+`scripts/apply-wine-patches.sh`. The patch is kept in Madeira because the
+build account has no push access to Wine's remote. Application is idempotent
+and fails closed if the pinned Wine source changes. The bootstrap then
+rebuilds/stages the patched `wintypes.dll` and `d3dcompiler_47.dll`.
+
 1. `build/gnutls-ios/build.sh`: GMP 6.3.0, Nettle 3.10.1, GnuTLS 3.8.9 from
    the tracked tarballs in `build/gnutls-ios/src` (SHA256SUMS there) ->
    `app/Madeira/lib{gmp,nettle,hogweed,gnutls}.a` (these four outputs are
@@ -51,7 +58,7 @@ git-ignored and consumed by the app project.
    - unix side: `build/ntdll-unix/build.sh`, `build/wineserver/build.sh`,
      `build/win32u-unix/build.sh` -> `app/Madeira/lib{ntdll_unix,wineserver,win32u_unix}.a`. Verified on the development machine.
    - PE side: `build/wine-pe/build-ntdll.sh` (configures `wine/build-arm64ec` with `--enable-archs=arm64ec --without-x --disable-tests --enable-winegstreamer` on first run, builds `dlls/ntdll`, strips, pads to SizeOfImage + 0x50000, copies to the app). Other PE modules: `make -C dlls/<name>` in that tree and copy the DLL, as the script's header says; winegstreamer (enabled by `--enable-winegstreamer` although GStreamer is absent, since its unix side is `build/ntdll-unix/winegstreamer_unixlib_ios.c`) is built as the target `dlls/winegstreamer/arm64ec-windows/winegstreamer.dll`, never with `make -C`. The strip/pad step was verified this session; the configure step is UNVERIFIED from clean.
-   - `app/Madeira/arm64ec-windows/` is the DLL farm: every file in it is linked into the prefix (`system32` for x64 sessions, and `sysx64`), so a Wine module is only available if it was built and copied there. The native D3D12 path needs two stock modules in addition to the existing ones: `dcomp.dll` (`make -C dlls/dcomp`; a 64-bit Godot 4 engine loads it before it creates its D3D12 device, and gives up on D3D12 without it) and `ktmw32.dll` (`make -C dlls/ktmw32`; an optional import the same engine probes).
+   - `app/Madeira/arm64ec-windows/` is the DLL farm: every file in it is linked into the prefix (`system32` for x64 sessions, and `sysx64`), so a Wine module is only available if it was built and copied there. `wintypes.dll` is mandatory for modern Unity IL2CPP: Wine's API-set schema maps `api-ms-win-core-winrt-robuffer-l1-1-0` to it; build and stage it with `bash build/wine-pe/build-wintypes.sh`. The native D3D12 path needs two stock modules in addition to the existing ones: `dcomp.dll` (`make -C dlls/dcomp`; a 64-bit Godot 4 engine loads it before it creates its D3D12 device, and gives up on D3D12 without it) and `ktmw32.dll` (`make -C dlls/ktmw32`; an optional import the same engine probes).
 4. DXMT (submodule, branch ios-port):
    - unix side: `build/dxmt-ios/build.sh` (needs `toolchains/llvm-ios-build`) -> `app/Madeira/libdxmt_combined.a` (ignored; the app links it). Verified this session.
    - PE side: `meson setup dxmt/build-arm64ec dxmt -Dbuildtype=release -Dwine_build_path=../../wine/build-arm64ec --cross-file=dxmt/build-arm64ec-win.txt` then `ninja -C dxmt/build-arm64ec src/winemetal/winemetal.dll` (and d3d11.dll) -> copied to `app/Madeira/arm64ec-windows/`. Verified this session (winemetal.dll).

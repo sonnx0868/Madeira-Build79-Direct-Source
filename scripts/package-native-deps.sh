@@ -13,6 +13,8 @@ rm -f "$output"
   app/Madeira/libavformat.a app/Madeira/libavcodec.a \
   app/Madeira/libswresample.a app/Madeira/libavutil.a \
   app/Madeira/x86_64-vcruntime \
+  app/Madeira/arm64ec-windows/wintypes.dll \
+  app/Madeira/arm64ec-windows/d3dcompiler_47.dll \
   app/Madeira/arm64ec-windows/dockhost.exe \
   app/Madeira/arm64ec-windows/dock-notices.txt)
 echo "Created $output"

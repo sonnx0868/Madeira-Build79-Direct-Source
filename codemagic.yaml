@@ -1,6 +1,6 @@
 workflows:
   madeira-upstream-bootstrap:
-    name: Upstream Madeira native bootstrap + IPA
+    name: Madeira v0.1.4 source native bootstrap + IPA
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
@@ -45,9 +45,9 @@ workflows:
           out="$CM_BUILD_DIR/build/upstream-bootstrap"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-upstream-bootstrap.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source-bootstrap.ipa Payload)
     artifacts:
-      - build/upstream-bootstrap/Madeira-upstream-bootstrap.ipa
+      - build/upstream-bootstrap/Madeira-v0.1.4-source-bootstrap.ipa
       - madeira-upstream-native-deps.zip
       - build/ntdll-unix/obj/*.err
       - build/win32u-unix/obj/*.err
@@ -55,7 +55,7 @@ workflows:
       - build/dxmt-ios/obj/*.err
 
   madeira-upstream-ipa:
-    name: Upstream Madeira IPA from cached native bundle
+    name: Madeira v0.1.4 source IPA from cached native bundle
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -69,7 +69,9 @@ workflows:
         DERIVED_DATA: /tmp/madeira-derived
     scripts:
       - name: Initialize upstream submodules
-        script: git submodule update --init FEX wine dxmt madeira-dock
+        script: |
+          git submodule update --init FEX wine dxmt madeira-dock
+          bash scripts/apply-wine-patches.sh
       - name: Restore native bundle
         script: bash scripts/restore-native-deps.sh
       - name: Build unsigned Debug app
@@ -87,7 +89,7 @@ workflows:
           out="$CM_BUILD_DIR/build/upstream"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-upstream.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source.ipa Payload)
     artifacts:
-      - build/upstream/Madeira-upstream.ipa
+      - build/upstream/Madeira-v0.1.4-source.ipa
       - /tmp/xcodebuild_logs/*.log

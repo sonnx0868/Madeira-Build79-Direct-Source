@@ -14,6 +14,7 @@ for path in \
   FEX/build-ios/External/SoftFloat-3e/libsoftfloat_3e.a \
   app/Madeira/libwineserver.a app/Madeira/libntdll_unix.a \
   app/Madeira/libwin32u_unix.a app/Madeira/libdxmt_combined.a \
+  app/Madeira/arm64ec-windows/wintypes.dll \
   app/Madeira/libavformat.a app/Madeira/libavcodec.a \
   app/Madeira/libswresample.a app/Madeira/libavutil.a \
   app/Madeira/arm64ec-windows/dockhost.exe; do need "$path"; done

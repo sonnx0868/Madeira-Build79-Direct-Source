@@ -70,6 +70,8 @@ OVERLAY = {
     "d3d12-typed-uav-load": {"title": "D3D12 typed UAV loads (report support)"},
     "ags-rewrite": {"title": "D3D12 AMD AGS 64-bit atomics rewrite"},
     "env.MADEIRA_EXE": {"title": "Program to start at launch (Windows path or name)"},
+    "env.MADEIRA_FOLDER_COMPAT": {"category": "App & front end", "title": "Folder-game path compatibility", "kind": "bool", "default": "1",
+                "note": "For directly added games only, retries a failed read-only module-sidecar path when the module and sibling config file both exist. Set to 0 for strict Windows path handling."},
     "env.MADEIRA_ONBOARDING": {"title": "First-run Steam setup"},
     "env.MADEIRA_XINPUT": {"title": "Physical controllers (XInput)"},
     "env.MADEIRA_TOUCH_XINPUT": {"title": "Touch controller as XInput player 1"},
@@ -143,7 +145,9 @@ def scan():
         out = subprocess.run(["git", "-C", base, "ls-files", "--"] + dirs,
                              capture_output=True, text=True).stdout.split()
         for rel in out:
-            path = os.path.normpath(os.path.join(repo, rel))
+            # Catalog source paths are repository paths, not host paths. Keep
+            # generated output stable when the checker runs on Windows.
+            path = os.path.normpath(os.path.join(repo, rel)).replace(os.sep, "/")
             if not path.endswith(EXT) or any(s in path for s in SKIP):
                 continue
             try:

@@ -19,6 +19,7 @@ bash "$root/scripts/fetch-vcruntime.sh"
 
 log "Initialize pinned upstream submodules"
 git -C "$root" submodule update --init FEX wine dxmt madeira-dock
+bash "$root/scripts/apply-wine-patches.sh"
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \
     External/fmt External/xxhash External/range-v3 External/unordered_dense
 git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
@@ -56,6 +57,8 @@ if [[ ! -f "$wine_ec/config.status" ]]; then
         --without-freetype --without-gnutls --disable-tests --enable-winegstreamer)
 fi
 make -C "$wine_ec" -j"$jobs" include/all tools/widl/all tools/winebuild/all
+bash "$root/build/wine-pe/build-wintypes.sh"
+bash "$root/build/wine-pe/build-d3dcompiler.sh"
 
 log "Build FEX iOS"
 bash "$root/build/fex-ios/build.sh"

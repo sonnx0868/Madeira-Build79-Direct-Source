@@ -2283,7 +2283,7 @@ struct ContentView: View {
             library.error = "The executable path or launch arguments are too long."; return
         }
         entry.configureLaunch()
-        library.begin(entry)
+        library.begin(entry, remember: entry.temporarySession != true)
         runWineFullSequence(profile: entry)
     }
 

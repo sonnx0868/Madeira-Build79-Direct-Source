@@ -25,6 +25,53 @@ graphics-API badge, and measures the install folder's size. The badge names an
 API only when exactly one is found: it describes what the files import, not
 which renderer a game picks at run time.
 
+Directly added folder games also enable the read-only module-sidecar repair.
+If a native plugin probes a malformed path such as
+`plugins\\foo.dll\\settings.ini` (or a one-character-truncated `.dl`/`.ex`
+component), Madeira retries `settings.ini` beside the plugin only when both
+the complete module and sibling sidecar already exist as regular files. It
+never redirects creates or writes, never searches by basename outside that
+directory, and logs an applied repair as `[folder-compat]`. Set
+`env.MADEIRA_FOLDER_COMPAT = 0` in `madeira.cfg` for strict Windows path
+handling. Desktop, Madeira Dock and Steam-library launches do not enable it.
+
+### Components and installers
+
+A directly added game's details page has **Components & installers**. Madeira
+scans the executable and matching-architecture PE files in its installation
+folder (bounded to 20,000 directory entries and 4,096 PE files), resolves the
+WinRT robuffer API-set to its Wine host, and compares imports with game-local
+DLLs and the architecture's bundled DLL farm. It groups known prerequisites
+as VC++ 2005/2008/2010/2012/2013/2015–2022, legacy DirectX and .NET/Wine Mono,
+shows other missing imports verbatim, and identifies a game-provided Unity
+IL2CPP `GameAssembly.dll`. This is diagnosis, not name-based DLL downloading.
+
+The same section lists likely `.exe`/`.msi` installers already in setup,
+redist, support or prerequisite folders and has **Choose installer…** for a
+package from Files. A game-folder installer runs in place so adjacent CAB/data
+files remain visible; a picked standalone package is copied below
+`C:\madeira-installers\<game UUID>`. Madeira writes a bounded command file,
+starts services and the package inside a Wine virtual desktop, records its exit
+status, and never adds the temporary utility profile to the game library.
+Optional arguments reject shell metacharacters. The section can also open
+`winecfg`.
+
+**Import app-local DLLs…** is the safe manual route for DLLs extracted from a
+runtime package the user obtained. It accepts 1–64 files, requires every PE to
+match the game's x86/x64 architecture, limits each file to 100 MB, and copies
+the complete set beside the selected game EXE where Windows searches first.
+The preflight rejects duplicates, existing destinations, API-set contracts and
+core Windows/Wine DLLs (`ntdll`, `kernel32`, `user32`, etc.); it never writes
+to the shared `system32` farm or overwrites a game file. Dependency status is
+rescanned after a successful import.
+
+An installer consumes the app run's one supported Wine session, so Madeira
+asks the user to restart before playing. Capability comes from the build:
+32-bit setup programs require a populated `i386-windows` bundle and MSI files
+require Wine's `msiexec.exe`; when either is absent the UI reports that before
+launch. Madeira does not copy DLLs from a host PC or download proprietary
+redistributables automatically.
+
 Library data is written atomically to `Documents/madeira-library.json`
 (version 1); covers chosen from Files are stored as thumbnails in
 `Documents/madeira-art/`. A library file that cannot be read, or that has a

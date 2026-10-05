@@ -769,3 +769,347 @@ enum DockInstallers {
         return "One-time installs finished: \(succeeded) of \(total) succeeded." + failures
     }
 }
+
+// MARK: - Direct-folder components and installers
+
+/// One dependency family found by scanning the matching-architecture PE files
+/// in a directly added game's folder.
+struct FolderComponentFinding: Identifiable, Hashable, Sendable {
+    enum State: String, Sendable { case ready, missing, attention, game }
+    var id: String
+    var title: String
+    var detail: String
+    var state: State
+}
+
+/// An installer already shipped in a game folder. It runs in place so a setup
+/// with adjacent CAB/data files keeps seeing them.
+struct FolderInstallerCandidate: Identifiable, Hashable, Sendable {
+    var id: String { windowsPath.lowercased() }
+    var name: String
+    var windowsPath: String
+    var machine: UInt16?
+
+    var architecture: String {
+        switch machine {
+        case 0x14c: return "x86"
+        case 0x8664: return "x64"
+        case 0xaa64: return "ARM64"
+        case nil: return "MSI"
+        default: return "Unknown"
+        }
+    }
+}
+
+struct FolderComponentReport: Sendable {
+    var findings: [FolderComponentFinding]
+    var installers: [FolderInstallerCandidate]
+    var scannedPEs: Int
+    var truncated: Bool
+}
+
+struct FolderDLLImportResult: Sendable {
+    var copied: Int
+    var names: [String]
+}
+
+/// Bounded, read-only dependency inspection for games added under drive_c.
+/// This intentionally diagnoses; it never downloads or copies a system DLL.
+enum FolderComponents {
+    private static let protectedDLLs: Set<String> = [
+        "ntdll.dll", "kernel32.dll", "kernelbase.dll", "user32.dll", "gdi32.dll", "win32u.dll",
+        "advapi32.dll", "combase.dll", "ole32.dll", "rpcrt4.dll", "shell32.dll", "shlwapi.dll"
+    ]
+    private struct Family {
+        var id: String
+        var title: String
+        var detail: String
+        var names: Set<String>
+        var prefixes: [String] = []
+        var state: FolderComponentFinding.State = .ready
+    }
+
+    private static let families: [Family] = [
+        Family(id: "vc140", title: "Microsoft Visual C++ 2015–2022",
+               detail: "Unified VC runtime (MSVCP/VCRUNTIME 140).", names: ["concrt140.dll", "vcamp140.dll", "vccorlib140.dll", "vcomp140.dll"],
+               prefixes: ["msvcp140", "vcruntime140"]),
+        Family(id: "vc120", title: "Microsoft Visual C++ 2013",
+               detail: "Legacy VC12 runtime.", names: ["msvcp120.dll", "msvcr120.dll"]),
+        Family(id: "vc110", title: "Microsoft Visual C++ 2012",
+               detail: "Legacy VC11 runtime.", names: ["msvcp110.dll", "msvcr110.dll"]),
+        Family(id: "vc100", title: "Microsoft Visual C++ 2010",
+               detail: "Legacy VC10 runtime.", names: ["msvcp100.dll", "msvcr100.dll"]),
+        Family(id: "vc90", title: "Microsoft Visual C++ 2008",
+               detail: "Legacy VC9 runtime.", names: ["msvcp90.dll", "msvcr90.dll"]),
+        Family(id: "vc80", title: "Microsoft Visual C++ 2005",
+               detail: "Legacy VC8 runtime.", names: ["msvcp80.dll", "msvcr80.dll"]),
+        Family(id: "directx", title: "DirectX legacy runtime",
+               detail: "D3DX, XAudio, XInput or D3DCompiler components from the legacy DirectX runtime.",
+               names: ["xinput1_3.dll", "x3daudio1_7.dll", "xaudio2_7.dll", "d3dcompiler_43.dll"], prefixes: ["d3dx9_", "d3dx10_", "d3dx11_"]),
+        Family(id: "dotnet", title: ".NET / Wine Mono",
+               detail: "The PE requests the CLR bridge; the application may need a matching managed runtime.", names: ["mscoree.dll"], state: .attention),
+    ]
+
+    private static func installationRoot(_ executable: URL, drive: URL) -> URL {
+        var folder = executable.deletingLastPathComponent()
+        let binaryFolders: Set<String> = ["bin", "binaries", "win32", "win64", "x86", "x64", "release"]
+        for _ in 0..<4 {
+            guard binaryFolders.contains(folder.lastPathComponent.lowercased()) else { break }
+            let parent = folder.deletingLastPathComponent()
+            guard DockInstallers.inside(parent, drive: drive),
+                  !["program files", "program files (x86)", "games", "common", "steamapps"].contains(parent.lastPathComponent.lowercased()) else { break }
+            folder = parent
+        }
+        return folder
+    }
+
+    private static func bundleNames(bits: Int, resource: URL?) -> Set<String> {
+        guard let resource else { return [] }
+        var folders = bits == 32 ? ["i386-windows", "aarch64-windows"] : ["arm64ec-windows", "aarch64-windows", "x86_64-vcruntime"]
+        if bits == 0 { folders += ["i386-windows"] }
+        var result = Set<String>()
+        for folder in folders {
+            let url = resource.appendingPathComponent(folder, isDirectory: true)
+            guard let files = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) else { continue }
+            result.formUnion(files.map { $0.lastPathComponent.lowercased() })
+        }
+        return result
+    }
+
+    private static func isInstaller(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        guard ext == "exe" || ext == "msi" else { return false }
+        let text = url.path.lowercased()
+        return ["setup", "install", "redist", "prereq", "directx", "dotnet", "support", "commonredist"]
+            .contains { text.contains($0) }
+    }
+
+    /// Scan at most 20,000 entries and 4,096 matching-architecture PE files.
+    /// Imports are compared with game-local and bundled DLLs; API-set contracts
+    /// are left to Wine's apisetschema resolver.
+    static func analyze(executable: URL, bits: Int, drive: URL,
+                        resource: URL? = Bundle.main.resourceURL) -> FolderComponentReport {
+        let root = installationRoot(executable, drive: drive)
+        let expectedMachine: UInt16 = bits == 32 ? 0x14c : 0x8664
+        let manager = FileManager.default
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
+        let walker = manager.enumerator(at: root, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
+        var imports = Set<String>(), local = Set<String>(), candidates: [FolderInstallerCandidate] = []
+        var entries = 0, peFiles = 0, truncated = false
+
+        while let file = walker?.nextObject() as? URL {
+            entries += 1
+            if entries > 20_000 { truncated = true; break }
+            guard DockInstallers.inside(file, drive: drive),
+                  let values = try? file.resourceValues(forKeys: keys), values.isRegularFile == true,
+                  values.isSymbolicLink != true else { continue }
+            let ext = file.pathExtension.lowercased()
+            let installerFile = isInstaller(file)
+            if installerFile, candidates.count < 20 {
+                let windows = "C:\\" + String(file.path.dropFirst(drive.path.count + 1)).replacingOccurrences(of: "/", with: "\\")
+                candidates.append(FolderInstallerCandidate(name: file.lastPathComponent, windowsPath: windows,
+                                                           machine: ext == "exe" ? DockInstallers.machine(file) : nil))
+            }
+            if installerFile && file.standardizedFileURL != executable.standardizedFileURL { continue }
+            guard ext == "exe" || ext == "dll", DockInstallers.machine(file) == expectedMachine else { continue }
+            peFiles += 1
+            if peFiles > 4_096 { truncated = true; break }
+            local.insert(file.lastPathComponent.lowercased())
+            imports.formUnion(LibraryModel.importNames(file))
+        }
+
+        // Wine's API-set schema routes these contracts to wintypes.dll. Resolve
+        // the host here so an IL2CPP failure is reported as the actionable DLL,
+        // not hidden behind an API-set name that is not a physical file.
+        if imports.contains("api-ms-win-core-winrt-robuffer-l1-1-0.dll") ||
+           imports.contains("api-ms-win-core-winrt-propertysetprivate-l1-1-1.dll") {
+            imports.insert("wintypes.dll")
+        }
+        let available = local.union(bundleNames(bits: bits, resource: resource))
+        let missing = imports.filter {
+            !available.contains($0) && !$0.hasPrefix("api-ms-") && !$0.hasPrefix("ext-ms-")
+        }.sorted()
+        var findings: [FolderComponentFinding] = []
+        for family in families {
+            let used = imports.filter { name in
+                family.names.contains(name) || family.prefixes.contains(where: { name.hasPrefix($0) })
+            }
+            guard !used.isEmpty else { continue }
+            let absent = used.filter { missing.contains($0) }.sorted()
+            let state: FolderComponentFinding.State = absent.isEmpty ? family.state : .missing
+            let detail = absent.isEmpty ? family.detail : "Missing: " + absent.joined(separator: ", ")
+            findings.append(FolderComponentFinding(id: family.id, title: family.title, detail: detail, state: state))
+        }
+        let gameAssembly = root.appendingPathComponent("GameAssembly.dll")
+        if manager.fileExists(atPath: gameAssembly.path) {
+            findings.append(FolderComponentFinding(id: "il2cpp", title: "Unity IL2CPP", detail: "GameAssembly.dll is supplied by the game; its imported DLLs are checked above.", state: .game))
+        }
+        let known = Set(families.flatMap { Array($0.names) })
+        let other = missing.filter { name in
+            !known.contains(name) && !families.contains(where: { family in
+                family.prefixes.contains(where: { name.hasPrefix($0) })
+            })
+        }
+        if !other.isEmpty {
+            let shown = other.prefix(16).joined(separator: ", ") + (other.count > 16 ? "…" : "")
+            findings.append(FolderComponentFinding(id: "missing", title: "Other missing DLLs", detail: shown, state: .missing))
+        }
+        if findings.isEmpty {
+            findings.append(FolderComponentFinding(id: "none", title: "No known runtime gap detected",
+                                                   detail: "The scanned PE imports are satisfied by the game folder or Madeira bundle.", state: .ready))
+        }
+        candidates.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return FolderComponentReport(findings: findings, installers: candidates, scannedPEs: peFiles, truncated: truncated)
+    }
+
+    /// Install user-supplied runtime DLLs app-locally beside the selected EXE.
+    /// Preflight every file before copying, so a rejected architecture or name
+    /// cannot leave a half-installed set. Existing files are never overwritten.
+    static func installAppLocalDLLs(_ sources: [URL], executable: URL, bits: Int,
+                                    drive: URL) throws -> FolderDLLImportResult {
+        guard !sources.isEmpty, sources.count <= 64 else { throw LibraryError.message("Choose between 1 and 64 DLL files.") }
+        let target = executable.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+        guard DockInstallers.inside(target, drive: drive) else { throw LibraryError.message("The game's executable folder is outside drive_c.") }
+        let expected: UInt16 = bits == 32 ? 0x14c : 0x8664
+        let manager = FileManager.default
+        let existing = Set((try manager.contentsOfDirectory(atPath: target.path)).map { $0.lowercased() })
+        var planned: [(URL, URL, String)] = [], selected = Set<String>()
+
+        for source in sources {
+            let name = source.lastPathComponent, lower = name.lowercased()
+            guard source.pathExtension.lowercased() == "dll", name == (name as NSString).lastPathComponent,
+                  name.utf8.count <= 255, !name.contains("/"), !name.contains("\\") else {
+                throw LibraryError.message("Every selected file must be a plainly named .dll file.")
+            }
+            guard !lower.hasPrefix("api-ms-"), !lower.hasPrefix("ext-ms-"), !protectedDLLs.contains(lower) else {
+                throw LibraryError.message("\(name) is a Windows/Wine core DLL and cannot be installed app-locally.")
+            }
+            let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard values.isRegularFile == true, (values.fileSize ?? Int.max) <= 100_000_000 else {
+                throw LibraryError.message("\(name) is not a regular DLL smaller than 100 MB.")
+            }
+            guard DockInstallers.machine(source) == expected else {
+                throw LibraryError.message("\(name) does not match this game's \(bits)-bit architecture.")
+            }
+            guard !existing.contains(lower), selected.insert(lower).inserted else {
+                throw LibraryError.message("\(name) already exists in the game folder or was selected twice; nothing was overwritten.")
+            }
+            planned.append((source, target.appendingPathComponent(name), name))
+        }
+        for (source, destination, _) in planned { try manager.copyItem(at: source, to: destination) }
+        return FolderDLLImportResult(copied: planned.count, names: planned.map { $0.2 })
+    }
+}
+
+/// Stages a user-selected installer (or runs one in a game folder), writes an
+/// ASCII-path command file, and returns a temporary Wine desktop profile.
+enum FolderInstallerRunner {
+    static let rootName = "madeira-installers"
+
+    private static func safeArguments(_ arguments: String) throws -> String {
+        guard arguments.utf8.count <= 1024, !arguments.contains("\r"), !arguments.contains("\n"),
+              !arguments.contains("&"), !arguments.contains("|"), !arguments.contains(">"),
+              !arguments.contains("<"), !arguments.contains("^"), !arguments.contains("%") else {
+            throw LibraryError.message("Installer arguments are too long or contain command-shell metacharacters.")
+        }
+        var quoted = false
+        for character in arguments where character == "\"" { quoted.toggle() }
+        guard !quoted else { throw LibraryError.message("Use balanced double quotes in installer arguments.") }
+        return arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func windowsPath(_ url: URL, drive: URL) throws -> String {
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        guard DockInstallers.inside(resolved, drive: drive) else { throw LibraryError.message("The installer is outside drive_c.") }
+        return "C:\\" + String(resolved.path.dropFirst(drive.path.count + 1)).replacingOccurrences(of: "/", with: "\\")
+    }
+
+    private static func validate(_ file: URL, has32Bit: Bool, hasMsiexec: Bool) throws {
+        switch file.pathExtension.lowercased() {
+        case "msi":
+            guard hasMsiexec else { throw LibraryError.message("This Madeira build does not include msiexec.exe yet, so MSI packages cannot run.") }
+        case "exe":
+            guard let machine = DockInstallers.machine(file) else { throw LibraryError.message("This is not a readable Windows installer executable.") }
+            guard machine == 0x8664 || machine == 0xaa64 || machine == 0x14c else {
+                throw LibraryError.message(String(format: "Unsupported installer architecture 0x%04x.", machine))
+            }
+            if machine == 0x14c && !has32Bit { throw LibraryError.message("This is a 32-bit installer, but this Madeira build has no i386 runtime bundle.") }
+        default:
+            throw LibraryError.message("Choose a Windows .exe or .msi installer.")
+        }
+    }
+
+    /// `copy` is true for a Files-picker URL; an installer found inside the
+    /// game's folder runs in place so adjacent payload files remain available.
+    static func prepare(source: URL, copy: Bool, gameID: UUID, gameTitle: String,
+                        arguments: String, drive: URL,
+                        has32Bit: Bool = DockInstallers.bundleHas32Bit,
+                        hasMsiexec: Bool = DockInstallers.bundleHasMsiexec) throws -> LibraryEntry {
+        let args = try safeArguments(arguments)
+        let manager = FileManager.default
+        let folderName = gameID.uuidString.lowercased()
+        let folder = drive.appendingPathComponent(rootName, isDirectory: true).appendingPathComponent(folderName, isDirectory: true)
+        try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let package: URL
+        if copy {
+            let ext = source.pathExtension.lowercased()
+            guard ext == "exe" || ext == "msi" else { throw LibraryError.message("Choose a Windows .exe or .msi installer.") }
+            package = folder.appendingPathComponent("package." + ext)
+            if source.standardizedFileURL != package.standardizedFileURL {
+                if manager.fileExists(atPath: package.path) { try manager.removeItem(at: package) }
+                try manager.copyItem(at: source, to: package)
+            }
+        } else {
+            package = source
+        }
+        try validate(package, has32Bit: has32Bit, hasMsiexec: hasMsiexec)
+        let packageWindows = try windowsPath(package, drive: drive)
+        let script = folder.appendingPathComponent("run.cmd")
+        let result = "C:\\" + rootName + "\\" + folderName + "\\last-result.txt"
+        let command = package.pathExtension.lowercased() == "msi"
+            ? "call C:\\windows\\system32\\msiexec.exe /i \"\(packageWindows)\"\(args.isEmpty ? "" : " " + args)"
+            : "call \"\(packageWindows)\"\(args.isEmpty ? "" : " " + args)"
+        let label = package.lastPathComponent.filter { $0.isLetter || $0.isNumber || ".-_ ".contains($0) }.prefix(80)
+        let batch = """
+        @echo off\r
+        >"\(result)" echo begin \(label)\r
+        start "" "C:\\windows\\system32\\services.exe"\r
+        cd /d "\(packageWindows.dropLast(package.lastPathComponent.count))"\r
+        \(command)\r
+        set "madeira_status=%ERRORLEVEL%"\r
+        >>"\(result)" echo exit %madeira_status%\r
+        >>"\(result)" echo end\r
+        """
+        try Data(batch.utf8).write(to: script, options: .atomic)
+
+        var profile = LibraryEntry(title: "Install for \(gameTitle)", relativePath: "windows/system32/explorer.exe", bits: 64)
+        profile.desktop = true
+        profile.temporarySession = true
+        profile.desktopCommand = "/desktop=components,1280x720 C:\\windows\\system32\\cmd.exe /c C:\\" + rootName + "\\" + folderName + "\\run.cmd"
+        profile.resolution = "1280x720"
+        profile.graphicsAPI = "Installer"
+        profile.liveLogs = true
+        return profile
+    }
+
+    static func source(_ candidate: FolderInstallerCandidate, drive: URL) -> URL? {
+        DockInstallers.resolve(candidate.windowsPath, drive: drive)
+    }
+
+    static func lastResult(gameID: UUID, drive: URL) -> String? {
+        let file = drive.appendingPathComponent(rootName).appendingPathComponent(gameID.uuidString.lowercased()).appendingPathComponent("last-result.txt")
+        guard let data = try? Data(contentsOf: file), data.count <= 4096 else { return nil }
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func winecfgProfile() -> LibraryEntry {
+        var profile = LibraryEntry(title: "Wine configuration", relativePath: "windows/system32/explorer.exe", bits: 64)
+        profile.desktop = true
+        profile.temporarySession = true
+        profile.desktopCommand = "/desktop=winecfg,1024x768 C:\\windows\\system32\\winecfg.exe"
+        profile.resolution = "1024x768"
+        profile.graphicsAPI = "Wine configuration"
+        return profile
+    }
+}
