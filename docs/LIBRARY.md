@@ -19,6 +19,43 @@ tap **+** and choose its `.exe`. Only x86 and x64 PE executables inside drive_c
 can be added; the library stores the path relative to drive_c, so a changed
 app container path does not break entries. Adding an entry installs nothing.
 
+For a directly added Unity game, Madeira detects `UnityPlayer.dll` beside the
+chosen executable and adds `-force-d3d11` unless the profile already chose a
+renderer. This avoids Unity selecting D3D12 or Vulkan paths that Madeira may
+not implement yet; `env.MADEIRA_UNITY_D3D11 = 0` disables it. The launch scan
+also reports a large third-party Steam API replacement, but never modifies it,
+swaps it for the original DLL or bypasses DRM. Such a build may behave
+differently from the same game launched through Madeira Dock and Valve's client.
+
+LÖVE 11.5 games are a separate LuaJIT and renderer case. iOS enforces a hard
+4 GB Mach-O `__PAGEZERO`, while old non-GC64 LuaJIT builds request GC memory
+below 2 GB and fail before graphics starts. Madeira detects the LÖVE runtime
+instead of relying on a game-name list, then redirects `lua51.dll` to the
+pinned official LÖVE 11.5 GC64 runtime in the app bundle. GC64 accepts high
+virtual addresses, and the original game file is never modified. Balatro's
+Steam App ID remains a fallback when its install folder has not been indexed.
+Set `env.MADEIRA_LUAJIT_GC64 = 0` in `Documents/madeira.cfg` to disable it.
+The redirect is applied in Wine's ordinary `NtCreateFile` path because game
+DLLs do not pass through the builtin-DLL loader. A successful launch therefore
+logs `[luajit-gc64] NtCreateFile redirect ...` and maps `lua51.dll` with a
+`0x8e000` image size; seeing only the earlier "compatibility runtime" line
+means the bundle was selected but the game still opened its original DLL.
+
+For graphics, Madeira detects LÖVE and SDL runtimes and enables SDL's official
+EGL path. Bundled ANGLE translates OpenGL ES 2/3 to D3D11; DXMT then translates
+D3D11 to Metal. This is a shared engine/API route for compatible x64 games,
+not a Balatro-only patch, and it does not replace files in a game directory.
+Set `env.MADEIRA_OPENGL_ANGLE = 0` to disable it for a game that supplies a
+better EGL/GLES stack. Desktop OpenGL-only programs which cannot create an
+OpenGL ES context still require a future full WGL compatibility layer.
+
+A direct game can open a Win32 error/assertion dialog before it ever presents
+a frame. Those dialogs use the otherwise-hidden GDI path, so the old native
+starting screen kept saying “Still starting”. Madeira now forwards bounded
+error text from the window driver and shows it on that starting screen. This
+reports missing files and modified third-party Steam-layer configuration; it
+does not create emulator configuration or bypass Steam licensing.
+
 The library reads the executable's PE imports (and those of the DLLs next to
 it, plus bounded scans for dynamically loaded renderer DLL names) to show a
 graphics-API badge, and measures the install folder's size. The badge names an
@@ -106,7 +143,8 @@ Removing an entry never removes the game's files or saves.
   desktop) with its own profile; its Resolution is the desktop's size.
 - The build label (`MadeiraBuild` in Info.plist, else the bundle version) is
   shown in Settings (Ready to play) and in the developer interface's status row.
-- **Settings**: JIT and memory status, Enable JIT, extended logging, pointer
+- **Settings**: JIT and memory status, Enable JIT, JIT method and setup
+  (StikDebug or the built-in helper), extended logging, pointer
   mode (Absolute, Relative or Touch) and touch sensitivity, **Display** (hold
   the display at its maximum rate, off by default), **Memory & sync** (swap tier
   Off/1/2/4 GB, off by default; sync engine, Fastsync by default), the interface
@@ -210,33 +248,50 @@ process (the wineserver's permanent objects from the first session remain and
 the registry initialisation aborts). The library asks to restart Madeira
 instead.
 
-## Steam setup
+## First-run setup
 
-The code is `app/Madeira/Onboarding.swift`. It uses Steam sign-in
-(`docs/STEAM_SIGNIN.md`) and Madeira Dock (`docs/MADEIRA_DOCK.md`) through
-their public pieces only: `SteamSignInModel`/`SteamSignInView` for signing in
-and out (the token stays in sign-in's Keychain store), and
-`MadeiraDockModel.prepareClient()`/`MadeiraDockView` for Dock.
+The code is `app/Madeira/Onboarding.swift`. It uses `JITCoordinator` for the
+JIT method and validated pairing-file import, `OnDevicePairing` for in-app
+pairing (iOS 27, `docs/JIT.md`), Steam sign-in
+(`docs/STEAM_SIGNIN.md`) through `SteamSignInModel`/`SteamSignInView` (the
+token stays in sign-in's Keychain store), and Madeira Dock
+(`docs/MADEIRA_DOCK.md`) through
+`MadeiraDockModel.prepareClient()`/`MadeiraDockView`.
 
-**First-run setup.** On a new install the library opens a full-screen setup
-once: welcome, **Sign in to Steam**, **Prepare Madeira Dock** (Valve's client
-components, about 73 MB, only when Dock is available), done. Every step has
-**Set up later**, and the welcome page has **Skip setup**. Finishing or
-skipping stores `madeiraOnboardingDone` in the app's UserDefaults, which iOS
-removes with the app. Setup opens only when there is something to set up: the
-sign-in page needs Steam sign-in or Dock, and without either setup never
-opens. It never opens over a running session.
+**First-run setup.** On a new install (and once after an update that raises
+the setup revision, below) the library opens a full-screen setup: welcome, **Install LocalDevVPN** (only when it is missing: every JIT way
+reaches the device through it; **Get LocalDevVPN** opens the App Store, and
+Madeira checks again with `canOpenURL` whenever it comes back to the front),
+**Set up JIT**, **Sign in to Steam**, **Prepare Madeira Dock**
+(Valve's client components, about 73 MB, only when Dock is available), done.
+The JIT page offers three ways in, **In-app** (iOS 27 and later),
+**In-app with pairing file** and **StikDebug**, or **I'll do this later**.
+Each way opens numbered steps that tick off as they are done, with **Back to
+options**. A completed pairing or a valid pairing-file import selects Built-in
+StikJIT; it does not enable JIT yet. Steam and Dock steps have **Set up later**, and the welcome
+page has **Skip setup**. Finishing or skipping stores the setup revision
+(`madeiraOnboardingRevision`) in the app's UserDefaults, which iOS removes with
+the app. Setup opens on a new install, and once after an update whose
+`OnboardingRules.revision` is higher than the stored one; raise it in a release
+whose setup every existing install should see. Revision 2 (Install LocalDevVPN,
+in-app pairing, the Madeira JIT shortcut) also reopens setup for installs
+that finished it before revisions (`madeiraOnboardingDone`). The JIT page is always available; Steam pages follow their feature
+switches. Setup never opens over a running session.
 
-Setup is app UI only. It starts no Wine session, and the component download
-runs Dock's own verified download without Wine. It changes no JIT pool, engine
-switch or configuration default.
+Setup starts no Wine session and allocates no JIT pool. It stores the selected
+JIT method and may store a validated pairing file (paired on the device or
+imported) in the Keychain (docs/JIT.md). On iOS 27, a Connect automatically
+page after the JIT guide offers the Madeira JIT shortcut and its switch; the
+component download runs Dock's own
+verified download without Wine. It changes no engine switch or launch
+configuration.
 
-**Settings › Steam** shows the signed-in account with **Sign out of Steam**
+**Settings › JIT** and **Settings › Steam** both show **Run setup again**.
+Settings › Steam also shows the signed-in account with **Sign out of Steam**
 (or **Sign in to Steam**), **Madeira Dock** (Dock's sheet, with the last Dock
-result under it) and **Run setup again**. A game started from the Dock sheet
-here runs as a library session: full-screen view, starting screen, in-game
-menu, and the one-session-per-run rule. That session is not added to the
-library.
+result under it). A game started from the Dock sheet here runs as a library
+session: full-screen view, starting screen, in-game menu, and the
+one-session-per-run rule. That session is not added to the library.
 
 **Steam games in the library** (`app/Madeira/SteamGames.swift`). When Madeira
 Dock is available, the library shows a **Steam** section above **Other
@@ -292,7 +347,7 @@ menu owns input, the game sees a connected pad at rest.
 | `MADEIRA_SESSION_TOOLS` | on | no Aspect & scaling in the in-game menu, and a session does not save it |
 | `MADEIRA_SCREEN_SHAPE_RESOLUTION` | on | no Screen shape resolution choice |
 | `MADEIRA_FRONTEND_KEYBOARD` | on | Keyboard opens the game view's own keyboard instead of the key window |
-| `MADEIRA_ONBOARDING` | on | first-run setup never opens, and Settings › Steam has no **Run setup again** |
+| `MADEIRA_ONBOARDING` | on | first-run setup never opens, and Settings › JIT/Steam have no **Run setup again** |
 | `MADEIRA_LIBRARY_COLLAPSE` | on | the **Steam** and **Other games** titles do not collapse (**Not installed** still folds) |
 | `MADEIRA_LIBRARY_AMBIENT` | on | no ambient light around the library's grid cards |
 
@@ -315,10 +370,13 @@ math, controller commands, the exit hook, and the presence of the details and
 in-game menu options), `tests/host/check-runtime-settings.py`
 (`MadeiraConfig.set` and the Settings defaults) and
 `tests/host/check-library-api.py` (renderer detection and the badge).
-`tests/host/check-onboarding.py` covers Steam setup: the pages with and
-without Dock, the done key, the `MADEIRA_ONBOARDING` switch, and the wiring
-(no Wine session, no pool or engine switch, sign-in and Dock only through
-their public pieces).
+`tests/host/check-angle-runtime.py` verifies the shared SDL/LÖVE EGL hints,
+pinned ANGLE hashes, D3D11 backend marker, native-bundle packaging and licence
+inputs; `tests/love-angle-smoke/` is the engine-level renderer probe.
+`tests/host/check-onboarding.py` covers first-run setup: the JIT choices,
+pairing import, pages with and without Dock, the done key, the
+`MADEIRA_ONBOARDING` switch, and the wiring (no Wine session, no pool or
+engine switch; JIT, sign-in and Dock through their public pieces).
 `tests/host/check-steam-games.py` covers the library's Steam section: Dock's
 discovery on a synthetic drive_c laid out as Steam writes it, the merge of
 installed and owned games, the section, status, card pill, search, Play and

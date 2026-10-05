@@ -37,6 +37,7 @@ root = Path(__file__).resolve().parents[2]
 lib = (root / 'app/Madeira/Library.swift').read_text()
 display = (root / 'app/Madeira/GuestDisplay.swift').read_text()
 bridge = (root / 'app/Madeira/WineProcessBridge.m').read_text()
+loader = (root / 'build/ntdll-unix/loader_ios.c').read_text()
 server = (root / 'build/ntdll-unix/server_ios.c').read_text()
 content = (root / 'app/Madeira/ContentView.swift').read_text()
 gamepad = (root / 'app/Madeira/GamepadInput.swift').read_text()
@@ -81,7 +82,7 @@ final class PassthroughSubject<Output, Failure: Error> {
 #endif
 enum MadeiraConfig {
     static var values: [String: String] = [:]   // stands in for madeira.cfg
-    static func flag(_ name: String, fallback: Bool = true) -> Bool { fallback }
+    static func flag(_ name: String, fallback: Bool = true) -> Bool { values["env." + name].map { $0 != "0" } ?? fallback }
     static func get(_ key: String) -> String? { values[key] }
     static func bool(_ key: String, default dflt: Bool = false) -> Bool { values[key].map { ["1", "on", "true", "yes"].contains($0) } ?? dflt }
     @discardableResult static func set(_ key: String, _ value: String?) -> Bool { values[key] = value; return true }
@@ -93,10 +94,14 @@ var vsync: Int32 = -1
 func madeira_set_vsync_locked(_ mode: Int32) { vsync = mode }
 enum ProMotionIntent { static var has30Cap = true }
 struct TouchControl: Codable, Equatable { var nx = 0.5 }
+enum ControlAction: Codable, Equatable, Hashable { case none }   // LibraryEntry.controllerBinds
+enum GamepadInput { static let keyboardMouseAvailable = true }   // LibraryEntry's per-game DirectInput choice
 enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
+swift += block(lib, 'enum ControllerCompatibility') + '\n'
+swift += block(lib, 'enum ExternalGameCompatibility') + '\n'
 swift += block(lib, 'enum SyncEngine: String, CaseIterable, Identifiable') + '\n'
 swift += '\n'.join(l for l in display.splitlines() if not l.startswith('import ')) + '\n'
 swift += block(lib, 'final class LibraryController: ObservableObject, @unchecked Sendable') + '\n'
@@ -166,6 +171,10 @@ setenv("FEX_X87REDUCEDPRECISION", "1", 1)
 game.applyEnvironment()
 expect(env("FEX_X87REDUCEDPRECISION") == nil, "x87: nothing exported unless chosen")
 expect(env("MADEIRA_CPU_COUNT") == nil && env("DXMT_D9_ANISO_LIMIT") == nil, "no other engine switches are exported")
+expect(env("MADEIRA_DINPUT_PAD") == "1", "Automatic controller mode publishes DirectInput beside XInput")
+game.controllerMode = "xinput"; game.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == "0", "XInput-only mode suppresses the duplicate DirectInput view")
+game.controllerMode = nil
 expect(env("MADEIRA_FASTSYNC") == "auto" && env("MADEIRA_FASTSYNC_SEM") == "0",
        "no sync keys (Fastsync, the default): the game's fastsync switches are exported")
 expect(LogStore.shared.lines.last == "[display-shape] resolution=1280x720 mode=fit", "the profile's display shape is logged")
@@ -186,6 +195,41 @@ MadeiraConfig.values = [:]; game.fastSync = nil; game.semaphoreFastPath = nil
 game.reducedX87 = true; game.applyEnvironment()
 expect(env("FEX_X87REDUCEDPRECISION") == "1", "reduced x87 exported when chosen")
 game.reducedX87 = false
+
+// Controller compatibility: known in-game preferences are pre-seeded,
+// Automatic includes DirectInput, and Dock keeps Valve's injected overlay out.
+let sampleRegistry = """
+WINE REGISTRY Version 2
+
+[Software\\\\Team Cherry\\\\Hollow Knight]
+\"OtherSetting\"=dword:0000002a
+\"NativeInput_h123\"=dword:00000000
+"""
+let mergedRegistry = ControllerCompatibility.mergedRegistry(sampleRegistry, section: "Software\\\\Team Cherry\\\\Hollow Knight", values: ["NativeInput": 1, "XInput": 1])
+expect(mergedRegistry?.contains("\"NativeInput\"=dword:00000001") == true && mergedRegistry?.contains("\"XInput\"=dword:00000001") == true,
+       "controller preferences are seeded before first launch")
+expect(mergedRegistry?.contains("\"OtherSetting\"=dword:0000002a") == true && mergedRegistry?.contains("NativeInput_h123") == false,
+       "controller preference merge preserves unrelated registry values and retires hashed stale values")
+var hollow = LibraryEntry(title: "Hollow Knight", relativePath: "Program Files (x86)/Steam/steamapps/common/Hollow Knight", bits: 64)
+hollow.steamAppID = 367520
+MadeiraConfig.values = ["env.MADEIRA_CONTROLLER_AUTO_PREFS": "0"]
+unsetenv("MADEIRA_DINPUT_PAD"); unsetenv("_MADEIRA_STEAM_OVERLAY_OFF")
+hollow.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == "1", "Hollow Knight automatically gets DirectInput")
+expect(env("_MADEIRA_STEAM_OVERLAY_OFF") == "1", "Dock marks the injected Steam overlay disabled")
+hollow.controllerMode = "keys"; unsetenv("MADEIRA_DINPUT_PAD"); hollow.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == "0", "keyboard/mouse mode does not expose Hollow Knight through DirectInput")
+MadeiraConfig.values = ["env.MADEIRA_CONTROLLER_AUTO_PREFS": "0", "env.MADEIRA_STEAM_OVERLAY": "1"]
+unsetenv("_MADEIRA_STEAM_OVERLAY_OFF"); hollow.controllerMode = nil; hollow.applyEnvironment()
+expect(env("_MADEIRA_STEAM_OVERLAY_OFF") == nil, "Steam overlay has an explicit opt-in")
+MadeiraConfig.values = [:]
+var balatro = LibraryEntry(title: "Balatro", relativePath: "Games/Balatro/Balatro.exe", bits: 64)
+unsetenv("_MADEIRA_LUA51_GC64")
+balatro.applyEnvironment()
+expect(env("_MADEIRA_LUA51_GC64") == "1", "Balatro selects the GC64 LuaJIT compatibility runtime")
+MadeiraConfig.values = ["env.MADEIRA_LUAJIT_GC64": "0"]; balatro.applyEnvironment()
+expect(env("_MADEIRA_LUA51_GC64") == nil, "Balatro GC64 compatibility has a kill switch")
+MadeiraConfig.values = [:]
 // FPS limit: 30 needs DXMT's 30 FPS cap; without it a saved 30 runs as 60.
 game.fpsMode = 3; game.applyEnvironment()
 expect(vsync == 3, "30 FPS applied when DXMT has the cap")
@@ -354,6 +398,8 @@ check('__attribute__((weak)) void madeira_set_display_max_fps' in shim and 'ProM
 check('LibraryView(play: launchLibraryEntry' in content, 'ContentView shows the library when it is the chosen interface')
 check('runWineFullSequence(profile: entry)' in content and 'profile.applyEnvironment()' in content,
       'library launches use the shared launch path with the profile applied')
+check('_MADEIRA_LUA51_GC64_PATH' in loader and '[luajit-gc64] redirect' in loader
+      and 'lua51-gc64.dll' in bridge, 'Balatro loads the bundled GC64 LuaJIT without replacing the game file')
 check('Button("Use New Interface")' in content, 'the developer interface can switch back to the library')
 check('LibraryController.shared' in gamepad and 'library.ownsInput' in gamepad,
       'player 1 pad drives the library and is neutral while the library owns input')
@@ -403,7 +449,8 @@ last = form[[m.start() for m in re.finditer(r'\bSection\b', form)][-1]:]
 check('header: { Text("Credits") }' in last and form.count('Text("Credits")') == 1,
       'Settings: Credits is the last section')
 for who in ('name: "Will Faust", handle: "willfaust"', 'name: "Nick", handle: "125hz"',
-            'name: "Jfishin", handle: "Jfishin"'):
+            'name: "Jfishin", handle: "Jfishin"', 'name: "Jesse", handle: "JesseLovelace"',
+            'name: "Dan Perks", handle: "danperks"'):
     check('MadeiraCredit(' + who in last, 'Settings credits: ' + who)
 check('https://github.com/\\(handle)' in block(lib, 'struct MadeiraCredit: View'),
       'a credit links the GitHub account')

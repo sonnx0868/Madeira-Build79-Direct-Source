@@ -1,6 +1,6 @@
 workflows:
-  madeira-upstream-bootstrap:
-    name: Madeira v0.1.4 source native bootstrap + IPA
+  madeira-v014-bootstrap:
+    name: Madeira v0.1.4 source bootstrap + IPA
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
@@ -23,16 +23,20 @@ workflows:
         - $CM_BUILD_DIR/build/ntdll-unix/obj
         - $CM_BUILD_DIR/build/win32u-unix/obj
         - $CM_BUILD_DIR/build/dxmt-ios/obj
+        - $CM_BUILD_DIR/build/rppairing-ios/target
         - $CM_BUILD_DIR/research/freetype
         - $CM_BUILD_DIR/app/Madeira/x86_64-vcruntime
     scripts:
-      - name: Build upstream native dependencies
+      - name: Build Madeira v0.1.4 native dependencies
         script: bash scripts/bootstrap-native-deps.sh
       - name: Package reusable native bundle
-        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-upstream-native-deps.zip"
+        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-v0.1.4-native-deps.zip"
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
+          stamp="v0.1.4-source-$(git -C "$CM_BUILD_DIR" rev-parse --short HEAD)"
+          /usr/libexec/PlistBuddy -c "Set :MadeiraBuild $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :MadeiraBuild string $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist"
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
             ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build
@@ -41,21 +45,26 @@ workflows:
           set -euo pipefail
           app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
+          test -d "$app/Frameworks/StikJIT.framework"
+          test -d "$app/PlugIns/MadeiraJITHelper.appex"
+          codesign --force --sign - --timestamp=none "$app/Frameworks/StikJIT.framework"
+          codesign --force --sign - --timestamp=none "$app/PlugIns/MadeiraJITHelper.appex"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
-          out="$CM_BUILD_DIR/build/upstream-bootstrap"
+          codesign --verify --deep --strict "$app"
+          out="$CM_BUILD_DIR/build/v0.1.4-bootstrap"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
           (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source-bootstrap.ipa Payload)
     artifacts:
-      - build/upstream-bootstrap/Madeira-v0.1.4-source-bootstrap.ipa
-      - madeira-upstream-native-deps.zip
+      - build/v0.1.4-bootstrap/Madeira-v0.1.4-source-bootstrap.ipa
+      - madeira-v0.1.4-native-deps.zip
       - build/ntdll-unix/obj/*.err
       - build/win32u-unix/obj/*.err
       - build/wineserver/obj/*.txt
       - build/dxmt-ios/obj/*.err
 
-  madeira-upstream-ipa:
-    name: Madeira v0.1.4 source IPA from cached native bundle
+  madeira-v014-ipa:
+    name: Madeira v0.1.4 IPA from cached native bundle
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -77,6 +86,9 @@ workflows:
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
+          stamp="v0.1.4-source-$(git -C "$CM_BUILD_DIR" rev-parse --short HEAD)"
+          /usr/libexec/PlistBuddy -c "Set :MadeiraBuild $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Add :MadeiraBuild string $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist"
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
             ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build
@@ -85,11 +97,16 @@ workflows:
           set -euo pipefail
           app="$DERIVED_DATA/Build/Products/$APP_CONFIGURATION-iphoneos/Madeira.app"
           test -d "$app"
+          test -d "$app/Frameworks/StikJIT.framework"
+          test -d "$app/PlugIns/MadeiraJITHelper.appex"
+          codesign --force --sign - --timestamp=none "$app/Frameworks/StikJIT.framework"
+          codesign --force --sign - --timestamp=none "$app/PlugIns/MadeiraJITHelper.appex"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
-          out="$CM_BUILD_DIR/build/upstream"
+          codesign --verify --deep --strict "$app"
+          out="$CM_BUILD_DIR/build/v0.1.4"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
           (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source.ipa Payload)
     artifacts:
-      - build/upstream/Madeira-v0.1.4-source.ipa
+      - build/v0.1.4/Madeira-v0.1.4-source.ipa
       - /tmp/xcodebuild_logs/*.log

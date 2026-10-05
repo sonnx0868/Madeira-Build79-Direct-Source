@@ -12,6 +12,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 #include <unistd.h>
+#include <pwd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <setjmp.h>
@@ -22,6 +23,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <sys/sysctl.h>
@@ -348,6 +350,46 @@ __attribute__((constructor)) static void madeira_docs_dir_ctor(void)
     g_madeira_docs_early = madeira_docs_dir_early();
 }
 
+/* The profile's AppData\LocalLow folder.
+ *
+ * The shell-folder registry maps FOLDERID_LocalAppDataLow to
+ * %USERPROFILE%\AppData\LocalLow, and the profile is named after the unix user
+ * (ntdll's set_home_dir: "mobile" on a device). The template ships the folders
+ * of the user it was built as, so the running user's LocalLow does not exist,
+ * and nothing creates it: SHGetKnownFolderPath without KF_FLAG_CREATE fails
+ * with ERROR_PATH_NOT_FOUND ("Failed to get LocalAppDataLow path, hr
+ * 0x80070003"). A program that keeps its log there then opens a relative path
+ * that does not exist either, is left with a closed stdout, and its C runtime
+ * fast-fails (0xc0000409) before the first frame.
+ *
+ * Only LocalLow is created. Roaming is left alone: Wine populates it itself and
+ * decides by existence (see madeira_undo_appdata_skeleton). Local already
+ * exists on every start (the TEMP directory is in it). */
+static void madeira_ensure_locallow(NSString *prefix)
+{
+    /* 0 leaves the profile's AppData\LocalLow folder missing, as before. */
+    const char *off = getenv( "MADEIRA_PROFILE_LOCALLOW" );
+    if (off && off[0] == '0') return;
+
+    const char *name = getenv( "USER" );
+    if (!name)
+    {
+        struct passwd *pwd = getpwuid( getuid() );
+        name = pwd && pwd->pw_name ? pwd->pw_name : "wine";
+    }
+    const char *slash = strrchr( name, '/' );
+    if (slash) name = slash + 1;
+    if (!name[0]) return;
+
+    NSString *path = [prefix stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"drive_c/users/%s/AppData/LocalLow", name]];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:path]) return;
+    BOOL made = [fm createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+    extern void ws_log(const char *fmt, ...);
+    ws_log( "[profile] users/%s/AppData/LocalLow %s", name, made ? "created" : "could NOT be created" );
+}
+
 /***********************************************************************
  *           madeira_seed_prefix_if_needed
  *
@@ -402,6 +444,7 @@ void madeira_seed_prefix_if_needed(const char *prefix_path) {
         madeira_repair_profile( prefix );
         /* ml581: see madeira_undo_appdata_skeleton() above. */
         madeira_undo_appdata_skeleton( prefix );
+        madeira_ensure_locallow( prefix );
     }
 }
 
@@ -692,6 +735,47 @@ static void madeira_seed_winsxs_x86(NSFileManager *fm, NSString *prefix, NSStrin
     }
     dprintf(STDERR_FILENO, "[WineProc] winsxs: %d/%zu x86 assemblies seeded, %d skipped\n",
             seeded, count, skipped);
+}
+
+/* 64-bit VC++ 2008 side-by-side assembly. Steam may run an x64 game from an
+ * aarch64 desktop/Dock session, so this must exist independently of the main
+ * process architecture and independently of the optional i386 farm. Merely
+ * placing MSVCR90.dll in system32 triggers R6034: VC90 requires its activation
+ * context to resolve Microsoft.VC90.CRT first. Wine accepts a later build in
+ * the same major.minor line, so 9.0.30729.6161 satisfies 9.0.21022.8. */
+static void madeira_seed_winsxs_amd64_vc90(NSFileManager *fm, NSString *prefix, NSString *bundle)
+{
+    static const char * const files[] = { "msvcr90.dll", "msvcp90.dll" };
+    NSString *source = [bundle stringByAppendingPathComponent:@"x86_64-vcruntime"];
+    NSString *winsxs = [prefix stringByAppendingPathComponent:@"drive_c/windows/winsxs"];
+    NSString *manifests = [winsxs stringByAppendingPathComponent:@"manifests"];
+    NSString *dirName = @"amd64_microsoft.vc90.crt_1fc8b3b9a1e18e3b_9.0.30729.6161_none_deadbeef";
+    NSString *assembly = [winsxs stringByAppendingPathComponent:dirName];
+    NSString *manifest = [manifests stringByAppendingPathComponent:[dirName stringByAppendingString:@".manifest"]];
+
+    [fm createDirectoryAtPath:manifests withIntermediateDirectories:YES attributes:nil error:nil];
+    [fm createDirectoryAtPath:assembly withIntermediateDirectories:YES attributes:nil error:nil];
+    NSMutableString *text = [NSMutableString stringWithString:
+        @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        @"<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">\n"
+        @"  <assemblyIdentity type=\"win32\" name=\"Microsoft.VC90.CRT\" "
+        @"version=\"9.0.30729.6161\" processorArchitecture=\"amd64\" "
+        @"publicKeyToken=\"1fc8b3b9a1e18e3b\"/>\n"];
+    BOOL ok = YES;
+    for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++)
+    {
+        NSString *name = [NSString stringWithUTF8String:files[i]];
+        NSString *src = [source stringByAppendingPathComponent:name];
+        NSString *dst = [assembly stringByAppendingPathComponent:name];
+        [fm removeItemAtPath:dst error:nil];
+        if (![fm fileExistsAtPath:src] ||
+            ![fm createSymbolicLinkAtPath:dst withDestinationPath:src error:nil]) { ok = NO; break; }
+        [text appendFormat:@"  <file name=\"%@\"/>\n", name];
+    }
+    [text appendString:@"</assembly>\n"];
+    if (ok) ok = [[text dataUsingEncoding:NSUTF8StringEncoding] writeToFile:manifest atomically:YES];
+    dprintf(STDERR_FILENO, "[WineProc] winsxs: amd64 Microsoft.VC90.CRT %s (%s)\n",
+            ok ? "seeded" : "FAILED", manifest.fileSystemRepresentation);
 }
 
 /* FEX's WOW64 module cannot call sysctl, and without an answer it assumes the
@@ -1033,6 +1117,15 @@ static void *wine_process_thread(void *arg) {
              * rebuild. Lines starting with # are comments. Logged, so a run's log
              * always says what it ran with. */
             {
+                /* Per-game compatibility variables live in one iOS process, so
+                 * remove only values that the previous auto route installed.
+                 * The config file below can then deliberately set its own values. */
+                if (getenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV")) {
+                    unsetenv("SDL_OPENGL_ES_DRIVER");
+                    unsetenv("LOVE_GRAPHICS_USE_OPENGLES");
+                    unsetenv("ANGLE_DEFAULT_PLATFORM");
+                    unsetenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV");
+                }
                 /* ml1095: "env.NAME = value" lines of madeira.cfg; the legacy
                  * madeira-env.txt (KEY=VALUE lines) only when madeira.cfg is absent. */
                 NSString *text = nil;
@@ -1069,6 +1162,77 @@ static void *wine_process_thread(void *arg) {
                     fprintf(stderr, "[madeira-env] sync engine: fastsync (default), MADEIRA_FASTSYNC=auto\n");
                 }
             }
+
+            /* Generic OpenGL ES route for detected LÖVE and SDL runtimes:
+             * SDL's Windows backend officially loads libEGL/libGLESv2 when
+             * SDL_OPENGL_ES_DRIVER is enabled. ANGLE emits D3D11 calls, DXMT
+             * translates those calls to Metal, and no game file is modified.
+             * LÖVE additionally needs its documented GLES preference hint.
+             * env.MADEIRA_OPENGL_ANGLE=0 is the per-install escape hatch. */
+            {
+                NSString *compatBundlePath = [[NSBundle mainBundle] bundlePath];
+                const char *mode = getenv("_MADEIRA_OPENGL_ANGLE_MODE");
+                const char *option = getenv("MADEIRA_OPENGL_ANGLE");
+                BOOL disabled = option && (!strcmp(option, "0") || !strcasecmp(option, "false") ||
+                                           !strcasecmp(option, "off") || !strcasecmp(option, "no"));
+                if (mode && *mode && !disabled) {
+                    NSString *egl = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/libEGL.dll"];
+                    NSString *gles = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/libGLESv2.dll"];
+                    if ([[NSFileManager defaultManager] fileExistsAtPath:egl] &&
+                        [[NSFileManager defaultManager] fileExistsAtPath:gles]) {
+                        setenv("SDL_OPENGL_ES_DRIVER", "1", 1);
+                        setenv("ANGLE_DEFAULT_PLATFORM", "d3d11", 1);
+                        if (!strcmp(mode, "love")) setenv("LOVE_GRAPHICS_USE_OPENGLES", "1", 1);
+                        setenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV", "1", 1);
+                        fprintf(stderr, "[opengl-angle] mode=%s EGL=%s GLES=%s "
+                                "route=OpenGL-ES->ANGLE-D3D11->DXMT-Metal\n",
+                                mode, egl.UTF8String, gles.UTF8String);
+                    } else {
+                        fprintf(stderr, "[opengl-angle] requested but bundled libEGL/libGLESv2 is missing\n");
+                    }
+                }
+            }
+
+            /* Madeira Dock has its own session UI and controller transport. Its
+             * launch profile marks the injected Valve overlay off by default;
+             * append the Wine disable override AFTER madeira.cfg was exported,
+             * so a user's unrelated WINEDLLOVERRIDES entries are preserved and
+             * cannot accidentally replace this session policy. */
+            if (getenv("_MADEIRA_STEAM_OVERLAY_OFF")) {
+                NSString *raw = getenv("WINEDLLOVERRIDES") ? [NSString stringWithUTF8String:getenv("WINEDLLOVERRIDES")] : @"";
+                NSMutableArray<NSString *> *entries = [NSMutableArray array];
+                NSMutableSet<NSString *> *named = [NSMutableSet set];
+                for (NSString *entry in [raw componentsSeparatedByString:@";"]) {
+                    NSString *trimmed = [entry stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                    if (!trimmed.length) continue;
+                    [entries addObject:trimmed];
+                    NSString *modules = [[trimmed componentsSeparatedByString:@"="] firstObject] ?: @"";
+                    for (NSString *module in [modules componentsSeparatedByString:@","]) {
+                        NSString *name = [[module stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] lowercaseString];
+                        if (name.length) [named addObject:name];
+                    }
+                }
+                /* video64.dll is also useless in the headless host: the pinned
+                 * minimal client package has none of its libav dependencies,
+                 * so Steam repeatedly loads it only to fail the same imports. */
+                for (NSString *module in @[@"gameoverlayrenderer64", @"video64"]) {
+                    if (![named containsObject:module]) [entries addObject:[module stringByAppendingString:@"="]];
+                }
+                NSString *joined = [entries componentsJoinedByString:@";"];
+                setenv("WINEDLLOVERRIDES", joined.UTF8String, 1);
+                fprintf(stderr, "[steam-modules] overlay/video disabled for this Dock session overrides=%s\n", joined.UTF8String);
+            }
+            if (getenv("_MADEIRA_LUA51_GC64")) {
+                NSString *compatBundlePath = [[NSBundle mainBundle] bundlePath];
+                NSString *gc64 = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/lua51-gc64.dll"];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:gc64]) {
+                    setenv("_MADEIRA_LUA51_GC64_PATH", gc64.UTF8String, 1);
+                    fprintf(stderr, "[luajit-gc64] LÖVE 11.5 compatibility runtime=%s\n", gc64.UTF8String);
+                } else {
+                    unsetenv("_MADEIRA_LUA51_GC64_PATH");
+                    fprintf(stderr, "[luajit-gc64] requested but lua51-gc64.dll is missing from the app bundle\n");
+                }
+            } else { unsetenv("_MADEIRA_LUA51_GC64_PATH"); }
         }
 
         // Steam S0: root CA trust. iOS has no API to enumerate system
@@ -1231,6 +1395,9 @@ static void *wine_process_thread(void *arg) {
                 madeira_link_syswow64_wbem(fm, prefix, bundlePath);
                 madeira_seed_winsxs_x86(fm, prefix, bundlePath);
             }
+            /* x64 children also start from an aarch64 Dock desktop, so their
+             * side-by-side VC90 assembly cannot be gated on use_arm64ec. */
+            madeira_seed_winsxs_amd64_vc90(fm, prefix, bundlePath);
 
             /* ml719: REPAIR THE SHELL FOLDERS. They ship as symlinks to the BUILD
              * MACHINE's home directory.
@@ -1292,8 +1459,9 @@ static void *wine_process_thread(void *arg) {
             // builtins — Wine then loads the real MS x86_64 implementation
             // (via FEX) instead of its partial ARM64EC reimplementation.
             //
-            // Same pattern Proton/Winlator use: drop in the real concrt140 /
-            // msvcp140 / vcruntime140 binaries from VC_redist.x64.exe so games
+            // Same pattern Proton/Winlator use: drop in VC90 plus the real
+            // concrt140 / msvcp140 / vcruntime140 binaries from Microsoft's
+            // redistributables so games
             // that exercise the full C++ runtime (parallel_for, atomic_wait,
             // <filesystem>, etc.) don't trip __wine_unimplemented stubs.
             if (use_arm64ec) {

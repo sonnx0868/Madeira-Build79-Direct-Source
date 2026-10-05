@@ -42,6 +42,10 @@ void winios_post_touch_up(int x, int y);
 /* Key press bridge (VK codes: RETURN=0x0D SPACE=0x20 ESCAPE=0x1B).
  * down=1 press, down=0 release. */
 void winios_post_key(int vk, int down);
+/* Physical hardware-key path. `scan` is the PC/AT set-1 make-code byte and
+ * `extended` is the E0 prefix. Preserving it lets Raw Input and DirectInput
+ * distinguish keys that share a virtual key (notably numpad Enter). */
+void winios_post_hardware_key(int vk, int scan, int extended, int down);
 
 /* S2 desktop compositor placement. Called by the Swift presentation
  * placeholder (MetalBackedView) with its bounds in UIWindow coords —
@@ -107,6 +111,13 @@ void winios_window_census_enable(int on);
 
 /* Main thread. Copies up to `max` entries; returns how many were copied. */
 int winios_window_census(struct winios_census_window *out, int max);
+
+/* A Windows error/assertion window can exist before a direct game ever
+ * presents, while the starting screen still covers Wine's invisible GDI
+ * surface. The driver forwards its readable static text here so the native
+ * starting screen can show the actual failure instead of spinning forever. */
+void winios_window_alert_reset(void);
+int winios_window_alert_copy(char *out, int size);
 
 #ifdef __cplusplus
 }

@@ -24,10 +24,18 @@ final class GamepadInput: @unchecked Sendable {
 
     @MainActor func configureTouch(controls: Set<UUID>) {
         let allowed = Self.touchEnabled ? controls : []
-        queue.async { [self] in touchState.configure(allowed); sample() }
+        queue.async { [self] in
+            if allowed.count != touchControlCount {
+                touchControlCount = allowed.count
+                fputs("[touch-xinput] route controls=\(allowed.count) active=\(active ? 1 : 0)\n", stderr)
+            }
+            touchState.configure(allowed)
+            sample()
+        }
     }
 
-    /// Publish player 1 before the game looks (MADEIRA_PAD_EARLY_SLOT=1; default OFF).
+    /// Publish player 1 before the game looks (default ON;
+    /// MADEIRA_PAD_EARLY_SLOT=0 restores the old late-enumeration behaviour).
     ///
     /// Some input layers enumerate XInput once at startup and only rescan on a
     /// device-arrival broadcast, which this port does not deliver. Touch slot 0
@@ -38,15 +46,20 @@ final class GamepadInput: @unchecked Sendable {
     /// is connected at rest from the start; live input takes it over. The
     /// reservation lasts until the process exits (one Wine session per run),
     /// so player 1 then shows as connected for the whole session even while no
-    /// controller is in use. That is why it is opt-in: without the switch,
-    /// slot 0 connects only when a real source appears, as before.
+    /// controller is in use. Reserving is the safe default because games such
+    /// as Unity titles commonly enumerate XInput only once at startup. It is
+    /// still limited to sessions that actually have a physical or touch pad,
+    /// and keyboard-and-mouse mode does not publish the physical pad to XInput.
     @MainActor func reserveSessionSlot(touchControls: Bool) {
-        guard Self.enabled, Self.optIn("MADEIRA_PAD_EARLY_SLOT") else { return }
+        guard Self.enabled, Self.flag("MADEIRA_PAD_EARLY_SLOT") else { return }
         let touch = touchControls && Self.touchEnabled
-        let paired = !GCController.controllers().isEmpty
+        let paired = !keyboardMouseOn && !GCController.controllers().isEmpty
         guard touch || paired else { return }
-        queue.async { [self] in touchState.reserved = true; sample() }
-        LogStore.shared.log("[xinput] ml1990 slot=0 reserved for the session touch=\(touch ? 1 : 0) paired=\(paired ? 1 : 0)")
+        // This method runs on the main actor and Wine starts immediately after
+        // it returns. Publish synchronously so the guest's first XInput probe
+        // cannot race the queue and observe player 1 as disconnected.
+        queue.sync { [self] in touchState.reserved = true; sample() }
+        LogStore.shared.log("[xinput] ml1990 slot=0 reserved before Wine starts touch=\(touch ? 1 : 0) paired=\(paired ? 1 : 0)")
     }
 
     /// Documents/madeira.cfg `env.NAME`, else the process environment; only "0" disables.
@@ -68,12 +81,50 @@ final class GamepadInput: @unchecked Sendable {
         }
     }
 
+    /// Keyboard-and-mouse mode (PadKeyboardMouse): nil keeps XInput. Set on the
+    /// main actor by the library for its session; read on `queue`.
+    private var keyboardMouse: PadBindings?
+
+    /// Availability of the mode. 0 removes the per-game choice; the physical pad then always feeds XInput.
+    static let keyboardMouseAvailable: Bool = flag("MADEIRA_XINPUT") && flag("MADEIRA_PAD_KBM")
+
+    /// Whether keyboard-and-mouse mode is on. Main thread: PadStickMouse ("Right
+    /// stick controls mouse") stands down while it is, since this mode moves the
+    /// mouse (or drives keys) with the same stick.
+    private(set) var keyboardMouseOn = false
+
+    /// Translate player 1's physical pad into keys and mouse (`bindings`) instead
+    /// of publishing it to XInput; nil restores XInput. Touch controls keep
+    /// feeding XInput either way. Main thread.
+    func setKeyboardMouse(_ bindings: PadBindings?) {
+        guard Self.keyboardMouseAvailable else { return }
+        keyboardMouseOn = bindings != nil
+        queue.async { [self] in
+            let was = keyboardMouse != nil
+            if keyboardMouse != nil && bindings == nil { PadKeyboardMouse.shared.releaseAll("mode off") }
+            keyboardMouse = bindings
+            if was != (bindings != nil) {
+                LogStore.shared.log("[pad-kbm] physical controller as keyboard and mouse: \(bindings != nil ? "on" : "off")")
+            }
+            sample()
+        }
+    }
+
     private let queue = DispatchQueue(label: "madeira.gamepad", qos: .userInteractive)
     private var controllers = [GCController?](repeating: nil, count: 4)
     private var profiles = [GCExtendedGamepad?](repeating: nil, count: 4)
     private var timer: DispatchSourceTimer?
     private var active = false
     private var touchState = TouchGamepadState()
+    private var touchControlCount = -1
+    private struct DiagnosticState: Equatable {
+        var connected: UInt8
+        var buttons: UInt16
+        var lt, rt: UInt8
+        var lx, ly, rx, ry: Int16
+    }
+    private var diagnosticState = [DiagnosticState?](repeating: nil, count: 4)
+    private var diagnosticTransitions = 0
     @MainActor private var observers: [NSObjectProtocol] = []
     @MainActor private var started = false
 
@@ -139,7 +190,10 @@ final class GamepadInput: @unchecked Sendable {
     private func setActive(_ value: Bool) {
         queue.async { [self] in
             active = value
-            if !value { touchState.clear() }
+            if !value {
+                touchState.clear()
+                if keyboardMouse != nil { PadKeyboardMouse.shared.releaseAll("inactive") }
+            }
             updateTimer()
             sample()
         }
@@ -171,6 +225,11 @@ final class GamepadInput: @unchecked Sendable {
         for i in profiles.indices {
             let pad = profiles[i]
             let touchConnected = i == 0 && touchState.connected
+            // Player 1's pad went away mid-press: nothing feeds the driver now, so
+            // release the keys and buttons it holds.
+            if i == 0, pad == nil, keyboardMouse != nil, PadKeyboardMouse.shared.holding {
+                PadKeyboardMouse.shared.releaseAll("controller disconnected")
+            }
             guard pad != nil || touchConnected else {
                 winios_gamepad_set_state(Int32(i), nil)
                 continue
@@ -205,6 +264,20 @@ final class GamepadInput: @unchecked Sendable {
                     if library.ownsInput {
                         state = winios_gamepad()
                         state.connected = 1
+                        if keyboardMouse != nil { PadKeyboardMouse.shared.releaseAll("library menu") }
+                    } else if let kbm = keyboardMouse {
+                        // Keyboard-and-mouse mode: the pad becomes keys and mouse
+                        // motion; XInput sees no physical player 1 (touch may still
+                        // connect it below).
+                        PadKeyboardMouse.shared.feed(buttons: state.buttons, lt: state.left_trigger, rt: state.right_trigger,
+                                                     lx: state.lx, ly: state.ly, rx: state.rx, ry: state.ry,
+                                                     bindings: kbm, focused: HardwareInput.shared.baseFocused)
+                        guard touchConnected else {
+                            winios_gamepad_set_state(Int32(i), nil)
+                            continue
+                        }
+                        state = winios_gamepad()
+                        state.connected = 1
                     }
                 }
             }
@@ -216,6 +289,19 @@ final class GamepadInput: @unchecked Sendable {
                 state.buttons = merged.buttons
                 state.left_trigger = merged.lt; state.right_trigger = merged.rt
                 state.lx = merged.lx; state.ly = merged.ly; state.rx = merged.rx; state.ry = merged.ry
+            }
+            let diagnostic = DiagnosticState(connected: state.connected, buttons: state.buttons,
+                                             lt: state.left_trigger, rt: state.right_trigger,
+                                             lx: state.lx, ly: state.ly, rx: state.rx, ry: state.ry)
+            if diagnosticState[i] != diagnostic {
+                diagnosticState[i] = diagnostic
+                if diagnosticTransitions < 64 {
+                    diagnosticTransitions += 1
+                    fputs("[xinput-publish] #\(diagnosticTransitions) slot=\(i) packet-next " +
+                          "buttons=0x\(String(state.buttons, radix: 16)) lt=\(state.left_trigger) rt=\(state.right_trigger) " +
+                          "ls=(\(state.lx),\(state.ly)) rs=(\(state.rx),\(state.ry)) " +
+                          "physical=\(pad == nil ? 0 : 1) touch=\(touchConnected ? 1 : 0) active=\(active ? 1 : 0)\n", stderr)
+                }
             }
             winios_gamepad_set_state(Int32(i), &state)
         }

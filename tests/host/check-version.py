@@ -17,16 +17,16 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(f"version contract failed: {message}")
 
 
-require(f"<string>{version}</string>" in plist, "CFBundleShortVersionString")
-require("<string>4</string>" in plist, "CFBundleVersion")
+require("<string>$(MARKETING_VERSION)</string>" in plist, "CFBundleShortVersionString build setting")
+require("<string>$(CURRENT_PROJECT_VERSION)</string>" in plist, "CFBundleVersion build setting")
 require(f"<string>v{version}-source</string>" in plist, "visible/logged source build label")
-require(project.count(f"MARKETING_VERSION = {version};") == 2, "Debug and Release marketing versions")
-require(project.count("CURRENT_PROJECT_VERSION = 4;") == 2, "Debug and Release build numbers")
+require(project.count(f"MARKETING_VERSION = {version};") == 4, "app and JIT helper Debug/Release marketing versions")
+require(project.count("CURRENT_PROJECT_VERSION = 11;") == 4, "app and JIT helper Debug/Release build numbers")
 require(f"Madeira-v{version}-source.ipa" in ci and f"Madeira-v{version}-source-bootstrap.ipa" in ci,
         "versioned Codemagic artifacts")
 require(f'"version": "{version}"' in source and '"versionDate": "2026-10-05"' in source,
         "AltStore/source metadata")
-require("0.1.0" not in plist + project + source and "Madeira-upstream.ipa" not in ci,
+require("0.1.0" not in plist + project + source and "v0.1.3" not in ci and "Madeira-upstream.ipa" not in ci,
         "stale release identity")
 
 print("version contract: 0.1.4 source")

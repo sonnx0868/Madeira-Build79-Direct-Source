@@ -19,7 +19,7 @@ mkdir -p "$OBJ_DIR"
 
 PATCH="$BUILD_DIR/clean-build.patch"
 if git -C "$DXMT_ROOT" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
-    echo "DXMT clean-build patch already applied"
+    echo "DXMT iOS fallback patch already applied"
 else
     git -C "$DXMT_ROOT" apply --check "$PATCH"
     git -C "$DXMT_ROOT" apply "$PATCH"
@@ -229,17 +229,35 @@ echo "=== MADEIRA: dxmt_madeira_native -- internal command library ==="
 # with the metalir/metallib/xxd generator chain (src/dxmt/meson.build:24-32).
 # Same chain, same symbol names (xxd -n dxmt_command gives dxmt_command /
 # dxmt_command_len, which is what dxmt_command.cpp:16 expects).
-mkdir -p "$BUILD_DIR/shader-headers"
-# Xcode 26.6 defaults to Metal 4.1. A metallib produced with that default is
-# rejected by iPadOS 26.1 before Unity can create its first D3D11 device.
-# Regenerate unconditionally so a cached Metal-4 header cannot survive a CI
-# toolchain change, and target the same Metal 3.1 baseline as airconv.
-(cd "$BUILD_DIR/shader-headers" \
- && xcrun -sdk macosx metal -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
-      -std=metal3.1 --target=air64-apple-macos14.0 \
- && xcrun -sdk macosx metallib -o dxmt_command.metallib dxmt_command.air \
- && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h)
-echo "  dxmt_command.h                           OK (Metal 3.1)"
+# The shading-language version is pinned. Without -std, Xcode's metal compiler
+# emits the newest version its SDK knows, and a device whose OS is older refuses
+# the library at load: "This library is using language version 4.1 which is not
+# supported on this OS" (a device on iOS 26.1 running a build from a macOS 27
+# toolchain). The library then does not exist, no Direct3D device can be
+# created, and every game that needs one fails to start. dxmt_command.metal
+# needs nothing past Metal 3.1 (iOS 17), the same version the Windows Metal
+# tools used for the committed header. The AIR target is pinned with it, as in
+# DXMT's meson build (the container format must also be one the OS reads). The
+# script's own timestamp is part of
+# the cache check so that a flag change here regenerates the header.
+DXMT_METAL_STD="${DXMT_METAL_STD:-metal3.1}"
+if [ ! -f "$BUILD_DIR/shader-headers/dxmt_command.h" ] \
+   || [ ! -f "$BUILD_DIR/shader-headers/dxmt_command_source.h" ] \
+   || [ "$DXMT_SRC/dxmt/dxmt_command.metal" -nt "$BUILD_DIR/shader-headers/dxmt_command.h" ] \
+   || [ "$0" -nt "$BUILD_DIR/shader-headers/dxmt_command.h" ]; then
+    mkdir -p "$BUILD_DIR/shader-headers"
+    (cd "$BUILD_DIR/shader-headers" \
+     && xcrun -sdk macosx metal -std="$DXMT_METAL_STD" --target=air64-apple-macos14.0 \
+          -o dxmt_command.air -c "$DXMT_SRC/dxmt/dxmt_command.metal" \
+     && xcrun -sdk macosx metallib -o dxmt_command.metallib dxmt_command.air \
+     && xxd -n dxmt_command -i dxmt_command.metallib dxmt_command.h \
+     && xxd -n dxmt_command_source -i "$DXMT_SRC/dxmt/dxmt_command.metal" dxmt_command_source.h)
+    echo "  dxmt_command.h                           OK (-std=$DXMT_METAL_STD)"
+else
+    echo "  dxmt_command.h                           CACHED"
+fi
+
+compile_objc "$BUILD_DIR/metal_source_fallback.m" metal_source_fallback
 
 echo "=== MADEIRA: dxmt_madeira_native -- util ==="
 # MADEIRA (WOW64_DESIGN.md, ml1070): util_futex.cpp carries dxmt::futex's

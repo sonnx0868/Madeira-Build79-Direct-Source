@@ -46,6 +46,14 @@ Statically linked into the application binary:
   non-free component. Source tarball (the unmodified upstream release from
   ffmpeg.org) and its SHA-256: the Madeira repository, build/ffmpeg/src,
   built by build/ffmpeg/build.sh.
+- LuaJIT GC64: the unmodified `lua51.dll` from the official LÖVE 11.5
+  Windows x64 archive, MIT licensed, staged as `lua51-gc64.dll` and used for
+  detected LÖVE 11.5 games (including Balatro). See LUAJIT-MIT.txt for hashes
+  and licence text.
+- ANGLE 2.1.22152: unmodified x64 `libEGL.dll` and `libGLESv2.dll` from the
+  official Electron 28.1.0 Windows archive, used as the OpenGL ES -> D3D11
+  stage before DXMT translates to Metal. BSD-3-Clause; see ANGLE-BSD-3.txt
+  and ANGLE-THIRD-PARTY-NOTICES.html for hashes and third-party licences.
 
 Dynamically loaded at runtime:
 - Apple Metal Shader Converter dynamic library: Apple proprietary, under the

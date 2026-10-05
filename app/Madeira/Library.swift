@@ -201,6 +201,21 @@ struct LibraryEntry: Codable, Identifiable {
     /// nil = 1) in this game's sessions.
     var controlOpacity: Double?
     var controlSize: Double?
+    /// How a physical controller reaches this game: nil is Automatic (XInput
+    /// plus a DirectInput view of the same pad); "xinput" suppresses DirectInput
+    /// for games that would list both views; legacy "dinput" decodes as Automatic;
+    /// "keys" is keyboard and mouse (PadKeyboardMouse: the pad
+    /// presses keys and moves the mouse, the game sees no controller). For games
+    /// without controller support. Optional, so older files decode.
+    var controllerMode: String?
+    /// Keyboard-and-mouse mode: what each controller input does in this game
+    /// (PadBindings.buttonNames plus "LS"/"RS" → key, mouse button, key stick or
+    /// .none), on top of the layout's bindings and the built-in template. Only
+    /// inputs the player changed are stored. Optional, so older files decode.
+    var controllerBinds: [String: ControlAction]?
+    /// Keyboard-and-mouse mode: vertical speed of the right-stick mouse relative
+    /// to horizontal (PadBindings.mouseVertical); nil = 1.
+    var padMouseVertical: Double?
     /// Processors reported to Windows code in this game's sessions
     /// (MADEIRA_CPU_COUNT, ntdll); nil = automatic.
     var cpuCount: Int?
@@ -298,6 +313,28 @@ struct LibraryEntry: Codable, Identifiable {
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
+        // Automatic mode publishes one host pad through both Windows controller
+        // APIs. This covers old Unity/DirectInput titles and modern XInput games
+        // without a per-game first-run ritual. XInput-only remains an escape
+        // hatch for the few games that list both API views as separate pads.
+        let automaticPad = GamepadInput.keyboardMouseAvailable && controllerMode != "keys" && controllerMode != "xinput"
+        if automaticPad { setenv("MADEIRA_DINPUT_PAD", "1", 1) }
+        else { setenv("MADEIRA_DINPUT_PAD", "0", 1) }
+        let controllerPrefs = ControllerCompatibility.prepare(self)
+        let externalCompatibility = ExternalGameCompatibility.prepare(self)
+
+        // Madeira has its own controller, keyboard/mouse and session UI. Valve's
+        // injected overlay adds a large x64 DLL, hooks XInput and cannot present
+        // a useful desktop overlay here. Keep it out of Dock games by default;
+        // env.MADEIRA_STEAM_OVERLAY=1 is the escape hatch.
+        let dockGame = steamAppID != nil && !startsSteamGameDirectly
+        let steamOverlay = MadeiraConfig.bool("env.MADEIRA_STEAM_OVERLAY", default: false)
+        if dockGame && !steamOverlay {
+            setenv("_MADEIRA_STEAM_OVERLAY_OFF", "1", 1)
+        } else { unsetenv("_MADEIRA_STEAM_OVERLAY_OFF") }
+        fputs("[controller-route] mode=\(controllerMode ?? "automatic") xinput=1 dinput=\(automaticPad ? 1 : 0) " +
+              "prefs=\(controllerPrefs ?? "none") steam-overlay=\((dockGame && steamOverlay) ? 1 : 0) " +
+              "external=\(externalCompatibility.joined(separator: ","))\n", stderr)
         if let anisotropyLimit, [1, 2, 4, 8].contains(anisotropyLimit) { setenv("DXMT_D9_ANISO_LIMIT", String(anisotropyLimit), 1) }
         // Fastsync's per-game switches, only when Settings chose Fastsync; with Madsync
         // (the default) or Wine's standard sync nothing is exported here.
@@ -350,6 +387,215 @@ struct LibraryEntry: Codable, Identifiable {
     }
 }
 
+/// Settings that a game itself normally writes only after the player visits a
+/// controller menu and restarts. Compatibility profiles seed only known keys,
+/// before Wine starts, and preserve every unrelated registry value.
+enum ControllerCompatibility {
+    struct Profile {
+        var name: String
+        var appIDs: Set<Int>
+        var executableFragments: [String]
+        var section: String
+        var values: [String: UInt32]
+    }
+
+    static let profiles = [
+        Profile(name: "hollow-knight", appIDs: [367520], executableFragments: ["hollow_knight.exe"],
+                section: "Software\\\\Team Cherry\\\\Hollow Knight",
+                values: ["NativeInput": 1, "XInput": 1]),
+        Profile(name: "silksong", appIDs: [1030300], executableFragments: ["silksong.exe"],
+                section: "Software\\\\Team Cherry\\\\Hollow Knight Silksong",
+                values: ["NativeInput": 1, "XInput": 1]),
+    ]
+
+    static func profile(for entry: LibraryEntry) -> Profile? {
+        let path = entry.launchWindowsPath.lowercased()
+        return profiles.first { profile in
+            entry.steamAppID.map(profile.appIDs.contains) == true ||
+                profile.executableFragments.contains { path.contains($0) }
+        }
+    }
+
+    /// Pure registry merge used by the host test. Returns nil when the desired
+    /// values are already present byte-for-byte.
+    static func mergedRegistry(_ text: String, section: String, values: [String: UInt32]) -> String? {
+        guard text.hasPrefix("WINE REGISTRY Version 2") else { return nil }
+        var lines = text.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+        let wanted = section.lowercased()
+        var start = lines.firstIndex { line in
+            guard line.hasPrefix("["), let close = line.firstIndex(of: "]") else { return false }
+            return line[line.index(after: line.startIndex)..<close].lowercased() == wanted
+        }
+        if start == nil {
+            if lines.last?.isEmpty == false { lines.append("") }
+            lines.append("[\(section)]")
+            start = lines.count - 1
+        }
+        guard let sectionStart = start else { return nil }
+        let sectionEnd = lines[(sectionStart + 1)...].firstIndex { $0.hasPrefix("[") } ?? lines.count
+        let names = Set(values.keys.map { $0.lowercased() })
+        for index in stride(from: sectionEnd - 1, through: sectionStart + 1, by: -1) {
+            let line = lines[index].trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("\""), let quote = line.dropFirst().firstIndex(of: "\"") else { continue }
+            let name = String(line[line.index(after: line.startIndex)..<quote]).lowercased()
+            if names.contains(name) || names.contains(where: { name.hasPrefix($0 + "_h") }) { lines.remove(at: index) }
+        }
+        var insert = sectionStart + 1
+        while insert < lines.count && (lines[insert].hasPrefix("#time=") || lines[insert].isEmpty) { insert += 1 }
+        for key in values.keys.sorted() {
+            let hex = String(format: "%08x", values[key] ?? 0)
+            lines.insert("\"\(key)\"=dword:\(hex)", at: insert)
+            insert += 1
+        }
+        let merged = lines.joined(separator: "\n") + "\n"
+        return merged == text ? nil : merged
+    }
+
+    static func prepare(_ entry: LibraryEntry) -> String? {
+        guard MadeiraConfig.flag("MADEIRA_CONTROLLER_AUTO_PREFS"), let profile = profile(for: entry) else { return nil }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let url = docs.appendingPathComponent("wine/user.reg")
+        guard let text = try? String(contentsOf: url, encoding: .utf8),
+              let merged = mergedRegistry(text, section: profile.section, values: profile.values) else {
+            return profile.name
+        }
+        let backup = url.appendingPathExtension("madeira-controller-backup")
+        do {
+            if !FileManager.default.fileExists(atPath: backup.path) { try FileManager.default.copyItem(at: url, to: backup) }
+            try merged.write(to: url, atomically: true, encoding: .utf8)
+            fputs("[controller-prefs] seeded \(profile.name) NativeInput=1 XInput=1 backup=\(backup.lastPathComponent)\n", stderr)
+        } catch {
+            fputs("[controller-prefs] could not seed \(profile.name): \(error.localizedDescription)\n", stderr)
+        }
+        return profile.name
+    }
+}
+
+/// Safe launch adjustments for games copied into drive_c. This never replaces
+/// Steam DLLs, patches executables or bypasses licensing; it only chooses a
+/// renderer Madeira implements and reports third-party launch layers that may
+/// behave differently from the original game.
+enum ExternalGameCompatibility {
+    private struct WindowsRuntime {
+        var hasSDL = false
+        var hasLove = false
+        var hasLove115 = false
+    }
+
+    /// Probe the launch directory, Steam's selected program directory, and one
+    /// directory level below the install root. This is engine detection, not a
+    /// title allow-list: every compatible LÖVE/SDL game gets the same route.
+    private static func windowsRuntime(_ entry: LibraryEntry, drive: URL) -> WindowsRuntime {
+        let fm = FileManager.default
+        let launch = drive.appendingPathComponent(entry.launchRelativePath)
+        var roots: [URL] = []
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: launch.path, isDirectory: &isDirectory) {
+            roots.append(isDirectory.boolValue ? launch : launch.deletingLastPathComponent())
+        }
+        if let program = entry.steamProgram, !program.isEmpty {
+            roots.append(drive.appendingPathComponent(entry.relativePath, isDirectory: true)
+                .appendingPathComponent(program).deletingLastPathComponent())
+        }
+
+        var seen = Set<String>()
+        var directories: [(URL, Int)] = roots.map { ($0.standardizedFileURL, 0) }
+        var result = WindowsRuntime()
+        var index = 0
+        while index < directories.count && index < 192 {
+            let (directory, depth) = directories[index]; index += 1
+            guard seen.insert(directory.path.lowercased()).inserted,
+                  let children = try? fm.contentsOfDirectory(at: directory,
+                      includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { continue }
+            let names = Set(children.map { $0.lastPathComponent.lowercased() })
+            let hasSDLHere = names.contains("sdl2.dll") || names.contains("sdl3.dll")
+            let loveURL = children.first { $0.lastPathComponent.lowercased() == "love.dll" }
+            if hasSDLHere { result.hasSDL = true }
+            if hasSDLHere, let loveURL {
+                result.hasLove = true
+                // The bundled replacement is from official LÖVE 11.5. Keep
+                // automatic Lua replacement on that exact ABI generation;
+                // ANGLE itself remains available to every detected SDL game.
+                if let data = try? Data(contentsOf: loveURL, options: .mappedIfSafe),
+                   data.range(of: Data("LuaJIT 2.1".utf8)) != nil,
+                   data.range(of: Data("11.5".utf8)) != nil { result.hasLove115 = true }
+            }
+            if depth == 0 {
+                for child in children {
+                    let values = try? child.resourceValues(forKeys: [.isDirectoryKey])
+                    if values?.isDirectory == true {
+                        directories.append((child, 1))
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    static func prepare(_ entry: LibraryEntry) -> [String] {
+        unsetenv("_MADEIRA_OPENGL_ANGLE_MODE")
+        unsetenv("_MADEIRA_LUA51_GC64")
+        guard entry.desktop != true else { return [] }
+        var applied: [String] = []
+        let identity = (entry.title + " " + entry.launchWindowsPath).lowercased()
+        let balatro = entry.steamAppID == 2379780 || identity.contains("balatro")
+
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let drive = docs.appendingPathComponent("wine/drive_c", isDirectory: true)
+        let runtime = windowsRuntime(entry, drive: drive)
+        let loveRuntime = runtime.hasLove || balatro
+        if (runtime.hasSDL || loveRuntime) && MadeiraConfig.flag("MADEIRA_OPENGL_ANGLE") {
+            setenv("_MADEIRA_OPENGL_ANGLE_MODE", loveRuntime ? "love" : "sdl", 1)
+            applied.append(loveRuntime ? "angle-gles-love" : "angle-gles-sdl")
+            fputs("[opengl-angle] detected mode=\(loveRuntime ? "love" : "sdl") route=GLES->ANGLE-D3D11->DXMT-Metal\n", stderr)
+        }
+        if (balatro || runtime.hasLove115) && MadeiraConfig.flag("MADEIRA_LUAJIT_GC64") {
+            setenv("_MADEIRA_LUA51_GC64", "1", 1)
+            applied.append("luajit-gc64")
+        }
+
+        let executable = drive.appendingPathComponent(entry.launchRelativePath)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: executable.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return applied.isEmpty ? ["none"] : applied
+        }
+        let directory = executable.deletingLastPathComponent()
+
+        let unityPlayer = directory.appendingPathComponent("UnityPlayer.dll")
+        if FileManager.default.fileExists(atPath: unityPlayer.path), MadeiraConfig.flag("MADEIRA_UNITY_D3D11") {
+            var args = getenv("MADEIRA_ARGS").map { String(cString: $0) } ?? ""
+            let lower = args.lowercased()
+            let rendererChosen = ["-force-d3d", "-force-vulkan", "-force-opengl"].contains { lower.contains($0) }
+            if !rendererChosen {
+                if !args.isEmpty { args += " " }
+                args += "-force-d3d11"
+                setenv("MADEIRA_ARGS", args, 1)
+                applied.append("unity-d3d11")
+                fputs("[external-game] Unity detected; added -force-d3d11\n", stderr)
+            }
+        }
+
+        let dataFolder = directory.appendingPathComponent(executable.deletingPathExtension().lastPathComponent + "_Data")
+        let steamCandidates = [directory.appendingPathComponent("steam_api64.dll"),
+                               dataFolder.appendingPathComponent("Plugins/x86_64/steam_api64.dll")]
+        for steamAPI in steamCandidates where FileManager.default.fileExists(atPath: steamAPI.path) {
+            guard let attrs = try? steamAPI.resourceValues(forKeys: [.fileSizeKey]),
+                  (attrs.fileSize ?? 0) > 2_000_000,
+                  let data = try? Data(contentsOf: steamAPI, options: .mappedIfSafe) else { continue }
+            let markers = [Data("gbe_fork".utf8), Data("steam_settings".utf8)]
+            if markers.allSatisfy({ data.range(of: $0) != nil }) {
+                applied.append("third-party-steam-api")
+                fputs("[external-game] third-party Steam API replacement detected (GBE fork); " +
+                      "Madeira will not modify it or bypass DRM, and compatibility can differ from the Steam build\n", stderr)
+                break
+            }
+        }
+        if applied.isEmpty { applied.append("none") }
+        return applied
+    }
+}
+
 final class LibraryModel: ObservableObject {
     static let shared = LibraryModel()
     static var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
@@ -362,6 +608,19 @@ final class LibraryModel: ObservableObject {
     @Published var performance = false
     @Published var liveLogs = false
     @Published var fpsMode = 1
+    /// The session's controller mode (LibraryEntry.controllerMode): "keys" or nil.
+    @Published var controllerMode: String? {
+        didSet { if oldValue != controllerMode { applyControllerMode() } }
+    }
+    /// The session's binds table (LibraryEntry.controllerBinds); a change rebuilds
+    /// the driver's bindings at once, so the binds page is live.
+    @Published var controllerBinds: [String: ControlAction] = [:] {
+        didSet { if oldValue != controllerBinds { applyControllerMode() } }
+    }
+    /// The session's right-stick mouse vertical speed (LibraryEntry.padMouseVertical).
+    @Published var padMouseVertical: Double = 1 {
+        didSet { if oldValue != padMouseVertical { applyControllerMode() } }
+    }
     /// The session's touch-control opacity (the entry's Control opacity).
     @Published var opacity = 0.7
     /// The session's Aspect & scaling; MetalBackedView lays the game out with it.
@@ -370,6 +629,9 @@ final class LibraryModel: ObservableObject {
     }
     @Published var error: String?
     @Published var sessionMessage = ""
+    /// Text from a Windows error/assertion dialog that appeared before a
+    /// direct game produced a frame. Shown on the native starting screen.
+    @Published var launchAttention: String?
     @Published var launching = false
     @Published var overlayFields = ["FPS", "Frame time", "RAM", "Battery"]
     private var launchPresent: UInt64 = 0
@@ -667,12 +929,36 @@ final class LibraryModel: ObservableObject {
     static var sessionsThisRun = 0
     static let restartMessage = "Restart Madeira to start another game: swipe Madeira away in the app switcher, then open it again."
     @Published var restartNotice: String?
+    /// CS_DEBUGGED is set but no debugger is attached (JIT was enabled outside
+    /// Madeira): the text of the alert that offers Madeira's own Enable JIT.
+    @Published var jitNotice: String?
+    /// Play is enabling JIT before starting this entry (ContentView.jitReadyForLaunch):
+    /// its Play button reads Starting JIT, with a spinner, until JIT is on or fails.
+    @Published var startingJIT: UUID?
+    /// A Steam game's saves may not be the latest (SteamOwnedLibrary.cloudHold):
+    /// the alert Play shows before starting it.
+    struct CloudNotice: Equatable {
+        enum Kind { case syncing, unchecked, conflict }
+        var appID: Int
+        var kind: Kind
+        var title: String
+        var message: String
+    }
+    @Published var cloudNotice: CloudNotice?
+    /// Starts the game the notice is about again.
+    var cloudRetry: (() -> Void)?
+    /// The game (App ID) allowed to start once without the check ("Launch anyway").
+    var cloudBypass: Int?
+    /// The entry whose details page the library should open (the notice's "Choose").
+    @Published var showDetail: UUID?
 
     /// `remember: false` runs a session that is not a library entry (a Madeira
     /// Dock start): it is neither added to the library nor stamped as played.
     /// `dock`: the game a Madeira Dock start launches (DockStartScreen).
     func begin(_ entry: LibraryEntry, remember: Bool = true, dock: DockGame? = nil) {
         wine_exit_status_reset()
+        winios_window_alert_reset()
+        launchAttention = nil
         quitRequested = false
         LibraryController.shared.configure(enabled: enabled, ownsInput: false)
         Self.sessionsThisRun += 1
@@ -698,6 +984,10 @@ final class LibraryModel: ObservableObject {
         }
         controls.visible = entry.touchControls
         controls.sizeScale = min(max(entry.controlSize ?? 1, 0.5), 2)
+        controllerBinds = GamepadInput.keyboardMouseAvailable ? (entry.controllerBinds ?? [:]) : [:]
+        padMouseVertical = GamepadInput.keyboardMouseAvailable ? (entry.padMouseVertical ?? 1) : 1
+        controllerMode = GamepadInput.keyboardMouseAvailable ? entry.controllerMode : nil
+        applyControllerMode()
         MetalHostView.shared.isHidden = false
         ProMotionIntent.apply(mode: entry.effectiveFPSMode)
         if remember { var played = entry; played.lastPlayed = Date(); save(played) }
@@ -723,6 +1013,11 @@ final class LibraryModel: ObservableObject {
                 showGameView(reason: "surface")
             } else if Date().timeIntervalSince(launchStarted) > 30 { launchSlow = true }
         }
+        if launching && !dockStart.active && launchAttention == nil, let attention = Self.windowAlert() {
+            launchAttention = attention
+            launchSlow = true
+            LogStore.shared.log("[launch-view] Windows error before first frame: \(attention)", level: .error)
+        }
         if wine_process_is_running() != 0 {
             sawProcess = true
             if sessionMessage == "Starting…" { sessionMessage = "" }
@@ -733,7 +1028,23 @@ final class LibraryModel: ObservableObject {
             MetalBackedView.refreshDisplayMode(reason: "first-present")
         }
     }
-    func launchFailed() { if current != nil && !sawProcess { finish(); error = "The session could not start. Check the diagnostic log and JIT status." } }
+    private static func windowAlert() -> String? {
+        var buffer = [CChar](repeating: 0, count: 512)
+        let count = buffer.withUnsafeMutableBufferPointer { ptr in
+            Int(winios_window_alert_copy(ptr.baseAddress, Int32(ptr.count)))
+        }
+        guard count > 0 else { return nil }
+        return String(cString: buffer)
+    }
+    /// `reason`: what stopped the launch, when the caller knows (the JIT pool's failure).
+    /// `offerJIT`: the launch failed because no debugger is attached, so the alert
+    /// offers Enable JIT instead of only reporting.
+    func launchFailed(_ reason: String? = nil, offerJIT: Bool = false) {
+        guard current != nil && !sawProcess else { return }
+        finish()
+        if offerJIT, let reason { jitNotice = reason }
+        else { error = reason ?? "The session could not start. Check the diagnostic log and JIT status." }
+    }
     /// Both flags change in one transaction without animation: the animated
     /// removal of a scrolling view with live content could leave the starting
     /// screen up (and unresponsive) while the game was already presenting.
@@ -751,6 +1062,26 @@ final class LibraryModel: ObservableObject {
         LogStore.shared.setDisplayActive(launching ? launchLogs : liveLogs)
         fputs("[startup-log] visible=\(launchLogs ? 1 : 0)\n", stderr)
     }
+
+    /// Hand the session's mode to the pad sampler. In keyboard-and-mouse mode the
+    /// bindings follow the touch layout on screen, so they are rebuilt when the
+    /// controls change (TouchControlsModel.controls, observed below).
+    func applyControllerMode() {
+        guard GamepadInput.keyboardMouseAvailable else { return }
+        if current != nil, controllerMode == "keys" {
+            GamepadInput.shared.setKeyboardMouse(PadBindings.build(controls: TouchControlsModel.shared.controls, binds: controllerBinds, mouseVertical: padMouseVertical))
+            if controlsSink == nil {
+                controlsSink = TouchControlsModel.shared.$controls.sink { [weak self] controls in
+                    guard let self, self.controllerMode == "keys", self.current != nil else { return }
+                    GamepadInput.shared.setKeyboardMouse(PadBindings.build(controls: controls, binds: self.controllerBinds, mouseVertical: self.padMouseVertical))
+                }
+            }
+        } else {
+            controlsSink = nil
+            GamepadInput.shared.setKeyboardMouse(nil)
+        }
+    }
+    private var controlsSink: AnyCancellable?
 
     func setFPS(_ mode: Int) {
         fpsMode = mode
@@ -786,6 +1117,9 @@ final class LibraryModel: ObservableObject {
             entry.fpsMode = fpsMode; entry.performance = performance
             entry.overlayFields = overlayFields
             entry.controlOpacity = opacity; entry.controlSize = controls.sizeScale
+            if GamepadInput.keyboardMouseAvailable { entry.controllerMode = controllerMode }
+            if GamepadInput.keyboardMouseAvailable { entry.controllerBinds = controllerBinds.isEmpty ? nil : controllerBinds }
+            if GamepadInput.keyboardMouseAvailable { entry.padMouseVertical = padMouseVertical == 1 ? nil : padMouseVertical }
             // The in-game Aspect & scaling choice sticks to the game. MADEIRA_SESSION_TOOLS=0
             // hides that picker and leaves the stored choice alone.
             if MadeiraConfig.flag("MADEIRA_SESSION_TOOLS") { entry.display = displayMode.rawValue }
@@ -796,11 +1130,15 @@ final class LibraryModel: ObservableObject {
         if sawProcess, let report = exitReport() { error = report }
         timer?.invalidate(); timer = nil
         saveCurrentProfile()
+        controllerMode = nil
+        controllerBinds = [:]
+        padMouseVertical = 1
         let controls = TouchControlsModel.shared
         controls.editing = false; controls.selected = nil
         controls.controls = savedControls; controls.visible = savedVisible; controls.sizeScale = savedSize
         if ControlPresetsModel.enabled { controls.layoutID = savedLayout }
-        current = nil; activeEntry = nil; menu = false; sessionMessage = ""
+        current = nil; activeEntry = nil; menu = false; sessionMessage = ""; launchAttention = nil
+        winios_window_alert_reset()
         displayMode = .fit
         LogStore.shared.setDisplayActive(true)
         launching = false; launchLogs = false; LibraryKeyboard.hide()
@@ -968,7 +1306,7 @@ struct LibraryTitleText: View {
 /// are disabled once it is.
 final class LibraryJITState: ObservableObject {
     static let shared = LibraryJITState()
-    @Published private(set) var enabled = jit_check_debugged()
+    @Published private(set) var enabled = StikJITHelper.ready
     private var timer: Timer?
     private init() {
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
@@ -976,7 +1314,7 @@ final class LibraryJITState: ObservableObject {
         self.timer = timer
     }
     func refresh() {
-        let now = jit_check_debugged()
+        let now = StikJITHelper.ready
         guard now != enabled else { return }
         withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : .default) { enabled = now }
     }
@@ -1726,7 +2064,7 @@ struct LibraryStatus: View {
         .background((enabled ? Color.green : Color.red).opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
         .accessibilityElement(children: .ignore).accessibilityLabel("\(label): \(enabled ? "enabled" : "unavailable")")
     }
-    private func update() { jit = jit_check_debugged(); memory = EntitlementStatus.check().increasedMemory }
+    private func update() { jit = StikJITHelper.ready; memory = EntitlementStatus.check().increasedMemory }
 }
 
 /// A section title with a count; with `collapsed` set, tapping the title
@@ -1803,6 +2141,11 @@ struct LibraryView: View {
     var startDock: (DockGame, Bool) -> Void = { _, _ in }
     /// First-run setup (Onboarding.swift).
     @ObservedObject private var onboarding = OnboardingModel.shared
+    @ObservedObject private var jit = JITCoordinator.shared
+    /// The library's error is a JIT connection problem with a fix to offer.
+    private var jitProblem: JITCoordinator.ConnectionProblem? {
+        jit.connectionProblem.flatMap { model.error == $0.message ? $0 : nil }
+    }
     @State private var browser = false
     @State private var selected: LibraryEntry?
     @State private var search = ""
@@ -1863,6 +2206,14 @@ struct LibraryView: View {
             LibraryLargeTitle()
             if tab == 0 { libraryToolbar } else { settingsToolbar }
         }
+        // On the tab view, not inside one tab's page: an alert attached to the Library
+        // page cannot present while Settings is showing, so an error raised there (its
+        // Enable JIT, for one) waited until the Library tab came back.
+        .alert(jitProblem == nil ? "Library" : "Couldn't Enable JIT",
+               isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+            if let jitProblem { jitConnectionActions(jitProblem, retry: enableJIT) { model.error = nil } }
+            Button("OK", role: .cancel) { model.error = nil }
+        } message: { Text(model.error ?? "") }
         .fullScreenCover(isPresented: $onboarding.presented) { OnboardingView() }
         .onAppear {
             // An ended desktop session's surface never stays over the library.
@@ -1923,6 +2274,9 @@ struct LibraryView: View {
             if settingsShow("ready to play", "JIT", "Memory+", "StikDebug", "status") {
                 Section { LibraryStatus().listRowBackground(Color.clear) }
             }
+            if settingsShow("JIT", "StikDebug", "built-in", "pairing", "LocalDevVPN") {
+                JITSettingsSection()
+            }
             if settingsShow("diagnostics", "extended logging", "logging", "log") {
                 Section {
                     Toggle("Extended logging", isOn: $input.diagnostics)
@@ -1961,13 +2315,15 @@ struct LibraryView: View {
                 SettingsSearchResults(query: settingsSearch.trimmingCharacters(in: .whitespaces), refresh: settingsRefresh)
             }
             // Credits, last on the Settings page.
-            if settingsShow("credits", "thanks", "Will Faust", "Nick", "125hz", "Jfishin") {
+            if settingsShow("credits", "thanks", "Will Faust", "Nick", "125hz", "Jfishin", "Jesse", "JesseLovelace", "Dan Perks", "danperks") {
                 Section {
                     MadeiraCredit(name: "Will Faust", handle: "willfaust", role: "Created Madeira")
                     MadeiraCredit(name: "Nick", handle: "125hz", role: "32-bit game support, the game library and Madeira Dock")
                     MadeiraCredit(name: "Jfishin", handle: "Jfishin", role: "The original native Steam sign-in, library and downloads")
+                    MadeiraCredit(name: "Jesse", handle: "JesseLovelace", role: "Steam Cloud saves, faster game launches, and fixes that let more games run")
+                    MadeiraCredit(name: "Dan Perks", handle: "danperks", role: "In-app JIT without StikDebug, and pairing without a computer")
                 } header: { Text("Credits") } footer: {
-                    Text("Madeira is built on Wine, FEX-Emu, DXMT by Feifan He (3Shain) with the Direct3D 9 frontend by David Acevedo (dacevedo12), rpmalloc by Mattias Jansson, and StikDebug for enabling JIT. Thank you to everyone who contributes to these projects.")
+                    Text("Madeira is built on Wine, FEX-Emu, DXMT by Feifan He (3Shain) with the Direct3D 9 frontend by David Acevedo (dacevedo12), rpmalloc by Mattias Jansson, StikDebug, StikJIT and idevice. Thank you to everyone who contributes to these projects.")
                 }
             }
         }
@@ -2084,15 +2440,24 @@ struct LibraryView: View {
             // library for the moment a start spends preparing.
             LibraryDetail(entry: entry, play: { profile in
                 play(profile)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 15) { if selected?.id == entry.id { selected = nil } }
+                // Not while Play is still enabling JIT: the session's start, an error, or
+                // JIT setup closes the page then.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+                    if selected?.id == entry.id, model.startingJIT != entry.id { selected = nil }
+                }
             })
         }
         .onChange(of: model.current) { _, current in if current != nil { selected = nil } }
         .onChange(of: model.error) { _, error in if error != nil { selected = nil } }
         .onChange(of: model.restartNotice) { _, notice in if notice != nil { selected = nil } }
-        .alert("Library", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK", role: .cancel) { model.error = nil }
-        } message: { Text(model.error ?? "") }
+        .onChange(of: model.jitNotice) { _, notice in if notice != nil { selected = nil } }
+        .onChange(of: model.cloudNotice) { _, notice in if notice != nil { selected = nil } }
+        .onChange(of: jit.showSetup) { _, show in if show { selected = nil } }
+        .onChange(of: model.showDetail) { _, id in
+            guard let id else { return }
+            model.showDetail = nil
+            selected = model.entries.first { $0.id == id }
+        }
         .onChange(of: scenePhase) { _, phase in if phase == .active { model.refreshFlag() } }
         .onAppear {
             if focused == nil { focused = LibraryEntry.desktopID }
@@ -2336,8 +2701,18 @@ struct LibraryDetail: View {
                             } else if let played = entry.lastPlayed {
                                 Text("Last played \(played.formatted(.relative(presentation: .named)))").font(.subheadline).foregroundStyle(.secondary)
                             }
-                            Button(action: start) { HStack(spacing: 10) { Image(systemName: "play.fill"); Text("Play").fontWeight(.semibold) }.frame(minWidth: 100, minHeight: 30) }
-                                .buttonStyle(LibraryPlayStyle(pending: leaving)).disabled(leaving)
+                            Button(action: start) {
+                                HStack(spacing: 10) {
+                                    // Enabling JIT can take seconds with nothing else on screen.
+                                    if model.startingJIT == entry.id {
+                                        ProgressView().tint(.white)
+                                        Text("Starting JIT").fontWeight(.semibold)
+                                    } else {
+                                        Image(systemName: "play.fill"); Text("Play").fontWeight(.semibold)
+                                    }
+                                }.frame(minWidth: 100, minHeight: 30)
+                            }
+                            .buttonStyle(LibraryPlayStyle(pending: leaving)).disabled(leaving)
                         }
                     }.padding(.vertical, 24)
                         .listRowBackground(
@@ -2354,8 +2729,10 @@ struct LibraryDetail: View {
                     Button("Choose cover image", systemImage: "photo") { importCover = true }
                     if entry.coverFile != nil { Button((entry.steamAppID ?? entry.steamID) != nil ? "Use Steam artwork" : "Remove cover image") { entry.coverFile = nil } }
                 } }
-                // How a Steam game starts sits under its library details (SteamGames.swift).
-                if entry.steamAppID != nil {
+                // A Steam game's cloud saves, then how it starts, under its library
+                // details (SteamGames.swift).
+                if let appID = entry.steamAppID {
+                    SteamCloudSection(appID: appID)
                     SteamEntrySection(entry: $entry) { leaving = true; dismiss() }
                 }
                 if entry.desktop != true && entry.steamAppID == nil {
@@ -2469,6 +2846,19 @@ struct LibraryDetail: View {
                     Toggle("Performance overlay", isOn: $entry.performance)
                     Toggle("Live logs", isOn: $entry.liveLogs)
                     Toggle("Touch controls", isOn: $entry.touchControls)
+                    if GamepadInput.keyboardMouseAvailable {
+                        ControllerModeChoice(mode: $entry.controllerMode)
+                        if entry.controllerMode == "keys" {
+                            NavigationLink("Controller binds") {
+                                Form { ControllerBindsPage(binds: $entry.controllerBinds, mouseVertical: $entry.padMouseVertical) }
+                                    .navigationTitle("Controller binds")
+                                    .toolbar {
+                                        Button("Reset") { entry.controllerBinds = nil; entry.padMouseVertical = nil }
+                                            .disabled(entry.controllerBinds == nil && entry.padMouseVertical == nil)
+                                    }
+                            }
+                        }
+                    }
                     LabeledContent("Control opacity") {
                         Slider(value: Binding(get: { entry.controlOpacity ?? 0.7 }, set: { entry.controlOpacity = $0 }), in: 0.15...1)
                     }
@@ -2476,6 +2866,10 @@ struct LibraryDetail: View {
                         Slider(value: Binding(get: { entry.controlSize ?? 1 }, set: { entry.controlSize = $0 }), in: 0.5...2)
                     }
                     Text("Arrange buttons and choose XInput, mouse, or keyboard actions from the in-game menu.").font(.caption).foregroundStyle(.secondary)
+                    if GamepadInput.keyboardMouseAvailable {
+                        Text("Automatic publishes the pad through XInput and DirectInput before the game starts. Use XInput only if a game lists the same pad twice. Applies to the next launch.").font(.caption).foregroundStyle(.secondary)
+                        Text("Keyboard and mouse: for games without controller support. The controller presses keys and moves the mouse (left stick WASD, right stick mouse, triggers click, D-pad arrows, Start Esc, Select Tab) and the game sees no controller. Change what each button does under Controller binds, here or in the in-game menu.").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 if entry.steamAppID != nil {
                     Section {
@@ -2585,6 +2979,179 @@ struct SteamSearchView: View {
                 catch { self.error = error.localizedDescription }
                 loading = false
             }
+        }
+    }
+}
+
+/// Keyboard-and-mouse mode: one row per controller input with a menu of what it
+/// does, saved to the game. Used as a page of the Session menu (live: the driver
+/// takes each change at once) and as a sheet from Game details. Rows the player
+/// has not changed show the layout's or the template's action and are not stored.
+struct ControllerBindsPage: View {
+    @Binding var binds: [String: ControlAction]?
+    /// Vertical speed of the right-stick mouse, 1 = as horizontal; nil = 1.
+    @Binding var mouseVertical: Double?
+    /// The active layout's own bindings, so an unchanged row shows what really
+    /// happens in this session; Game details passes none.
+    var controls: [TouchControl] = []
+
+    private static let groups: [(String, [String])] = [
+        ("Sticks", ["LS", "RS"]),
+        ("Face", ["A", "B", "X", "Y"]),
+        ("Bumpers & triggers", ["LB", "RB", "LT", "RT"]),
+        ("D-pad", ["D↑", "D↓", "D←", "D→"]),
+        ("System", ["Menu", "View", "L3", "R3"]),
+    ]
+
+    var body: some View {
+        ForEach(Self.groups, id: \.0) { group in
+            Section(group.0) {
+                ForEach(group.1, id: \.self) { name in row(name) }
+            }
+        }
+        if effective("RS").stickKeys == nil {
+            Section("Right stick as mouse") {
+                LabeledContent("Vertical speed") {
+                    HStack {
+                        Slider(value: Binding(get: { mouseVertical ?? 1 }, set: { mouseVertical = abs($0 - 1) < 0.01 ? nil : $0 }), in: 0.25...1.5, step: 0.05)
+                        Text("\(Int(((mouseVertical ?? 1) * 100).rounded()))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+                    }
+                }
+                Text("Relative to horizontal. Games scale the camera's pitch and yaw differently from a mouse; lower this if the view climbs faster than it turns.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        Section {
+            Button("Reset all to defaults", role: .destructive) { reset() }
+                .disabled(!changed)
+            Text("Defaults: left stick WASD, right stick mouse, RT and LT click, D-pad arrows, A Space, B Ctrl, X E, Y R, LB Q, RB F, L3 Shift, R3 C, Start Esc, Select Tab. A touch control's own controller binding (control editor) applies when a row is at its default.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Anything to reset: a bound row or a vertical speed other than 1.
+    var changed: Bool { !(binds ?? [:]).isEmpty || mouseVertical != nil }
+    func reset() { binds = nil; mouseVertical = nil }
+
+    /// What the input does in this session: the table's entry, else the layout's, else the template's.
+    private func effective(_ name: String) -> ControlAction {
+        let fromLayout = PadBindings.build(controls: controls)
+        return binds?[name] ?? (name == "LS" ? fromLayout.leftStick : name == "RS" ? fromLayout.rightStick : fromLayout.buttons[name] ?? .none)
+    }
+
+    private func row(_ name: String) -> some View {
+        let effective = effective(name)
+        let changed = binds?[name] != nil
+        return LabeledContent(PadBindings.displayName(name)) {
+            Menu {
+                if name == "LS" || name == "RS" {
+                    pick(name, name == "RS" ? "Mouse" : "Nothing", .none)
+                    pick(name, "WASD", .joystickWASD)
+                    pick(name, "Arrow keys", .joystickArrows)
+                } else {
+                    pick(name, "Left click", .mouseLeft)
+                    pick(name, "Right click", .mouseRight)
+                    Menu("Letters") { ForEach(0x41...0x5A, id: \.self) { vk in pick(name, String(UnicodeScalar(UInt8(vk))), .key(Int32(vk))) } }
+                    Menu("Numbers") { ForEach(0x30...0x39, id: \.self) { vk in pick(name, String(UnicodeScalar(UInt8(vk))), .key(Int32(vk))) } }
+                    Menu("Function keys") { ForEach(0...11, id: \.self) { i in pick(name, "F\(i + 1)", .key(Int32(0x70 + i))) } }
+                    Menu("Modifiers & editing") {
+                        pick(name, "Escape", .key(0x1B)); pick(name, "Tab", .key(0x09)); pick(name, "Shift", .key(0x10))
+                        pick(name, "Ctrl", .key(0x11)); pick(name, "Alt", .key(0x12)); pick(name, "Space", .key(0x20))
+                        pick(name, "Enter", .key(0x0D)); pick(name, "Backspace", .key(0x08)); pick(name, "Caps Lock", .key(0x14))
+                    }
+                    Menu("Navigation") {
+                        pick(name, "↑", .key(0x26)); pick(name, "↓", .key(0x28)); pick(name, "←", .key(0x25)); pick(name, "→", .key(0x27))
+                        pick(name, "Insert", .key(0x2D)); pick(name, "Delete", .key(0x2E)); pick(name, "Home", .key(0x24))
+                        pick(name, "End", .key(0x23)); pick(name, "Page Up", .key(0x21)); pick(name, "Page Down", .key(0x22))
+                    }
+                    Menu("Symbols") {
+                        pick(name, "-", .key(0xBD)); pick(name, "=", .key(0xBB)); pick(name, "[", .key(0xDB)); pick(name, "]", .key(0xDD))
+                        pick(name, "\\", .key(0xDC)); pick(name, ";", .key(0xBA)); pick(name, "'", .key(0xDE)); pick(name, ",", .key(0xBC))
+                        pick(name, ".", .key(0xBE)); pick(name, "/", .key(0xBF)); pick(name, "`", .key(0xC0))
+                    }
+                    Menu("Numpad") {
+                        ForEach(0...9, id: \.self) { i in pick(name, "Numpad \(i)", .key(Int32(0x60 + i))) }
+                        pick(name, "Numpad *", .key(0x6A)); pick(name, "Numpad +", .key(0x6B)); pick(name, "Numpad −", .key(0x6D))
+                        pick(name, "Numpad .", .key(0x6E)); pick(name, "Numpad /", .key(0x6F))
+                    }
+                    pick(name, "Show keyboard", .keyboardToggle)
+                    pick(name, "Nothing", .none)
+                }
+                if changed {
+                    Divider()
+                    Button("Default") { binds?[name] = nil; if binds?.isEmpty == true { binds = nil } }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(Self.describe(effective, input: name))
+                        .foregroundStyle(changed ? .primary : .secondary)
+                    Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func pick(_ name: String, _ title: String, _ action: ControlAction) -> some View {
+        Button(title) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            var table = binds ?? [:]
+            table[name] = action
+            binds = table
+        }
+    }
+
+    /// Row text for an action, in the words the menu uses.
+    static func describe(_ action: ControlAction, input: String) -> String {
+        switch action {
+        case .none:            return input == "RS" ? "Mouse" : "Nothing"
+        case .mouseLeft:       return "Left click"
+        case .mouseRight:      return "Right click"
+        case .joystickWASD:    return "WASD"
+        case .joystickArrows:  return "Arrow keys"
+        case .keyboardToggle:  return "Show keyboard"
+        case .pad(let n):      return n
+        case .key(let vk):     return keyName(vk)
+        }
+    }
+    static func keyName(_ vk: Int32) -> String {
+        switch vk {
+        case 0x20: return "Space"
+        case 0x0D: return "Enter"
+        case 0x09: return "Tab"
+        case 0x1B: return "Escape"
+        case 0x10: return "Shift"
+        case 0x11: return "Ctrl"
+        case 0x12: return "Alt"
+        case 0x08: return "Backspace"
+        case 0x14: return "Caps Lock"
+        case 0x2D: return "Insert"
+        case 0x2E: return "Delete"
+        case 0x24: return "Home"
+        case 0x23: return "End"
+        case 0x21: return "Page Up"
+        case 0x22: return "Page Down"
+        case 0x70...0x7B: return "F\(vk - 0x6F)"
+        case 0x60...0x69: return "Numpad \(vk - 0x60)"
+        case 0x6A: return "Numpad *"
+        case 0x6B: return "Numpad +"
+        case 0x6D: return "Numpad −"
+        case 0x6E: return "Numpad ."
+        case 0x6F: return "Numpad /"
+        default:   return ControlAction.keyLabel(vk)
+        }
+    }
+}
+
+/// Game details and the Session menu: how a physical controller reaches the game.
+struct ControllerModeChoice: View {
+    @Binding var mode: String?
+    var body: some View {
+        LabeledContent("Controller") {
+            Picker("Controller", selection: Binding(get: { mode == "dinput" ? "" : (mode ?? "") }, set: { mode = $0.isEmpty ? nil : $0 })) {
+                Text("Automatic (XInput + DirectInput)").tag("")
+                Text("XInput only").tag("xinput")
+                Text("Keyboard and mouse").tag("keys")
+            }.pickerStyle(.menu).labelsHidden()
         }
     }
 }
@@ -2895,6 +3462,8 @@ struct LibraryHUD: View {
     @ObservedObject private var dockStart = DockStartScreen.shared
     private let sessionTools = MadeiraConfig.flag("MADEIRA_SESSION_TOOLS")
     @State private var launchVisible = false
+    /// The Session menu's Controller binds page (keyboard-and-mouse mode).
+    @State private var bindsPage = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geo in
@@ -2912,7 +3481,8 @@ struct LibraryHUD: View {
                 if !model.launching { LibraryFloatingItem(isMenu: true, viewport: geo.size, insets: geo.safeAreaInsets) }
                 if model.menu {
                     Color.black.opacity(0.5).ignoresSafeArea().onTapGesture { model.menu = false }.transition(.opacity)
-                    menu.frame(width: min(460, geo.size.width - 32), height: min(650, geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom - 24))
+                    (bindsPage ? AnyView(bindsMenu) : AnyView(menu))
+                        .frame(width: min(460, geo.size.width - 32), height: min(650, geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom - 24))
                         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 28))
                         .clipShape(RoundedRectangle(cornerRadius: 28))
                         .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.15)))
@@ -2930,6 +3500,7 @@ struct LibraryHUD: View {
         .onAppear { model.saveCurrentProfile() }
         .onChange(of: model.menu) { _, open in
             LibraryController.shared.configure(enabled: model.enabled, ownsInput: open)
+            if !open { bindsPage = false }
             if !open { model.saveCurrentProfile() }
         }
         .onReceive(LibraryController.shared.commands) { command in
@@ -2969,11 +3540,22 @@ struct LibraryHUD: View {
                         }
                     }
                 } else {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                    if let attention = model.launchAttention {
                         VStack(spacing: 8) {
-                            Text(model.launchSlow ? "Still starting…" : "Starting your game…").foregroundStyle(.white.opacity(0.7))
-                            Text("\(Int(context.date.timeIntervalSince(model.launchStartedAt)))s")
-                                .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.4))
+                            Label("Windows reported an error", systemImage: "exclamationmark.triangle.fill")
+                                .font(.headline).foregroundStyle(.orange)
+                            Text(attention).font(.caption.monospaced()).multilineTextAlignment(.center)
+                                .textSelection(.enabled).frame(maxWidth: 560)
+                            Text("The game has not produced a frame. Check its files or use the original Steam build.")
+                                .font(.caption).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center)
+                        }
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            VStack(spacing: 8) {
+                                Text(model.launchSlow ? "Still starting…" : "Starting your game…").foregroundStyle(.white.opacity(0.7))
+                                Text("\(Int(context.date.timeIntervalSince(model.launchStartedAt)))s")
+                                    .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.4))
+                            }
                         }
                     }
                 }
@@ -3044,6 +3626,29 @@ struct LibraryHUD: View {
         }
     }
 
+    /// Controller binds, as a page of the Session menu: a Form, so the rows read
+    /// like Game details; the driver takes each change at once (model.controllerBinds).
+    private var bindsMenu: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button("Session", systemImage: "chevron.left") { bindsPage = false }.buttonStyle(.borderless)
+                Spacer()
+                Text("Controller binds").font(.headline)
+                Spacer()
+                Button("Reset") { model.controllerBinds = [:]; model.padMouseVertical = 1; model.saveCurrentProfile() }
+                    .buttonStyle(.borderless).disabled(model.controllerBinds.isEmpty && model.padMouseVertical == 1)
+                Button("Done") { model.menu = false }.buttonStyle(.bordered)
+            }.padding(.horizontal, 22).padding(.top, 22).padding(.bottom, 8)
+            Form {
+                ControllerBindsPage(binds: Binding(get: { model.controllerBinds.isEmpty ? nil : model.controllerBinds },
+                                                   set: { model.controllerBinds = $0 ?? [:]; model.saveCurrentProfile() }),
+                                    mouseVertical: Binding(get: { model.padMouseVertical == 1 ? nil : model.padMouseVertical },
+                                                           set: { model.padMouseVertical = $0 ?? 1; model.saveCurrentProfile() }),
+                                    controls: controls.controls)
+            }.scrollContentBackground(.hidden)
+        }
+    }
+
     private var menu: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -3061,6 +3666,12 @@ struct LibraryHUD: View {
                 LabeledContent("Opacity") { Slider(value: $model.opacity, in: 0.15...1) }
                 LabeledContent("Size") { Slider(value: $controls.sizeScale, in: 0.5...2) }
                 Button("Edit controls", systemImage: "slider.horizontal.3") { controls.visible = true; controls.editing = true; model.menu = false }
+                if GamepadInput.keyboardMouseAvailable {
+                    ControllerModeChoice(mode: Binding(get: { model.controllerMode }, set: { model.controllerMode = $0; model.saveCurrentProfile() }))
+                    if model.controllerMode == "keys" {
+                        Button("Controller binds", systemImage: "gamecontroller") { bindsPage = true }
+                    }
+                }
                 Button("Keyboard", systemImage: "keyboard") { model.menu = false; LibraryKeyboard.show() }
                 Divider()
                 FPSChoice(mode: Binding(get: { model.fpsMode }, set: { model.setFPS($0) }))
@@ -3084,6 +3695,10 @@ struct LibraryHUD: View {
                             model.overlayFields.removeAll { $0 == field }; if on { model.overlayFields.append(field) }
                         })).font(.subheadline)
                     }
+                }
+                if let appID = model.activeEntry?.steamAppID, SteamOwnedLibrary.cloudQuitEnabled {
+                    Divider()
+                    SteamCloudQuitRow(appID: appID)
                 }
                 Divider()
                 // Red label and symbol; the menu's .primary style would otherwise win.

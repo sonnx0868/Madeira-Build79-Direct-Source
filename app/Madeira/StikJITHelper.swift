@@ -1,44 +1,66 @@
 import UIKit
 
 /// Helper to enable JIT via StikDebug/StikJIT URL scheme.
-/// Opens StikDebug with an embedded script, polls for CS_DEBUGGED,
+/// Opens StikDebug with Madeira's bundled script, polls for CS_DEBUGGED,
 /// then allocates JIT memory and detaches the debugger.
 enum StikJITHelper {
 
-    /// The JIT script. Edit madeira-jit.js, then run:
-    ///   base64 -i app/Madeira/madeira-jit.js | tr -d '\n' | pbcopy
-    /// and paste below. TODO: load from bundle resource instead.
-    private static let scriptBase64 = "Ly8gTXl0aGljIEpJVCBTY3JpcHQgZm9yIFN0aWtEZWJ1ZwovLyBIYW5kbGVzIEJSSyAjMHhmMDBkICh1bml2ZXJzYWwgcHJvdG9jb2wpIHdpdGggeDE2LWJhc2VkIGNvbW1hbmQgZGlzcGF0Y2guCi8vCi8vIG1sMzQ2ICh2Mik6IHNvZnQtc2lnbmFsIHN0b3BzIChFWENfU09GVF9TSUdOQUwpIGZvcndhcmQgdGhlIE9SSUdJTkFMIHNpZ25vCi8vIGZyb20gbWVkYXRhWzFdIGFuZCBhcmUgbmV2ZXIgZ3VhcmRlZDsgcmF3IGZhdWx0IHN0b3BzIGZvcndhcmQgYSBtYXBwZWQKLy8gc2lnbmFsIHdpdGggYSBraWxsLW5vdC1kZXRhY2ggbGFzdCByZXNvcnQgKGRldGFjaCBsZWF2ZXMgdGhlIHRhc2sgcG9ydAovLyByZWdpc3RlcmVkIGJ1dCB1bnNlcnZpY2VkIC0+IHBhcmtlZCB0aHJlYWRzKS4KLy8gbWwzNDU6IG9ubHkgZ2VudWluZSBCUksgaW5zdHJ1Y3Rpb25zIGFyZSBza2lwcGVkIChwYys0KS4gVGhlIGRlYnVnZ2VyIGhvbGRzCi8vIHRoZSBUQVNLLWxldmVsIGV4Y2VwdGlvbiBwb3J0LCBzbyBldmVyeSBmYXVsdCB0aGUgYXBwJ3Mgb3duIE1hY2ggaGFuZGxlcgovLyBkZWNsaW5lcyAoS0VSTl9GQUlMVVJFKSBsYW5kcyBIRVJFIOKAlCB0aGUgb2xkICJBTFdBWVMgYWR2YW5jZSBQQyIgYmVoYXZpb3IKLy8gc2tpcC1zdGVwcGVkIHJlYWwgY3Jhc2hlcyBpbnN0cnVjdGlvbiBieSBpbnN0cnVjdGlvbiAoYW5kIHplcm9lZCB4MCksCi8vIHNpbGVudGx5IGNvcnJ1cHRpbmcgdGhyZWFkcyB1bnRpbCB0aGV5IHdhbmRlcmVkIGludG8gZGF0YSAobWwzNDQ6IGEKLy8gNCwwMDAtZmF1bHQgKzQgd2FsayB0aHJvdWdoIHNoYXJlZC1jYWNoZSBkYXRhIGVuZGluZyBpbiBhIGJvZ3VzIGd1ZXN0Ci8vIGV4Y2VwdGlvbikuIE5vbi1CUksgc3RvcHMgYXJlIG5vdyBoYW5kZWQgYmFjayB0byB0aGUgcHJvY2VzcyBhcyBhIHVuaXgKLy8gc2lnbmFsIHNvIHdpbmUncyBzaWdhY3Rpb24gaGFuZGxlcnMgcnVuOyBpZiB0aGUgc2lnbmFsIGNhbm5vdCBiZSBkZWxpdmVyZWQKLy8gdGhlIHNjcmlwdCBkZXRhY2hlcyBzbyB0aGUgcHJvY2VzcyBkaWVzIHZpc2libHkgaW5zdGVhZCBvZiB3YW5kZXJpbmcuCgpmdW5jdGlvbiBsaXR0bGVFbmRpYW5IZXhTdHJpbmdUb051bWJlcihoZXhTdHIpIHsKICAgIGNvbnN0IGJ5dGVzID0gW107CiAgICBmb3IgKGxldCBpID0gMDsgaSA8IGhleFN0ci5sZW5ndGg7IGkgKz0gMikgewogICAgICAgIGJ5dGVzLnB1c2gocGFyc2VJbnQoaGV4U3RyLnN1YnN0cihpLCAyKSwgMTYpKTsKICAgIH0KICAgIGxldCBudW0gPSAwbjsKICAgIGZvciAobGV0IGkgPSA3OyBpID49IDA7IGktLSkgewogICAgICAgIG51bSA9IChudW0gPDwgOG4pIHwgQmlnSW50KGJ5dGVzW2ldIHx8IDApOwogICAgfQogICAgcmV0dXJuIG51bTsKfQoKZnVuY3Rpb24gbnVtYmVyVG9MaXR0bGVFbmRpYW5IZXhTdHJpbmcobnVtKSB7CiAgICBjb25zdCBieXRlcyA9IFtdOwogICAgZm9yIChsZXQgaSA9IDA7IGkgPCA4OyBpKyspIHsKICAgICAgICBieXRlcy5wdXNoKE51bWJlcihudW0gJiAweEZGbikpOwogICAgICAgIG51bSA+Pj0gOG47CiAgICB9CiAgICByZXR1cm4gYnl0ZXMubWFwKGIgPT4gYi50b1N0cmluZygxNikucGFkU3RhcnQoMiwgJzAnKSkuam9pbignJyk7Cn0KCmZ1bmN0aW9uIGxpdHRsZUVuZGlhbkhleFRvVTMyKGhleFN0cikgewogICAgcmV0dXJuIHBhcnNlSW50KGhleFN0ci5tYXRjaCgvLi4vZykucmV2ZXJzZSgpLmpvaW4oJycpLCAxNik7Cn0KCmZ1bmN0aW9uIGV4dHJhY3RCcmtJbW1lZGlhdGUodTMyKSB7CiAgICByZXR1cm4gKHUzMiA+PiA1KSAmIDB4RkZGRjsKfQoKbGV0IHBpZCA9IGdldF9waWQoKTsKbG9nKGBNeXRoaWMgSklUOiBwaWQgPSAke3BpZH1gKTsKbGV0IGF0dGFjaFJlc3BvbnNlID0gc2VuZF9jb21tYW5kKGB2QXR0YWNoOyR7cGlkLnRvU3RyaW5nKDE2KX1gKTsKbG9nKGBNeXRoaWMgSklUOiBhdHRhY2hlZCA9ICR7YXR0YWNoUmVzcG9uc2V9YCk7CgovLyBtbDM1NTogU1RPUCBTRVJWSUNJTkcgQU5ZVEhJTkcgQlVUIEJSSy4KLy8KLy8gRXZlcnkgc2lnbmFsIGFuZCBmYXVsdCBzdG9wIGNvc3RzIHNldmVyYWwgc3luY2hyb25vdXMgcHJvdG9jb2wgcm91bmQtdHJpcHMKLy8gb24gU3Rpa0RlYnVnJ3Mgc2lkZS4gV2luZSBzaWduYWxzIGNvbnN0YW50bHkgKHRocmVhZCBzdXNwZW5kL3Jlc3VtZSksIHNvIHRoZQovLyB2MiBzY3JpcHQgYnVybmVkIDI3cyBDUFUgaW4gfjYwcyBhbmQgaU9TIGtpbGxlZCBTdGlrRGVidWcgaXRzZWxmIHdpdGggdGhlCi8vIHNjZW5lLXVwZGF0ZSB3YXRjaGRvZyAoMHg4QkFERjAwRCkg4oCUIHdoaWNoIHRvcmUgZG93biB0aGUgZGVidWcgc2Vzc2lvbiBhbmQKLy8gbGVmdCBNeXRoaWMgdG8gYmUgU0lHS0lMTGVkIHdpdGggbm8gY3Jhc2ggcmVwb3J0LiBUaGF0IGlzIHRoZSAiaW5zdGFudAovLyB2YW5pc2gsIGVtcHR5IFN0aWtEZWJ1ZyBsb2ciIHRoZSB1c2VyIGtlcHQgc2VlaW5nLgovLwovLyBCb3RoIHBhY2tldHMgYmVsb3cgYXJlIGJlc3QtZWZmb3J0OyBvbiBhbiBvbGRlciBzdHViIHRoZXkgc2ltcGx5IGZhaWwgYW5kCi8vIHRoZSBmYXVsdC9zaWduYWwgcGF0aHMgZnVydGhlciBkb3duIHN0aWxsIHdvcmsgYXMgYmVmb3JlLgovLyAgIFFTZXRJZ25vcmVkRXhjZXB0aW9ucyDigJQgZGVidWdzZXJ2ZXIgc3RvcHMgaW50ZXJjZXB0aW5nIHRoZXNlIE1hY2gKLy8gICAgIGV4Y2VwdGlvbnMsIHNvIHRoZXkgcmVhY2ggdGhlIGFwcCdzIE9XTiBoYW5kbGVycyAod2luZSByZWdpc3RlcnMKLy8gICAgIHRocmVhZC1sZXZlbCBwb3J0cyBmb3IgQkFEX0FDQ0VTUytCQURfSU5TVFJVQ1RJT04sIGFuZCBhbnl0aGluZyBpdAovLyAgICAgZGVjbGluZXMgYmVjb21lcyBhIG5vcm1hbCBCU0Qgc2lnbmFsIGludG8gd2luZSdzIHNpZ2FjdGlvbiBoYW5kbGVycykuCi8vICAgUVBhc3NTaWduYWxzIOKAlCBkZWxpdmVyIHNpZ25hbHMgdG8gdGhlIGluZmVyaW9yIHdpdGhvdXQgc3RvcHBpbmcuIFNJR1RSQVAKLy8gICAgIGlzIGRlbGliZXJhdGVseSBFWENMVURFRDogQlJLIGFycml2ZXMgdGhhdCB3YXkgYW5kIGlzIG91ciB3aG9sZSBqb2IuCnsKICAgIGxldCBpZ24gPSBzZW5kX2NvbW1hbmQoYFFTZXRJZ25vcmVkRXhjZXB0aW9uczpFWENfQkFEX0FDQ0VTUztFWENfQkFEX0lOU1RSVUNUSU9OYCk7CiAgICBsb2coYE15dGhpYyBKSVQ6IFFTZXRJZ25vcmVkRXhjZXB0aW9ucyAtPiAke2lnbiB8fCAnKHVuc3VwcG9ydGVkKSd9YCk7CiAgICBsZXQgc2lncyA9IFtdOwogICAgZm9yIChsZXQgcyA9IDE7IHMgPD0gMzE7IHMrKykgaWYgKHMgIT09IDUpIHNpZ3MucHVzaChzLnRvU3RyaW5nKDE2KSk7CiAgICBsZXQgcGFzcyA9IHNlbmRfY29tbWFuZChgUVBhc3NTaWduYWxzOiR7c2lncy5qb2luKCc7Jyl9YCk7CiAgICBsb2coYE15dGhpYyBKSVQ6IFFQYXNzU2lnbmFscyAtPiAke3Bhc3MgfHwgJyh1bnN1cHBvcnRlZCknfWApOwp9CgpsZXQgZGV0YWNoZWQgPSBmYWxzZTsKbGV0IHBlbmRpbmcgPSBudWxsOyAgICAgICAgLy8gc3RvcCBwYWNrZXQgcmV0dXJuZWQgYnkgYSBjb250aW51ZSB3ZSBhbHJlYWR5IHNlbnQKbGV0IGxhc3RGYXVsdEtleSA9IG51bGw7ICAgLy8gInRpZDpwYyIgb2YgdGhlIGxhc3Qgbm9uLUJSSyBzdG9wCmxldCBmYXVsdFJlcGVhdHMgPSAwOwpsZXQgZmF1bHRMb2dzID0gMDsKbGV0IHNpZ0xvZ3MgPSAwOwovLyBIYXJkIGNlaWxpbmcgb24gVUkgbG9nIGxpbmVzOiBlYWNoIGxvZygpIGRyaXZlcyBhIFN3aWZ0VUkgdXBkYXRlLCBhbmQgaXQgaXMKLy8gc2NlbmUtdXBkYXRlIHN0YWxscyB0aGF0IHRoZSB3YXRjaGRvZyBraWxscyBmb3IuIFVzZSB1bG9nKCkgZXZlcnl3aGVyZQovLyBpbnNpZGUgdGhlIHN0b3AgbG9vcDsgYmFyZSBsb2coKSBvbmx5IGZvciB0aGUgZmV3IHN0YXJ0dXAgbGluZXMuCmxldCBsb2dCdWRnZXQgPSA0MDsKZnVuY3Rpb24gdWxvZyhtc2cpIHsgaWYgKGxvZ0J1ZGdldCA+IDApIHsgbG9nQnVkZ2V0LS07IGxvZyhtc2cpOyB9IH0KCmZ1bmN0aW9uIGxvb2tzTGlrZVN0b3AocmVzcCkgewogICAgcmV0dXJuIHR5cGVvZiByZXNwID09PSAnc3RyaW5nJyAmJiAvXltUU1dYXS8udGVzdChyZXNwKTsKfQoKLy8gRm9yd2FyZCBhIHVuaXggc2lnbmFsIHRvIHRoZSBzdG9wcGVkIHRocmVhZCBhbmQgcmVtZW1iZXIgdGhlIG5leHQgc3RvcC4KLy8gUmV0dXJucyB0cnVlIGlmIHRoZSBjb250aW51ZSB3YXMgYWNjZXB0ZWQuCmZ1bmN0aW9uIGZvcndhcmRTaWduYWwoc2lnLCB0aWQpIHsKICAgIGxldCBzaWdIZXggPSBzaWcudG9TdHJpbmcoMTYpLnBhZFN0YXJ0KDIsICcwJyk7CiAgICBsZXQgcmVzcCA9IHNlbmRfY29tbWFuZChgdkNvbnQ7QyR7c2lnSGV4fToke3RpZH07Y2ApOwogICAgaWYgKCFsb29rc0xpa2VTdG9wKHJlc3ApKSB7CiAgICAgICAgcmVzcCA9IHNlbmRfY29tbWFuZChgQyR7c2lnSGV4fWApOwogICAgfQogICAgaWYgKGxvb2tzTGlrZVN0b3AocmVzcCkpIHsKICAgICAgICBwZW5kaW5nID0gcmVzcDsKICAgICAgICByZXR1cm4gdHJ1ZTsKICAgIH0KICAgIHJldHVybiBmYWxzZTsKfQoKd2hpbGUgKCFkZXRhY2hlZCkgewogICAgbGV0IGJya1Jlc3BvbnNlID0gcGVuZGluZyAhPT0gbnVsbCA/IHBlbmRpbmcgOiBzZW5kX2NvbW1hbmQoYGNgKTsKICAgIHBlbmRpbmcgPSBudWxsOwoKICAgIC8vIFcvWCA9IGluZmVyaW9yIGV4aXRlZDsgbm90aGluZyBsZWZ0IHRvIGRlYnVnLgogICAgaWYgKHR5cGVvZiBicmtSZXNwb25zZSA9PT0gJ3N0cmluZycgJiYgL15bV1hdLy50ZXN0KGJya1Jlc3BvbnNlKSkgewogICAgICAgIHVsb2coYE15dGhpYyBKSVQ6IGluZmVyaW9yIGV4aXRlZCAoJHticmtSZXNwb25zZX0pYCk7CiAgICAgICAgZGV0YWNoZWQgPSB0cnVlOwogICAgICAgIGNvbnRpbnVlOwogICAgfQoKICAgIGxldCB0aWRNYXRjaCA9IC9UWzAtOWEtZl0rdGhyZWFkOig/PHRpZD5bMC05YS1mXSspOy8uZXhlYyhicmtSZXNwb25zZSk7CiAgICBsZXQgdGlkID0gdGlkTWF0Y2ggPyB0aWRNYXRjaC5ncm91cHNbJ3RpZCddIDogbnVsbDsKICAgIGxldCBwY01hdGNoID0gLzIwOig/PHJlZz5bMC05YS1mXXsxNn0pOy8uZXhlYyhicmtSZXNwb25zZSk7CiAgICBsZXQgcGMgPSBwY01hdGNoID8gcGNNYXRjaC5ncm91cHNbJ3JlZyddIDogbnVsbDsKCiAgICBpZiAoIXRpZCB8fCAhcGMpIHsKICAgICAgICB1bG9nKGBNeXRoaWMgSklUOiBmYWlsZWQgdG8gcGFyc2UsIGNvbnRpbnVpbmdgKTsKICAgICAgICBjb250aW51ZTsKICAgIH0KCiAgICBsZXQgcGNOdW0gPSBsaXR0bGVFbmRpYW5IZXhTdHJpbmdUb051bWJlcihwYyk7CgogICAgLy8gbWVkYXRhIHZhbHVlcyBhcmUgaGV4IFdJVEhPVVQgMHggcHJlZml4IChtbDM0NSBydW46IEVYQ19TT0ZUX1NJR05BTAogICAgLy8gcHJpbnRlZCBhcyAiMTAwMDMiKS4gbWV0eXBlIGlzIGEgc21hbGwgaW50ZWdlciwgc2FtZSBlaXRoZXIgd2F5LgogICAgbGV0IG1ldHlwZU1hdGNoID0gL21ldHlwZTooWzAtOWEtZl0rKTsvLmV4ZWMoYnJrUmVzcG9uc2UpOwogICAgbGV0IG1ldHlwZSA9IG1ldHlwZU1hdGNoID8gcGFyc2VJbnQobWV0eXBlTWF0Y2hbMV0sIDE2KSA6IDA7CiAgICBsZXQgbWVkYXRhID0gW107CiAgICBsZXQgbXJlID0gL21lZGF0YTooWzAtOWEtZnhdKyk7L2csIG1tOwogICAgd2hpbGUgKChtbSA9IG1yZS5leGVjKGJya1Jlc3BvbnNlKSkgIT09IG51bGwpIG1lZGF0YS5wdXNoKHBhcnNlSW50KG1tWzFdLCAxNikpOwoKICAgIC8vIEVYQ19TT0ZUV0FSRSAvIEVYQ19TT0ZUX1NJR05BTCAobWV0eXBlIDUsIG1lZGF0YVswXT0weDEwMDAzKTogdGhlCiAgICAvLyBrZXJuZWwgaXMgcm91dGluZyBhIHVuaXggU0lHTkFMIHRocm91Z2ggdGhlIGRlYnVnZ2VyIOKAlCBwdGhyZWFkX2tpbGwsCiAgICAvLyB3aW5lJ3Mgc3VzcGVuZCBzaWduYWxzLCBmYXVsdC1jb252ZXJzaW9uIHNpZ25hbHMsIGFsbCBvZiBpdC4gVGhpcyBpcwogICAgLy8gbm90IGEgZmF1bHQgYW5kIG5vdCBvdXJzIHRvIGp1ZGdlOiBmb3J3YXJkIHRoZSBPUklHSU5BTCBzaWdubwogICAgLy8gKG1lZGF0YVsxXSkgdW50b3VjaGVkLCBuZXZlciBjb3VudCByZXBlYXRzICh3aW5lIGxlZ2l0aW1hdGVseSByZXRyaWVzCiAgICAvLyBzYW1lLXBjIGZhdWx0cyksIG5ldmVyIGRldGFjaC4gdjEgbWlzZGVsaXZlcmVkIHRoZXNlIGFzIFNJR1NFR1YgYW5kCiAgICAvLyB0aGVuIGRldGFjaGVkIG9uIHdpbmUncyBib290LXRpbWUgcmV0cnkgbG9vcCAobWwzNDUpLgogICAgaWYgKG1ldHlwZSA9PT0gNSkgewogICAgICAgIGxldCBzaWdubyA9IChtZWRhdGEubGVuZ3RoID4gMSAmJiBtZWRhdGFbMV0gPj0gMSAmJiBtZWRhdGFbMV0gPD0gMzEpID8gbWVkYXRhWzFdIDogMDsKICAgICAgICBpZiAoc2lnTG9ncyA8IDggfHwgKHNpZ0xvZ3MgJSA1MDApID09PSAwKSB7CiAgICAgICAgICAgIHVsb2coYE15dGhpYyBKSVQ6IHNvZnQtc2lnbmFsIHRpZD0ke3RpZH0gcGM9MHgke3BjTnVtLnRvU3RyaW5nKDE2KX0gYCArCiAgICAgICAgICAgICAgICBgc2lnbm89JHtzaWdubyB8fCAnPyd9ICgjJHtzaWdMb2dzfSlgKTsKICAgICAgICB9CiAgICAgICAgc2lnTG9ncysrOwogICAgICAgIGlmIChzaWdubyA9PT0gMCB8fCAhZm9yd2FyZFNpZ25hbChzaWdubywgdGlkKSkgewogICAgICAgICAgICAvLyBVbmtub3duIHNpZ25vIG9yIEMgdW5zdXBwb3J0ZWQ6IHBsYWluIGNvbnRpbnVlIGFuZCB0cnVzdCB0aGUKICAgICAgICAgICAgLy8gc3R1YiB0byBkZWxpdmVyIHRoZSBwZW5kaW5nIHNpZ25hbCBvbiByZXN1bWUuCiAgICAgICAgICAgIGxldCByZXNwID0gc2VuZF9jb21tYW5kKGBjYCk7CiAgICAgICAgICAgIGlmIChsb29rc0xpa2VTdG9wKHJlc3ApKSBwZW5kaW5nID0gcmVzcDsKICAgICAgICB9CiAgICAgICAgY29udGludWU7CiAgICB9CgogICAgbGV0IGluc3RySGV4ID0gc2VuZF9jb21tYW5kKGBtJHtwY051bS50b1N0cmluZygxNil9LDRgKTsKICAgIGxldCBpbnNuT2sgPSB0eXBlb2YgaW5zdHJIZXggPT09ICdzdHJpbmcnICYmIC9eWzAtOWEtZkEtRl17OH0kLy50ZXN0KGluc3RySGV4KTsKICAgIGxldCBpbnN0clUzMiA9IGluc25PayA/IGxpdHRsZUVuZGlhbkhleFRvVTMyKGluc3RySGV4KSA6IDA7CiAgICAvLyBCUksgI2ltbTE2ID0gMTEwMSAwMTAwIDAwMSBpbW0xNiAwMDAwMAogICAgbGV0IGlzQnJrID0gaW5zbk9rICYmICgoaW5zdHJVMzIgJiAweEZGRTAwMDFGKSA+Pj4gMCkgPT09IDB4RDQyMDAwMDA7CgogICAgaWYgKCFpc0JyaykgewogICAgICAgIC8vIEEgcmF3IGZhdWx0IHN0b3AgZXNjYWxhdGVkIHBhc3QgdGhlIGFwcCdzIE1hY2ggaGFuZGxlci4gTmV2ZXIgc2tpcAogICAgICAgIC8vIGl0LiBEZWxpdmVyIGl0IGJhY2sgdG8gdGhlIHByb2Nlc3MgYXMgYSB1bml4IHNpZ25hbCBzbyB0aGUgYXBwJ3MKICAgICAgICAvLyBzaWdhY3Rpb24gaGFuZGxlcnMgKHdpbmUgc2Vndi9idXMvaWxsKSBnZXQgYW4gaG9uZXN0IHNob3QgYXQgaXQuCiAgICAgICAgbGV0IGtleSA9IGAke3RpZH06JHtwY31gOwogICAgICAgIGZhdWx0UmVwZWF0cyA9IChrZXkgPT09IGxhc3RGYXVsdEtleSkgPyBmYXVsdFJlcGVhdHMgKyAxIDogMTsKICAgICAgICBsYXN0RmF1bHRLZXkgPSBrZXk7CgogICAgICAgIGxldCBrY29kZSA9IG1lZGF0YS5sZW5ndGggPiAwID8gbWVkYXRhWzBdIDogMDsKCiAgICAgICAgLy8gRVhDX1JFU09VUkNFIChtZXR5cGUgMTEpIGlzIGEgdGFzay1sZXZlbCBhZHZpc29yeSwgbm90IGEgdGhyZWFkCiAgICAgICAgLy8gZmF1bHQg4oCUIE1FTU9SWS9ISUdIX1dBVEVSTUFSSyBmaXJlcyB3aGVuIHBoeXNfZm9vdHByaW50IGNyb3NzZXMKICAgICAgICAvLyB0aGUgamV0c2FtIGxpbWl0IChrY29kZSBiaXRzIDEyOjAgPSBsaW1pdCBpbiBNQjsgbWwzNTkgc2F3IDQwOTYpLgogICAgICAgIC8vIFRoZSBvbGQgZGVmYXVsdCBpbmplY3RlZCBTSUdTRUdWIGludG8gd2hhdGV2ZXIgdGhyZWFkIHRoZSBzdG9wCiAgICAgICAgLy8gbmFtZWQsIGNyYXNoaW5nIGFuIGlubm9jZW50IHRocmVhZCBhdCB0aGUgd29yc3QgbW9tZW50LiBMb2cgYW5kCiAgICAgICAgLy8gcmVzdW1lIHdpdGggbm8gc2lnbmFsLgogICAgICAgIGlmIChtZXR5cGUgPT09IDExKSB7CiAgICAgICAgICAgIHVsb2coYE15dGhpYyBKSVQ6IEVYQ19SRVNPVVJDRSB0aWQ9JHt0aWR9IGtjb2RlPSR7a2NvZGUudG9TdHJpbmcoMTYpfSBgICsKICAgICAgICAgICAgICAgIGAobWVtb3J5IEhXTSAke2tjb2RlICYgMHgxZmZmfSBNQj8pIOKAlCBjb250aW51aW5nLCBubyBzaWduYWxgKTsKICAgICAgICAgICAgbGV0IHJlc3AgPSBzZW5kX2NvbW1hbmQoYGNgKTsKICAgICAgICAgICAgaWYgKGxvb2tzTGlrZVN0b3AocmVzcCkpIHBlbmRpbmcgPSByZXNwOwogICAgICAgICAgICBjb250aW51ZTsKICAgICAgICB9CgogICAgICAgIGxldCBzaWcgPSAxMTsgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgLy8gU0lHU0VHViBkZWZhdWx0CiAgICAgICAgaWYgKG1ldHlwZSA9PT0gMSkgc2lnID0gKGtjb2RlID09PSAxKSA/IDExIDogMTA7IC8vIEJBRF9BQ0NFU1M6IElOVkFMSUTihpJTRUdWLCBQUk9U4oaSQlVTCiAgICAgICAgZWxzZSBpZiAobWV0eXBlID09PSAyKSBzaWcgPSA0OyAgICAgICAgICAgICAgICAvLyBCQURfSU5TVFJVQ1RJT04g4oaSIFNJR0lMTAogICAgICAgIGVsc2UgaWYgKG1ldHlwZSA9PT0gMykgc2lnID0gODsgICAgICAgICAgICAgICAgLy8gQVJJVEhNRVRJQyDihpIgU0lHRlBFCiAgICAgICAgZWxzZSBpZiAobWV0eXBlID09PSA2KSBzaWcgPSA1OyAgICAgICAgICAgICAgICAvLyBCUkVBS1BPSU5UIChub24tQlJLKSDihpIgU0lHVFJBUAoKICAgICAgICBpZiAoZmF1bHRMb2dzIDwgMTYpIHsKICAgICAgICAgICAgZmF1bHRMb2dzKys7CiAgICAgICAgICAgIHVsb2coYE15dGhpYyBKSVQ6IGZhdWx0IChub3QgQlJLKSB0aWQ9JHt0aWR9IHBjPTB4JHtwY051bS50b1N0cmluZygxNil9IGAgKwogICAgICAgICAgICAgICAgYGluc249JHtpbnNuT2sgPyBpbnN0clUzMi50b1N0cmluZygxNikucGFkU3RhcnQoOCwgJzAnKSA6IGA8JHtpbnN0ckhleH0+YH0gYCArCiAgICAgICAgICAgICAgICBgbWV0eXBlPSR7bWV0eXBlfSBrY29kZT0ke2tjb2RlLnRvU3RyaW5nKDE2KX0gLT4gc2lnICR7c2lnfSAocmVwZWF0ICR7ZmF1bHRSZXBlYXRzfSlgKTsKICAgICAgICB9CgogICAgICAgIC8vIE5FVkVSIGRldGFjaCBoZXJlOiB3aXRoIHRoZSBTdGlrRGVidWcgd2luZG93IHN0aWxsIG9wZW4gdGhlIHRhc2sKICAgICAgICAvLyBleGNlcHRpb24gcG9ydCBzdGF5cyByZWdpc3RlcmVkIGJ1dCB1bnNlcnZpY2VkLCBhbmQgZXZlcnkgbGF0ZXIKICAgICAgICAvLyBlc2NhbGF0ZWQgZmF1bHQgcGFya3MgaXRzIHRocmVhZCBmb3JldmVyIChtbDM0NSB3ZWRnZWQgc3RlYW0uZXhlJ3MKICAgICAgICAvLyBtYWluIHRocmVhZCBleGFjdGx5IHRoaXMgd2F5KS4gSWYgdGhlIGZhdWx0IHRydWx5IGNhbm5vdCBiZQogICAgICAgIC8vIGRlbGl2ZXJlZCwga2lsbCB0aGUgaW5mZXJpb3Ig4oCUIGEgdmlzaWJsZSBkZWF0aCB3aXRoIGxvZ3MgaW50YWN0LgogICAgICAgIGlmIChmYXVsdFJlcGVhdHMgPj0gOCkgewogICAgICAgICAgICB1bG9nKGBNeXRoaWMgSklUOiBmYXVsdCBhdCBwYz0weCR7cGNOdW0udG9TdHJpbmcoMTYpfSB1bmRlbGl2ZXJhYmxlIGFmdGVyIGAgKwogICAgICAgICAgICAgICAgYCR7ZmF1bHRSZXBlYXRzfSB0cmllcyDigJQga2lsbGluZyBpbmZlcmlvciAodmlzaWJsZSBkZWF0aCBiZWF0cyBhIHBhcmtlZCB0aHJlYWQpYCk7CiAgICAgICAgICAgIHNlbmRfY29tbWFuZChga2ApOwogICAgICAgICAgICBkZXRhY2hlZCA9IHRydWU7CiAgICAgICAgICAgIGNvbnRpbnVlOwogICAgICAgIH0KCiAgICAgICAgaWYgKCFmb3J3YXJkU2lnbmFsKHNpZywgdGlkKSkgewogICAgICAgICAgICAvLyBGb3J3YXJkaW5nIHJlamVjdGVkOiBwbGFpbiBjb250aW51ZTsgaWYgdGhlIHNhbWUgc3RvcCByZWN1cnMKICAgICAgICAgICAgLy8gdGhlIGd1YXJkIGFib3ZlIGV2ZW50dWFsbHkga2lsbHMuCiAgICAgICAgICAgIGxldCByZXNwID0gc2VuZF9jb21tYW5kKGBjYCk7CiAgICAgICAgICAgIGlmIChsb29rc0xpa2VTdG9wKHJlc3ApKSBwZW5kaW5nID0gcmVzcDsKICAgICAgICB9CiAgICAgICAgY29udGludWU7CiAgICB9CgogICAgLy8gR2VudWluZSBCUksgZnJvbSBoZXJlIG9uIOKAlCB0aGUgcHJvdG9jb2wgcGF0aC4KICAgIGxhc3RGYXVsdEtleSA9IG51bGw7CiAgICBmYXVsdFJlcGVhdHMgPSAwOwoKICAgIGxldCBicmtJbW0gPSBleHRyYWN0QnJrSW1tZWRpYXRlKGluc3RyVTMyKTsKCiAgICAvLyBBZHZhbmNlIFBDIHBhc3QgdGhlIEJSSyBzbyBpdCBjYW5ub3QgcmUtZmlyZQogICAgbGV0IHBjUGx1czQgPSBudW1iZXJUb0xpdHRsZUVuZGlhbkhleFN0cmluZyhwY051bSArIDRuKTsKICAgIHNlbmRfY29tbWFuZChgUDIwPSR7cGNQbHVzNH07dGhyZWFkOiR7dGlkfTtgKTsKCiAgICBsZXQgeDE2TWF0Y2ggPSAvMTA6KD88cmVnPlswLTlhLWZdezE2fSk7Ly5leGVjKGJya1Jlc3BvbnNlKTsKICAgIGxldCB4MTYgPSB4MTZNYXRjaCA/IHgxNk1hdGNoLmdyb3Vwc1sncmVnJ10gOiBudWxsOwoKICAgIC8vIFNraXAgdW5rbm93biBCUksgaW1tZWRpYXRlcyAoUEMgYWxyZWFkeSBhZHZhbmNlZCkKICAgIGlmICgoYnJrSW1tICE9PSAweGYwMGQgJiYgYnJrSW1tICE9PSAweDY5KSB8fCAheDE2KSB7CiAgICAgICAgLy8gU2V0IHgwPTAgKGZhaWx1cmUvc2tpcCBpbmRpY2F0b3IpIHNvIGFwcCdzIFNJR1RSQVAgZmFsbGJhY2sgd29ya3MKICAgICAgICBzZW5kX2NvbW1hbmQoYFAwPSR7bnVtYmVyVG9MaXR0bGVFbmRpYW5IZXhTdHJpbmcoMG4pfTt0aHJlYWQ6JHt0aWR9O2ApOwogICAgICAgIGNvbnRpbnVlOwogICAgfQoKICAgIHVsb2coYE15dGhpYyBKSVQ6IEJSSyAjMHgke2Jya0ltbS50b1N0cmluZygxNil9YCk7CgogICAgLy8gUGFyc2UgeDAgYW5kIHgxCiAgICBsZXQgeDBNYXRjaCA9IC8wMDooPzxyZWc+WzAtOWEtZl17MTZ9KTsvLmV4ZWMoYnJrUmVzcG9uc2UpOwogICAgbGV0IHgxTWF0Y2ggPSAvMDE6KD88cmVnPlswLTlhLWZdezE2fSk7Ly5leGVjKGJya1Jlc3BvbnNlKTsKICAgIGxldCB4MCA9IHgwTWF0Y2ggPyBsaXR0bGVFbmRpYW5IZXhTdHJpbmdUb051bWJlcih4ME1hdGNoLmdyb3Vwc1sncmVnJ10pIDogMG47CiAgICBsZXQgeDEgPSB4MU1hdGNoID8gbGl0dGxlRW5kaWFuSGV4U3RyaW5nVG9OdW1iZXIoeDFNYXRjaC5ncm91cHNbJ3JlZyddKSA6IDBuOwogICAgbGV0IHgxNk51bSA9IGxpdHRsZUVuZGlhbkhleFN0cmluZ1RvTnVtYmVyKHgxNik7CgogICAgaWYgKGJya0ltbSA9PT0gMHhmMDBkKSB7CiAgICAgICAgdWxvZyhgTXl0aGljIEpJVDogeDE2ID0gJHt4MTZOdW19YCk7CgogICAgICAgIGlmICh4MTZOdW0gPT09IDBuKSB7CiAgICAgICAgICAgIC8vIENNRF9ERVRBQ0gKICAgICAgICAgICAgdWxvZyhgTXl0aGljIEpJVDogZGV0YWNoYCk7CiAgICAgICAgICAgIHNlbmRfY29tbWFuZChgRGApOwogICAgICAgICAgICBkZXRhY2hlZCA9IHRydWU7CgogICAgICAgIH0gZWxzZSBpZiAoeDE2TnVtID09PSAxbikgewogICAgICAgICAgICAvLyBDTURfUFJFUEFSRV9SRUdJT04KICAgICAgICAgICAgdWxvZyhgTXl0aGljIEpJVDogcHJlcGFyZSBhZGRyPTB4JHt4MC50b1N0cmluZygxNil9IHNpemU9MHgke3gxLnRvU3RyaW5nKDE2KX1gKTsKCiAgICAgICAgICAgIGxldCBhZGRyID0geDA7CiAgICAgICAgICAgIGlmICh4MCA9PT0gMG4gJiYgeDEgIT09IDBuKSB7CiAgICAgICAgICAgICAgICBsZXQgYWxsb2NSZXNwID0gc2VuZF9jb21tYW5kKGBfTSR7eDEudG9TdHJpbmcoMTYpfSxyeGApOwogICAgICAgICAgICAgICAgaWYgKGFsbG9jUmVzcCAmJiBhbGxvY1Jlc3AubGVuZ3RoID4gMCkgewogICAgICAgICAgICAgICAgICAgIGFkZHIgPSBCaWdJbnQoYDB4JHthbGxvY1Jlc3B9YCk7CiAgICAgICAgICAgICAgICAgICAgdWxvZyhgTXl0aGljIEpJVDogYWxsb2NhdGVkIGF0IDB4JHthZGRyLnRvU3RyaW5nKDE2KX1gKTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQoKICAgICAgICAgICAgaWYgKGFkZHIgIT09IDBuICYmIHgxICE9PSAwbikgewogICAgICAgICAgICAgICAgbGV0IHByZXBSZXNwID0gcHJlcGFyZV9tZW1vcnlfcmVnaW9uKGFkZHIsIHgxKTsKICAgICAgICAgICAgICAgIHVsb2coYE15dGhpYyBKSVQ6IHByZXBhcmVkID0gJHtwcmVwUmVzcH1gKTsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgc2VuZF9jb21tYW5kKGBQMD0ke251bWJlclRvTGl0dGxlRW5kaWFuSGV4U3RyaW5nKGFkZHIpfTt0aHJlYWQ6JHt0aWR9O2ApOwoKICAgICAgICB9IGVsc2UgaWYgKHgxNk51bSA9PT0gM24pIHsKICAgICAgICAgICAgLy8gQ01EX01BUF9QQUdFX1pFUk86IE1hcCBhIHBhZ2UgYXQgYWRkcmVzcyAwIHdpdGggVEVCIGRhdGEuCiAgICAgICAgICAgIC8vIHgwID0gVEVCIGFkZHJlc3MsIHgxID0gc2l6ZSAoMHg0MDAwID0gMTZLQiBpT1MgcGFnZSkKICAgICAgICAgICAgLy8gVGhlIGFwcCBjYW4ndCBtYXAgcGFnZSAwIGl0c2VsZiAoa2VybmVsIHJlZnVzZXMpLiBUaGUgZGVidWdnZXIKICAgICAgICAgICAgLy8gbWF5IGhhdmUgZGlmZmVyZW50IHByaXZpbGVnZXMgdG8gY3JlYXRlIHRoaXMgbWFwcGluZy4KICAgICAgICAgICAgdWxvZyhgTXl0aGljIEpJVDogbWFwIHBhZ2UgemVybywgVEVCPTB4JHt4MC50b1N0cmluZygxNil9IHNpemU9MHgke3gxLnRvU3RyaW5nKDE2KX1gKTsKCiAgICAgICAgICAgIGxldCBzdWNjZXNzID0gMG47CgogICAgICAgICAgICAvLyBUcnkgYWxsb2NhdGluZyBSVyBtZW1vcnkgYXQgYWRkcmVzcyAwIHZpYSBfTSB3aXRoIGZpeGVkIGFkZHJlc3MKICAgICAgICAgICAgLy8gU3Rpa0RlYnVnJ3MgX00gY29tbWFuZDogX008c2l6ZT4sPHBlcm1zPiDigJQgYnV0IGRvZXNuJ3Qgc3VwcG9ydCBmaXhlZCBhZGRyCiAgICAgICAgICAgIC8vIFRyeSBHREIgbWVtb3J5IGFsbG9jYXRpb246IG1tYXAgdmlhIHRoZSBkZWJ1Z2dlcidzIHRhc2sgcG9ydAogICAgICAgICAgICAvLyBVc2UgdkNvbnQgb3IgZGlyZWN0IE1hY2ggY2FsbHMgaWYgYXZhaWxhYmxlCgogICAgICAgICAgICAvLyBBcHByb2FjaCAxOiBUcnkgd3JpdGluZyBURUIgZGF0YSB0byBhZGRyZXNzIDAgZGlyZWN0bHkuCiAgICAgICAgICAgIC8vIElmIHRoZSBoYXJkd2FyZSB6ZXJvIHBhZ2UgaXMgd3JpdGFibGUgdmlhIHRoZSBkZWJ1Z2dlciwgdGhpcyB3b3Jrcy4KICAgICAgICAgICAgaWYgKHgwICE9PSAwbiAmJiB4MSAhPT0gMG4pIHsKICAgICAgICAgICAgICAgIC8vIFJlYWQgVEVCIGRhdGEgZnJvbSB0aGUgYXBwJ3MgbWVtb3J5CiAgICAgICAgICAgICAgICBsZXQgdGViUGFnZSA9IHgwICYgfjB4M0ZGRm47ICAvLyBhbGlnbiB0byAxNktCIHBhZ2UKICAgICAgICAgICAgICAgIGxldCB0ZWJPZmYgPSB4MCAtIHRlYlBhZ2U7CgogICAgICAgICAgICAgICAgLy8gVHJ5IHRvIHdyaXRlIFRFQiBkYXRhIGF0IGFkZHJlc3MgMCB2aWEgR0RCIE0gY29tbWFuZAogICAgICAgICAgICAgICAgLy8gUmVhZCAyNTYgYnl0ZXMgZnJvbSBURUIgKGVub3VnaCBmb3IgUEVCIHBvaW50ZXIgYXQgb2Zmc2V0IDB4NjApCiAgICAgICAgICAgICAgICBsZXQgdGViRGF0YSA9IHNlbmRfY29tbWFuZChgbSR7eDAudG9TdHJpbmcoMTYpfSwxMDBgKTsKICAgICAgICAgICAgICAgIGlmICh0ZWJEYXRhICYmIHRlYkRhdGEubGVuZ3RoID4gMCkgewogICAgICAgICAgICAgICAgICAgIC8vIFdyaXRlIGl0IHRvIGFkZHJlc3MgMCt0ZWJPZmYKICAgICAgICAgICAgICAgICAgICBsZXQgd3JpdGVSZXNwID0gc2VuZF9jb21tYW5kKGBNJHt0ZWJPZmYudG9TdHJpbmcoMTYpfSwkeyh0ZWJEYXRhLmxlbmd0aC8yKS50b1N0cmluZygxNil9OiR7dGViRGF0YX1gKTsKICAgICAgICAgICAgICAgICAgICB1bG9nKGBNeXRoaWMgSklUOiB3cml0ZSBURUIgdG8gcGFnZTAgb2Zmc2V0IDB4JHt0ZWJPZmYudG9TdHJpbmcoMTYpfTogJHt3cml0ZVJlc3B9YCk7CiAgICAgICAgICAgICAgICAgICAgaWYgKHdyaXRlUmVzcCA9PT0gJ09LJykgewogICAgICAgICAgICAgICAgICAgICAgICBzdWNjZXNzID0gMW47CiAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CgogICAgICAgICAgICBzZW5kX2NvbW1hbmQoYFAwPSR7bnVtYmVyVG9MaXR0bGVFbmRpYW5IZXhTdHJpbmcoc3VjY2Vzcyl9O3RocmVhZDoke3RpZH07YCk7CiAgICAgICAgfQoKICAgIH0gZWxzZSBpZiAoYnJrSW1tID09PSAweDY5KSB7CiAgICAgICAgLy8gTGVnYWN5IHByb3RvY29sCiAgICAgICAgdWxvZyhgTXl0aGljIEpJVDogbGVnYWN5IEJSSyAweDY5LCB4MD0weCR7eDAudG9TdHJpbmcoMTYpfWApOwogICAgICAgIGlmICh4MCAhPT0gMG4pIHsKICAgICAgICAgICAgcHJlcGFyZV9tZW1vcnlfcmVnaW9uKHgwLCB4MCk7CiAgICAgICAgfQogICAgICAgIHNlbmRfY29tbWFuZChgUDA9JHtudW1iZXJUb0xpdHRsZUVuZGlhbkhleFN0cmluZyh4MCl9O3RocmVhZDoke3RpZH07YCk7CiAgICB9Cn0K"
+    // madeira-jit.js in Copy Bundle Resources is the only script source.
 
-    /// Load script from madeira-jit.js file next to the binary (development convenience).
-    /// Falls back to the embedded base64 above for release builds.
-    private static var resolvedScriptBase64: String {
-        // Try loading from bundle first (if added to Copy Bundle Resources)
-        if let url = Bundle.main.url(forResource: "madeira-jit", withExtension: "js"),
-           let data = try? Data(contentsOf: url) {
-            return data.base64EncodedString()
+    enum RequestError: LocalizedError {
+        case scriptMissing
+        case invalidRequest
+        case unavailable
+        case timedOut
+
+        var errorDescription: String? {
+            switch self {
+            case .scriptMissing:
+                return "Madeira's JIT script is missing from this installation. Reinstall Madeira."
+            case .invalidRequest:
+                return "Madeira could not create the StikDebug request."
+            case .unavailable:
+                return "StikDebug is not installed. Install it, or configure Built-in StikJIT."
+            case .timedOut:
+                return "StikDebug did not attach to Madeira within 90 seconds. Check its pairing file and LocalDevVPN, then try again."
+            }
         }
-        return scriptBase64
     }
 
-    /// Check if StikDebug or StikJIT is available by trying to open their URL.
+    /// The script in Copy Bundle Resources is the single source used by both
+    /// StikDebug and Built-in StikJIT.
+    static var scriptData: Data? {
+        guard let url = Bundle.main.url(forResource: "madeira-jit", withExtension: "js") else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    /// Check whether StikDebug is installed. `stikdebug` is its canonical scheme;
+    /// the older `stikjit` alias remains declared for compatibility.
     static var isAvailable: Bool {
-        guard let url = URL(string: "stikjit://enable-jit") else { return false }
+        guard let url = URL(string: "stikdebug://enable-jit") else { return false }
         return UIApplication.shared.canOpenURL(url)
     }
 
     /// Open StikDebug with our JIT script embedded in the URL.
-    /// StikDebug will attach to our process and run the script.
-    static func enableJIT(completion: @escaping (Bool) -> Void) {
-        let bundleId = Bundle.main.bundleIdentifier ?? "com.madeira.emulator"
-
-        // Build the URL with script data
-        let scriptData = resolvedScriptBase64.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let urlString = "stikjit://enable-jit?bundle-id=\(bundleId)&script-data=\(scriptData)"
-
-        guard let url = URL(string: urlString) else {
+    /// PID targets this running process rather than asking StikDebug to launch a
+    /// replacement instance by bundle ID.
+    static func enableJIT(completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let bundleID = Bundle.main.bundleIdentifier,
+              let scriptData else {
+            completion(.failure(RequestError.scriptMissing))
+            return
+        }
+        var components = URLComponents()
+        components.scheme = "stikdebug"
+        components.host = "enable-jit"
+        components.queryItems = [
+            URLQueryItem(name: "bundle-id", value: bundleID),
+            URLQueryItem(name: "pid", value: String(getpid())),
+            URLQueryItem(name: "script-data", value: scriptData.base64EncodedString()),
+        ]
+        guard let url = components.url else {
             LogStore.shared.log("Failed to build StikJIT URL", level: .error)
-            completion(false)
+            completion(.failure(RequestError.invalidRequest))
             return
         }
 
@@ -47,24 +69,32 @@ enum StikJITHelper {
         UIApplication.shared.open(url, options: [:]) { success in
             if !success {
                 LogStore.shared.log("Failed to open StikDebug. Is it installed?", level: .error)
-                completion(false)
+                completion(.failure(RequestError.unavailable))
                 return
             }
-
-            // Poll for CS_DEBUGGED flag
-            pollForJIT(completion: completion)
+            waitForDebugger(completion: completion)
         }
     }
 
-    /// Poll every 0.5s until CS_DEBUGGED is set, then call completion.
-    private static func pollForJIT(completion: @escaping (Bool) -> Void) {
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
-            if jit_check_debugged() {
+    /// Opening a URL only proves iOS accepted it. Readiness requires both the
+    /// sticky CS_DEBUGGED flag and a live debugger that can answer Madeira's BRK.
+    @discardableResult
+    static func waitForDebugger(timeout: TimeInterval = 90,
+                                completion: @escaping (Result<Void, Error>) -> Void) -> Timer {
+        let deadline = Date().addingTimeInterval(timeout)
+        let timer = Timer(timeInterval: 0.5, repeats: true) { timer in
+            if ready {
                 timer.invalidate()
-                LogStore.shared.log("JIT enabled! (CS_DEBUGGED set)", level: .success)
-                completion(true)
+                LogStore.shared.log("JIT enabled and debugger attached.", level: .success)
+                completion(.success(()))
+            } else if Date() >= deadline {
+                timer.invalidate()
+                LogStore.shared.log(RequestError.timedOut.localizedDescription, level: .error)
+                completion(.failure(RequestError.timedOut))
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
     }
 
     /// Allocate a JIT memory pool via BRK #0xf00d, then detach the debugger.
@@ -77,11 +107,55 @@ enum StikJITHelper {
         return result
     }
 
+    /// Why the last allocatePool() returned nil, in words for the person playing
+    /// (the library shows it); nil after a success.
+    private(set) static var poolFailure: String?
+    static let noDebuggerMessage = "JIT is switched on, but StikDebug is not attached to Madeira, so the JIT memory cannot "
+        + "be set up. This happens when JIT is enabled from StikDebug's own app list. Tap Enable JIT: StikDebug then "
+        + "reopens Madeira with Madeira's script, ready to play."
+
+    /// This app run's pool exists. The debugger detaches right after the pool is
+    /// made, by design, so from then on "no debugger attached" is the normal state.
+    private(set) static var poolTaken = false
+
+    // 0 treats JIT as ready whenever CS_DEBUGGED is set, as before, without asking whether a debugger is attached.
+    private static let attachCheck = MadeiraConfig.flag("MADEIRA_JIT_ATTACH_CHECK")
+
+    /// JIT can serve a launch: CS_DEBUGGED is set, and either a debugger is
+    /// attached to answer the pool request or this run's pool exists already.
+    /// CS_DEBUGGED alone is not enough: it stays set after a debugger leaves, which
+    /// is the state StikDebug's own app list (attach, then detach) leaves behind.
+    static var ready: Bool {
+        guard jit_check_debugged() else { return false }
+        return !attachCheck || poolTaken || isDebuggerAttached()
+    }
+
+    /// CS_DEBUGGED is set but nothing can answer a pool request: JIT has to be
+    /// enabled again, through Madeira, before a game can start.
+    static var flaggedWithoutDebugger: Bool { jit_check_debugged() && !ready }
+
     /// Allocate a JIT memory pool via BRK #0xf00d WITHOUT detaching the debugger.
     /// The debugger stays attached so Wine can use BRK to prepare PE code pages.
     static func allocatePool(poolSize requestedPoolSize: Int = 128 * 1024 * 1024) -> (rx: UnsafeMutableRawPointer, rw: UnsafeMutableRawPointer, size: Int)? {
         var poolSize = requestedPoolSize      // ml1036: may shrink to fit, see the hole census below
+        poolFailure = nil
         LogStore.shared.log("Allocating \(poolSize / 1024 / 1024)MB JIT pool via debugger...")
+
+        let debuggerAttached = isDebuggerAttached()
+        LogStore.shared.log("[jit-debugger] attached=\(debuggerAttached ? 1 : 0) at the pool request")
+        // With no debugger attached, a JIT request fails the launch with a message; 0 lets it crash the app as before.
+        // CS_DEBUGGED stays set after a debugger detaches (JIT enabled by a tool
+        // that attaches and leaves, or without Madeira's script), and the pool
+        // request below is a BRK only a debugger can answer: with nobody attached
+        // it killed the app (EXC_BREAKPOINT in jit26_prepare_region). P_TRACED says
+        // whether a debugger is attached now. The handler cannot take a BRK away
+        // from an attached debugger, which sees the exception first, so a wrong
+        // reading costs nothing.
+        if !debuggerAttached && MadeiraConfig.flag("MADEIRA_JIT_TRAP_FALLBACK") {
+            jit_arm_trap_fallback()
+            LogStore.shared.log("[jit-debugger] no debugger is attached although CS_DEBUGGED is set: "
+                + "an unanswered pool request now fails the launch instead of crashing the app", level: .error)
+        }
 
         // iOS-Madeira: FEX's dispatcher emit has a position-dependent encoding
         // bug — only works when the JIT pool lands at a high enough address
@@ -345,9 +419,11 @@ enum StikJITHelper {
         }
 
         var rxPtrOpt: UnsafeMutableRawPointer? = nil
+        var requestUnanswered = false
         for attempt in 0..<3 {
             guard let p = jit26_prepare_region(nil, poolSize), p != UnsafeMutableRawPointer(bitPattern: 0) else {
                 LogStore.shared.log("Debugger failed to allocate RX memory (attempt \(attempt))", level: .error)
+                requestUnanswered = true
                 break
             }
             let a = Int(bitPattern: p)
@@ -373,6 +449,18 @@ enum StikJITHelper {
         // ml1040: the plugs existed only to steer first-fit; give the VA back.
         for (a, sz) in plugs { vm_deallocate(mach_task_self_, a, sz) }
         guard let rxPtr = rxPtrOpt else {
+            if requestUnanswered && !debuggerAttached {
+                // Nothing answered the BRK: there is no pool and no placement to
+                // re-roll, so the app stays up and says what to do.
+                poolFailure = noDebuggerMessage
+                LogStore.shared.log("[jit-debugger] the pool request was not answered: no debugger is attached. "
+                    + "Enable JIT with Madeira's Enable JIT button, so that StikDebug attaches with Madeira's "
+                    + "script and stays attached until the game starts.", level: .error)
+                return nil
+            }
+            poolFailure = requestUnanswered
+                ? "The debugger could not allocate the JIT memory. Restart Madeira, enable JIT and try again."
+                : "The JIT memory landed at an address Madeira cannot use. Restart Madeira, enable JIT and try again."
             LogStore.shared.log("BAD POOL: no valid placement after retries. Killing in 10s — please relaunch.", level: .error)
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 10) {
                 LogStore.shared.log("BAD POOL — exiting now. Relaunch the app.", level: .error)
@@ -507,7 +595,7 @@ enum StikJITHelper {
         // derives WriteOffset from the real distance), so send it high, where it
         // lived in every run before ml977, and keep the scarce low gap for RX.
         rwAddr = 0x7000000000
-        let kr1 = vm_remap(
+        var kr1 = vm_remap(
             mach_task_self_,
             &rwAddr,
             vm_size_t(poolSize),
@@ -521,8 +609,27 @@ enum StikJITHelper {
             VM_INHERIT_NONE
         )
 
+        // Lets the kernel place the JIT pool's RW alias when the 0x7000000000 hint is
+        // past the end of the address map (63 GB maps); 0 fails at the hint as before.
+        // A process without the extended-virtual-addressing entitlement has a map
+        // that ends at 0xfc0000000, and an ANYWHERE search that starts past the end
+        // of the map does not wrap: every alias failed with KERN_NO_SPACE although
+        // ~50 GB was free, no pool was made and no session could start. On such a
+        // map the kernel's choice is directly above the RX pool, below the 16 GB
+        // floor of the small-map guest-window band.
+        if kr1 == KERN_NO_SPACE && MadeiraConfig.flag("MADEIRA_RW_ALIAS_RETRY") {
+            rwAddr = 0
+            kr1 = vm_remap(mach_task_self_, &rwAddr, vm_size_t(poolSize), 0, VM_FLAGS_ANYWHERE,
+                           mach_task_self_, vm_address_t(bitPattern: rxPtr), 0,
+                           &curProt, &maxProt, VM_INHERIT_NONE)
+            LogStore.shared.log(String(format: "[rw-alias] high hint out of reach; kernel placement kr=%d RW=0x%lx",
+                                       kr1, Int(rwAddr)), level: kr1 == KERN_SUCCESS ? .info : .error)
+        }
+
         guard kr1 == KERN_SUCCESS else {
             LogStore.shared.log("vm_remap failed: \(kr1)", level: .error)
+            poolFailure = "Madeira could not map its JIT memory (vm_remap error \(kr1)). Restart Madeira and try again; "
+                + "if it keeps happening, send the diagnostic log."
             return nil
         }
 
@@ -540,6 +647,8 @@ enum StikJITHelper {
         guard kr2 == KERN_SUCCESS else {
             LogStore.shared.log("vm_protect(RW) failed: \(kr2)", level: .error)
             vm_deallocate(mach_task_self_, rwAddr, vm_size_t(poolSize))
+            poolFailure = "Madeira could not make its JIT memory writable (vm_protect error \(kr2)). Restart Madeira and try again; "
+                + "if it keeps happening, send the diagnostic log."
             return nil
         }
 
@@ -565,6 +674,7 @@ enum StikJITHelper {
         LogStore.shared.log("[no-footprint] pool applied=\(exempt)", level: exempt ? .success : .error)
 
         LogStore.shared.log("JIT pool ready (debugger still attached).", level: .success)
+        poolTaken = true
 
         return (rx: rxPtr, rw: rwPtr, size: poolSize)
     }

@@ -17,12 +17,45 @@ if (( ${#missing[@]} )); then brew install "${missing[@]}"; fi
 log "Fetch Microsoft x64 VC runtime"
 bash "$root/scripts/fetch-vcruntime.sh"
 
+log "Fetch LÖVE LuaJIT GC64 compatibility runtime"
+bash "$root/scripts/fetch-love-luajit-gc64.sh"
+
+log "Fetch ANGLE OpenGL ES to D3D11 compatibility runtime"
+bash "$root/scripts/fetch-angle-d3d11.sh"
+
 log "Initialize pinned upstream submodules"
 git -C "$root" submodule update --init FEX wine dxmt madeira-dock
-bash "$root/scripts/apply-wine-patches.sh"
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \
     External/fmt External/xxhash External/range-v3 External/unordered_dense
 git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
+
+# Keep tiny integration fixes in the main source tree instead of relying on a
+# dirty, unpublished submodule checkout. Applying twice is harmless; any third
+# state is a real source drift and must fail rather than silently mispatch.
+for wine_patch in \
+    "$root/patches/wine-socket-cmsg-rate-limit.patch" \
+    "$root/patches/wine-luajit-gc64-file-redirect.patch"; do
+    if git -C "$root/wine" apply --check "$wine_patch"; then
+        git -C "$root/wine" apply "$wine_patch"
+    elif ! git -C "$root/wine" apply --reverse --check "$wine_patch"; then
+        echo "Wine source no longer matches $wine_patch" >&2
+        exit 1
+    fi
+done
+
+bash "$root/scripts/apply-wine-patches.sh"
+
+dxmt_patch="$root/patches/dxmt-madeira-query-log.patch"
+if git -C "$root/dxmt" apply --check "$dxmt_patch"; then
+    git -C "$root/dxmt" apply "$dxmt_patch"
+elif ! git -C "$root/dxmt" apply --reverse --check "$dxmt_patch"; then
+    echo "DXMT source no longer matches $dxmt_patch" >&2
+    exit 1
+fi
+
+# The ARM64EC PE modules are tracked build inputs today. Patch the same source
+# fix into them deterministically until their rebuild joins this bootstrap.
+python3 "$root/tools/patch-dxmt-query-log.py"
 
 log "Install pinned llvm-mingw"
 mingw_name="llvm-mingw-20260421-ucrt-macos-universal"
@@ -57,6 +90,9 @@ if [[ ! -f "$wine_ec/config.status" ]]; then
         --without-freetype --without-gnutls --disable-tests --enable-winegstreamer)
 fi
 make -C "$wine_ec" -j"$jobs" include/all tools/widl/all tools/winebuild/all
+
+log "Rebuild Wine controller PE bridge"
+bash "$root/build/wine-pe/build-controller.sh"
 bash "$root/build/wine-pe/build-wintypes.sh"
 bash "$root/build/wine-pe/build-d3dcompiler.sh"
 
@@ -93,6 +129,17 @@ bash "$root/build/dxmt-ios/build.sh"
 
 log "Build Madeira Dock"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/madeira-dock/build.sh"
+
+log "Build Madeira on-device pairing library"
+if ! command -v rustup >/dev/null 2>&1; then
+    brew install rustup
+    export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
+fi
+if ! rustup toolchain list | grep -q '^stable.*default'; then
+    rustup default stable
+fi
+rustup target add aarch64-apple-ios
+bash "$root/build/rppairing-ios/build.sh"
 
 log "Stage licences and validate"
 bash "$root/build/stage-licenses.sh"

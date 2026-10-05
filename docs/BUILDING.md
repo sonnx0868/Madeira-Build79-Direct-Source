@@ -21,20 +21,27 @@ remediation; steps marked UNVERIFIED have not yet been re-run from scratch.
 | `toolchains/llvm-mingw-20260421-ucrt-macos-universal/` | 122 MB third-party toolchain | `llvm-mingw-20260421-ucrt-macos-universal.tar.xz` from https://github.com/mstorsjo/llvm-mingw/releases/tag/20260421, SHA-256 `bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7`, extracted under `toolchains/` | tarball hash recorded; download UNVERIFIED |
 | `toolchains/llvm-project/` + `toolchains/llvm-ios-build/` + `toolchains/llvm-host-build/` | LLVM built for iOS (hours) | upstream llvm-project at commit `8dfdcc7b7` ("[libc++] Fix memory leaks when throwing inside std::vector constructor"); configure `llvm-ios-build` with `-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_BUILD_TYPE=Release -DLLVM_HOST_TRIPLE=arm64-apple-ios17.0 -DLLVM_DEFAULT_TARGET_TRIPLE=arm64-apple-ios17.0 -DLLVM_TARGET_ARCH=host -DLLVM_TARGETS_TO_BUILD= -DLLVM_ENABLE_PROJECTS= -DLLVM_BUILD_TOOLS=Off -DLLVM_INCLUDE_TESTS=Off -DLLVM_ENABLE_ZLIB=Off` (values read back from the existing CMakeCache); a host build for tablegen lives in `llvm-host-build` | recipe reconstructed; UNVERIFIED |
 | `research/GPTK/Metal Shader Converter 4.0 beta 2.pkg` | Apple installer, 30 MB, licence-bound | Apple developer downloads; SHA-256 `1acc33c87ea663933df89721a998d066106685473020bcbe007cee7a16155734` (pinned in `build/madeira-d3d12/deps.sh`). Only needed to REBUILD the converter fetch; the library itself is tracked | n/a |
-| `app/Madeira/x86_64-vcruntime/` | Microsoft Visual C++ 2015-2022 x64 runtime DLLs (concrt140, msvcp140*, vcamp140, vccorlib140, vcruntime140*), redistributable under Microsoft's terms, not under this repository's licence | extract from Microsoft's `vc_redist.x64.exe` (or copy from `C:\Windows\System32` of a licensed Windows install) into that folder | UNVERIFIED |
-| StikDebug (JIT) and a free Apple ID | runtime requirements | see README | n/a |
+| `app/Madeira/x86_64-vcruntime/` | Microsoft Visual C++ 2008 and 2015-2022 x64 runtime DLLs (`msvcp90`, `msvcr90`, `concrt140`, `msvcp140*`, `vcamp140`, `vccorlib140`, `vcruntime140*`), redistributable under Microsoft's terms, not under this repository's licence | run `scripts/fetch-vcruntime.sh`, which downloads the pinned official x64 packages, verifies their hashes and extracts the unmodified AMD64 DLLs | package structure, AMD64 machine type and signatures verified locally; Codemagic run pending |
+| `app/Madeira/arm64ec-windows/lua51-gc64.dll` | LuaJIT GC64 runtime for detected LÖVE 11.5 games, including Balatro; MIT-licensed binary output, not tracked | run `scripts/fetch-love-luajit-gc64.sh`, which downloads the official LÖVE 11.5 Windows x64 archive and verifies both archive and DLL SHA-256 | DLL machine type and high-address `luaL_newstate` behaviour verified on Windows; Codemagic staging pending |
+| `app/Madeira/arm64ec-windows/libEGL.dll`, `libGLESv2.dll` | ANGLE OpenGL ES to D3D11 runtime; BSD-3-Clause/permissive binary outputs, not tracked | run `scripts/fetch-angle-d3d11.sh`, which extracts only the two DLLs and complete notices from official Electron 28.1.0 and verifies archive/file SHA-256 | Official LÖVE 11.5 x64 smoke test reports OpenGL ES 3.0 through ANGLE D3D11; device path continues through DXMT to Metal |
+| tracked DXMT `d3d11.dll` / `dxgi.dll` | ARM64EC PE front ends | canonical source change: `patches/dxmt-madeira-query-log.patch`; deterministic tracked-binary bridge: `tools/patch-dxmt-query-log.py` | preflight verifies the optional QueryInterface warning deduper cannot crash before its global constructor |
+| A free Apple ID; StikDebug or a pairing file plus LocalDevVPN | signing and JIT runtime requirements | see `docs/JIT.md` | n/a |
 
 ## Native build chains (all in the repository)
 
 Run in this order after the inputs above are in place. Outputs are
 git-ignored and consumed by the app project.
 
-`scripts/bootstrap-native-deps.sh` first applies
-`build/wine-pe/madeira-v0.1.4.patch` to the pinned Wine submodule through
-`scripts/apply-wine-patches.sh`. The patch is kept in Madeira because the
-build account has no push access to Wine's remote. Application is idempotent
-and fails closed if the pinned Wine source changes. The bootstrap then
-rebuilds/stages the patched `wintypes.dll` and `d3dcompiler_47.dll`.
+`scripts/bootstrap-native-deps.sh` also applies
+`build/wine-pe/madeira-v0.1.4.patch` through the idempotent
+`scripts/apply-wine-patches.sh`, then rebuilds `wintypes.dll` and
+`d3dcompiler_47.dll`. The patch lives in Madeira because the build account has
+no push access to the Wine remote; application fails closed if the pinned Wine
+source changes.
+
+The bootstrap applies `patches/wine-socket-cmsg-rate-limit.patch` to the pinned
+Wine checkout. It only rate-limits an unsupported ancillary-header warning
+that Steam can emit thousands of times; socket behaviour is unchanged.
 
 1. `build/gnutls-ios/build.sh`: GMP 6.3.0, Nettle 3.10.1, GnuTLS 3.8.9 from
    the tracked tarballs in `build/gnutls-ios/src` (SHA256SUMS there) ->
@@ -57,11 +64,17 @@ rebuilds/stages the patched `wintypes.dll` and `d3dcompiler_47.dll`.
 3. Wine (submodule, branch madeira-lgpl):
    - unix side: `build/ntdll-unix/build.sh`, `build/wineserver/build.sh`,
      `build/win32u-unix/build.sh` -> `app/Madeira/lib{ntdll_unix,wineserver,win32u_unix}.a`. Verified on the development machine.
-   - PE side: `build/wine-pe/build-ntdll.sh` (configures `wine/build-arm64ec` with `--enable-archs=arm64ec --without-x --disable-tests --enable-winegstreamer` on first run, builds `dlls/ntdll`, strips, pads to SizeOfImage + 0x50000, copies to the app). Other PE modules: `make -C dlls/<name>` in that tree and copy the DLL, as the script's header says; winegstreamer (enabled by `--enable-winegstreamer` although GStreamer is absent, since its unix side is `build/ntdll-unix/winegstreamer_unixlib_ios.c`) is built as the target `dlls/winegstreamer/arm64ec-windows/winegstreamer.dll`, never with `make -C`. The strip/pad step was verified this session; the configure step is UNVERIFIED from clean.
-   - `app/Madeira/arm64ec-windows/` is the DLL farm: every file in it is linked into the prefix (`system32` for x64 sessions, and `sysx64`), so a Wine module is only available if it was built and copied there. `wintypes.dll` is mandatory for modern Unity IL2CPP: Wine's API-set schema maps `api-ms-win-core-winrt-robuffer-l1-1-0` to it; build and stage it with `bash build/wine-pe/build-wintypes.sh`. The native D3D12 path needs two stock modules in addition to the existing ones: `dcomp.dll` (`make -C dlls/dcomp`; a 64-bit Godot 4 engine loads it before it creates its D3D12 device, and gives up on D3D12 without it) and `ktmw32.dll` (`make -C dlls/ktmw32`; an optional import the same engine probes).
+   - PE side: `build/wine-pe/build-ntdll.sh` (configures `wine/build-arm64ec` with `--enable-archs=arm64ec --without-x --disable-tests --enable-winegstreamer` on first run, builds `dlls/ntdll`, strips, pads to SizeOfImage + 0x50000, copies to the app). `build/wine-pe/build-controller.sh` rebuilds and stages `win32u`, DirectInput 7/8 and the desktop XInput variants from the same pinned source so the gamepad syscall ABI cannot drift from `libwin32u_unix.a`; the bootstrap workflow runs it automatically and packages those DLLs in the reusable native bundle. Other PE modules: `make -C dlls/<name>` in that tree and copy the DLL, as the ntdll script's header says; winegstreamer (enabled by `--enable-winegstreamer` although GStreamer is absent, since its unix side is `build/ntdll-unix/winegstreamer_unixlib_ios.c`) is built as the target `dlls/winegstreamer/arm64ec-windows/winegstreamer.dll`, never with `make -C`. The strip/pad step was verified this session; the configure step is UNVERIFIED from clean.
+   - `app/Madeira/arm64ec-windows/` is the DLL farm: every file in it is linked into the prefix (`system32` for x64 sessions, and `sysx64`), so a Wine module is only available if it was built and copied there. The native D3D12 path needs two stock modules in addition to the existing ones: `dcomp.dll` (`make -C dlls/dcomp`; a 64-bit Godot 4 engine loads it before it creates its D3D12 device, and gives up on D3D12 without it) and `ktmw32.dll` (`make -C dlls/ktmw32`; an optional import the same engine probes).
 4. DXMT (submodule, branch ios-port):
    - unix side: `build/dxmt-ios/build.sh` (needs `toolchains/llvm-ios-build`) -> `app/Madeira/libdxmt_combined.a` (ignored; the app links it). Verified this session.
    - PE side: `meson setup dxmt/build-arm64ec dxmt -Dbuildtype=release -Dwine_build_path=../../wine/build-arm64ec --cross-file=dxmt/build-arm64ec-win.txt` then `ninja -C dxmt/build-arm64ec src/winemetal/winemetal.dll` (and d3d11.dll) -> copied to `app/Madeira/arm64ec-windows/`. Verified this session (winemetal.dll).
+4b. In-app pairing (Built-in StikJIT on iOS 27): `build/rppairing-ios/build.sh`
+   (Rust with the `aarch64-apple-ios` target; crates from crates.io at the
+   versions in `build/rppairing-ios/Cargo.lock`) -> `app/Madeira/libmadeira_rppairing.a`
+   (ignored; the app links it) and the bundled crate notices
+   `app/Madeira/legal/LICENSES-rppairing-crates.txt` (tracked). `cargo test`
+   in that folder runs its host tests. Verified on the development machine.
 5. Native D3D12 runtime: `build/madeira-d3d12/build-pe.sh` -> `d3d12.dll`, `madeira_d3d12.dll` and the test executables in `app/Madeira/arm64ec-windows/` (tracked). Verified this session. `build/madeira-d3d12/fetch-converter.sh` re-verifies the converter library; `build/stage-licenses.sh` refreshes the bundled licence copies (the Xcode build fails if they are stale).
 6. App: `xcodebuild -project app/Madeira.xcodeproj -scheme Madeira -destination 'generic/platform=iOS' -allowProvisioningUpdates build` (Debug is the configuration that runs the games; Release builds have crashed the guest), then zip `Payload/Madeira.app` into an IPA and sideload. Verified this session on the development machine.
 7. WoW64 (32-bit programs, optional): `build/wine-i386/build.sh` (i386 Wine farm

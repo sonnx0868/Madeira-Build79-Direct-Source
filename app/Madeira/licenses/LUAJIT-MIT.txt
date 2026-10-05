@@ -1,0 +1,37 @@
+LuaJIT GC64 compatibility runtime
+=================================
+
+`arm64ec-windows/lua51-gc64.dll` is the unmodified `lua51.dll` from the
+official LÖVE 11.5 Windows x64 archive:
+
+https://github.com/love2d/love/releases/tag/11.5
+
+Archive SHA-256:
+ba6e56be2685e53c817749c4a5007f51137136fe5a3ab64920508babc2e74369
+
+DLL SHA-256:
+94fb3e3d4b1f6acce0110e46aadf1ecab1fa17c4ed1ab34caef3c5c2121c208e
+
+Madeira enables it only for a detected LÖVE 11.5 runtime (with Balatro's
+Steam App ID as a fallback before metadata is available), and leaves the
+game's original DLL untouched.
+
+LuaJIT is Copyright (C) 2005-2026 Mike Pall.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

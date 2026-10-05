@@ -75,7 +75,21 @@ OVERLAY = {
     "env.MADEIRA_ONBOARDING": {"title": "First-run Steam setup"},
     "env.MADEIRA_XINPUT": {"title": "Physical controllers (XInput)"},
     "env.MADEIRA_TOUCH_XINPUT": {"title": "Touch controller as XInput player 1"},
+    "env.MADEIRA_CONTROLLER_AUTO_PREFS": {"title": "Automatic game controller preferences", "category": "Controllers",
+                "note": "On by default. Seeds only known game settings that otherwise require opening a controller menu and restarting, while preserving all unrelated preferences."},
+    "env.MADEIRA_CONTROLS_XBOX_DEFAULT": {"title": "Built-in Xbox touch layout for new users", "category": "Controllers",
+                "note": "On by default. When no controls file exists, showing Touch controls loads Madeira's complete Xbox layout once; existing layouts are never replaced."},
+    "env.MADEIRA_PAD_EARLY_SLOT": {"title": "Publish controller before the game starts", "category": "Controllers",
+                "note": "On by default so games that enumerate controllers only once at startup see player 1. Set to Off only to restore the old late-enumeration behaviour."},
+    "env.MADEIRA_STEAM_OVERLAY": {"title": "Steam overlay in games", "category": "Steam & Dock",
+                "note": "Off by default: Madeira supplies its own controller and session UI, while Valve's injected overlay consumes memory and can hook XInput. Enable only when a game specifically needs it."},
     "env.MADEIRA_DINPUT_PAD": {"title": "DirectInput joystick from the host gamepad"},
+    "env.MADEIRA_UNITY_D3D11": {"title": "Force Direct3D 11 for copied Unity games", "category": "App & front end",
+                "note": "On by default. Adds -force-d3d11 only when UnityPlayer.dll sits beside a directly launched game and no renderer argument was supplied. Steam Dock launches are untouched."},
+    "env.MADEIRA_LUAJIT_GC64": {"title": "LOVE 11.5 LuaJIT GC64 compatibility", "category": "Memory & JIT pool",
+                "note": "On by default for detected LOVE 11.5 games (including Balatro). Redirects the low-address LuaJIT runtime to the pinned official GC64 lua51.dll without modifying game files."},
+    "env.MADEIRA_OPENGL_ANGLE": {"title": "OpenGL ES through ANGLE and DXMT", "category": "Direct3D 9/10/11 (DXMT)",
+                "note": "On by default for detected LOVE and SDL games. Routes OpenGL ES through ANGLE D3D11, then DXMT to Metal. Turn off only when a game supplies a better EGL/GLES route."},
     "env.MADEIRA_PROMOTE": {"title": "Hold the display at its maximum rate"},
     "dxmt": {"title": "DXMT options (a=b;c=d)"},
 }
@@ -145,13 +159,12 @@ def scan():
         out = subprocess.run(["git", "-C", base, "ls-files", "--"] + dirs,
                              capture_output=True, text=True).stdout.split()
         for rel in out:
-            # Catalog source paths are repository paths, not host paths. Keep
-            # generated output stable when the checker runs on Windows.
-            path = os.path.normpath(os.path.join(repo, rel)).replace(os.sep, "/")
+            # Keep generated source paths stable on Windows and macOS.
+            path = os.path.normpath(os.path.join(repo, rel)).replace("\\", "/")
             if not path.endswith(EXT) or any(s in path for s in SKIP):
                 continue
             try:
-                txt = open(os.path.join(ROOT, path), errors="ignore").read()
+                txt = open(os.path.join(ROOT, path), encoding="utf-8", errors="ignore").read()
             except OSError:
                 continue
             lines = txt.split("\n")
@@ -219,13 +232,13 @@ def render(opts):
 def main():
     text = render(scan())
     if "--check" in sys.argv:
-        cur = open(OUT).read() if os.path.exists(OUT) else ""
+        cur = open(OUT, encoding="utf-8").read() if os.path.exists(OUT) else ""
         if cur != text:
             print("ConfigCatalog.generated.swift is out of date: run build/tools/gen-config-catalog.py")
             return 1
         print("ConfigCatalog.generated.swift is current")
         return 0
-    open(OUT, "w").write(text)
+    open(OUT, "w", encoding="utf-8", newline="\n").write(text)
     print(f"wrote {OUT}")
     return 0
 

@@ -1,0 +1,37 @@
+diff --git a/src/util/com/com_guid.cpp b/src/util/com/com_guid.cpp
+index 11bf4a7..d8a8cd5 100644
+--- a/src/util/com/com_guid.cpp
++++ b/src/util/com/com_guid.cpp
+@@ -41,15 +41,28 @@ struct GuidPair {
+   bool eq(const GuidPair &other) const { return a == other.a && b == other.b; }
+ };
+-
++
++#ifndef DXMT_MADEIRA
+ dxmt::mutex g_loggedQueryInterfaceErrorMutex;
+ std::unordered_set<GuidPair, DxmtHash, DxmtEq> g_loggedQueryInterfaceErrors;
++#endif
+-
++
+ bool logQueryInterfaceError(REFIID objectGuid, REFIID requestedGuid) {
++#ifdef DXMT_MADEIRA
++  // Optional/unsupported QueryInterface calls are expected. The PE-side
++  // global unordered_set can be reached before its dynamic initializer in an
++  // ARM64EC process (ANGLE does this while creating a second window), turning
++  // warning deduplication into a null-bucket crash. Logging must never decide
++  // whether COM returns E_NOINTERFACE, so suppress only this warning on Madeira.
++  (void)objectGuid;
++  (void)requestedGuid;
++  return false;
++#else
+   if (Logger::logLevel() > LogLevel::Warn)
+     return false;
+-
++
+   std::lock_guard lock(g_loggedQueryInterfaceErrorMutex);
+   return g_loggedQueryInterfaceErrors.emplace(objectGuid, requestedGuid).second;
++#endif
+ }
+-
++
+ } // namespace dxmt

@@ -25,6 +25,8 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <string.h>
+#include <strings.h>
 
 #include "ntstatus.h"
 #include "ntgdi_private.h"
@@ -167,47 +169,18 @@ static UINT winios_key_extended_flag( UINT vk, UINT scan, int nav_e0 )
 /* Keyboard sibling of winios_drv_post_key: packages an INPUT_KEYBOARD
  * event. vk is a Windows virtual-key code (VK_RETURN=0x0D, VK_SPACE=0x20,
  * VK_ESCAPE=0x1B, ...); flags is 0 for key-down, KEYEVENTF_KEYUP (0x2)
- * for key-up. Scan code derived via the default layout so games reading
- * scan codes (DirectInput-style) see something plausible. */
-void winios_drv_post_key(unsigned short vk, unsigned int flags)
+ * for key-up. HardwareInput supplies a physical set-1 scan code through
+ * winios_drv_post_key_scan; synthetic/touch input uses this entry point and
+ * derives one through the active layout. */
+static void winios_drv_send_key(unsigned short vk, unsigned short scan, unsigned int flags,
+                                const char *source)
 {
     INPUT input = {0};
     NTSTATUS st;
-    UINT scan;
-    static int nav_e0 = -1;
-
-    /* ml647: DERIVE THE SCAN CODE. This used to hardcode wScan = 0 while the
-     * comment above claimed it was "derived via the default layout" — the
-     * comment described an intent the code never implemented.
-     *
-     * Nothing downstream fills it in for us. wineserver passes our value
-     * straight through, twice:
-     *     rawkeyboard_init(): RAWKEYBOARD.MakeCode = scan      (queue_ios.c:2093)
-     *     queue_keyboard_message(): lparam = scan << 16        (queue_ios.c:2356)
-     * so with 0 every synthetic key arrived with MakeCode 0 and an empty
-     * scan-code field in WM_KEYDOWN's lParam. No real keyboard can do that.
-     *
-     * Wine's own UI never noticed, because dialogs read the VK out of wParam.
-     * A GAME does notice: Unity reads the keyboard through raw input and
-     * DirectInput identifies keys by scan code (DIK_W is 0x11, not 'W'), so
-     * W/A/S/D were delivered, accepted with STATUS_SUCCESS, and then discarded
-     * as unidentifiable. That is why the on-screen stick moved nothing.
-     *
-     * MAPVK_VK_TO_VSC_EX returns 0xE0xx for the extended keys — arrows, the nav
-     * cluster, right ctrl/alt, numpad enter and divide. Those MUST carry
-     * KEYEVENTF_EXTENDEDKEY, or a scan-code reader sees the numpad twin
-     * instead: without E0, "up arrow" is numpad 8. */
-    scan = NtUserMapVirtualKeyEx( vk, MAPVK_VK_TO_VSC_EX, NtUserGetKeyboardLayout(0) );
-    if (nav_e0 < 0)
-    {
-        const char *e = getenv( "MADEIRA_NAV_KEYS_E0" );
-        nav_e0 = !(e && e[0] == '0');
-    }
-    flags |= winios_key_extended_flag( vk, scan, nav_e0 );
 
     input.type           = INPUT_KEYBOARD;
     input.ki.wVk         = vk;
-    input.ki.wScan       = scan & 0xff;
+    input.ki.wScan       = scan;
     input.ki.dwFlags     = flags;
     input.ki.time        = 0;
     input.ki.dwExtraInfo = 0;
@@ -224,9 +197,35 @@ void winios_drv_post_key(unsigned short vk, unsigned int flags)
         cnt++;
         if (cnt <= 8 || (cnt & 0xff) == 0)
             dprintf(2, "[winios] ml647 drv_post_key #%u vk=0x%x scan=0x%x flags=0x%x "
-                       "-> status=0x%x (failures=%u)\n",
-                    cnt, vk, scan, flags, (unsigned)st, bad);
+                       "source=%s -> status=0x%x (failures=%u)\n",
+                    cnt, vk, scan, flags, source, (unsigned)st, bad);
     }
+}
+
+void winios_drv_post_key(unsigned short vk, unsigned int flags);
+void winios_drv_post_key_scan(unsigned short vk, unsigned short scan, unsigned int flags)
+{
+    /* GCKeyboard's USB HID usage preserves the physical scan code before
+     * virtual-key mapping can collapse main/numpad Enter and ISO twins. */
+    if (scan) winios_drv_send_key( vk, scan & 0xff, flags, "physical" );
+    else winios_drv_post_key( vk, flags );
+}
+
+void winios_drv_post_key(unsigned short vk, unsigned int flags)
+{
+    UINT scan;
+    static int nav_e0 = -1;
+
+    /* Synthetic/on-screen inputs have no HID usage. Derive their scan from
+     * the active Wine layout, preserving the pre-existing compatibility path. */
+    scan = NtUserMapVirtualKeyEx( vk, MAPVK_VK_TO_VSC_EX, NtUserGetKeyboardLayout(0) );
+    if (nav_e0 < 0)
+    {
+        const char *e = getenv( "MADEIRA_NAV_KEYS_E0" );
+        nav_e0 = !(e && e[0] == '0');
+    }
+    flags |= winios_key_extended_flag( vk, scan, nav_e0 );
+    winios_drv_send_key( vk, scan & 0xff, flags, "derived" );
 }
 
 /* [winios-tree] window-tree dump: every top-level window with class,
@@ -401,11 +400,30 @@ extern int winios_surface_present( HWND hwnd, int dirty_x, int dirty_y, int dirt
                                     int surf_w, int surf_h, int stride, const void *bits ) __attribute__((weak));
 extern void winios_window_frame( HWND hwnd, int x, int y, int w, int h, int visible,
                                  int cx, int cy, int cw, int ch ) __attribute__((weak));
+extern void winios_window_alert( const char *text ) __attribute__((weak));
 extern void winios_cursor_set( unsigned int id, int w, int h, int hot_x, int hot_y,
                                const void *bgra ) __attribute__((weak));
 extern void winios_cursor_show( int show ) __attribute__((weak));
 
 static int winios_desktop_mode(void);
+
+static int winios_ascii_contains_ci( const char *text, const char *word )
+{
+    size_t n = strlen( word );
+    for (; *text; text++) if (!strncasecmp( text, word, n )) return 1;
+    return 0;
+}
+
+static int winios_is_alert_text( const char *text )
+{
+    static const char * const words[] = {
+        "error", "failed", "not found", "missing", "exception", "assertion"
+    };
+    if (!text || strlen(text) < 8) return 0;
+    for (size_t i = 0; i < ARRAY_SIZE(words); i++)
+        if (winios_ascii_contains_ci( text, words[i] )) return 1;
+    return 0;
+}
 
 /* pSetCursor: extract the cursor image as straight-alpha BGRA and forward
  * to the app-side compositor cursor layer. win32u calls this on every
@@ -700,6 +718,7 @@ static void winios_drv_window_pos_changed( HWND hwnd, HWND insert_after, HWND ow
                 txt[j] = 0;
                 if (cls[0] || txt[0])
                     dprintf( 2, "[win-name] #%u hwnd=%p class='%s' text=\"%s\" rev=ml853\n", n, hwnd, cls, txt );
+                if (winios_window_alert && winios_is_alert_text( txt )) winios_window_alert( txt );
             }
         }
     }
@@ -2273,9 +2292,37 @@ C_ASSERT( sizeof(struct winios_gamepad) == 20 );
 ULONG_PTR ios_gamepad_query( UINT index, UINT op, void *buffer )
 {
     struct winios_gamepad pad;
+    static unsigned int query_count, miss_count, active_count;
+    unsigned int n;
 
     if (!buffer || index >= 4) return 0;
-    if (!winios_gamepad_get_state( index, &pad )) return 0;
+    n = __atomic_load_n( &query_count, __ATOMIC_RELAXED );
+    if (n < 8) n = __atomic_add_fetch( &query_count, 1, __ATOMIC_RELAXED );
+    else n = 9;
+    if (!winios_gamepad_get_state( index, &pad ))
+    {
+        unsigned int miss = __atomic_load_n( &miss_count, __ATOMIC_RELAXED );
+        if (miss < 8) miss = __atomic_add_fetch( &miss_count, 1, __ATOMIC_RELAXED );
+        else miss = 9;
+        if (miss <= 8) dprintf( 2, "[xinput-guest] query#%u miss#%u slot=%u op=%u connected=0\n", n, miss, index, op );
+        return 0;
+    }
+    if (n <= 8)
+        dprintf( 2, "[xinput-guest] query#%u slot=%u op=%u packet=%u buttons=%#x "
+                 "lt=%u rt=%u ls=(%d,%d) rs=(%d,%d)\n", n, index, op, pad.packet,
+                 (unsigned int)pad.buttons, (unsigned int)pad.left_trigger, (unsigned int)pad.right_trigger,
+                 pad.lx, pad.ly, pad.rx, pad.ry );
+    if (op == 0 && (pad.buttons || pad.left_trigger || pad.right_trigger || pad.lx || pad.ly || pad.rx || pad.ry))
+    {
+        unsigned int active = __atomic_load_n( &active_count, __ATOMIC_RELAXED );
+        if (active < 16) active = __atomic_add_fetch( &active_count, 1, __ATOMIC_RELAXED );
+        else active = 17;
+        if (active <= 16)
+            dprintf( 2, "[xinput-guest] active#%u slot=%u packet=%u buttons=%#x "
+                     "lt=%u rt=%u ls=(%d,%d) rs=(%d,%d)\n", active, index, pad.packet,
+                     (unsigned int)pad.buttons, (unsigned int)pad.left_trigger, (unsigned int)pad.right_trigger,
+                     pad.lx, pad.ly, pad.rx, pad.ry );
+    }
 
     switch (op)
     {
