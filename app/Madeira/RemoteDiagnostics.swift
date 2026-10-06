@@ -150,7 +150,7 @@ enum DiagnosticSnapshot {
         do {
             let url = try endpoint()
             let token = key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !token.isEmpty else { throw SupportError.message("Enter your private log server upload key first.") }
+            guard !token.isEmpty else { throw SupportError.message("Connect your log server first: tap Download iPad server configuration, sign in in Safari, download the configuration, then use Import server configuration here.") }
             guard !token.contains("\r"), !token.contains("\n") else { throw SupportError.message("Invalid upload key.") }
             try DiagnosticKeychain.save(token)
             UserDefaults.standard.set(server, forKey: "madeira.diagnostics.server")
@@ -193,6 +193,7 @@ enum DiagnosticSnapshot {
 enum DiagnosticEvents {
     private static var sampledAt = Date.distantPast
     private static var lastFrames: UInt64 = 0
+    private static var sessionStartFrames: UInt64 = 0
     static func phase(_ phase: String) {
         guard InputSettings.shared.diagnostics else { return }
         LogStore.shared.log("[diagnostics] phase=\(phase) uptime=\(String(format: "%.3f", ProcessInfo.processInfo.systemUptime)) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
@@ -200,11 +201,14 @@ enum DiagnosticEvents {
     static func begin(_ entry: LibraryEntry) {
         LogStore.shared.recordTest(entry)
         sampledAt = Date(); lastFrames = madeira_get_present_count()
+        sessionStartFrames = lastFrames
         guard InputSettings.shared.diagnostics else { return }
         phase("launch")
-        LogStore.shared.log("[diagnostics] bits=\(entry.bits) api=\(entry.graphicsAPI ?? "unknown") resolution=\(entry.resolution) display=\(entry.displayMode.rawValue) controller=\(entry.controllerMode ?? "default")")
+        LogStore.shared.log("[diagnostics] bits=\(entry.bits) api=\(entry.graphicsAPI ?? "unknown") resolution=\(entry.resolution) display=\(entry.displayMode.rawValue) controller=\(entry.controllerMode ?? "default") fpsMode=\(entry.effectiveFPSMode) cpuChoice=\(entry.cpuCount.map(String.init) ?? "auto") unityProfile=\(entry.unityOptimizations != false ? 1 : 0)")
         var settings: [String: String] = [:]
-        for key in ["pool", "vram-mb", "swap-mb", "sync-engine", "eco"] {
+        for key in ["pool", "vram-mb", "swap-mb", "inproc-sync", "env.MADEIRA_FASTSYNC",
+                    "env.MADEIRA_RUNTIME_PROFILERS", "env.MADEIRA_MIP_CLAMP_AUTO",
+                    "env.DXMT_WSI_MODE_TABLE", "env.MADEIRA_PROMOTE"] {
             settings[key] = String((MadeiraConfig.get(key) ?? "default").prefix(160))
         }
         if let data = try? JSONSerialization.data(withJSONObject: settings, options: .sortedKeys),
@@ -223,7 +227,13 @@ enum DiagnosticEvents {
             }
         }
         let fps = frames >= lastFrames ? Double(frames - lastFrames) / elapsed : 0
-        LogStore.shared.log("[diagnostics] sample seconds=\(String(format: "%.1f", elapsed)) fps=\(String(format: "%.1f", fps)) footprintMB=\(result == KERN_SUCCESS ? info.phys_footprint / 1048576 : 0) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
+        var screenW: Int32 = 0, screenH: Int32 = 0
+        winios_screen_size(&screenW, &screenH)
+        // Before the first present the layer still has its seed size. Do not
+        // report that as the game's render resolution.
+        let drawable = frames > sessionStartFrames ? MetalHostView.shared.metalLayer.drawableSize : .zero
+        let cpu = getenv("MADEIRA_CPU_COUNT").map { String(cString: $0) } ?? "auto"
+        LogStore.shared.log("[diagnostics] sample seconds=\(String(format: "%.1f", elapsed)) fps=\(String(format: "%.1f", fps)) footprintMB=\(result == KERN_SUCCESS ? info.phys_footprint / 1048576 : 0) thermal=\(ProcessInfo.processInfo.thermalState.rawValue) monitor=\(screenW)x\(screenH) drawable=\(Int(drawable.width))x\(Int(drawable.height)) fpsMode=\(madeira_get_vsync_locked()) cpuReported=\(cpu)")
         sampledAt = now; lastFrames = frames
     }
 }

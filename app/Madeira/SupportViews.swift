@@ -10,16 +10,22 @@ struct DiagnosticUploadView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Log server") {
+                Section {
+                    if let server = URL(string: upload.server), server.scheme == "https",
+                       server.host?.hasSuffix(".chatgpt.site") == true {
+                        Link("Download iPad server configuration", destination: server)
+                    }
                     Button("Import server configuration") { importServer = true }
                     TextField("Server URL", text: $upload.server).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("Upload key", text: $upload.key).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Button("Save server") { upload.saveConfiguration() }
+                } header: { Text("Log server") } footer: {
+                    Text("Connect once: open your server in Safari, sign in, download the iPad configuration, then import it here. The upload key is saved securely on this iPad.")
                 }
                 Section {
                     Picker("Session", selection: $previous) {
                         Text("Current session").tag(false)
-                        Text("Previous session (after a crash)").tag(true)
+                        Text("Previous session (after restarting Madeira)").tag(true)
                     }
                     TextField("Game / issue", text: $label, axis: .vertical)
                     Button { Task { await upload.send(previous: previous, label: label) } } label: {

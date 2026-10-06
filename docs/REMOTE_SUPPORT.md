@@ -13,8 +13,9 @@ log dựa vào xác thực của Sites, nên không chuyển server sang public.
 2. Mở server trong Safari, đăng nhập cùng tài khoản ChatGPT, chọn **Tải cấu hình iPad**.
 3. Madeira → **Settings → Diagnostics → Send diagnostic log → Import server configuration**.
 4. Chọn file `madeira-log-server.json` vừa tải. Khóa được lưu trong Keychain của iPad.
-5. Khi test lỗi, mở lại màn hình này, chọn **Current session** hoặc **Previous
-   session (after a crash)**, điền tên game/vấn đề rồi gửi.
+5. Khi test lỗi, mở lại màn hình này, chọn **Current session** nếu chưa đóng app,
+   hoặc **Previous session** nếu đã mở lại Madeira (kể cả không crash), điền
+   tên game/vấn đề rồi gửi. Chỉ giữ một phiên trước; gửi trước khi mở lại lần nữa.
 6. Gửi mã log cho Codex. Cài/kết nối plugin **Madeira Diagnostics** ở mỗi máy
    để Codex gọi `list_game_logs` và `read_game_log`.
 
@@ -26,7 +27,9 @@ gửi thành công, lần gửi tiếp theo chụp nội dung mới. Không tự
 thiết bị, iPadOS, số CPU/RAM, kiến trúc game/API đồ họa, display/controller và
 một danh sách cấu hình hiệu năng cố định. Ghi mốc launch, game-visible, lỗi
 launch và finish. Trong phiên game, tối đa mỗi 10 giây ghi FPS trung bình,
-memory footprint và thermal state. Không xuất toàn bộ biến môi trường, tài
+memory footprint, thermal state, kích thước monitor và drawable thực tế,
+FPS mode và CPU được báo cho game. Trước frame đầu, drawable ghi 0x0 để không
+nhầm kích thước khởi tạo với độ phân giải game. Không xuất toàn bộ biến môi trường, tài
 khoản, khóa server hay launch arguments vào metadata.
 
 Log phiên trước giữ sidecar metadata của bản build đã tạo nó. Log cũ không có
