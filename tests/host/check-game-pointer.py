@@ -30,6 +30,7 @@ assert "hardwareResponder ? hardwareInputView : super.inputView" in view
 assert "guard !LibraryModel.shared.blocksGameplayTouch" in hardware
 assert library.count("HardwareInput.shared.sessionUIChanged()") == 2
 assert "if !base && pointerLocked" in hardware
+assert "LibraryModel.shared.current != nil && !Self.desktopMode" in hardware
 assert "if lockedByUs || captureGame { autoLockSuppressed = true }" in hardware
 print("PASS: game mapping, button channel ownership, responder and menu release wiring")
 

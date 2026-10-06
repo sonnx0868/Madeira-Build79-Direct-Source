@@ -182,7 +182,7 @@ buttons. iPadOS honours it only while Madeira is full screen, and only on the
 GCMouse path (on the UIKit path locking would stop pointer delivery, so it is
 refused). iPhone has no lockable pointer and shows no lock control.
 
-- **Library games:** after the raw primary-button stream is confirmed and the
+- **Library games:** as soon as raw GCMouse motion is confirmed and the
   mouse is moving over the game view, capture also applies to games with a
   visible cursor. It stays captured in the game's own menus. Madeira's menu,
   launch screen, backgrounding, disconnect and ending the session release it.

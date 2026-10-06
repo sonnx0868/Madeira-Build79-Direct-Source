@@ -64,7 +64,7 @@ import ObjectiveC
 //     ClipCursor clamping, so aiming never stalls at a screen edge.
 // On iPad, while the program hides its cursor and the pointer is over the game
 // view, the pointer is locked (hidden and pinned, deltas keep coming at the
-// screen edges). Library games also capture a visible cursor once raw button
+// screen edges). Library games also capture a visible cursor once raw motion
 // delivery is confirmed; Madeira menus/backgrounding release the lock.
 //
 // CURSOR: with no virtual desktop (a program on the game view) nothing drew a
@@ -793,11 +793,11 @@ final class HardwareInput: ObservableObject {
     private var autoLockSuppressed = false
     private var captureSession: UUID?
 
-    /// Capture a library game's visible pointer too, once the raw button
-    /// stream is confirmed. Locking a motion-only device would kill UIKit's
-    /// button fallback. Madeira menus and launch screens release capture.
+    /// Library games contain a visible cursor too. updateAutoLock requires
+    /// a confirmed GCMouse motion path; the UIKit-only path cannot lock.
+    /// Madeira menus and launch screens release capture.
     private var captureGame: Bool {
-        LibraryModel.shared.current != nil && !Self.desktopMode && buttonStreams.gcSeen.contains(.left)
+        LibraryModel.shared.current != nil && !Self.desktopMode
     }
 
     // MARK: motion state (motionLock)
