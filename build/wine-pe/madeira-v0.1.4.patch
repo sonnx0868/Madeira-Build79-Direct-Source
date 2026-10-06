@@ -1,5 +1,3 @@
-warning: in the working copy of 'dlls/wintypes/wintypes.spec', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c', LF will be replaced by CRLF the next time Git touches it
 diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
 index b2f445e04ae..2691bdce504 100644
 --- a/dlls/ntdll/unix/file.c
@@ -487,28 +485,20 @@ index a1eb0f3830d..1a31c1959a6 100644
  @ stdcall RoIsApiContractMajorVersionPresent(wstr long ptr)
  @ stub RoIsApiContractPresent
 diff --git a/dlls/ws2_32/unixlib.c b/dlls/ws2_32/unixlib.c
-index b55bdf3b80c..487dea88f5d 100644
+index b55bdf3b80c..bdcd9f82468 100644
 --- a/dlls/ws2_32/unixlib.c
 +++ b/dlls/ws2_32/unixlib.c
-@@ -37,6 +37,9 @@
- #ifdef HAVE_NETDB_H
- # include <netdb.h>
- #endif
-+#ifdef WINE_IOS
-+# include "steam_dns_ios.h"
-+#endif
- #ifdef HAVE_SYS_PARAM_H
- # include <sys/param.h>
- #endif
-@@ -703,6 +706,7 @@ static NTSTATUS unix_getaddrinfo( void *args )
+@@ -703,6 +703,9 @@ static NTSTATUS unix_getaddrinfo( void *args )
      struct addrinfo *unix_info, *src;
      struct WS_addrinfo *dst, *prev = NULL;
      unsigned int needed_size = 0;
++#ifdef WINE_IOS
 +    BOOL madeira_dns_owned = FALSE;
++#endif
      int ret;
  
      /* servname tweak required by OSX and BSD kernels */
-@@ -762,7 +766,12 @@ static NTSTATUS unix_getaddrinfo( void *args )
+@@ -762,7 +765,12 @@ static NTSTATUS unix_getaddrinfo( void *args )
      extern void *objc_autoreleasePoolPush(void);
      extern void  objc_autoreleasePoolPop(void *);
      void *ios_arpool = objc_autoreleasePoolPush();
@@ -522,27 +512,33 @@ index b55bdf3b80c..487dea88f5d 100644
      objc_autoreleasePoolPop( ios_arpool );
  #else
      ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
-@@ -781,7 +790,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+@@ -781,7 +789,11 @@ static NTSTATUS unix_getaddrinfo( void *args )
      if (*params->size < needed_size)
      {
          *params->size = needed_size;
 -        freeaddrinfo( unix_info );
++#ifdef WINE_IOS
 +        if (madeira_dns_owned) madeira_steam_dns_freeaddrinfo( unix_info );
-+        else freeaddrinfo( unix_info );
++        else
++#endif
++            freeaddrinfo( unix_info );
          return ERROR_INSUFFICIENT_BUFFER;
      }
  
-@@ -829,7 +839,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+@@ -829,7 +841,11 @@ static NTSTATUS unix_getaddrinfo( void *args )
          }
      }
  
 -    freeaddrinfo( unix_info );
++#ifdef WINE_IOS
 +    if (madeira_dns_owned) madeira_steam_dns_freeaddrinfo( unix_info );
-+    else freeaddrinfo( unix_info );
++    else
++#endif
++        freeaddrinfo( unix_info );
      return 0;
  #else
      FIXME( "getaddrinfo() not found during build time\n" );
-@@ -993,6 +1004,42 @@ static void sort_addrs_hashed( struct hostent *host )
+@@ -993,6 +1009,42 @@ static void sort_addrs_hashed( struct hostent *host )
      }
  }
  
@@ -585,7 +581,7 @@ index b55bdf3b80c..487dea88f5d 100644
  #ifdef HAVE_LINUX_GETHOSTBYNAME_R_6
  static NTSTATUS unix_gethostbyname( void *args )
  {
-@@ -1003,6 +1050,10 @@ static NTSTATUS unix_gethostbyname( void *args )
+@@ -1003,6 +1055,10 @@ static NTSTATUS unix_gethostbyname( void *args )
      int locerr;
      int ret;
  
@@ -596,7 +592,7 @@ index b55bdf3b80c..487dea88f5d 100644
      if (!(unix_buffer = malloc( unix_size )))
          return WSAENOBUFS;
  
-@@ -1037,6 +1088,10 @@ static NTSTATUS unix_gethostbyname( void *args )
+@@ -1037,6 +1093,10 @@ static NTSTATUS unix_gethostbyname( void *args )
      struct hostent *unix_host;
      int ret;
  

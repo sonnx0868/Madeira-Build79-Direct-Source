@@ -9,6 +9,7 @@ policy = (root / "build/ntdll-unix/steam_dns_ios.c").read_text(encoding="utf-8")
 header = (root / "build/ntdll-unix/shims/steam_dns_ios.h").read_text(encoding="utf-8")
 dnsapi = (root / "build/ntdll-unix/dnsapi_unixlib_ios.c").read_text(encoding="utf-8")
 ws2 = (root / "wine/dlls/ws2_32/unixlib.c").read_text(encoding="utf-8")
+ws2_wrapper = (root / "build/ntdll-unix/ws2_32_unixlib_ios.c").read_text(encoding="utf-8")
 build = (root / "build/ntdll-unix/build.sh").read_text(encoding="utf-8")
 preflight = (root / "scripts/check-ios-build.sh").read_text(encoding="utf-8")
 ui = (root / "app/Madeira/Onboarding.swift").read_text(encoding="utf-8")
@@ -44,6 +45,13 @@ require("madeira_steam_dns_getaddrinfo" in ws2 and "madeira_steam_dns_freeaddrin
         "Winsock getaddrinfo does not use or correctly free DoH answers")
 require("try_madeira_gethostbyname" in ws2 and ws2.count("try_madeira_gethostbyname( params, &ret )") == 2,
         "legacy gethostbyname paths can still escape to blocked ISP DNS")
+# Wine makedep scans conditional includes as well. App-only headers must be
+# supplied by the iOS wrapper, never requested from the upstream source tree.
+require('include "steam_dns_ios.h"' not in ws2 and
+        '#include "steam_dns_ios.h"' in ws2_wrapper and '#include "unixlib.c"' in ws2_wrapper,
+        "Wine configure/makedep can still search for Madeira's app-only header")
+require('compile_unixlib "$BUILD_DIR/ws2_32_unixlib_ios.c"' in build,
+        "the iOS archive build does not compile the Winsock wrapper")
 require('compile_one "$BUILD_DIR/steam_dns_ios.c"' in build and '"$OBJ_DIR/steam_dns_ios.o"' in build,
         "the resolver is not in libntdll_unix.a")
 require("madeira_steam_dns_getaddrinfo" in preflight,
