@@ -1145,7 +1145,12 @@ final class InputSettings: ObservableObject {
     @Published var touchMode = false { didSet { save() } }
     /// ml649: heavy diagnostics. Default OFF so the shipped default is the fast
     /// path; flip it on only when a run needs to be explainable.
-    @Published var diagnostics = false { didSet { madeira_set_diag_enabled(diagnostics ? 1 : 0); save() } }
+    @Published var diagnostics = false {
+        didSet {
+            madeira_set_diag_enabled(diagnostics ? 1 : 0); save()
+            if !loading { LogStore.shared.log("[diagnostics] extended-logging=\(diagnostics ? 1 : 0)") }
+        }
+    }
     /// Hardware mouse gain (HardwareInput): counts per reported unit. 1.0 passes
     /// the device's deltas through unchanged.
     @Published var sensMouse: Double = 1.0 { didSet { save() } }
@@ -2070,6 +2075,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.indigo)
+                Button("Send diagnostic log") { devSheet = .diagnostics }.buttonStyle(.bordered)
+                Button("App updates") { devSheet = .updates }.buttonStyle(.bordered)
             }
             .padding()
         }
@@ -2085,6 +2092,8 @@ struct ContentView: View {
             case .steamSignIn: SteamSignInView()
             case .dock: MadeiraDockView { startDock($0, compactPool: $1) }
             case .allSettings: AllSettingsView()
+            case .diagnostics: DiagnosticUploadView()
+            case .updates: AppUpdateView()
             }
         }
     }

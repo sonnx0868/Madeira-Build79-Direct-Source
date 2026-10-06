@@ -34,11 +34,11 @@ workflows:
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
-          stamp="v0.1.4-source-$(git -C "$CM_BUILD_DIR" rev-parse --short HEAD)"
-          /usr/libexec/PlistBuddy -c "Set :MadeiraBuild $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist" 2>/dev/null || \
-            /usr/libexec/PlistBuddy -c "Add :MadeiraBuild string $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist"
+          python3 "$CM_BUILD_DIR/tests/host/check-remote-support.py" --require-swift
+          bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.4-source-bootstrap.ipa
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
+            CURRENT_PROJECT_VERSION="$(cat "$CM_BUILD_DIR/build/release-info/build-number.txt")" \
             ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build
       - name: Package ad-hoc IPA
         script: |
@@ -55,9 +55,12 @@ workflows:
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
           (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source-bootstrap.ipa Payload)
+      - name: Publish GitHub test release when configured
+        script: bash scripts/publish-release.sh "$CM_BUILD_DIR/build/v0.1.4-bootstrap/Madeira-v0.1.4-source-bootstrap.ipa"
     artifacts:
       - build/v0.1.4-bootstrap/Madeira-v0.1.4-source-bootstrap.ipa
       - madeira-v0.1.4-native-deps.zip
+      - build/release-info/madeira-update.json
       - build/ntdll-unix/obj/*.err
       - build/win32u-unix/obj/*.err
       - build/wineserver/obj/*.txt
@@ -86,11 +89,11 @@ workflows:
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
-          stamp="v0.1.4-source-$(git -C "$CM_BUILD_DIR" rev-parse --short HEAD)"
-          /usr/libexec/PlistBuddy -c "Set :MadeiraBuild $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist" 2>/dev/null || \
-            /usr/libexec/PlistBuddy -c "Add :MadeiraBuild string $stamp" "$CM_BUILD_DIR/app/Madeira/Info.plist"
+          python3 "$CM_BUILD_DIR/tests/host/check-remote-support.py" --require-swift
+          bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.4-source.ipa
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
+            CURRENT_PROJECT_VERSION="$(cat "$CM_BUILD_DIR/build/release-info/build-number.txt")" \
             ENABLE_DEBUG_DYLIB=NO CODE_SIGNING_ALLOWED=NO build
       - name: Package ad-hoc IPA
         script: |
@@ -107,6 +110,9 @@ workflows:
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
           (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source.ipa Payload)
+      - name: Publish GitHub test release when configured
+        script: bash scripts/publish-release.sh "$CM_BUILD_DIR/build/v0.1.4/Madeira-v0.1.4-source.ipa"
     artifacts:
       - build/v0.1.4/Madeira-v0.1.4-source.ipa
+      - build/release-info/madeira-update.json
       - /tmp/xcodebuild_logs/*.log

@@ -988,6 +988,7 @@ final class LibraryModel: ObservableObject {
     /// Dock start): it is neither added to the library nor stamped as played.
     /// `dock`: the game a Madeira Dock start launches (DockStartScreen).
     func begin(_ entry: LibraryEntry, remember: Bool = true, dock: DockGame? = nil) {
+        DiagnosticEvents.begin(entry)
         wine_exit_status_reset()
         winios_window_alert_reset()
         launchAttention = nil
@@ -1030,6 +1031,7 @@ final class LibraryModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
     }
     private func poll() {
+        DiagnosticEvents.sample()
         let dockStart = DockStartScreen.shared
         if dockStart.active {
             // A Dock start: the desktop's own frames (explorer, the host's console window)
@@ -1072,6 +1074,7 @@ final class LibraryModel: ObservableObject {
     /// `offerJIT`: the launch failed because no debugger is attached, so the alert
     /// offers Enable JIT instead of only reporting.
     func launchFailed(_ reason: String? = nil, offerJIT: Bool = false) {
+        DiagnosticEvents.phase("launch-failed")
         guard current != nil && !sawProcess else { return }
         finish()
         if offerJIT, let reason { jitNotice = reason }
@@ -1081,6 +1084,7 @@ final class LibraryModel: ObservableObject {
     /// removal of a scrolling view with live content could leave the starting
     /// screen up (and unresponsive) while the game was already presenting.
     func showGameView(reason: String = "button") {
+        if launching { DiagnosticEvents.phase("game-visible-\(reason)") }
         if launching && !launchDismissLogged {
             launchDismissLogged = true
             fputs("[launch-view] dismissed reason=\(reason) logs=\(launchLogs ? 1 : 0)\n", stderr)
@@ -1159,6 +1163,7 @@ final class LibraryModel: ObservableObject {
         }
     }
     private func finish() {
+        DiagnosticEvents.phase("session-finished")
         if sawProcess, let report = exitReport() { error = report }
         timer?.invalidate(); timer = nil
         saveCurrentProfile()
@@ -2312,8 +2317,12 @@ struct LibraryView: View {
             if settingsShow("diagnostics", "extended logging", "logging", "log") {
                 Section {
                     Toggle("Extended logging", isOn: $input.diagnostics)
+                    Button { settingsSheet = .diagnostics } label: {
+                        Label("Send diagnostic log", systemImage: "square.and.arrow.up")
+                    }
                 } header: { Text("Diagnostics") }
             }
+            if settingsShow("updates", "version", "IPA", "download", "build") { AppUpdateSection() }
             if settingsShow("pointer", "mouse", "cursor", "touch", "trackpad", "sensitivity") {
                 Section("Pointer") { LibraryPointerSettings() }
             }
@@ -2370,6 +2379,8 @@ struct LibraryView: View {
         .sheet(item: $settingsSheet, onDismiss: { settingsRefresh += 1 }) { sheet in
             switch sheet {
             case .allSettings: AllSettingsView()
+            case .diagnostics: DiagnosticUploadView()
+            case .updates: AppUpdateView()
             case .steamSignIn: SteamSignInView()
             case .dock: MadeiraDockView(start: startDock)
             }
@@ -3251,7 +3262,7 @@ struct MadeiraCredit: View {
 /// MADEIRA_RUNTIME_SETTINGS=0 hides this section.
 /// A sheet opened from Settings; LibraryView presents it from the Form itself.
 enum SettingsSheet: String, Identifiable {
-    case allSettings, steamSignIn, dock
+    case allSettings, steamSignIn, dock, diagnostics, updates
     var id: String { rawValue }
 }
 

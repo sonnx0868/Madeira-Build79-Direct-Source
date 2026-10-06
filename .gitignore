@@ -168,3 +168,8 @@ app/Madeira/arm64ec-windows/lua51-gc64.dll
 app/Madeira/arm64ec-windows/libEGL.dll
 app/Madeira/arm64ec-windows/libGLESv2.dll
 app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html
+
+# Private Sites source is synchronized by Sites, separately from the iOS repo.
+services/log-server/
+.sites-runtime/
+diagnostics-downloads/

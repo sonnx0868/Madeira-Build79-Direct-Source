@@ -8,6 +8,7 @@ final class LogStore: ObservableObject {
     @Published var entries: [LogEntry] = []
 
     private let logFileURL: URL
+    private var reportMetadata: [String: String] = [:]
     private let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss.SSS"
@@ -85,8 +86,20 @@ final class LogStore: ObservableObject {
         if FileManager.default.fileExists(atPath: logFileURL.path) {
             try? FileManager.default.removeItem(at: prevLogURL)
             try? FileManager.default.moveItem(at: logFileURL, to: prevLogURL)
+            let metadata = docs.appendingPathComponent("madeira-log.meta.json")
+            let previousMetadata = docs.appendingPathComponent("madeira-log.prev.meta.json")
+            try? FileManager.default.removeItem(at: previousMetadata)
+            try? FileManager.default.moveItem(at: metadata, to: previousMetadata)
         }
         try? "".write(to: logFileURL, atomically: true, encoding: .utf8)
+        reportMetadata = DiagnosticContext.current()
+        reportMetadata["runID"] = UUID().uuidString.lowercased()
+        reportMetadata["startedAt"] = ISO8601DateFormatter().string(from: Date())
+        saveReportMetadata()
+        if let data = try? JSONSerialization.data(withJSONObject: reportMetadata, options: .sortedKeys),
+           let context = String(data: data, encoding: .utf8) {
+            appendToFile("[diagnostics-context] \(context)")
+        }
 
         // Start batch flush timer on main thread. Interval depends on uiPaused.
         DispatchQueue.main.async {
@@ -276,6 +289,37 @@ final class LogStore: ObservableObject {
     }
 
     /// Manual clear (used by UI button)
+    func fileForUpload(previous: Bool) -> URL {
+        previous ? logFileURL.deletingLastPathComponent().appendingPathComponent("madeira-log.prev.txt") : logFileURL
+    }
+
+    func metadataForUpload(previous: Bool) -> [String: String] {
+        if !previous { return reportMetadata }
+        let file = logFileURL.deletingLastPathComponent().appendingPathComponent("madeira-log.prev.meta.json")
+        if let data = try? Data(contentsOf: file),
+           let metadata = try? JSONDecoder().decode([String: String].self, from: data) { return metadata }
+        // Legacy logs have no sidecar. Do not attribute them to the new build.
+        return ["runID": "unknown", "build": "unknown", "version": "unknown"]
+    }
+
+    func recordTest(_ entry: LibraryEntry) {
+        reportMetadata["gameTitle"] = String(decoding: entry.title.utf16.prefix(200), as: UTF16.self)
+        reportMetadata["bits"] = String(entry.bits)
+        reportMetadata["graphicsAPI"] = entry.graphicsAPI ?? "unknown"
+        reportMetadata["testID"] = UUID().uuidString.lowercased()
+        reportMetadata["testStartedAt"] = ISO8601DateFormatter().string(from: Date())
+        saveReportMetadata()
+        if InputSettings.shared.diagnostics {
+            let data = try? JSONSerialization.data(withJSONObject: reportMetadata, options: .sortedKeys)
+            if let data, let line = String(data: data, encoding: .utf8) { log("[diagnostics-test] \(line)") }
+        }
+    }
+
+    private func saveReportMetadata() {
+        let file = logFileURL.deletingLastPathComponent().appendingPathComponent("madeira-log.meta.json")
+        if let data = try? JSONEncoder().encode(reportMetadata) { try? data.write(to: file, options: .atomic) }
+    }
+
     func clear() {
         stateLock.lock()
         sigToIndex.removeAll()
