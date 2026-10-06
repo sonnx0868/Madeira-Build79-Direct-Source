@@ -13,7 +13,7 @@ from pathlib import Path
 import re, subprocess, tempfile
 
 root = Path(__file__).resolve().parents[2]
-src = (root / "build/ntdll-unix/virtual_ios.c").read_text()
+src = (root / "build/ntdll-unix/virtual_ios.c").read_text(encoding="utf-8")
 
 def function(source, start):
     a = source.index(start); b = source.index("{", a); depth = 1; c = b + 1

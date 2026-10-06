@@ -76,6 +76,7 @@
 #include <arpa/nameser.h>
 #include <resolv.h>
 #include <netdb.h>
+#include "steam_dns_ios.h"
 
 /***********************************************************************
  *           the libresolv binding
@@ -169,6 +170,14 @@ static int ios_resolv_query( const char *dname, int class, int type,
 {
     struct __res_state *state = ios_resolv_state();
     int ret;
+
+    /* Steam/Dock compatibility: bypass a poisoned or blocked ISP resolver
+     * through the app-local DoH bridge. The wire answer is exactly what
+     * upstream libresolv.c expects, so DnsQuery A/AAAA/CNAME keeps its normal
+     * parsing and status mapping. System DNS remains the final fallback. */
+    if (madeira_steam_dns_should_override( dname ) &&
+        (ret = madeira_steam_dns_query( dname, class, type, answer, anslen )) >= 0)
+        return ret;
 
     if (state != &ios_resolv_null_state)
     {

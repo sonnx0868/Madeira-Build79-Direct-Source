@@ -50,6 +50,142 @@ static os_log_t wine_proc_log(void) {
 
 #define LOG(fmt, ...) os_log(wine_proc_log(), "[WineProc] " fmt, ##__VA_ARGS__)
 
+/* ---- App-local Steam DNS over HTTPS -----------------------------------
+ *
+ * Wine's ws2_32 and dnsapi unix sides call this C entry point for Steam
+ * hostnames. NSURLSession gives us iOS System Trust and HTTP/2 without a VPN
+ * entitlement. IP-literal DoH endpoints avoid the bootstrap-DNS loop: an ISP
+ * can poison a Steam hostname without being asked to resolve the resolver.
+ * Only DNS uses this path; Steam/CDN sockets still connect directly, so the
+ * public IP and download path/speed are not changed.
+ */
+int madeira_doh_query_name( const char *hostname, unsigned short qtype,
+                            unsigned char *answer, int answer_size, int *provider_out )
+{
+    static NSURLSession *session;
+    static NSMutableDictionary<NSString *, NSDictionary *> *cache;
+    static dispatch_once_t once;
+    const char *raw_mode = getenv("MADEIRA_STEAM_DNS");
+    NSString *mode = raw_mode && *raw_mode ? [[NSString stringWithUTF8String:raw_mode] lowercaseString] : @"auto";
+    NSString *name;
+    uint16_t transaction;
+
+    if (!hostname || !*hostname || !answer || answer_size < 12) return -1;
+    name = [[NSString stringWithUTF8String:hostname] lowercaseString];
+    while ([name hasSuffix:@"."]) name = [name substringToIndex:name.length - 1];
+    if (!name.length || name.length > 253) return -1;
+
+    dispatch_once(&once, ^{
+        NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+        configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+        configuration.timeoutIntervalForRequest = 2.5;
+        configuration.timeoutIntervalForResource = 3.0;
+        configuration.waitsForConnectivity = NO;
+        configuration.URLCache = nil;
+        configuration.HTTPCookieStorage = nil;
+        session = [NSURLSession sessionWithConfiguration:configuration];
+        cache = [NSMutableDictionary dictionary];
+    });
+
+    transaction = (uint16_t)arc4random_uniform(65536);
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%u|%@", mode, qtype, name];
+    @synchronized (cache) {
+        NSDictionary *cached = cache[cacheKey];
+        NSData *data = cached[@"data"];
+        NSDate *expires = cached[@"expires"];
+        if (data.length >= 12 && data.length <= (NSUInteger)answer_size && [expires timeIntervalSinceNow] > 0) {
+            memcpy(answer, data.bytes, data.length);
+            answer[0] = transaction >> 8; answer[1] = transaction & 0xff;
+            if (provider_out) *provider_out = 0;
+            return (int)data.length;
+        }
+        if (cached) [cache removeObjectForKey:cacheKey];
+    }
+
+    NSMutableData *query = [NSMutableData dataWithLength:12];
+    unsigned char *header = query.mutableBytes;
+    header[0] = transaction >> 8; header[1] = transaction & 0xff;
+    header[2] = 0x01; header[5] = 0x01; /* RD=1, QDCOUNT=1 */
+    for (NSString *label in [name componentsSeparatedByString:@"."]) {
+        NSData *bytes = [label dataUsingEncoding:NSUTF8StringEncoding];
+        if (!bytes.length || bytes.length > 63) return -1;
+        unsigned char length = (unsigned char)bytes.length;
+        [query appendBytes:&length length:1];
+        [query appendData:bytes];
+    }
+    const unsigned char tail[] = {0, (unsigned char)(qtype >> 8), (unsigned char)qtype, 0, 1};
+    [query appendBytes:tail length:sizeof(tail)];
+
+    NSArray<NSDictionary *> *endpoints;
+    if ([mode isEqualToString:@"google"]) {
+        endpoints = @[@{ @"url": @"https://8.8.8.8/dns-query", @"provider": @2 },
+                      @{ @"url": @"https://[2001:4860:4860::8888]/dns-query", @"provider": @2 },
+                      @{ @"url": @"https://8.8.4.4/dns-query", @"provider": @2 },
+                      @{ @"url": @"https://[2001:4860:4860::8844]/dns-query", @"provider": @2 }];
+    } else if ([mode isEqualToString:@"cloudflare"]) {
+        endpoints = @[@{ @"url": @"https://1.1.1.1/dns-query", @"provider": @1 },
+                      @{ @"url": @"https://[2606:4700:4700::1111]/dns-query", @"provider": @1 },
+                      @{ @"url": @"https://1.0.0.1/dns-query", @"provider": @1 },
+                      @{ @"url": @"https://[2606:4700:4700::1001]/dns-query", @"provider": @1 }];
+    } else {
+        /* Automatic: different operators sometimes block one public resolver;
+         * cross-provider fallback is more useful than retrying the same ASN. */
+        endpoints = @[@{ @"url": @"https://1.1.1.1/dns-query", @"provider": @1 },
+                      @{ @"url": @"https://8.8.8.8/dns-query", @"provider": @2 },
+                      @{ @"url": @"https://[2606:4700:4700::1111]/dns-query", @"provider": @1 },
+                      @{ @"url": @"https://[2001:4860:4860::8888]/dns-query", @"provider": @2 }];
+    }
+
+    for (NSDictionary *endpoint in endpoints) {
+        NSURL *url = [NSURL URLWithString:endpoint[@"url"]];
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        request.HTTPMethod = @"POST";
+        request.HTTPBody = query;
+        [request setValue:@"application/dns-message" forHTTPHeaderField:@"Content-Type"];
+        [request setValue:@"application/dns-message" forHTTPHeaderField:@"Accept"];
+        request.timeoutInterval = 2.5;
+
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        __block NSData *responseData = nil;
+        __block NSInteger statusCode = 0;
+        __block NSString *mimeType = nil;
+        NSURLSessionDataTask *task = [session dataTaskWithRequest:request
+                                                completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            if (!error && [response isKindOfClass:[NSHTTPURLResponse class]]) {
+                statusCode = ((NSHTTPURLResponse *)response).statusCode;
+                responseData = data;
+                mimeType = response.MIMEType;
+            }
+            dispatch_semaphore_signal(done);
+        }];
+        [task resume];
+        long waited = dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC));
+        if (waited) [task cancel];
+        if (!waited && statusCode == 200 && mimeType &&
+            [mimeType caseInsensitiveCompare:@"application/dns-message"] == NSOrderedSame &&
+            responseData.length >= 12 &&
+            responseData.length <= (NSUInteger)answer_size) {
+            const unsigned char *bytes = responseData.bytes;
+            if (bytes[0] == (transaction >> 8) && bytes[1] == (transaction & 0xff) && (bytes[2] & 0x80)) {
+                memcpy(answer, bytes, responseData.length);
+                /* A short cache removes DoH latency from Chromium/Steam's
+                 * repeated lookups without pinning CDN answers for long. */
+                NSMutableData *cacheData = [responseData mutableCopy];
+                unsigned char *cacheBytes = cacheData.mutableBytes;
+                cacheBytes[0] = cacheBytes[1] = 0;
+                @synchronized (cache) {
+                    if (cache.count >= 256) [cache removeAllObjects];
+                    cache[cacheKey] = @{ @"data": cacheData,
+                                         @"expires": [NSDate dateWithTimeIntervalSinceNow:60] };
+                }
+                if (provider_out) *provider_out = [endpoint[@"provider"] intValue];
+                return (int)responseData.length;
+            }
+        }
+    }
+    return -1;
+}
+
 /* ---- ml581: undo the hand-made AppData skeleton ------------------------
  *
  * While chasing the Steam login window I hand-created

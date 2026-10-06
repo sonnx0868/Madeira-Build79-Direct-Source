@@ -1,3 +1,5 @@
+warning: in the working copy of 'dlls/wintypes/wintypes.spec', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c', LF will be replaced by CRLF the next time Git touches it
 diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
 index b2f445e04ae..2691bdce504 100644
 --- a/dlls/ntdll/unix/file.c
@@ -175,114 +177,6 @@ index b2f445e04ae..2691bdce504 100644
      }
  
      if (!status || status == STATUS_NO_SUCH_FILE)
-diff --git a/dlls/wintypes/buffer.c b/dlls/wintypes/buffer.c
-index 620cb39709e..81941431ea7 100644
---- a/dlls/wintypes/buffer.c
-+++ b/dlls/wintypes/buffer.c
-@@ -23,6 +23,19 @@
- 
- WINE_DEFAULT_DEBUG_CHANNEL(wintypes);
- 
-+/* The full Windows IBuffer marshal-by-value object is not implemented yet,
-+ * but an ordinary HRESULT failure is safe for callers to handle. A Wine spec
-+ * `stub` raises EXCEPTION_WINE_STUB instead, so merely probing this API can
-+ * terminate a modern Unity process after the loader has successfully resolved
-+ * api-ms-win-core-winrt-robuffer-l1-1-0. */
-+HRESULT WINAPI RoGetBufferMarshaler( IMarshal **marshaler )
-+{
-+    FIXME( "marshaler %p: IBuffer marshaling is not implemented.\n", marshaler );
-+    if (!marshaler) return E_POINTER;
-+    *marshaler = NULL;
-+    return E_NOTIMPL;
-+}
-+
- struct buffer_factory_statics
- {
-     IActivationFactory IActivationFactory_iface;
-diff --git a/dlls/wintypes/wintypes.spec b/dlls/wintypes/wintypes.spec
-index a1eb0f3830d..1a31c1959a6 100644
---- a/dlls/wintypes/wintypes.spec
-+++ b/dlls/wintypes/wintypes.spec
-@@ -3,7 +3,7 @@
- @ stdcall -private DllGetClassObject(ptr ptr ptr)
- @ stub RoCreateNonAgilePropertySet
- @ stub RoCreatePropertySetSerializer
--@ stub RoGetBufferMarshaler
-+@ stdcall RoGetBufferMarshaler(ptr)
- @ stub RoGetMetaDataFile
- @ stdcall RoIsApiContractMajorVersionPresent(wstr long ptr)
- @ stub RoIsApiContractPresent
-diff --git a/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c b/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
-index 6f61eb92a67..bb314c14688 100644
---- a/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
-+++ b/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
-@@ -4243,6 +4243,8 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
- {
-     struct hlsl_ir_node *instr;
- 
-+    (void)ctx;
-+
-     LIST_FOR_EACH_ENTRY(instr, &cond_block->instrs, struct hlsl_ir_node, entry)
-     {
-         switch (instr->type)
-@@ -4251,23 +4253,20 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
-             case HLSL_IR_RESOURCE_STORE:
-             case HLSL_IR_INTERLOCKED:
-             case HLSL_IR_SYNC:
--                goto fail;
-+                return false;
- 
-             case HLSL_IR_JUMP:
-             {
-                 struct hlsl_ir_jump *jump = hlsl_ir_jump(instr);
- 
-                 if (jump->type != HLSL_IR_JUMP_DISCARD_NZ && jump->type != HLSL_IR_JUMP_DISCARD_NEG)
--                {
--                    hlsl_fixme(ctx, &instr->loc, "Flattening conditional blocks with non-discard jump instructions.");
-                     return false;
--                }
-                 break;
-             }
- 
-             case HLSL_IR_STORE:
-                 if (hlsl_ir_store(instr)->lhs.var->is_tgsm)
--                    goto fail;
-+                    return false;
-                 break;
- 
-             case HLSL_IR_IF:
-@@ -4318,11 +4317,6 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
-     }
- 
-     return true;
--
--fail:
--    hlsl_error(ctx, &instr->loc, VKD3D_SHADER_ERROR_HLSL_CANNOT_FLATTEN,
--            "Conditional branches with side effects cannot be flattened.");
--    return false;
- }
- 
- static bool lower_conditional_block_stores(struct hlsl_ctx *ctx, struct hlsl_ir_node *instr,
-@@ -4474,7 +4468,17 @@ static bool flatten_conditional_branches(struct hlsl_ctx *ctx, struct hlsl_ir_no
-     {
-         if (!can_flatten_conditional_block(ctx, &iff->then_block)
-                 || !can_flatten_conditional_block(ctx, &iff->else_block))
--            return false;
-+        {
-+            /* Madeira: [flatten] is an optimisation hint, not permission to
-+             * reject an otherwise valid shader. ANGLE emits forced-flatten
-+             * branches containing early returns in dynamic pixel shaders;
-+             * Microsoft's compiler keeps those branches, while vkd3d used to
-+             * raise E5017 and leave LÖVE games presenting a black frame.
-+             * Preserve program semantics by compiling the branch normally and
-+             * mark it FORCE_BRANCH so the fixed-point pass does not retry it. */
-+            iff->flatten_type = HLSL_IF_FORCE_BRANCH;
-+            return true;
-+        }
-     }
-     else if (!is_conditional_block_simple(&iff->then_block) || !is_conditional_block_simple(&iff->else_block))
-     {
-
 diff --git a/dlls/user32/misc.c b/dlls/user32/misc.c
 index 5ba304ab1a3..397f968235e 100644
 --- a/dlls/user32/misc.c
@@ -555,3 +449,231 @@ index be0c010c9fb..6a430393094 100644
  
  /* menu.c */
  extern UINT draw_nc_menu_bar( HDC hdc, RECT *rect, HWND hwnd );
+diff --git a/dlls/wintypes/buffer.c b/dlls/wintypes/buffer.c
+index 620cb39709e..81941431ea7 100644
+--- a/dlls/wintypes/buffer.c
++++ b/dlls/wintypes/buffer.c
+@@ -23,6 +23,19 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(wintypes);
+ 
++/* The full Windows IBuffer marshal-by-value object is not implemented yet,
++ * but an ordinary HRESULT failure is safe for callers to handle. A Wine spec
++ * `stub` raises EXCEPTION_WINE_STUB instead, so merely probing this API can
++ * terminate a modern Unity process after the loader has successfully resolved
++ * api-ms-win-core-winrt-robuffer-l1-1-0. */
++HRESULT WINAPI RoGetBufferMarshaler( IMarshal **marshaler )
++{
++    FIXME( "marshaler %p: IBuffer marshaling is not implemented.\n", marshaler );
++    if (!marshaler) return E_POINTER;
++    *marshaler = NULL;
++    return E_NOTIMPL;
++}
++
+ struct buffer_factory_statics
+ {
+     IActivationFactory IActivationFactory_iface;
+diff --git a/dlls/wintypes/wintypes.spec b/dlls/wintypes/wintypes.spec
+index a1eb0f3830d..1a31c1959a6 100644
+--- a/dlls/wintypes/wintypes.spec
++++ b/dlls/wintypes/wintypes.spec
+@@ -3,7 +3,7 @@
+ @ stdcall -private DllGetClassObject(ptr ptr ptr)
+ @ stub RoCreateNonAgilePropertySet
+ @ stub RoCreatePropertySetSerializer
+-@ stub RoGetBufferMarshaler
++@ stdcall RoGetBufferMarshaler(ptr)
+ @ stub RoGetMetaDataFile
+ @ stdcall RoIsApiContractMajorVersionPresent(wstr long ptr)
+ @ stub RoIsApiContractPresent
+diff --git a/dlls/ws2_32/unixlib.c b/dlls/ws2_32/unixlib.c
+index b55bdf3b80c..487dea88f5d 100644
+--- a/dlls/ws2_32/unixlib.c
++++ b/dlls/ws2_32/unixlib.c
+@@ -37,6 +37,9 @@
+ #ifdef HAVE_NETDB_H
+ # include <netdb.h>
+ #endif
++#ifdef WINE_IOS
++# include "steam_dns_ios.h"
++#endif
+ #ifdef HAVE_SYS_PARAM_H
+ # include <sys/param.h>
+ #endif
+@@ -703,6 +706,7 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     struct addrinfo *unix_info, *src;
+     struct WS_addrinfo *dst, *prev = NULL;
+     unsigned int needed_size = 0;
++    BOOL madeira_dns_owned = FALSE;
+     int ret;
+ 
+     /* servname tweak required by OSX and BSD kernels */
+@@ -762,7 +766,12 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     extern void *objc_autoreleasePoolPush(void);
+     extern void  objc_autoreleasePoolPop(void *);
+     void *ios_arpool = objc_autoreleasePoolPush();
+-    ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
++    if (params->node && madeira_steam_dns_should_override( params->node ) &&
++        !(ret = madeira_steam_dns_getaddrinfo( params->node, service,
++                                               hints ? &unix_hints : NULL, &unix_info )))
++        madeira_dns_owned = TRUE;
++    else
++        ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
+     objc_autoreleasePoolPop( ios_arpool );
+ #else
+     ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
+@@ -781,7 +790,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+     if (*params->size < needed_size)
+     {
+         *params->size = needed_size;
+-        freeaddrinfo( unix_info );
++        if (madeira_dns_owned) madeira_steam_dns_freeaddrinfo( unix_info );
++        else freeaddrinfo( unix_info );
+         return ERROR_INSUFFICIENT_BUFFER;
+     }
+ 
+@@ -829,7 +839,8 @@ static NTSTATUS unix_getaddrinfo( void *args )
+         }
+     }
+ 
+-    freeaddrinfo( unix_info );
++    if (madeira_dns_owned) madeira_steam_dns_freeaddrinfo( unix_info );
++    else freeaddrinfo( unix_info );
+     return 0;
+ #else
+     FIXME( "getaddrinfo() not found during build time\n" );
+@@ -993,6 +1004,42 @@ static void sort_addrs_hashed( struct hostent *host )
+     }
+ }
+ 
++#ifdef WINE_IOS
++/* gethostbyname() is still used by older Steam/client components. Feed it the
++ * same DoH A records as getaddrinfo instead of leaving an ISP-DNS escape hatch. */
++static BOOL try_madeira_gethostbyname( struct gethostbyname_params *params, int *ret )
++{
++    struct addrinfo hints = {0}, *list, *cursor;
++    struct hostent host = {0};
++    char *aliases[1] = {NULL};
++    char *addresses[17] = {NULL};
++    unsigned int count = 0;
++
++    if (!params->name || !madeira_steam_dns_should_override( params->name )) return FALSE;
++    hints.ai_family = AF_INET;
++    hints.ai_socktype = SOCK_STREAM;
++    if (madeira_steam_dns_getaddrinfo( params->name, NULL, &hints, &list )) return FALSE;
++
++    for (cursor = list; cursor && count < 16; cursor = cursor->ai_next)
++        if (cursor->ai_family == AF_INET && cursor->ai_addrlen >= sizeof(struct sockaddr_in))
++            addresses[count++] = (char *)&((struct sockaddr_in *)cursor->ai_addr)->sin_addr;
++    if (!count)
++    {
++        madeira_steam_dns_freeaddrinfo( list );
++        return FALSE;
++    }
++    host.h_name = (char *)params->name;
++    host.h_aliases = aliases;
++    host.h_addrtype = AF_INET;
++    host.h_length = 4;
++    host.h_addr_list = addresses;
++    sort_addrs_hashed( &host );
++    *ret = hostent_from_unix( &host, params->host, params->size );
++    madeira_steam_dns_freeaddrinfo( list );
++    return TRUE;
++}
++#endif
++
+ #ifdef HAVE_LINUX_GETHOSTBYNAME_R_6
+ static NTSTATUS unix_gethostbyname( void *args )
+ {
+@@ -1003,6 +1050,10 @@ static NTSTATUS unix_gethostbyname( void *args )
+     int locerr;
+     int ret;
+ 
++#ifdef WINE_IOS
++    if (try_madeira_gethostbyname( params, &ret )) return ret;
++#endif
++
+     if (!(unix_buffer = malloc( unix_size )))
+         return WSAENOBUFS;
+ 
+@@ -1037,6 +1088,10 @@ static NTSTATUS unix_gethostbyname( void *args )
+     struct hostent *unix_host;
+     int ret;
+ 
++#ifdef WINE_IOS
++    if (try_madeira_gethostbyname( params, &ret )) return ret;
++#endif
++
+     pthread_mutex_lock( &host_mutex );
+ 
+     if (!(unix_host = gethostbyname( params->name )))
+diff --git a/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c b/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
+index 6f61eb92a67..bb314c14688 100644
+--- a/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
++++ b/libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c
+@@ -4243,6 +4243,8 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
+ {
+     struct hlsl_ir_node *instr;
+ 
++    (void)ctx;
++
+     LIST_FOR_EACH_ENTRY(instr, &cond_block->instrs, struct hlsl_ir_node, entry)
+     {
+         switch (instr->type)
+@@ -4251,23 +4253,20 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
+             case HLSL_IR_RESOURCE_STORE:
+             case HLSL_IR_INTERLOCKED:
+             case HLSL_IR_SYNC:
+-                goto fail;
++                return false;
+ 
+             case HLSL_IR_JUMP:
+             {
+                 struct hlsl_ir_jump *jump = hlsl_ir_jump(instr);
+ 
+                 if (jump->type != HLSL_IR_JUMP_DISCARD_NZ && jump->type != HLSL_IR_JUMP_DISCARD_NEG)
+-                {
+-                    hlsl_fixme(ctx, &instr->loc, "Flattening conditional blocks with non-discard jump instructions.");
+                     return false;
+-                }
+                 break;
+             }
+ 
+             case HLSL_IR_STORE:
+                 if (hlsl_ir_store(instr)->lhs.var->is_tgsm)
+-                    goto fail;
++                    return false;
+                 break;
+ 
+             case HLSL_IR_IF:
+@@ -4318,11 +4317,6 @@ static bool can_flatten_conditional_block(struct hlsl_ctx *ctx, const struct hls
+     }
+ 
+     return true;
+-
+-fail:
+-    hlsl_error(ctx, &instr->loc, VKD3D_SHADER_ERROR_HLSL_CANNOT_FLATTEN,
+-            "Conditional branches with side effects cannot be flattened.");
+-    return false;
+ }
+ 
+ static bool lower_conditional_block_stores(struct hlsl_ctx *ctx, struct hlsl_ir_node *instr,
+@@ -4474,7 +4468,17 @@ static bool flatten_conditional_branches(struct hlsl_ctx *ctx, struct hlsl_ir_no
+     {
+         if (!can_flatten_conditional_block(ctx, &iff->then_block)
+                 || !can_flatten_conditional_block(ctx, &iff->else_block))
+-            return false;
++        {
++            /* Madeira: [flatten] is an optimisation hint, not permission to
++             * reject an otherwise valid shader. ANGLE emits forced-flatten
++             * branches containing early returns in dynamic pixel shaders;
++             * Microsoft's compiler keeps those branches, while vkd3d used to
++             * raise E5017 and leave LÖVE games presenting a black frame.
++             * Preserve program semantics by compiling the branch normally and
++             * mark it FORCE_BRANCH so the fixed-point pass does not retry it. */
++            iff->flatten_type = HLSL_IF_FORCE_BRANCH;
++            return true;
++        }
+     }
+     else if (!is_conditional_block_simple(&iff->then_block) || !is_conditional_block_simple(&iff->else_block))
+     {

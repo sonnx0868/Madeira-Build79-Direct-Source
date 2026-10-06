@@ -84,6 +84,25 @@ library session. The sheet has:
    A game starts at "Run at next start"; a start that runs its programs
    turns it to "Skip".
 
+### DNS compatibility without a VPN
+
+**Settings › Steam › Madeira Dock DNS** controls an app-local resolver for the
+Windows Steam/Dock session. The default **Automatic** mode sends Steam-domain
+A and AAAA lookups as RFC 8484 DNS wire messages over HTTPS, trying Cloudflare
+(`1.1.1.1`, `2606:4700:4700::1111`) and then Google (`8.8.8.8`,
+`2001:4860:4860::8888`). Provider-specific modes pin that order;
+**System DNS** disables the override. Answers are cached for 60 seconds and the
+ordinary iOS resolver remains the final fallback.
+
+This is not a packet tunnel and requests no VPN or NetworkExtension entitlement.
+Only name resolution for an allowlist of Valve/Steam and their content hosts is
+changed. HTTPS, Steam connections and depot downloads still connect directly
+from the device through its normal route, so its public IP does not change and
+file traffic is not relayed through Cloudflare or Google. The low-level setting
+is `env.MADEIRA_STEAM_DNS = auto|cloudflare|google|system`; `all` is available
+for diagnostics but intentionally absent from the UI because changing unrelated
+game DNS names can select a worse CDN.
+
 Tap a game. Dock is started with Steam's default launch option only; custom
 arguments are not supported.
 

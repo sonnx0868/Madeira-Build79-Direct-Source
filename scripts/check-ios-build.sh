@@ -101,6 +101,9 @@ if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
   grep -a -q 'NtCreateFile redirect' "$root/app/Madeira/libntdll_unix.a" || {
     echo "INVALID: libntdll_unix.a predates the effective LÖVE GC64 file redirect"; missing=1;
   }
+  nm -g "$root/app/Madeira/libntdll_unix.a" 2>/dev/null | grep -q 'madeira_steam_dns_getaddrinfo' || {
+    echo "INVALID: libntdll_unix.a has no app-local Steam DNS resolver"; missing=1;
+  }
 fi
 
 for dll in msvcp90.dll msvcr90.dll \

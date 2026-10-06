@@ -20,7 +20,8 @@ def require(condition: bool, message: str) -> None:
 text = patch.read_text(encoding="utf-8")
 for path in ["dlls/ntdll/unix/file.c", "dlls/user32/misc.c", "dlls/win32u/input.c",
              "dlls/win32u/message.c", "dlls/win32u/ntuser_private.h", "dlls/win32u/sysparams.c",
-             "dlls/win32u/win32u_private.h", "dlls/wintypes/buffer.c", "dlls/wintypes/wintypes.spec",
+             "dlls/win32u/win32u_private.h", "dlls/ws2_32/unixlib.c",
+             "dlls/wintypes/buffer.c", "dlls/wintypes/wintypes.spec",
              "libs/vkd3d/libs/vkd3d-shader/hlsl_codegen.c"]:
     require(f"diff --git a/{path} b/{path}" in text, f"patch omits {path}")
 require("apply --reverse --check" in apply and "apply --check" in apply,

@@ -613,6 +613,7 @@ struct SteamSettingsSection: View {
     @ObservedObject private var dock = MadeiraDockModel.shared
     @ObservedObject private var onboarding = OnboardingModel.shared
     @State private var confirmSignOut = false
+    @State private var steamDNS = MadeiraConfig.get("env.MADEIRA_STEAM_DNS") ?? "auto"
 
     /// Shown when Steam sign-in or Madeira Dock is available.
     static var shown: Bool { SteamSignIn.isEnabled || MadeiraDock.enabled }
@@ -630,6 +631,12 @@ struct SteamSettingsSection: View {
                 if let status = dock.status {
                     Text(status).font(.caption).foregroundStyle(.secondary)
                 }
+                Picker("Madeira Dock DNS", selection: $steamDNS) {
+                    Text("Automatic (Cloudflare → Google)").tag("auto")
+                    Text("Cloudflare DoH").tag("cloudflare")
+                    Text("Google DoH").tag("google")
+                    Text("System DNS").tag("system")
+                }
             }
             if onboarding.available {
                 Button { onboarding.rerun() } label: { Label("Run setup again", systemImage: "wand.and.stars") }
@@ -637,12 +644,15 @@ struct SteamSettingsSection: View {
         } header: {
             Text("Steam")
         } footer: {
-            Text("Madeira keeps a Steam sign-in token in this device's Keychain, for this device only. Signing out removes it.")
+            Text("Madeira keeps a Steam sign-in token in this device's Keychain, for this device only. Signing out removes it. Dock DNS is app-local: it can bypass blocked Steam names through encrypted DNS without changing your public IP or routing game downloads through a VPN. It applies to the next Dock session.")
         }
         .confirmationDialog("Sign out of Steam?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { signIn.signOut() }
         }
         .onAppear { signIn.refresh() }
+        .onChange(of: steamDNS) { _, value in
+            MadeiraConfig.set("env.MADEIRA_STEAM_DNS", value == "auto" ? nil : value)
+        }
         .onReceive(NotificationCenter.default.publisher(for: SteamSignIn.didChange)) { _ in signIn.refresh() }
     }
 }
