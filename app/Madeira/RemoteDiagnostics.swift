@@ -209,6 +209,7 @@ enum DiagnosticEvents {
         for key in ["pool", "vram-mb", "swap-mb", "inproc-sync", "env.MADEIRA_FASTSYNC",
                     "env.MADEIRA_RUNTIME_PROFILERS", "env.MADEIRA_MIP_CLAMP_AUTO",
                     "env.DXMT_CENSUS_THROTTLE", "env.DXMT_WSI_MODE_TABLE",
+                    "env.DXMT_WSI_MONITOR_IDENTITY",
                     "env.MADEIRA_UNITY_RESOLUTION", "env.MADEIRA_PROMOTE"] {
             settings[key] = String((MadeiraConfig.get(key) ?? "default").prefix(160))
         }
@@ -234,7 +235,8 @@ enum DiagnosticEvents {
         // report that as the game's render resolution.
         let drawable = frames > sessionStartFrames ? MetalHostView.shared.metalLayer.drawableSize : .zero
         let cpu = getenv("MADEIRA_CPU_COUNT").map { String(cString: $0) } ?? "auto"
-        LogStore.shared.log("[diagnostics] sample seconds=\(String(format: "%.1f", elapsed)) fps=\(String(format: "%.1f", fps)) footprintMB=\(result == KERN_SUCCESS ? info.phys_footprint / 1048576 : 0) thermal=\(ProcessInfo.processInfo.thermalState.rawValue) monitor=\(screenW)x\(screenH) drawable=\(Int(drawable.width))x\(Int(drawable.height)) fpsMode=\(madeira_get_vsync_locked()) cpuReported=\(cpu)")
+        let input = HardwareInput.shared
+        LogStore.shared.log("[diagnostics] sample seconds=\(String(format: "%.1f", elapsed)) fps=\(String(format: "%.1f", fps)) footprintMB=\(result == KERN_SUCCESS ? info.phys_footprint / 1048576 : 0) thermal=\(ProcessInfo.processInfo.thermalState.rawValue) monitor=\(screenW)x\(screenH) drawable=\(Int(drawable.width))x\(Int(drawable.height)) fpsMode=\(madeira_get_vsync_locked()) cpuReported=\(cpu) pointerRequested=\(input.pointerLocked ? 1 : 0) pointerCaptured=\(input.pointerCaptured ? 1 : 0) mousePath=\(input.mousePath.rawValue)")
         sampledAt = now; lastFrames = frames
     }
 }

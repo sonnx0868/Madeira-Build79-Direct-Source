@@ -34,6 +34,13 @@ option for either dimension takes priority for that dimension;
 `env.MADEIRA_UNITY_RESOLUTION = 0` disables the added screen options. These
 options are included in launch validation, and do not change the game's saves.
 
+The same resolution compatibility also enables `DXMT_WSI_MODE_TABLE` and
+`DXMT_WSI_MONITOR_IDENTITY` unless explicitly configured. Unity's in-game
+resolution picker then receives Wine's complete mode list through DXGI and
+the same monitor identity as user32. Startup dimensions alone do not populate
+the picker. The list remains capped to the selected library resolution;
+`[unity-display]` records the effective settings before the game starts.
+
 The same detection exposes a per-game **Unity smoothness profile**. It reports
 four CPU cores when the profile has no explicit CPU choice, reducing Unity 6's
 worker/synchronization fan-out, and enables DXMT's pressure-aware mip clamp for

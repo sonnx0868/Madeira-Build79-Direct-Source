@@ -182,6 +182,14 @@ buttons. iPadOS honours it only while Madeira is full screen, and only on the
 GCMouse path (on the UIKit path locking would stop pointer delivery, so it is
 refused). iPhone has no lockable pointer and shows no lock control.
 
+The requested preference and actual iPadOS capture are tracked separately.
+Input routing uses `UIScene.pointerLockState.isLocked`, observed through
+`UIPointerLockState.didChangeNotification`. `[hwinput] pointer-lock-state`
+reports requested/captured, availability, activation and scene/screen size;
+`requested=1 captured=0` means iPadOS has not granted the lock. The lock button
+shows a waiting glyph until capture is confirmed. The current root and its
+pointer-lock delegate are refreshed after controller or scene changes.
+
 - **Library games:** as soon as raw GCMouse motion is confirmed and the
   mouse is moving over the game view, capture also applies to games with a
   visible cursor. It stays captured in the game's own menus. Madeira's menu,

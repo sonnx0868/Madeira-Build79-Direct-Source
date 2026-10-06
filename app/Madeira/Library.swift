@@ -606,6 +606,20 @@ enum ExternalGameCompatibility {
 
         let unityPlayer = directory.appendingPathComponent("UnityPlayer.dll")
         let unity = FileManager.default.fileExists(atPath: unityPlayer.path)
+        if unity, entry.steamAppID == nil, MadeiraConfig.flag("MADEIRA_UNITY_RESOLUTION") {
+            // Unity builds its in-game resolution picker through DXGI, not
+            // QueryDisplayConfig alone. The 64-bit DXMT default only exposes
+            // 640x480, 800x600 and the current size; use Wine's complete mode
+            // table and the same HMONITOR identity across both APIs.
+            for (option, key) in [("DXMT_WSI_MODE_TABLE", "env.DXMT_WSI_MODE_TABLE"),
+                                  ("DXMT_WSI_MONITOR_IDENTITY", "env.DXMT_WSI_MONITOR_IDENTITY")] {
+                if MadeiraConfig.get(key) == nil, getenv(option) == nil {
+                    setenv(option, "1", 1)
+                }
+            }
+            applied.append("unity-display-modes")
+            fputs("[unity-display] monitor=\(entry.resolution) mode-table=\(getenv("DXMT_WSI_MODE_TABLE").map { String(cString: $0) } ?? "default") identity=\(getenv("DXMT_WSI_MONITOR_IDENTITY").map { String(cString: $0) } ?? "default")\n", stderr)
+        }
         let unityProfile = unity && entry.steamAppID == nil && entry.unityOptimizations != false &&
             MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS")
         if unityProfile {

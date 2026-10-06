@@ -719,9 +719,10 @@ final class HardwareInput: ObservableObject {
 
     @Published private(set) var keyboardConnected = false
     @Published private(set) var mouseConnected = false
-    /// The iOS system pointer is hidden and pinned, and GCMouse deltas keep
-    /// arriving at the screen edges. See `PointerLock`.
+    /// Requested lock preference. UIKit may refuse it; pointerCaptured is the
+    /// actual scene state and is the value used for input routing.
     @Published private(set) var pointerLocked = false
+    @Published private(set) var pointerCaptured = false
     /// iPhone: a mouse enumerated but nothing came out of it in 10 s. Raised
     /// once per session, dismissable, cleared the instant a delta lands.
     @Published private(set) var assistiveTouchHint = false
@@ -999,8 +1000,9 @@ final class HardwareInput: ObservableObject {
         let base = computeBaseFocus()
         let keyboard = base && !typingElsewhere()
         let over = hoverSeen ? pointerOver : clickFocus.onGame
-        let mouse = base && (!Self.focusEnabled || pointerLocked || over || !gameButtons.isEmpty)
+        let mouse = base && (!Self.focusEnabled || pointerCaptured || over || !gameButtons.isEmpty)
         baseFocused = base
+        PointerLock.synchronize()
         MetalBackedView.keyboardTarget?.updateHardwareResponder(active: keyboard && keyboardConnected)
         if !base && pointerLocked { setPointerLocked(false, byUs: false, why: "focus lost") }
         if keyboard != keyboardFocused {
@@ -1431,7 +1433,7 @@ final class HardwareInput: ObservableObject {
             refreshFocus("button")
             if !baseFocused {
                 // nothing: the program does not have focus
-            } else if !Self.focusEnabled || pointerLocked {
+            } else if !Self.focusEnabled || pointerCaptured {
                 if mouseFocused { gameButtons.insert(b) }
             } else if let toGame = buttonRoute(at: t) {
                 if toGame { gameButtons.insert(b) }
@@ -1511,7 +1513,7 @@ final class HardwareInput: ObservableObject {
     }
 
     private func updateRoute() {
-        let r = PointerPolicy.route(focused: mouseFocused, hover: hoverSeen, locked: pointerLocked,
+        let r = PointerPolicy.route(focused: mouseFocused, hover: hoverSeen, locked: pointerCaptured,
                                     cursorShown: cursorShownForRoute, absoluteAllowed: Self.absoluteEnabled)
         if r != currentRoute {
             currentRoute = r
@@ -1661,7 +1663,7 @@ final class HardwareInput: ObservableObject {
         if touches.contains(where: { $0.type == .indirectPointer }) {
             if phase == .began || phase == .moved,
                let t = touches.first(where: { $0.type == .indirectPointer }),
-               let game = MetalBackedView.keyboardTarget, !pointerLocked {
+               let game = MetalBackedView.keyboardTarget, !pointerCaptured {
                 pointerHovered(at: t.location(in: game), in: game, inside: true)
             }
             switch phase {
@@ -1822,8 +1824,16 @@ final class HardwareInput: ObservableObject {
         pointerLocked = want
         lockedByUs = want && byUs
         PointerLock.refresh()
-        log("pointer lock \(want ? "ON" : "OFF") (\(why)) path=\(mousePath.rawValue)")
+        log("pointer lock request \(want ? "ON" : "OFF") (\(why)) path=\(mousePath.rawValue)")
         refreshFocus("pointer lock")
+    }
+
+    /// The public UIScene state is authoritative; a successful preference
+    /// request alone never proves containment. Called on the main queue.
+    fileprivate func pointerCaptureChanged(_ captured: Bool) {
+        guard pointerCaptured != captured else { return }
+        pointerCaptured = captured
+        refreshFocus("iPadOS pointer capture changed")
     }
 
     // MARK: - 1 Hz activity line (diagnostics only)
@@ -1901,42 +1911,73 @@ extension UIResponder {
 // own chrome). UIKit asks the KEY WINDOW's root view controller, and this
 // app's root is SwiftUI's own UIHostingController, which the app never
 // constructs and cannot subclass. So the override is ADDED to that concrete
-// class at runtime. Swift generic classes get one ObjC class per
-// specialisation, so the root's class has exactly one instance; the overlay
-// windows' hosting controllers are different specialisations and untouched.
+// class at runtime, scoped to the scene containing the game view. Refresh
+// follows root replacements and explicit child pointer-lock delegation.
 // iPadOS honours the preference only while the scene is full screen.
 // ============================================================================
 
 enum PointerLock {
-    private static var installed = false
+    private static var installedClasses = Set<ObjectIdentifier>()
+    private static weak var requestedRoot: UIViewController?
+    private static var stateObserver: NSObjectProtocol?
+    private static var lastState = ""
 
     /// Re-ask UIKit for the preference. The root controller is re-resolved
     /// every time: a cached reference that went stale after a scene rebuild
     /// would silently stop updating it.
     static func refresh() {
         DispatchQueue.main.async {
-            install()
-            keyWindow()?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
+            synchronize(forceUpdate: true)
+            // UIKit applies the preference asynchronously. The observation
+            // below also catches changes while iPadOS controls are visible.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { reportState() }
         }
     }
 
     private static func keyWindow() -> UIWindow? {
-        UIApplication.shared.connectedScenes
+        if let gameWindow = MetalBackedView.keyboardTarget?.window,
+           let scene = gameWindow.windowScene {
+            return scene.windows.first(where: { $0.isKeyWindow }) ?? gameWindow
+        }
+        return UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first { $0.isKeyWindow }
     }
 
-    private static func install() {
-        guard !installed else { return }
+    /// Follow the current root and its pointer-lock delegation after scene
+    /// rebuilds. The previous one-time flag only patched the first root class.
+    static func synchronize(forceUpdate: Bool = false) {
+        if stateObserver == nil {
+            stateObserver = NotificationCenter.default.addObserver(
+                forName: UIPointerLockState.didChangeNotification, object: nil, queue: .main
+            ) { _ in reportState() }
+        }
         guard let root = keyWindow()?.rootViewController else {
-            fputs("[hwinput] pointer lock: no key window yet (will retry)\n", stderr)
             return
         }
-        guard let cls: AnyClass = object_getClass(root) else { return }
+        let rootChanged = requestedRoot !== root
+        requestedRoot = root
+        var controller: UIViewController? = root
+        var visited = Set<ObjectIdentifier>()
+        while let current = controller, visited.count < 16,
+              visited.insert(ObjectIdentifier(current)).inserted {
+            install(on: current)
+            controller = current.childViewControllerForPointerLock
+        }
+        if rootChanged || forceUpdate { root.setNeedsUpdateOfPrefersPointerLocked() }
+        reportState()
+    }
+
+    private static func install(on controller: UIViewController) {
+        guard let cls: AnyClass = object_getClass(controller),
+              installedClasses.insert(ObjectIdentifier(cls)).inserted else { return }
         let sel = NSSelectorFromString("prefersPointerLocked")
-        let body: @convention(block) (AnyObject) -> Bool = { _ in
-            HardwareInput.shared.pointerLocked
+        let body: @convention(block) (AnyObject) -> Bool = { object in
+            guard let controller = object as? UIViewController,
+                  let scene = controller.viewIfLoaded?.window?.windowScene,
+                  scene === MetalBackedView.keyboardTarget?.window?.windowScene else { return false }
+            return HardwareInput.shared.pointerLocked
         }
         let imp = imp_implementationWithBlock(body)
         // "B@:": returns BOOL, takes self and _cmd. Add first; replace only if
@@ -1944,8 +1985,20 @@ enum PointerLock {
         if !class_addMethod(cls, sel, imp, "B@:") {
             _ = class_replaceMethod(cls, sel, imp, "B@:")
         }
-        installed = true
         fputs("[hwinput] pointer lock installed on \(NSStringFromClass(cls))\n", stderr)
+    }
+
+    private static func reportState() {
+        let scene = MetalBackedView.keyboardTarget?.window?.windowScene ?? keyWindow()?.windowScene
+        let state = scene?.pointerLockState
+        let captured = state?.isLocked ?? false
+        let requested = HardwareInput.shared.pointerLocked
+        let line = "requested=\(requested ? 1 : 0) captured=\(captured ? 1 : 0) available=\(state != nil ? 1 : 0) active=\(scene?.activationState == .foregroundActive ? 1 : 0) scene=\(scene?.coordinateSpace.bounds.size ?? .zero) screen=\(scene?.screen.bounds.size ?? .zero)"
+        if line != lastState {
+            lastState = line
+            fputs("[hwinput] pointer-lock-state \(line)\n", stderr)
+        }
+        HardwareInput.shared.pointerCaptureChanged(captured)
     }
 }
 
@@ -2361,19 +2414,19 @@ struct HardwareInputSettings: View {
         }
     }
 
-    /// Three states: locked; unlocked on the raw HID path (locking is useful);
-    /// unlocked on the UIKit path (locking is refused, it would stop pointer
-    /// delivery). The glyph distinguishes them.
+    /// Confirmed capture, pending request, or unlocked. UIKit-only devices use
+    /// the waiting glyph because locking would stop their pointer delivery.
     private var lockButton: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             HardwareInput.shared.togglePointerLock()
         } label: {
-            Image(systemName: hw.pointerLocked ? "cursorarrow.slash"
+            Image(systemName: hw.pointerCaptured ? "cursorarrow.slash"
+                  : hw.pointerLocked ? "cursorarrow.click.badge.clock"
                   : hw.mousePath == .uikit ? "cursorarrow.click.badge.clock"
                   : "cursorarrow.motionlines")
                 .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(.white.opacity(hw.pointerLocked ? 1.0 : 0.5))
+                .foregroundStyle(.white.opacity(hw.pointerCaptured ? 1.0 : 0.5))
                 .frame(minWidth: 40, minHeight: 32)
                 .background(Color.secondary.opacity(0.25))
                 .cornerRadius(6)

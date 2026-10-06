@@ -32,6 +32,9 @@ assert library.count("HardwareInput.shared.sessionUIChanged()") == 2
 assert "if !base && pointerLocked" in hardware
 assert "LibraryModel.shared.current != nil && !Self.desktopMode" in hardware
 assert "if lockedByUs || captureGame { autoLockSuppressed = true }" in hardware
+assert "locked: pointerCaptured" in hardware
+assert "UIPointerLockState.didChangeNotification" in hardware
+assert "let captured = state?.isLocked ?? false" in hardware
 print("PASS: game mapping, button channel ownership, responder and menu release wiring")
 
 compiler = shutil.which("swiftc")
@@ -140,6 +143,12 @@ assert(capture(focused: false) == .none)
 assert(capture(over: false) == .none)
 assert(capture(motion: 5) == .none)
 assert(capture(game: false) == .none)                      // no visible-cursor lock on desktop
+// A denied/pending iPadOS lock must retain absolute hover routing. Once the
+// OS confirms capture (hover disappears), raw relative motion carries input.
+assert(PointerPolicy.route(focused: true, hover: true, locked: false,
+                           cursorShown: true, absoluteAllowed: true) == .absolute)
+assert(PointerPolicy.route(focused: true, hover: false, locked: true,
+                           cursorShown: true, absoluteAllowed: true) == .relative)
 let escape = HardwareKeyMap.stroke(forHIDUsage: HardwareKeyMap.canonicalPressUsage(669))!
 assert(escape.vk == 0x1b && escape.scan == 0x01 && !escape.extended)
 print("PASS: production pointer geometry, single click edges, hit focus, capture/release and Globe mapping")
