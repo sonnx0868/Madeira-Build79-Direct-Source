@@ -27,6 +27,13 @@ also reports a large third-party Steam API replacement, but never modifies it,
 swaps it for the original DLL or bypasses DRM. Such a build may behave
 differently from the same game launched through Madeira Dock and Valve's client.
 
+Directly added Unity games also receive `-screen-width` and `-screen-height`
+from the library's **Resolution**. Unity otherwise may restore a saved window
+size even when Windows reports the selected monitor size. An explicit launch
+option for either dimension takes priority for that dimension;
+`env.MADEIRA_UNITY_RESOLUTION = 0` disables the added screen options. These
+options are included in launch validation, and do not change the game's saves.
+
 The same detection exposes a per-game **Unity smoothness profile**. It reports
 four CPU cores when the profile has no explicit CPU choice, reducing Unity 6's
 worker/synchronization fan-out, and enables DXMT's pressure-aware mip clamp for
@@ -35,6 +42,10 @@ selected resolution and it never overrides an explicit
 `env.MADEIRA_MIP_CLAMP_AUTO` value. The profile is on by default and can be
 turned off in the game's Compatibility & performance section; the global
 `env.MADEIRA_UNITY_OPTIMIZATIONS = 0` switch disables it for every game.
+It also enables `DXMT_CENSUS_THROTTLE`: periodic memory census reports run at
+most once per 10 seconds, with the first report and memory warnings retained.
+An explicit `env.DXMT_CENSUS_THROTTLE` value takes priority. This reduces
+diagnostic scans and output during play without changing buffer reclamation.
 
 LÖVE 11.5 games are a separate LuaJIT and renderer case. iOS enforces a hard
 4 GB Mach-O `__PAGEZERO`, while old non-GC64 LuaJIT builds request GC memory

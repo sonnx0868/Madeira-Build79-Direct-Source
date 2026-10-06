@@ -17,7 +17,21 @@ update = (root / "app/Madeira/AppUpdate.swift").read_text(encoding="utf-8").spli
 diagnostics = (root / "app/Madeira/RemoteDiagnostics.swift").read_text(encoding="utf-8")
 error = diagnostics[diagnostics.index("enum SupportError"):diagnostics.index("enum DiagnosticContext")]
 snapshot = diagnostics[diagnostics.index("enum DiagnosticSnapshot"):diagnostics.index("@MainActor final class RemoteDiagnostics")]
+library = (root / "app/Madeira/Library.swift").read_text(encoding="utf-8")
+unity = library[library.index("enum UnityLaunch {"):library.index("enum ExternalGameCompatibility {")]
 checks = r'''
+let selected = UnityLaunch.arguments("", resolution: "2560x1440", matchResolution: true, forceD3D11: true)
+assert(selected == "-force-d3d11 -screen-width 2560 -screen-height 1440")
+assert(UnityLaunch.arguments(selected, resolution: "2560x1440", matchResolution: true, forceD3D11: true) == selected)
+let explicit = "-force-vulkan -screen-width 1920 -screen-height 1080"
+assert(UnityLaunch.arguments(explicit, resolution: "2560x1440", matchResolution: true, forceD3D11: true) == explicit)
+assert(UnityLaunch.arguments("-screen-width=1280", resolution: "2560x1440", matchResolution: true, forceD3D11: false) == "-screen-width=1280 -screen-height 1440")
+let quoted = "-profile=\"data x-force-vulkan\"\t-screen-height 720"
+assert(UnityLaunch.arguments(quoted, resolution: "2560x1440", matchResolution: true, forceD3D11: true) == quoted + " -force-d3d11 -screen-width 2560")
+assert(UnityLaunch.arguments("-custom", resolution: "2560x1440", matchResolution: false, forceD3D11: false) == "-custom")
+for bad in ["2560x1440 -other", "99999x1440", "0x0", "2560", "2560x1440x1", "badx2560x1440", "2560xx1440", "2560x1440x"] {
+    assert(UnityLaunch.arguments("", resolution: bad, matchResolution: true, forceD3D11: false).isEmpty)
+}
 assert(ReleaseVersion("0.1.10")! > ReleaseVersion("0.1.9")!)
 assert(ReleaseVersion("v0.1.4-build560-abcd")! == ReleaseVersion("0.1.4")!)
 assert(ReleaseVersion("bogus") == nil)
@@ -49,11 +63,11 @@ assert(captured.prefix(65536) == large.prefix(65536) && captured.suffix(4) == Da
 try FileManager.default.removeItem(at: b.url)
 try Data().write(to: file)
 do { _ = try DiagnosticSnapshot.create(from: file); fatalError("empty log accepted") } catch {}
-print("PASS: production version/build comparison, repository URL validation, snapshot contents, size bound and empty log rejection")
+print("PASS: Unity startup resolution and argument overrides, production version/build comparison, repository URL validation, snapshot contents, size bound and empty log rejection")
 '''
 with tempfile.TemporaryDirectory() as folder:
     source = Path(folder) / "main.swift"
     binary = Path(folder) / "check"
-    source.write_text(update + error + snapshot + checks, encoding="utf-8")
+    source.write_text(update + error + snapshot + unity + checks, encoding="utf-8")
     subprocess.run([swift, str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

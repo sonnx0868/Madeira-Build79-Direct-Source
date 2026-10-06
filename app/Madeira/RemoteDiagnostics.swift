@@ -208,7 +208,8 @@ enum DiagnosticEvents {
         var settings: [String: String] = [:]
         for key in ["pool", "vram-mb", "swap-mb", "inproc-sync", "env.MADEIRA_FASTSYNC",
                     "env.MADEIRA_RUNTIME_PROFILERS", "env.MADEIRA_MIP_CLAMP_AUTO",
-                    "env.DXMT_WSI_MODE_TABLE", "env.MADEIRA_PROMOTE"] {
+                    "env.DXMT_CENSUS_THROTTLE", "env.DXMT_WSI_MODE_TABLE",
+                    "env.MADEIRA_UNITY_RESOLUTION", "env.MADEIRA_PROMOTE"] {
             settings[key] = String((MadeiraConfig.get(key) ?? "default").prefix(160))
         }
         if let data = try? JSONSerialization.data(withJSONObject: settings, options: .sortedKeys),

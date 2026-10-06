@@ -101,6 +101,7 @@ func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
 swift += block(lib, 'enum ControllerCompatibility') + '\n'
+swift += block(lib, 'enum UnityLaunch') + '\n'
 swift += block(lib, 'enum ExternalGameCompatibility') + '\n'
 swift += block(lib, 'enum SyncEngine: String, CaseIterable, Identifiable') + '\n'
 swift += '\n'.join(l for l in display.splitlines() if not l.startswith('import ')) + '\n'
@@ -242,8 +243,12 @@ expect(vsync == 1, "60 FPS applied")
 expect((try? game.validate()) != nil, "a normal profile validates")
 var bad = game; bad.arguments = "\"unbalanced"
 expect((try? bad.validate()) == nil, "unbalanced quotes refused")
-bad = game; bad.arguments = (0..<65).map { "a\($0)" }.joined(separator: " ")
-expect((try? bad.validate()) == nil, "more than 64 arguments refused")
+bad = game; bad.arguments = (0..<17).map { "a\($0)" }.joined(separator: " ")
+expect((try? bad.validate()) == nil, "more than the bridge's 16 arguments refused")
+bad.arguments = (0..<16).map { "a\($0)" }.joined(separator: " ")
+expect((try? bad.validate()) != nil, "the bridge's full argument capacity validates")
+bad.arguments = String(repeating: "a", count: 1024)
+expect((try? bad.validate()) == nil, "a command exceeding the bridge's buffer is refused")
 bad = game; bad.resolution = "10x10"
 expect((try? bad.validate()) == nil, "invalid size refused")
 bad = game; bad.fpsMode = 7

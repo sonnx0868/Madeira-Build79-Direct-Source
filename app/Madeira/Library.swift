@@ -258,6 +258,11 @@ struct LibraryEntry: Codable, Identifiable {
     var launchArguments: String {
         if desktop == true { return desktopCommand ?? "/desktop=shell,\(resolution) C:\\windows\\system32\\services.exe" }
         if startsSteamGameDirectly { return steamProgramArguments ?? "" }
+        if ExternalGameCompatibility.isUnity(self) {
+            return UnityLaunch.arguments(arguments, resolution: resolution,
+                matchResolution: MadeiraConfig.flag("MADEIRA_UNITY_RESOLUTION"),
+                forceD3D11: MadeiraConfig.flag("MADEIRA_UNITY_D3D11"))
+        }
         return arguments
     }
 
@@ -303,9 +308,10 @@ struct LibraryEntry: Codable, Identifiable {
             if !quoted && (character == " " || character == "\t") { inToken = false }
             else if !inToken { tokens += 1; inToken = true }
         }
-        // WineProcessBridge takes at most 64 arguments in 4 KB.
-        guard launchArguments.utf8.count < 4096 else { throw LibraryError.message("The complete launch command is too long.") }
-        guard !quoted, tokens <= 64 else { throw LibraryError.message("Use balanced double quotes and at most 64 launch arguments in total.") }
+        // Match WineProcessBridge's real buffer and token limits, including the
+        // automatic Unity options, so its tokenizer never drops the screen size.
+        guard launchArguments.utf8.count < 1024 else { throw LibraryError.message("The complete launch command is too long.") }
+        guard !quoted, tokens <= 16 else { throw LibraryError.message("Use balanced double quotes and at most 16 launch arguments in total, including automatic Unity options.") }
     }
 
     /// Runs on the launch worker, before the JIT pool is taken.
@@ -478,6 +484,36 @@ enum ControllerCompatibility {
     }
 }
 
+/// Unity persists its own window dimensions independently of the Windows
+/// monitor. Pass the library size at startup so an old 1408x648 preference does
+/// not silently win over a 2560x1440 monitor. Explicit launch options still win.
+enum UnityLaunch {
+    static func arguments(_ original: String, resolution: String,
+                          matchResolution: Bool, forceD3D11: Bool) -> String {
+        var tokens: [String] = [], token = "", quoted = false
+        for character in original {
+            if character == "\"" { quoted.toggle() }
+            else if character.isWhitespace && !quoted {
+                if !token.isEmpty { tokens.append(token.lowercased()); token = "" }
+            } else { token.append(character) }
+        }
+        if !token.isEmpty { tokens.append(token.lowercased()) }
+        let options = tokens.map { String($0.split(separator: "=", maxSplits: 1).first ?? "") }
+        var extra: [String] = []
+        if forceD3D11 && !options.contains(where: {
+            $0.hasPrefix("-force-d3d") || $0 == "-force-vulkan" || $0.hasPrefix("-force-opengl")
+        }) { extra.append("-force-d3d11") }
+        let size = resolution.split(separator: "x", omittingEmptySubsequences: false)
+        if matchResolution && size.count == 2, let width = Int(size[0]), let height = Int(size[1]),
+           (320...4096).contains(width), (240...4096).contains(height) {
+            if !options.contains("-screen-width") { extra += ["-screen-width", String(width)] }
+            if !options.contains("-screen-height") { extra += ["-screen-height", String(height)] }
+        }
+        guard !extra.isEmpty else { return original }
+        return original + (original.isEmpty ? "" : " ") + extra.joined(separator: " ")
+    }
+}
+
 /// Safe launch adjustments for games copied into drive_c. This never replaces
 /// Steam DLLs, patches executables or bypasses licensing; it only chooses a
 /// renderer Madeira implements and reports third-party launch layers that may
@@ -575,8 +611,16 @@ enum ExternalGameCompatibility {
         if unityProfile {
             if entry.cpuCount == nil { applied.append("unity-cpu4") }
             if enableUnityMipClamp() { applied.append("unity-mip-pressure") }
+            if MadeiraConfig.get("env.DXMT_CENSUS_THROTTLE") == nil,
+               getenv("DXMT_CENSUS_THROTTLE") == nil {
+                // The 64-bit DXMT default walks and prints the full census every
+                // few frames. Keep the first/warning reports and sample at 10 s.
+                setenv("DXMT_CENSUS_THROTTLE", "1", 1)
+                applied.append("unity-census-throttled")
+            }
         }
         if unity, MadeiraConfig.flag("MADEIRA_UNITY_D3D11") {
+            // Command-line arguments passed to Wine for this session.
             var args = getenv("MADEIRA_ARGS").map { String(cString: $0) } ?? ""
             let lower = args.lowercased()
             let rendererChosen = ["-force-d3d", "-force-vulkan", "-force-opengl"].contains { lower.contains($0) }
