@@ -90,8 +90,26 @@ final class MetalBackedView: UIView {
     // Run) directly instead of relying on the browse list.
     static weak var keyboardTarget: MetalBackedView?
     override var canBecomeFirstResponder: Bool { true }
+    private var hardwareResponder = false
+    private let hardwareInputView = UIView(frame: .zero)
+    override var inputView: UIView? { hardwareResponder ? hardwareInputView : super.inputView }
+
+    /// Physical UIKit presses only reach a view on the responder chain. Keep
+    /// this fallback active during play without opening the software keyboard
+    /// or taking the keyboard from a Madeira text field.
+    func updateHardwareResponder(active: Bool) {
+        if active, !isFirstResponder {
+            hardwareResponder = true
+            if !becomeFirstResponder() { hardwareResponder = false }
+        } else if !active, hardwareResponder {
+            hardwareResponder = false
+            if isFirstResponder { resignFirstResponder() }
+        }
+    }
+
     static func toggleKeyboard() {
         guard let v = keyboardTarget else { return }
+        v.hardwareResponder = false
         if v.isFirstResponder { v.resignFirstResponder() }
         else { v.becomeFirstResponder() }
     }
@@ -103,7 +121,10 @@ final class MetalBackedView: UIView {
     /// chain (important for IME/text services).
     private func hardwarePresses(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
         Set(presses.filter { press in
-            guard let key = press.key else { return false }
+            guard let key = press.key else {
+                HardwareInput.shared.uikitPressWithoutKey(type: press.type.rawValue, down: down)
+                return false
+            }
             return HardwareInput.shared.uikitKey(key, down)
         })
     }
@@ -309,7 +330,7 @@ final class MetalBackedView: UIView {
     /// Same mapping for any point (a multi-finger midpoint, a touch's down
     /// point). In a desktop session the compositor letterboxes the desktop in
     /// its own frame, so it does the mapping.
-    private func mapPoint(_ p: CGPoint) -> (Int32, Int32) {
+    func mapPoint(_ p: CGPoint) -> (Int32, Int32) {
         if desktopMode {
             let w = convert(p, to: nil)
             var px: Int32 = 0, py: Int32 = 0

@@ -33,8 +33,9 @@ wine = Path(os.environ.get('WINE_SRC', root / 'wine'))
 app = root / 'app/Madeira'
 source = (app / 'HardwareInput.swift').read_text(encoding='utf-8')
 pure = source.split('// MARK: - Pure input mapping', 1)[1].split('// MARK: - Device glue', 1)[0]
+pure_code = re.sub(r'//[^\n]*', '', pure)
 for banned in ('UIKit', 'UITouch', 'winios_', 'GameController'):
-    assert banned not in pure.replace('UIKit or Wine', ''), f'pure section uses {banned}'
+    assert re.search(r'\b' + banned, pure_code) is None, f'pure section uses {banned}'
 
 failures = []
 

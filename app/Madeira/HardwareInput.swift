@@ -64,7 +64,8 @@ import ObjectiveC
 //     ClipCursor clamping, so aiming never stalls at a screen edge.
 // On iPad, while the program hides its cursor and the pointer is over the game
 // view, the pointer is locked (hidden and pinned, deltas keep coming at the
-// screen edges); the lock is released when the program shows a cursor again.
+// screen edges). Library games also capture a visible cursor once raw button
+// delivery is confirmed; Madeira menus/backgrounding release the lock.
 //
 // CURSOR: with no virtual desktop (a program on the game view) nothing drew a
 // Windows cursor: the finger is the pointer there. While the mouse is in use,
@@ -348,6 +349,47 @@ enum MouseButton: Int, CaseIterable, Comparable {
     static func < (a: MouseButton, b: MouseButton) -> Bool { a.rawValue < b.rawValue }
 }
 
+/// Mouse motion and buttons can have different working transports. Promote
+/// each button to GC independently, after finishing any UIKit click already
+/// in flight; two reports of that first click must not become two clicks.
+struct MouseButtonStreams {
+    private(set) var gcSeen: Set<MouseButton> = []
+    private var uikitHeld: Set<MouseButton> = []
+    private var uikitLastAt: [MouseButton: Double] = [:]
+    private var duplicateCycle: Set<MouseButton> = []
+
+    func acceptsUIKit(_ b: MouseButton) -> Bool {
+        !gcSeen.contains(b) || duplicateCycle.contains(b)
+    }
+
+    mutating func noteUIKit(_ want: Set<MouseButton>, at t: Double) {
+        for b in MouseButton.allCases where acceptsUIKit(b) {
+            if uikitHeld.contains(b) != want.contains(b) { uikitLastAt[b] = t }
+            if want.contains(b) { uikitHeld.insert(b) } else { uikitHeld.remove(b) }
+        }
+    }
+
+    mutating func acceptsGC(_ b: MouseButton, pressed: Bool, at t: Double) -> Bool {
+        if pressed, !gcSeen.contains(b),
+           uikitHeld.contains(b) || uikitLastAt[b].map({ abs(t - $0) <= 0.060 }) == true {
+            duplicateCycle.insert(b)
+        }
+        gcSeen.insert(b)
+        guard !duplicateCycle.contains(b) else {
+            if !pressed {
+                duplicateCycle.remove(b)
+                // A missing or later UIKit UP must never strand this button.
+                let needsUp = uikitHeld.remove(b) != nil
+                return needsUp
+            }
+            return false
+        }
+        return true
+    }
+
+    mutating func releaseHeld() { uikitHeld.removeAll(); duplicateCycle.removeAll(); uikitLastAt.removeAll() }
+}
+
 /// What has been posted DOWN and not yet UP. Callers declare the complete set
 /// they want held and post the returned edges (ups first), so a lost callback
 /// converges on the next one instead of leaving a key held.
@@ -546,6 +588,15 @@ struct ClickFocus {
         if now - t < Self.window { return nil }
         return onGame
     }
+
+    /// On iPad a hover may end as a button goes down. The touch hit target
+    /// for that click is authoritative; an old finger tap is not. Wait for
+    /// UIKit only when hover has already stopped.
+    func pointerRoute(buttonAt t: Double, now: Double, pointerOver: Bool) -> Bool? {
+        if abs(lastTouchAt - t) <= Self.window { return lastTouchOnGame }
+        if pointerOver { return true }
+        return now - t < Self.window ? nil : false
+    }
 }
 
 /// How pointer motion reaches the program.
@@ -579,6 +630,8 @@ enum PointerPolicy {
 /// SetCursor/ShowCursor during mouse-look, while iPadOS needs the lock to keep
 /// motion away from the screen edges. Focus loss, cursor show, disconnect, or
 /// the explicit Ctrl+Alt+P/button escape remain authoritative release paths.
+/// Library games may also capture their visible pointer (`captureGame`),
+/// independent of the cursor-report cadence.
 enum AutoLock {
     static let hiddenDelay = 0.5
     static let liveWindow = 1.0
@@ -587,12 +640,14 @@ enum AutoLock {
     enum Action: Equatable { case lock, unlock, none }
 
     static func decide(locked: Bool, lockedByUs: Bool, cursorShown: Bool, hiddenFor: Double,
-                       pointerOver: Bool, focused: Bool, sinceReport: Double, sinceMotion: Double) -> Action {
+                       pointerOver: Bool, focused: Bool, sinceReport: Double, sinceMotion: Double,
+                       captureGame: Bool = false) -> Action {
         if locked {
             guard lockedByUs else { return .none }
-            if cursorShown || !focused { return .unlock }
+            if !focused || (cursorShown && !captureGame) { return .unlock }
             return .none
         }
+        if captureGame && pointerOver && focused && sinceMotion < moving { return .lock }
         if !cursorShown && hiddenFor >= hiddenDelay && pointerOver && focused
             && sinceReport <= liveWindow && sinceMotion < moving {
             return .lock
@@ -717,6 +772,8 @@ final class HardwareInput: ObservableObject {
     /// iPhone: presses waiting for the tap that says where they belong.
     private var pendingButtons: [MouseButton: (at: CFTimeInterval, released: Bool)] = [:]
     private var gcButtonSeen = false
+    private var buttonStreams = MouseButtonStreams()
+    private var inputEdgesLogged = 0
 
     // MARK: cursor and lock state (main thread)
 
@@ -731,9 +788,17 @@ final class HardwareInput: ObservableObject {
     /// absolute route (the driver's report would trail it).
     private var lastAbsolute: (x: Int32, y: Int32)?
     private var lockedByUs = false
-    /// The user released an automatic lock: leave it off until the program's
-    /// cursor next changes visibility.
+    /// The user released capture: leave it off for this library session, or
+    /// until cursor visibility changes for another direct program.
     private var autoLockSuppressed = false
+    private var captureSession: UUID?
+
+    /// Capture a library game's visible pointer too, once the raw button
+    /// stream is confirmed. Locking a motion-only device would kill UIKit's
+    /// button fallback. Madeira menus and launch screens release capture.
+    private var captureGame: Bool {
+        LibraryModel.shared.current != nil && !Self.desktopMode && buttonStreams.gcSeen.contains(.left)
+    }
 
     // MARK: motion state (motionLock)
 
@@ -905,6 +970,7 @@ final class HardwareInput: ObservableObject {
         keys.focusLost()
         pendingButtons.removeAll()
         gameButtons.removeAll()
+        buttonStreams.releaseHeld()
         syncKeys()
         syncButtons()
         motionLock.lock(); carry.reset(); wheel.reset(); motionLock.unlock()
@@ -935,6 +1001,8 @@ final class HardwareInput: ObservableObject {
         let over = hoverSeen ? pointerOver : clickFocus.onGame
         let mouse = base && (!Self.focusEnabled || pointerLocked || over || !gameButtons.isEmpty)
         baseFocused = base
+        MetalBackedView.keyboardTarget?.updateHardwareResponder(active: keyboard && keyboardConnected)
+        if !base && pointerLocked { setPointerLocked(false, byUs: false, why: "focus lost") }
         if keyboard != keyboardFocused {
             keyboardFocused = keyboard
             if !keyboard { keys.focusLost() }
@@ -946,6 +1014,7 @@ final class HardwareInput: ObservableObject {
             if !mouse {
                 pendingButtons.removeAll()
                 gameButtons.removeAll()
+                buttonStreams.releaseHeld()
                 syncButtons()
                 motionLock.lock(); carry.reset(); wheel.reset(); motionLock.unlock()
             }
@@ -963,6 +1032,7 @@ final class HardwareInput: ObservableObject {
     private func computeBaseFocus() -> Bool {
         guard appActive, UIApplication.shared.applicationState == .active else { return false }
         guard Self.focusEnabled else { return true }
+        guard !LibraryModel.shared.blocksGameplayTouch else { return false }
         guard let v = MetalBackedView.keyboardTarget, let w = v.window,
               !v.isHidden, !w.isHidden, v.alpha > 0.01 else { return false }
         if let scene = w.windowScene {
@@ -998,6 +1068,10 @@ final class HardwareInput: ObservableObject {
     /// Controllers come and go through PadStickMouse; the poll follows them.
     func controllersChanged() { refreshFocus("controllers") }
 
+    /// Native session overlays must release capture immediately, including
+    /// overlays that do not present a UIKit view controller.
+    func sessionUIChanged() { refreshFocus("session UI") }
+
     /// Every tap and click in the game view's window, for click focus.
     private func installTouchObserver() {
         guard let w = MetalBackedView.keyboardTarget?.window, w !== observedWindow else { return }
@@ -1010,7 +1084,10 @@ final class HardwareInput: ObservableObject {
         guard Self.enabled, let game = MetalBackedView.keyboardTarget else { return }
         let onGame = t.view.map { $0.isDescendant(of: game) } ?? false
         clickFocus.touchBegan(onGame: onGame, at: CACurrentMediaTime())
-        if !hoverSeen { refreshFocus(onGame ? "tap on the game view" : "tap elsewhere") }
+        if t.type == .indirectPointer { pointerOver = onGame }
+        if !hoverSeen || t.type == .indirectPointer {
+            refreshFocus(onGame ? "click on the game view" : "click elsewhere")
+        }
     }
 
     // MARK: - keyboard
@@ -1020,11 +1097,14 @@ final class HardwareInput: ObservableObject {
         guard let input = kb.keyboardInput else {
             if !keyboardConnected {
                 log("keyboard connected: \(kb.vendorName ?? "keyboard") keyboardInput=NIL (no key stream)")
+                keyboardConnected = true
+                refreshFocus("keyboard connected without GC stream")
             }
             return
         }
         kb.handlerQueue = .main
         input.keyChangedHandler = { [weak self] _, _, code, pressed in
+            if code.rawValue == 669, pressed { self?.log("Globe -> Escape via=GCKeyboard") }
             let usage = HardwareKeyMap.canonicalPressUsage(code.rawValue)
             self?.keyUsage(usage, pressed, source: "GCKeyboard")
         }
@@ -1040,7 +1120,7 @@ final class HardwareInput: ObservableObject {
         keys.reset()
         lastKeyTransition.removeAll()
         syncKeys()
-        keyboardConnected = GCKeyboard.coalesced?.keyboardInput != nil
+        keyboardConnected = GCKeyboard.coalesced != nil
         log("keyboard disconnected (coalesced still present=\(keyboardConnected))")
         refreshFocus("keyboard disconnected")
     }
@@ -1049,12 +1129,18 @@ final class HardwareInput: ObservableObject {
     /// callers use the return value to keep unknown keys in UIKit's pipeline.
     @discardableResult
     func uikitKey(_ key: UIKey, _ pressed: Bool) -> Bool {
+        if key.keyCode.rawValue == 669, pressed { log("Globe -> Escape via=UIKit") }
         let usage = HardwareKeyMap.canonicalPressUsage(Int(key.keyCode.rawValue))
         return keyUsage(usage, pressed, source: "UIKit")
     }
 
+    func uikitPressWithoutKey(type: Int, down: Bool) {
+        traceInputEdge("UIKit press without key type=\(type) \(down ? "down" : "up")")
+    }
+
     @discardableResult
     private func keyUsage(_ usage: Int, _ pressed: Bool, source: String) -> Bool {
+        guard Self.enabled else { return false }
         tickKeys += 1
         guard let stroke = HardwareKeyMap.stroke(forHIDUsage: usage) else {
             // An unmapped key is a key the program did not receive; the usage
@@ -1073,6 +1159,7 @@ final class HardwareInput: ObservableObject {
             log("keyboard active via UIKit physical-key fallback")
         }
         refreshFocus("key")
+        traceInputEdge("key usage=0x\(String(usage, radix: 16)) \(pressed ? "down" : "up") via=\(source) focus=\(keyboardFocused ? 1 : 0)")
         if pressed { keys.press(stroke, focused: keyboardFocused) } else { keys.release(stroke) }
         let heldVKs = Set(keys.physical.map(\.vk))
         if pressed, keyboardFocused, Self.pointerLockAvailable,
@@ -1174,6 +1261,7 @@ final class HardwareInput: ObservableObject {
         if remaining.isEmpty {
             gcDeltaSeen = false
             gcButtonSeen = false
+            buttonStreams = MouseButtonStreams()
             attachedMice.removeAll()
             motionLock.lock(); gcDeltaLive = false; motionLock.unlock()
             if mousePath == .gcmouse { mousePath = .none; log("mouse path: none") }
@@ -1275,11 +1363,10 @@ final class HardwareInput: ObservableObject {
     /// the game view. Main thread.
     private func postAbsolute(_ p: CGPoint, in view: UIView) {
         let desktop = Self.desktopMode
-        let desk = Self.desktopSize()
-        let sw = desktop ? desk.w : DirectCursorOverlay.screenW
-        let sh = desktop ? desk.h : DirectCursorOverlay.screenH
-        let s = ScreenMap.toScreen(x: Double(p.x), y: Double(p.y), viewW: Double(view.bounds.width),
-                                   viewH: Double(view.bounds.height), screenW: sw, screenH: sh)
+        guard let game = MetalBackedView.keyboardTarget else { return }
+        let point = view === game ? p : view.convert(p, to: game)
+        let mapped = game.mapPoint(point)
+        let s = (x: mapped.0, y: mapped.1)
         setMouseInUse(true)
         if let last = lastAbsolute, last.x == s.x, last.y == s.y { return }
         lastAbsolute = s
@@ -1335,14 +1422,18 @@ final class HardwareInput: ObservableObject {
     /// press happens; a release always follows its press. Main thread.
     private func buttonChanged(_ b: MouseButton, _ pressed: Bool, at t: CFTimeInterval) {
         gcButtonSeen = true
+        guard buttonStreams.acceptsGC(b, pressed: pressed, at: t) else {
+            traceInputEdge("button \(b.rawValue) via=GCMouse duplicate UIKit click")
+            return
+        }
         if pressed {
             setMouseInUse(true)
             refreshFocus("button")
             if !baseFocused {
                 // nothing: the program does not have focus
-            } else if !Self.focusEnabled || pointerLocked || hoverSeen {
+            } else if !Self.focusEnabled || pointerLocked {
                 if mouseFocused { gameButtons.insert(b) }
-            } else if let toGame = clickFocus.route(buttonAt: t, now: CACurrentMediaTime()) {
+            } else if let toGame = buttonRoute(at: t) {
                 if toGame { gameButtons.insert(b) }
             } else {
                 pendingButtons[b] = (t, false)
@@ -1354,6 +1445,7 @@ final class HardwareInput: ObservableObject {
             if let p = pendingButtons[b] { pendingButtons[b] = (p.at, true) }
             gameButtons.remove(b)
         }
+        traceInputEdge("button \(b.rawValue) \(pressed ? "down" : "up") via=GCMouse focus=\(mouseFocused ? 1 : 0) pending=\(pendingButtons[b] != nil ? 1 : 0) game=\(gameButtons.contains(b) ? 1 : 0)")
         syncButtons()
         // A drag that left the game view keeps the mouse only while held.
         if !pressed && gameButtons.isEmpty { refreshFocus("button up") }
@@ -1364,7 +1456,7 @@ final class HardwareInput: ObservableObject {
     private func resolvePendingButton(_ b: MouseButton) {
         guard let p = pendingButtons.removeValue(forKey: b) else { return }
         let toGame = baseFocused
-            && (clickFocus.route(buttonAt: p.at, now: CACurrentMediaTime()) ?? clickFocus.onGame)
+            && (buttonRoute(at: p.at) ?? false)
         guard toGame else { return }
         gameButtons.insert(b)
         syncButtons()
@@ -1374,10 +1466,29 @@ final class HardwareInput: ObservableObject {
         }
     }
 
+    private func buttonRoute(at t: CFTimeInterval) -> Bool? {
+        hoverSeen
+            ? clickFocus.pointerRoute(buttonAt: t, now: CACurrentMediaTime(), pointerOver: pointerOver)
+            : clickFocus.route(buttonAt: t, now: CACurrentMediaTime())
+    }
+
     private func syncButtons() {
         let edges = buttonsPosted.update(gameButtons)
-        for b in edges.up { let e = b.event(down: false); winios_pointer(0, 0, e.flags, e.data) }
-        for b in edges.down { let e = b.event(down: true); winios_pointer(0, 0, e.flags, e.data) }
+        for b in edges.up { postButton(b, down: false) }
+        for b in edges.down { postButton(b, down: true) }
+    }
+
+    private func postButton(_ b: MouseButton, down: Bool) {
+        let e = b.event(down: down)
+        traceInputEdge("post button=\(b.rawValue) \(down ? "down" : "up") flags=0x\(String(e.flags, radix: 16)) position=\(lastAbsolute.map { "\($0.x),\($0.y)" } ?? "Wine cursor")")
+        winios_pointer(0, 0, e.flags, e.data)
+    }
+
+    /// Bounded physical-input trace; no typed characters or unbounded event log.
+    private func traceInputEdge(_ line: String) {
+        guard diagnostics, inputEdgesLogged < 100 else { return }
+        inputEdgesLogged += 1
+        log(line)
     }
 
     /// Reached from the mouse queue (GCMouse scroll) and from main (UIKit,
@@ -1446,7 +1557,7 @@ final class HardwareInput: ObservableObject {
         if before.reports == 0 || cursorState.shown != before.shown {
             cursorHiddenSince = cursorState.shown != 0 ? 0 : now
             if cursorState.shown != before.shown {
-                autoLockSuppressed = false
+                if !captureGame { autoLockSuppressed = false }
                 log("program cursor \(cursorState.shown != 0 ? "shown" : "hidden")")
             }
             refreshFocus("program cursor")
@@ -1464,6 +1575,10 @@ final class HardwareInput: ObservableObject {
     }
 
     private func updateAutoLock() {
+        if captureSession != LibraryModel.shared.current {
+            captureSession = LibraryModel.shared.current
+            autoLockSuppressed = false
+        }
         guard Self.autoLockEnabled, directCursorLive, Self.pointerLockAvailable, mousePath == .gcmouse else {
             if pointerLocked && lockedByUs { setPointerLocked(false, byUs: true, why: "automatic lock unavailable") }
             return
@@ -1475,10 +1590,11 @@ final class HardwareInput: ObservableObject {
             hiddenFor: cursorState.reports == 0 || cursorHiddenSince == 0 ? 0 : now - cursorHiddenSince,
             pointerOver: pointerOver, focused: baseFocused,
             sinceReport: lastReportAt == 0 ? .infinity : now - lastReportAt,
-            sinceMotion: lastDelta == 0 ? .infinity : now - lastDelta)
+            sinceMotion: lastDelta == 0 ? .infinity : now - lastDelta,
+            captureGame: captureGame)
         switch action {
         case .lock where !autoLockSuppressed:
-            setPointerLocked(true, byUs: true, why: "the program hides its cursor")
+            setPointerLocked(true, byUs: true, why: captureGame ? "capture game mouse" : "the program hides its cursor")
         case .unlock:
             setPointerLocked(false, byUs: true, why: cursorState.shown != 0 ? "the program shows its cursor"
                              : "focus lost")
@@ -1543,6 +1659,11 @@ final class HardwareInput: ObservableObject {
     func interceptTouches(_ touches: Set<UITouch>, _ event: UIEvent?, _ phase: TouchPhase) -> Bool {
         guard Self.enabled else { return false }
         if touches.contains(where: { $0.type == .indirectPointer }) {
+            if phase == .began || phase == .moved,
+               let t = touches.first(where: { $0.type == .indirectPointer }),
+               let game = MetalBackedView.keyboardTarget, !pointerLocked {
+                pointerHovered(at: t.location(in: game), in: game, inside: true)
+            }
             switch phase {
             case .moved: break
             case .cancelled: uikitButtons([])       // no mask worth reading: drop all
@@ -1636,11 +1757,16 @@ final class HardwareInput: ObservableObject {
     /// The complete set of buttons UIKit says are down, declared, not edged.
     /// These touches reach the game view only while the pointer is over it.
     func uikitButtons(_ want: Set<MouseButton>) {
-        guard Self.enabled, !gcLive else { return }
+        guard Self.enabled else { return }
         let allowed = baseFocused ? want : []
         if !want.isEmpty { noteUIKitPointer(); setMouseInUse(true) }
-        guard allowed != gameButtons else { return }
-        gameButtons = allowed
+        // Motion is not evidence that GC delivers buttons. Choose ownership
+        // per button, retaining UIKit for incomplete device profiles.
+        buttonStreams.noteUIKit(allowed, at: CACurrentMediaTime())
+        for b in MouseButton.allCases where buttonStreams.acceptsUIKit(b) {
+            if allowed.contains(b) { gameButtons.insert(b) } else { gameButtons.remove(b) }
+        }
+        traceInputEdge("buttons via=UIKit mask=\(want.sorted().map(\.rawValue)) game=\(gameButtons.sorted().map(\.rawValue))")
         syncButtons()
         startTicker()
     }
@@ -1663,11 +1789,11 @@ final class HardwareInput: ObservableObject {
 
     // MARK: - pointer lock
 
-    /// The lock button and Ctrl+Alt+P. Releasing an automatic lock keeps it
-    /// off until the program's cursor next changes visibility.
+    /// The lock button and Ctrl+Alt+P. A manual release suppresses recapture
+    /// for this library session (cursor visibility for other direct programs).
     func togglePointerLock(why: String = "toggle") {
         if pointerLocked {
-            if lockedByUs { autoLockSuppressed = true }
+            if lockedByUs || captureGame { autoLockSuppressed = true }
             setPointerLocked(false, byUs: false, why: why)
         } else {
             setPointerLocked(true, byUs: false, why: why)
@@ -1739,7 +1865,8 @@ final class HardwareInput: ObservableObject {
         log("keys_down=[\(keyList)] mouse_dx=\(Int(dx)) mouse_dy=\(Int(dy)) "
             + "buttons=\(gameButtons.sorted().map(\.rawValue)) wheel=\(wheelN) "
             + "lock=\(pointerLocked ? "on" : "off") path=\(mousePath.rawValue) route=\(currentRoute.rawValue) "
-            + "focus=kb:\(keyboardFocused ? 1 : 0),mouse:\(mouseFocused ? 1 : 0) events=\(tickKeys)")
+            + "focus=kb:\(keyboardFocused ? 1 : 0),mouse:\(mouseFocused ? 1 : 0) "
+            + "responder=\(MetalBackedView.keyboardTarget?.isFirstResponder == true ? 1 : 0) events=\(tickKeys)")
         tickKeys = 0
     }
 }
@@ -1998,11 +2125,9 @@ final class PointerFallback: NSObject {
 /// it moves and scales with it; created the first time a mouse is used there.
 /// The image and hotspot are the program's (driver_ios.c extracts them exactly
 /// as for the desktop compositor); positions are Wine screen pixels on the
-/// 1024x768 surface that MetalBackedView.mapTouch also maps to. Main thread.
+/// live guest surface that MetalBackedView.mapTouch also maps to. Main thread.
 final class DirectCursorOverlay {
     static let shared = DirectCursorOverlay()
-    static let screenW = 1024
-    static let screenH = 768
 
     private var layer: CALayer?
     private var image = winios_direct_cursor_state()
@@ -2038,13 +2163,16 @@ final class DirectCursorOverlay {
         CATransaction.setDisableActions(true)
         l.isHidden = !visible
         if visible {
-            let k = MetalHostView.shared.bounds.width / CGFloat(Self.screenW)
+            var sw: Int32 = 0, sh: Int32 = 0
+            winios_screen_size(&sw, &sh)
+            let kx = MetalHostView.shared.bounds.width / CGFloat(max(sw, 1))
+            let ky = MetalHostView.shared.bounds.height / CGFloat(max(sh, 1))
             let w = serial != 0 ? Int(image.w) : Self.arrowSize.w
             let h = serial != 0 ? Int(image.h) : Self.arrowSize.h
             let hx = serial != 0 ? Int(image.hot_x) : 0
             let hy = serial != 0 ? Int(image.hot_y) : 0
-            l.bounds = CGRect(x: 0, y: 0, width: CGFloat(w) * k, height: CGFloat(h) * k)
-            l.position = CGPoint(x: CGFloat(Int(x) - hx) * k, y: CGFloat(Int(y) - hy) * k)
+            l.bounds = CGRect(x: 0, y: 0, width: CGFloat(w) * kx, height: CGFloat(h) * ky)
+            l.position = CGPoint(x: CGFloat(Int(x) - hx) * kx, y: CGFloat(Int(y) - hy) * ky)
         }
         CATransaction.commit()
     }

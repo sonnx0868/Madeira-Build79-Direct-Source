@@ -18,6 +18,10 @@ incomplete. Both paths use the USB HID usage and are de-duplicated before Wine,
 so a key never arrives twice. UIKit text events remain separate and are used
 only for keys the physical map does not understand.
 
+During play, the game view becomes first responder while a hardware keyboard
+is connected, with an empty input view so no software keyboard opens. Native
+menus, launch screens and other text fields keep their own keyboard focus.
+
 - The key's USB HID usage is mapped to a Windows virtual key. Modifiers keep
   their side (`VK_LSHIFT`, `VK_RCONTROL`, ...); the wineserver derives the
   generic `VK_SHIFT`/`VK_CONTROL`/`VK_MENU` state from them. Numpad keys are
@@ -38,6 +42,11 @@ only for keys the physical map does not understand.
   key and are not sent (the unmapped usage is logged).
 - The iPad keyboard's **Globe/Language** key is normalized from Apple's raw
   usage 669 to USB Escape, so Windows games receive `VK_ESCAPE`/scan `0x01`.
+  This applies when iPadOS delivers the key to Madeira. If Globe still opens
+  the system language/emoji UI, set **Settings > General > Keyboard > Hardware
+  Keyboard > Modifier Keys > Globe Key > Escape** on the iPad. The resulting
+  physical Escape uses the same raw-key bridge; Madeira cannot remap a system
+  key that iPadOS does not deliver to the app.
 
 ## Focus
 
@@ -47,6 +56,8 @@ doing in it. Input reaches the program only while it has focus:
 - **Always required:** the app is active and in the foreground, the game view
   is on screen, and nothing is presented over the app (a sheet, an alert, a
   picker, a menu shown as a view controller).
+  Madeira's own in-game menu and launch screen also suspend hardware input
+  and release pointer lock immediately.
 - **Keyboard:** no other text input is first responder, for example a text
   field in the app. The game view's own text bridge counts as the program's.
 - **Mouse:** the pointer is over the game view (iPad, where UIKit reports the
@@ -107,6 +118,16 @@ Buttons are left, right, middle and the two side buttons
 (`XBUTTON1`/`XBUTTON2`); continuous scrolling is summed into wheel notches of
 120, vertical and horizontal.
 
+Button ownership is selected separately for each button. A working GCMouse
+motion stream does not disable UIKit clicks; a button moves to GCMouse once
+that button's callbacks arrive. The first overlapping UIKit/GCMouse click is
+merged into one down/up pair. If hover ends as a button goes down, the bridge
+waits up to 60 ms for the click's actual hit target rather than dropping it.
+
+Absolute pointer positions use the game view's touch mapping, including the
+live virtual monitor resolution and Fit/Fill/Stretch/Aspect. The cursor overlay
+also reads the live monitor size, instead of assuming a 1024x768 screen.
+
 Mouse samples and key/button edges share the iOS-to-Wine input queue. Adjacent
 pure mouse moves are coalesced (relative deltas are summed; absolute motion
 keeps the latest position), while keys, buttons and wheel events retain exact
@@ -161,7 +182,13 @@ buttons. iPadOS honours it only while Madeira is full screen, and only on the
 GCMouse path (on the UIKit path locking would stop pointer delivery, so it is
 refused). iPhone has no lockable pointer and shows no lock control.
 
-- **Automatic:** while a program on the game view hides its cursor (for half a
+- **Library games:** after the raw primary-button stream is confirmed and the
+  mouse is moving over the game view, capture also applies to games with a
+  visible cursor. It stays captured in the game's own menus. Madeira's menu,
+  launch screen, backgrounding, disconnect and ending the session release it.
+  Press **Ctrl+Alt+P**, or touch the lock button, to release it by hand; manual
+  release keeps automatic capture off for the rest of that game session.
+- **Other direct programs:** while a program on the game view hides its cursor (for half a
   second, so a program about to show one does not lock), the pointer is over
   the game view and the mouse is moving, the pointer is locked, as a PC game
   captures the mouse. The lock is released as soon as the program shows a
@@ -172,7 +199,8 @@ refused). iPhone has no lockable pointer and shows no lock control.
 - **By hand:** the lock button in the pointer settings or **Ctrl+Alt+P** on the
   keyboard (P is not sent to the program). Touch keeps working while locked, so
   the button is always a way out. Releasing an automatic lock by hand keeps it
-  off until the program's cursor next changes visibility.
+  off for the library session, or until the cursor next changes visibility
+  for another direct program.
 - The lock is released when the mouse disconnects.
 
 ## Right stick controls mouse
@@ -223,6 +251,11 @@ turning on and off. With diagnostics on (the ladybug), also every mouse focus
 change, pointer route changes, the first raw deltas, a 10 s delivery-rate line
 and a 1 Hz activity line while input is moving or held. The driver logs each
 new cursor image (`[winios] cursor set`), as in the desktop session.
+The first 100 input edges also show the source, hit-focus decision, pending
+clicks and posted button flags/position. The activity line includes whether
+the game view is first responder. A delivered Globe press logs
+`Globe -> Escape` even with extended logging off; no typed characters are
+recorded in these new traces.
 `[winios-input-q]` periodically reports coalesced motion and any queue drops;
 `dropped-critical` should remain zero.
 
@@ -231,6 +264,7 @@ new cursor image (`[winios] cursor set`), as in the desktop session.
 ```sh
 python3 tests/host/check-hardware-input.py      # needs swiftc, cc and the wine submodule (or WINE_SRC)
 python3 tests/host/check-nav-keys.py
+python3 tests/host/check-game-pointer.py --require-swift
 ```
 
 `check-hardware-input.py` compiles the pure part of `HardwareInput.swift` (key
@@ -259,3 +293,9 @@ Device checklist:
 - the iPhone AssistiveTouch hint and click filter;
 - the right-stick mouse on and off;
 - each switch at its non-default value.
+
+For the TrainStationTycoon regression, test left/right clicks at 2560x1440,
+drag across the surface edges, open Madeira's menu while a key/button is held,
+then resume. Test Globe/Escape and background/foreground once with diagnostics
+enabled. Host tests verify the production geometry and event policies; device
+tests are still needed for iPadOS pointer lock and system-key delivery.

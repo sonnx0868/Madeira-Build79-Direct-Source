@@ -680,7 +680,9 @@ final class LibraryModel: ObservableObject {
     @Published var entries: [LibraryEntry] = []
     @Published var current: UUID?
     @Published var activeEntry: LibraryEntry?
-    @Published var menu = false
+    @Published var menu = false {
+        didSet { if menu != oldValue { HardwareInput.shared.sessionUIChanged() } }
+    }
     @Published var performance = false
     @Published var liveLogs = false
     @Published var fpsMode = 1
@@ -708,7 +710,9 @@ final class LibraryModel: ObservableObject {
     /// Text from a Windows error/assertion dialog that appeared before a
     /// direct game produced a frame. Shown on the native starting screen.
     @Published var launchAttention: String?
-    @Published var launching = false
+    @Published var launching = false {
+        didSet { if launching != oldValue { HardwareInput.shared.sessionUIChanged() } }
+    }
     @Published var overlayFields = ["FPS", "Frame time", "RAM", "Battery"]
     private var launchPresent: UInt64 = 0
     private var launchSurface: UInt64 = 0
