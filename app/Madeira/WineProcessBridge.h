@@ -20,6 +20,16 @@ int wine_process_is_running(void);
 // Returns 1 and fills *status when that program ended with an NTSTATUS error
 // (0xC...) since the last reset.
 void wine_launched_process_did_exit(int status);
+// Includes a successful exit, even when a Wine worker thread ends the process
+// and the bootstrap thread has not returned / wineserver remains alive.
+int wine_launched_process_has_exited(void);
+// The window-close request may target a Dock child instead of the initial
+// launcher. Track its Windows PID once and observe only that process's exit.
+int wine_session_close_accept_target(uint32_t pid, uint32_t tid);
+int wine_session_close_targets_process(uint32_t pid);
+int wine_session_close_targets_thread(uint32_t pid, uint32_t tid);
+void wine_session_process_did_exit(uint32_t pid);
+int wine_session_close_has_exited(void);
 int wine_crash_exit_status(uint32_t *status);
 // Forget the recorded status; called when a session begins.
 void wine_exit_status_reset(void);

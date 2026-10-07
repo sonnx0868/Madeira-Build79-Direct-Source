@@ -436,12 +436,48 @@ static volatile int g_wine_running = 0;
  * logging. g_launch_exit holds (1 << 32) | status when the program ended with
  * an NTSTATUS error (0xC...), else 0. */
 static uint64_t g_launch_exit = 0;
+static int g_launch_exited = 0;
+static uint32_t g_session_close_pid = 0;
+static uint32_t g_session_close_tid = 0;
+static int g_session_close_exited = 0;
+int wine_session_close_accept_target(uint32_t pid, uint32_t tid) {
+    uint32_t expected = 0;
+    if (!pid || !tid) return 0;
+    if (__atomic_compare_exchange_n(&g_session_close_pid, &expected, pid, 0,
+                                    __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&g_session_close_tid, tid, __ATOMIC_RELEASE);
+        return 1;
+    }
+    return wine_session_close_targets_thread(pid, tid);
+}
+int wine_session_close_targets_process(uint32_t pid) {
+    return pid && __atomic_load_n(&g_session_close_pid, __ATOMIC_ACQUIRE) == pid;
+}
+int wine_session_close_targets_thread(uint32_t pid, uint32_t tid) {
+    return wine_session_close_targets_process(pid) && tid &&
+           __atomic_load_n(&g_session_close_tid, __ATOMIC_ACQUIRE) == tid;
+}
+void wine_session_process_did_exit(uint32_t pid) {
+    if (wine_session_close_targets_process(pid))
+        __atomic_store_n(&g_session_close_exited, 1, __ATOMIC_RELEASE);
+}
+int wine_session_close_has_exited(void) {
+    return __atomic_load_n(&g_session_close_exited, __ATOMIC_ACQUIRE);
+}
 void wine_launched_process_did_exit(int status) {
     if ((uint32_t)status >= 0xC0000000u)
         __atomic_store_n(&g_launch_exit, (UINT64_C(1) << 32) | (uint32_t)status, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_launch_exited, 1, __ATOMIC_RELEASE);
+}
+int wine_launched_process_has_exited(void) {
+    return __atomic_load_n(&g_launch_exited, __ATOMIC_ACQUIRE);
 }
 void wine_exit_status_reset(void) {
     __atomic_store_n(&g_launch_exit, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_launch_exited, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_session_close_pid, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_session_close_tid, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_session_close_exited, 0, __ATOMIC_RELEASE);
 }
 int wine_crash_exit_status(uint32_t *status) {
     uint64_t value = __atomic_load_n(&g_launch_exit, __ATOMIC_ACQUIRE);

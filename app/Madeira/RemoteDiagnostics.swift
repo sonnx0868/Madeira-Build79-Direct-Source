@@ -195,19 +195,18 @@ enum DiagnosticEvents {
     private static var lastFrames: UInt64 = 0
     private static var sessionStartFrames: UInt64 = 0
     static func phase(_ phase: String) {
-        guard InputSettings.shared.diagnostics else { return }
         LogStore.shared.log("[diagnostics] phase=\(phase) uptime=\(String(format: "%.3f", ProcessInfo.processInfo.systemUptime)) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
     }
     static func begin(_ entry: LibraryEntry) {
         LogStore.shared.recordTest(entry)
         sampledAt = Date(); lastFrames = madeira_get_present_count()
         sessionStartFrames = lastFrames
-        guard InputSettings.shared.diagnostics else { return }
         phase("launch")
         LogStore.shared.log("[diagnostics] bits=\(entry.bits) api=\(entry.graphicsAPI ?? "unknown") resolution=\(entry.resolution) display=\(entry.displayMode.rawValue) controller=\(entry.controllerMode ?? "default") fpsMode=\(entry.effectiveFPSMode) cpuChoice=\(entry.cpuCount.map(String.init) ?? "auto") unityProfile=\(entry.unityOptimizations != false ? 1 : 0)")
         var settings: [String: String] = [:]
         for key in ["pool", "vram-mb", "swap-mb", "inproc-sync", "env.MADEIRA_FASTSYNC",
                     "env.MADEIRA_RUNTIME_PROFILERS", "env.MADEIRA_MIP_CLAMP_AUTO",
+                    "env.MADEIRA_MEMORY_CENSUS",
                     "env.DXMT_CENSUS_THROTTLE", "env.DXMT_WSI_MODE_TABLE",
                     "env.DXMT_WSI_MONITOR_IDENTITY",
                     "env.MADEIRA_UNITY_RESOLUTION", "env.MADEIRA_PROMOTE"] {
@@ -217,7 +216,8 @@ enum DiagnosticEvents {
            let line = String(data: data, encoding: .utf8) { LogStore.shared.log("[diagnostics-settings] \(line)") }
     }
     static func sample() {
-        guard InputSettings.shared.diagnostics else { return }
+        // One counter snapshot and task_info every 10 s, with no thread
+        // suspension or VM-map walks. Keep it in ordinary gameplay reports.
         let now = Date(), elapsed = now.timeIntervalSince(sampledAt)
         guard elapsed >= 10 else { return }
         let frames = madeira_get_present_count()

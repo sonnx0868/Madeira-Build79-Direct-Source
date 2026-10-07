@@ -75,6 +75,20 @@ comfortably within its frame budget. Set
 `env.MADEIRA_RUNTIME_PROFILERS = 1` only when collecting `thread-sample`,
 `rip-profile`, `xprobe` or `wprof` evidence.
 
+The JIT residency monitor also keeps **full memory censuses off by default**.
+The Silksong build566 report included an 86,694-region physical-map walk next
+to a 1,476.6 ms presentation gap, despite steady-state gaps around 16.7 ms.
+This is evidence of unnecessary diagnostic work, not proof that all stutters
+have one cause. Ordinary play keeps pool residency warming, sampled execute
+checks and cheap footprint publication; the monitor runs at utility QoS.
+Task-wide VM-map inventories, physical-map walks, allocator-span logging and
+CoreAnimation allocation experiments require `env.MADEIRA_MEMORY_CENSUS = 1`.
+Extended logging does not enable these expensive scans. First-use translated
+code, shader compilation and scene loading can still cause separate hitches.
+Launch/exit breadcrumbs and lightweight 10-second FPS/RAM/thermal samples are
+recorded without extended logging, so the next in-game report can measure the
+new defaults without enabling thread-suspending profilers.
+
 For graphics, Madeira detects LÖVE and SDL runtimes and enables SDL's official
 EGL path. Bundled ANGLE translates OpenGL ES 2/3 to D3D11; DXMT then translates
 D3D11 to Metal. This is a shared engine/API route for compatible x64 games,
@@ -254,8 +268,20 @@ in-game menu:
 2. the FPS limit, **Aspect & scaling**, and the mouse and pointer settings;
 3. the performance overlay and its fields (FPS, average frame time, memory
    footprint, battery);
-4. **Quit game** in red. Quit asks the program to close with Alt+F4 through
-   the normal input queue, so it can save; the session ends when it exits.
+4. **Send diagnostic log** opens the existing private-server uploader without
+   leaving the game. It defaults to the current session and fills the game
+   title. Input belongs to the native sheet until it is dismissed; the game
+   process is not restarted and the report is a bounded snapshot of its log.
+5. **Quit game** in red. Quit blocks game input and posts `WM_CLOSE` from the
+   foreground guest's own event pump, rather than relying on an Alt+F4 key
+   shortcut. After three seconds without exit, that recorded guest receives
+   `NtTerminateProcess` through the same Wine-thread pump. It never calls
+   host `exit(0)`, cancels native threads or merely hides a still-running game.
+   The actual process exit returns to Madeira's home/library; wineserver or
+   the launcher's lifetime does not hold a completed explicit quit hostage.
+   Unsaved progress can be lost. If a wedged guest no longer pumps events,
+   the request times out after ten seconds with a message; it is not treated
+   as exited and the one-session-per-run guard remains in force.
 
 Changes made in the menu (FPS limit, Aspect & scaling, controls, overlay) are
 saved to the game's profile.
@@ -274,8 +300,11 @@ status comes from one weak hook in ntdll's common exit wrapper
 (`wine_launched_process_did_exit` in `build/ntdll-unix/server_ios.c`), called
 only for the session's initial process, the one the app handed to
 `__wine_main`; helpers and processes the program starts are never reported.
-The hook takes one integer, does not allocate and does not log; the app keeps
-only the last error status. No program names are involved.
+The initial-process hook takes one integer, does not allocate and does not log;
+the app keeps the last error status and a separate successful-exit flag. A
+second weak identity-only hook observes the Windows PID selected by an explicit
+close request, including a Dock child; another helper exiting cannot end that
+session. No program-name list is involved.
 
 One Wine session runs per app run: a second one cannot start in the same
 process (the wineserver's permanent objects from the first session remain and

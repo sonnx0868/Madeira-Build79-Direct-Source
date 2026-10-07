@@ -727,6 +727,9 @@ final class LibraryModel: ObservableObject {
     @Published var launching = false {
         didSet { if launching != oldValue { HardwareInput.shared.sessionUIChanged() } }
     }
+    @Published var quitting = false {
+        didSet { if quitting != oldValue { HardwareInput.shared.sessionUIChanged() } }
+    }
     @Published var overlayFields = ["FPS", "Frame time", "RAM", "Battery"]
     private var launchPresent: UInt64 = 0
     private var launchSurface: UInt64 = 0
@@ -739,7 +742,7 @@ final class LibraryModel: ObservableObject {
     var menuButtonRect = CGRect.zero
     var performanceRect = CGRect.zero
     /// The in-game menu and the starting screen take every touch.
-    var blocksGameplayTouch: Bool { current != nil && (menu || launching) }
+    var blocksGameplayTouch: Bool { current != nil && (menu || launching || quitting) }
     private var timer: Timer?
     private var sawProcess = false
     // Why a session ended by itself (not Quit): the program the app launched
@@ -1052,9 +1055,11 @@ final class LibraryModel: ObservableObject {
     func begin(_ entry: LibraryEntry, remember: Bool = true, dock: DockGame? = nil) {
         DiagnosticEvents.begin(entry)
         wine_exit_status_reset()
+        winios_reset_session_close()
         winios_window_alert_reset()
         launchAttention = nil
         quitRequested = false
+        quitting = false
         LibraryController.shared.configure(enabled: enabled, ownsInput: false)
         Self.sessionsThisRun += 1
         launchPresent = madeira_get_present_count(); launchStarted = Date(); launchSlow = false; launchLogs = entry.liveLogs
@@ -1093,6 +1098,13 @@ final class LibraryModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
     }
     private func poll() {
+        let directInitial = activeEntry?.steamAppID == nil || activeEntry?.startsSteamGameDirectly == true
+        if current != nil, (directInitial && wine_launched_process_has_exited() != 0) ||
+                            (quitting && wine_session_close_has_exited() != 0) {
+            sawProcess = true
+            finish()
+            return
+        }
         DiagnosticEvents.sample()
         let dockStart = DockStartScreen.shared
         if dockStart.active {
@@ -1189,22 +1201,44 @@ final class LibraryModel: ObservableObject {
         saveCurrentProfile()
     }
     func showMenu() {
+        guard !quitting else { return }
         LibraryKeyboard.hide()
         LibraryController.shared.configure(enabled: enabled, ownsInput: true)
         menu = true
     }
     func requestQuit() {
+        guard let session = current, !quitRequested else { return }
         LibraryKeyboard.hide()
         quitRequested = true
-        // Ask the application to close (Alt+F4) through the normal input queue,
-        // so it can save; the surface stays up until the native session ends.
-        winios_post_key(0x12, 1); winios_post_key(0x73, 1)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            winios_post_key(0x73, 0); winios_post_key(0x12, 0)
-        }
-        sessionMessage = "Close requested. Confirm any in-game exit dialog."
+        DiagnosticEvents.phase("quit-requested")
+        // A raw Alt+F4 can be consumed as game input without closing a window.
+        // Ask the foreground guest's own event pump to post WM_CLOSE instead.
+        // Stop input immediately; give the game's normal close path a grace
+        // period, then end that guest via its existing ntdll teardown path.
+        quitting = true
+        LibraryController.shared.configure(enabled: enabled, ownsInput: true)
+        winios_request_session_close(0)
+        sessionMessage = "Closing game…"
         menu = false
-        fputs("[frontend] graceful close requested\n", stderr)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, self.current == session, self.quitting,
+                  wine_session_close_has_exited() == 0 else { return }
+            winios_request_session_close(1)
+            self.sessionMessage = "Stopping the game session…"
+            fputs("[frontend] close grace period expired; guest termination requested\n", stderr)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, self.current == session, self.quitting,
+                  wine_session_close_has_exited() == 0 else { return }
+            // A wedged game can stop pumping events. Do not pretend it exited
+            // or run a second guest over it; cancel the stale close request.
+            winios_reset_session_close()
+            self.quitting = false; self.quitRequested = false
+            self.sessionMessage = "The game did not respond to close. Use its exit menu or restart Madeira."
+            LibraryController.shared.configure(enabled: self.enabled, ownsInput: self.menu)
+            fputs("[frontend] close timed out; session is still running\n", stderr)
+        }
+        fputs("[frontend] WM_CLOSE requested; returning home when the guest exits\n", stderr)
     }
     func saveCurrentProfile() {
         let controls = TouchControlsModel.shared
@@ -1228,6 +1262,7 @@ final class LibraryModel: ObservableObject {
         DiagnosticEvents.phase("session-finished")
         if sawProcess, let report = exitReport() { error = report }
         timer?.invalidate(); timer = nil
+        winios_reset_session_close()
         saveCurrentProfile()
         controllerMode = nil
         controllerBinds = [:]
@@ -1241,6 +1276,7 @@ final class LibraryModel: ObservableObject {
         displayMode = .fit
         LogStore.shared.setDisplayActive(true)
         launching = false; launchLogs = false; LibraryKeyboard.hide()
+        quitting = false
         DockStartScreen.shared.finish()
         LibraryController.shared.configure(enabled: enabled, ownsInput: enabled)
         MetalHostView.shared.isHidden = true
@@ -3574,6 +3610,7 @@ struct LibraryHUD: View {
     @State private var launchVisible = false
     /// The Session menu's Controller binds page (keyboard-and-mouse mode).
     @State private var bindsPage = false
+    @State private var diagnosticSheet = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geo in
@@ -3609,13 +3646,17 @@ struct LibraryHUD: View {
         }.ignoresSafeArea()
         .onAppear { model.saveCurrentProfile() }
         .onChange(of: model.menu) { _, open in
-            LibraryController.shared.configure(enabled: model.enabled, ownsInput: open)
+            LibraryController.shared.configure(enabled: model.enabled, ownsInput: open || model.quitting)
             if !open { bindsPage = false }
             if !open { model.saveCurrentProfile() }
         }
         .onReceive(LibraryController.shared.commands) { command in
+            guard !model.quitting, !diagnosticSheet else { return }
             if command == "menu" { if model.menu { model.menu = false } else { model.showMenu() } }
             else if command == "back", model.menu { model.menu = false }
+        }
+        .sheet(isPresented: $diagnosticSheet) {
+            DiagnosticUploadView(gameTitle: model.activeEntry?.title)
         }
     }
     private func launchView(_ entry: LibraryEntry, geometry geo: GeometryProxy) -> some View {
@@ -3805,6 +3846,9 @@ struct LibraryHUD: View {
                             model.overlayFields.removeAll { $0 == field }; if on { model.overlayFields.append(field) }
                         })).font(.subheadline)
                     }
+                }
+                Button { diagnosticSheet = true } label: {
+                    Label("Send diagnostic log", systemImage: "square.and.arrow.up")
                 }
                 if let appID = model.activeEntry?.steamAppID, SteamOwnedLibrary.cloudQuitEnabled {
                     Divider()

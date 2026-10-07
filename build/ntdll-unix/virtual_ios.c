@@ -41,6 +41,9 @@
 #include <sys/mman.h>
 #include <limits.h>
 #include <pthread.h>
+#ifdef WINE_IOS
+# include <pthread/qos.h>
+#endif
 #include <sys/ioctl.h>
 #ifdef WINE_IOS
 /* Minimal Mach API decls to avoid <mach/mach.h>'s host_page_size symbol
@@ -630,9 +633,29 @@ static void ios_window_inventory( const char *why, unsigned long long lo_arg, un
 extern unsigned long long ios_last_footprint_mb;
 extern int ios_fast_footprint;
 
+/* Full VM-map accounting is forensics, not memory-pressure control. Silksong
+ * build566 walked 86,694 regions during play, next to a 1,476 ms frame gap.
+ * Keep residency warming, execute checks and cheap footprint publication on;
+ * never run task-wide censuses/allocation experiments in a normal session. */
+static int ios_memory_census_enabled( void )
+{
+    static int enabled = -1;
+    int value = __atomic_load_n( &enabled, __ATOMIC_ACQUIRE );
+    if (value < 0)
+    {
+        const char *env = getenv( "MADEIRA_MEMORY_CENSUS" );
+        value = env ? !strcmp( env, "1" ) : madeira_cfg_bool( "env.MADEIRA_MEMORY_CENSUS", 0 );
+        __atomic_store_n( &enabled, value, __ATOMIC_RELEASE );
+    }
+    return value;
+}
+
 static void *ios_pool_warmer_thread( void *arg )
 {
     unsigned cycle = 0;
+    pthread_set_qos_class_self_np( QOS_CLASS_UTILITY, 0 );
+    dprintf( 2, "[memory-monitor] census=%d residency-warming=1 footprint=1 qos=utility\n",
+             ios_memory_census_enabled() );
     for (;;)
     {
         /* ml1060: THE MONITOR WAS A TENTH OF THE MACHINE. Above 2400 MB this loop
@@ -770,7 +793,7 @@ static void *ios_pool_warmer_thread( void *arg )
                     dprintf(2, "[pool-rot] clean: %lu .text pages sampled across %u mappings (cycle=%u)\n",
                             (unsigned long)checked, ios_jit_mapping_count, cycle);
             }
-            if (cycle == 1 || (cycle % 15) == 0)
+            if (ios_memory_census_enabled() && (cycle == 1 || (cycle % 15) == 0))
             {
                 /* ml469 (wall #79): one-shot proof of whether TCP loopback
                  * works at all under this port — the webhelper's transport
@@ -830,6 +853,7 @@ static void *ios_pool_warmer_thread( void *arg )
                      *   vm_allocate(task, &addr, size, 0x33000003)
                      * = ANYWHERE | PURGABLE | VM_MAKE_TAG(51), and the tag picks
                      * the address range. Four variants isolate tag vs purgable. */
+                    if (ios_memory_census_enabled())
                     {
                         static kern_return_t last[4] = { -1, -1, -1, -1 };
                         static const int fl[4] = { 0x33000003, 0x33000001, 0x00000003, 0x00000001 };
@@ -915,7 +939,7 @@ static void *ios_pool_warmer_thread( void *arg )
              * addresses identify the owner offline (pool = RX base, FEX bands,
              * PA pools, guest heap). Every 5th cycle plus cycle 2, because the
              * walk is tens of thousands of kernel calls. */
-            if (cycle == 2 || (cycle % 5) == 0)
+            if (ios_memory_census_enabled() && (cycle == 2 || (cycle % 5) == 0))
             {
                 struct { unsigned long long base, size, dirty, res, swap; unsigned tag; } top[12];
                 unsigned long long dirty_by_tag[256];
@@ -1532,6 +1556,7 @@ static void ios_span_census( void *base, size_t size, int is_free )
 {
     uintptr_t a = (uintptr_t)base;
     unsigned n;
+    if (!ios_memory_census_enabled()) return;
     if (a < 0x7c00000000ULL || a >= 0x8000000000ULL || size < 0x1000000) return;
     n = is_free ? ++ios_span_free_n : ++ios_span_alloc_n;
     if (n <= 40 || !(n & 15))

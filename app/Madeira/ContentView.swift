@@ -3733,18 +3733,18 @@ final class ControlsWindow: UIWindow {
         // Edit mode owns the whole screen: drags and the scale pinch must not
         // leak through and swing the camera while you are arranging buttons.
         if m.editing { return super.hitTest(point, with: event) }
-        // ml1970: the layout menu and its dialogs are UIKit presentations
+        // Layout dialogs and the in-game diagnostic uploader are UIKit presentations
         // outside the hosting view (an alert's dimming view covers the screen).
         // While one is up it takes the touches it covers; otherwise its buttons
         // would be dead wherever they are not over the top bar or a control.
-        if ControlPresetsModel.enabled, let root = rootViewController?.view,
+        if let root = rootViewController?.view,
            let hit = super.hitTest(point, with: event), hit !== self, !hit.isDescendant(of: root) { return hit }
         // A library session (Library.swift), in either orientation: its in-game
         // menu and starting screen take every touch; otherwise only its menu
         // button, its performance overlay and the touch controls do.
         let library = LibraryModel.shared
         if library.current != nil {
-            if library.menu || library.launching || library.menuButtonRect.contains(point) ||
+            if library.menu || library.launching || library.quitting || library.menuButtonRect.contains(point) ||
                 (library.performance && library.performanceRect.contains(point)) {
                 return super.hitTest(point, with: event)
             }

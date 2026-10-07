@@ -3586,6 +3586,7 @@ static int init_thread_pipe(void)
 void process_exit_wrapper( int status )
 {
 #ifdef WINE_IOS
+    const unsigned int session_pid = (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess;
     /* Close THIS pseudo-process's master socket — the EOF is how wineserver
      * learns the process died (signals its process object, wakes waiters).
      * Clear the registry slot so a stray second call can't double-close. */
@@ -3645,6 +3646,15 @@ void process_exit_wrapper( int status )
     }
 #else
     close( fd_socket );
+#endif
+#ifdef WINE_IOS
+    /* The native session's WM_CLOSE can target a child (Dock game). Report
+     * its Windows identity at the common exit boundary; do not confuse a
+     * helper's exit or a still-live launcher/server with the game being done. */
+    {
+        extern void wine_session_process_did_exit( unsigned int pid ) __attribute__((weak));
+        if (wine_session_process_did_exit) wine_session_process_did_exit( session_pid );
+    }
 #endif
     wine_log_write("[Wine ntdll/server] process_exit_wrapper(%d)", status );
     exit( status );  /* on iOS, wine_ios_exit shim longjmps back to wine_process_thread */

@@ -818,7 +818,25 @@ void winios_post_hardware_key(int vk, int scan, int extended, int down) {
     winios_q_push_ev(WINIOS_EV_KEY, vk, scan & 0xff, flags, 1);
 }
 
+static _Atomic unsigned int g_session_close_request;
+extern HWND winios_drv_session_close_target(int force);
+extern void winios_drv_close_session(HWND hwnd, int force);
+
+void winios_request_session_close(int force) {
+    atomic_store_explicit(&g_session_close_request, force ? 2u : 1u, memory_order_release);
+}
+void winios_reset_session_close(void) {
+    atomic_store_explicit(&g_session_close_request, 0, memory_order_release);
+}
+
 BOOL winios_pProcessEvents(DWORD mask) {
+    unsigned int close = atomic_load_explicit(&g_session_close_request, memory_order_acquire);
+    if (close) {
+        HWND target = winios_drv_session_close_target(close == 2u);
+        if (target && atomic_compare_exchange_strong(&g_session_close_request, &close, 0)) {
+            winios_drv_close_session(target, close == 2u);
+        }
+    }
     /* The restored born-minimized window's own thread brings it to the front
      * (see g_restore_foreground); other threads leave the request in place. */
     uintptr_t fg = atomic_load_explicit(&g_restore_foreground, memory_order_relaxed);

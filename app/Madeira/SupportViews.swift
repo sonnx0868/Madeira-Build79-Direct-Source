@@ -7,6 +7,9 @@ struct DiagnosticUploadView: View {
     @State private var previous = false
     @State private var label = ""
     @State private var importServer = false
+    init(gameTitle: String? = nil) {
+        _label = State(initialValue: gameTitle ?? "")
+    }
     var body: some View {
         NavigationStack {
             Form {

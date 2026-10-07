@@ -375,6 +375,42 @@ int winios_drv_post_restore( HWND hwnd )
     return NtUserPostMessage( hwnd, WM_SYSCOMMAND, SC_RESTORE, 0 ) ? 1 : 0;
 }
 
+/* Resolve close on a Wine thread belonging to the foreground guest. A helper
+ * draining its event pump must not consume/terminate the game's request. */
+extern int wine_session_close_accept_target(unsigned int pid, unsigned int tid);
+extern int wine_session_close_targets_thread(unsigned int pid, unsigned int tid);
+
+HWND winios_drv_session_close_target(int force)
+{
+    unsigned int pid = (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess;
+    unsigned int tid = (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread;
+    HWND hwnd = NtUserGetForegroundWindow();
+    if (hwnd && NtUserQueryWindow( hwnd, WindowProcess ) == pid &&
+        NtUserQueryWindow( hwnd, WindowThread ) == tid && wine_session_close_accept_target(pid, tid))
+        return hwnd;
+    /* WM_CLOSE may have destroyed the window while its process is still
+     * running. The recorded owner may finish the force request even then. */
+    if (force && wine_session_close_targets_thread(pid, tid)) return (HWND)~(ULONG_PTR)0;
+    return 0;
+}
+
+void winios_drv_close_session( HWND hwnd, int force )
+{
+    if (force)
+    {
+        /* Normal ntdll process teardown, not exit(0), pthread_cancel, Mach
+         * thread termination or a call from the host's main thread. */
+        dprintf( 2, "[session-close] terminating foreground guest pid=%04lx\n",
+                 (unsigned long)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess );
+        NtTerminateProcess( NtCurrentProcess(), 0 );
+    }
+    else
+    {
+        int posted = NtUserPostMessage( hwnd, WM_CLOSE, 0, 0 );
+        dprintf( 2, "[session-close] WM_CLOSE hwnd=%p posted=%d\n", hwnd, posted );
+    }
+}
+
 /* A taskbar click also brings the window to the front. Only the window's own
  * thread does that, from its event pump (not inside SetWindowPos). Returns 0
  * on another thread, 1 when the window is now foreground, -1 on failure. */

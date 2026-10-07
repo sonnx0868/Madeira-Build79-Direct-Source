@@ -43,6 +43,7 @@ content = (root / 'app/Madeira/ContentView.swift').read_text()
 gamepad = (root / 'app/Madeira/GamepadInput.swift').read_text()
 fps = (root / 'app/Madeira/FPSOverlay.swift').read_text()
 shim = (root / 'app/Madeira/IOSDisplayShim.m').read_text()
+driver = (root / 'build/win32u-unix/driver_ios.c').read_text()
 failures = []
 
 
@@ -343,8 +344,23 @@ c_src = r'''
 '''
 start = bridge.index('static uint64_t g_launch_exit')
 end = bridge.index('static char *g_prefix_path')
-c_src += 'void wine_launched_process_did_exit(int status);\nvoid wine_exit_status_reset(void);\nint wine_crash_exit_status(uint32_t *status);\n'
+c_src += 'void wine_launched_process_did_exit(int status);\nvoid wine_exit_status_reset(void);\nint wine_crash_exit_status(uint32_t *status);\nint wine_session_close_targets_thread(uint32_t pid, uint32_t tid);\n'
 c_src += bridge[start:end]
+c_src += r'''
+typedef void *HWND;
+typedef uintptr_t ULONG_PTR;
+enum { WindowProcess, WindowThread };
+static struct { struct { uintptr_t UniqueProcess, UniqueThread; } ClientId; } test_teb;
+static HWND test_window;
+static unsigned int test_window_pid, test_window_tid;
+#define NtCurrentTeb() (&test_teb)
+static HWND NtUserGetForegroundWindow(void) { return test_window; }
+static ULONG_PTR NtUserQueryWindow(HWND hwnd, int kind) {
+    (void)hwnd;
+    return kind == WindowProcess ? test_window_pid : test_window_tid;
+}
+'''
+c_src += block(driver, 'HWND winios_drv_session_close_target(int force)')
 c_src += r'''
 static int failed;
 static void expect(int cond, const char *what) { printf("%s: %s\n", cond ? "PASS" : "FAIL", what); if (!cond) failed++; }
@@ -352,8 +368,18 @@ int main(void) {
     uint32_t status = 0;
     wine_exit_status_reset();
     expect(!wine_crash_exit_status(&status), "nothing recorded at the start of a session");
+    expect(!wine_launched_process_has_exited() && !wine_session_close_has_exited(), "session exit flags start clear");
+    expect(wine_session_close_accept_target(24, 32), "foreground game is selected for close");
+    expect(!wine_session_close_accept_target(28, 36), "a helper cannot replace the close target");
+    expect(!wine_session_close_accept_target(24, 36), "a renderer/worker cannot replace the GUI thread");
+    expect(wine_session_close_targets_process(24) && !wine_session_close_targets_process(28), "force is scoped to the selected Windows PID");
+    wine_session_process_did_exit(28);
+    expect(!wine_session_close_has_exited(), "helper exit cannot return to the home page");
+    wine_session_process_did_exit(24);
+    expect(wine_session_close_has_exited(), "a Dock child exit ends an explicitly closing game session");
     wine_launched_process_did_exit(0);
     expect(!wine_crash_exit_status(&status), "clean exit: no report");
+    expect(wine_launched_process_has_exited(), "a successful worker-thread exit is observed without waiting for wineserver");
     wine_launched_process_did_exit(0x40010004);
     expect(!wine_crash_exit_status(&status), "an informational status is not an error");
     wine_launched_process_did_exit((int)0xC0000005);
@@ -361,6 +387,20 @@ int main(void) {
     expect(wine_crash_exit_status(NULL), "a NULL status pointer is allowed");
     wine_exit_status_reset();
     expect(!wine_crash_exit_status(&status), "reset clears the status");
+    expect(!wine_launched_process_has_exited() && !wine_session_close_has_exited(), "reset clears every exit flag");
+    expect(wine_session_close_accept_target(28, 36), "a later session may select a different target");
+    wine_exit_status_reset();
+    test_window = (HWND)(uintptr_t)0x2002e;
+    test_window_pid = 24; test_window_tid = 32;
+    test_teb.ClientId.UniqueProcess = 28; test_teb.ClientId.UniqueThread = 36;
+    expect(!winios_drv_session_close_target(0) && !winios_drv_session_close_target(1), "another process's pump cannot consume close/force");
+    test_teb.ClientId.UniqueProcess = 24;
+    expect(!winios_drv_session_close_target(1), "another Wine worker cannot perform process teardown");
+    test_teb.ClientId.UniqueThread = 32;
+    expect(winios_drv_session_close_target(0) == test_window, "GUI-owner thread resolves the real foreground window");
+    test_window = NULL;
+    expect(!winios_drv_session_close_target(0), "no WM_CLOSE target after the window is destroyed");
+    expect(winios_drv_session_close_target(1) != NULL, "recorded GUI thread can finish force-close after window destruction");
     return failed ? 1 : 0;
 }
 '''

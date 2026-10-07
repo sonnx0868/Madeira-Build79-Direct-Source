@@ -47,6 +47,12 @@ void winios_post_key(int vk, int down);
  * distinguish keys that share a virtual key (notably numpad Enter). */
 void winios_post_hardware_key(int vk, int scan, int extended, int down);
 
+/* Session close, consumed on the foreground window's Wine process, never on
+ * UIKit's thread. force=0 posts WM_CLOSE; force=1 terminates that guest process.
+ * Reset discards a pending request when a session begins/finishes. */
+void winios_request_session_close(int force);
+void winios_reset_session_close(void);
+
 /* S2 desktop compositor placement. Called by the Swift presentation
  * placeholder (MetalBackedView) with its bounds in UIWindow coords —
  * the wine virtual desktop renders aspect-fit inside this frame, like

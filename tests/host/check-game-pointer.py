@@ -28,7 +28,8 @@ assert "clickFocus.pointerRoute(" in hardware
 assert "updateHardwareResponder(active: keyboard && keyboardConnected)" in hardware
 assert "hardwareResponder ? hardwareInputView : super.inputView" in view
 assert "guard !LibraryModel.shared.blocksGameplayTouch" in hardware
-assert library.count("HardwareInput.shared.sessionUIChanged()") == 2
+assert library.count("HardwareInput.shared.sessionUIChanged()") == 3
+assert "menu || launching || quitting" in library
 assert "if !base && pointerLocked" in hardware
 assert "LibraryModel.shared.current != nil && !Self.desktopMode" in hardware
 assert "if lockedByUs || captureGame { autoLockSuppressed = true }" in hardware
@@ -47,6 +48,19 @@ assert "return original(object, sel)" in lock, "unowned controllers must keep th
 assert "pointer-lock-target" in lock and "pointer-lock-preference" in lock
 assert "UIWindow.didBecomeVisibleNotification" in hardware
 assert "UIWindow.didBecomeHiddenNotification" in hardware
+quit_body = library.split("func requestQuit() {", 1)[1].split("func saveCurrentProfile()", 1)[0]
+assert "winios_request_session_close(0)" in quit_body
+assert "winios_request_session_close(1)" in quit_body
+assert "winios_post_key" not in quit_body, "Quit must not depend on an ignored Alt+F4"
+assert "self.current == session" in quit_body, "a stale close timer must not reach a later session"
+assert "wine_session_close_has_exited() != 0" in library
+hud = library.split("struct LibraryHUD: View {", 1)[1].split("struct LibraryLiveLogs: View", 1)[0]
+assert ".sheet(isPresented: $diagnosticSheet)" in hud
+assert "DiagnosticUploadView(gameTitle: model.activeEntry?.title)" in hud
+assert 'Label("Send diagnostic log"' in hud
+controls_window = view.split("final class ControlsWindow: UIWindow", 1)[1].split("enum TouchControlsHost", 1)[0]
+assert "if ControlPresetsModel.enabled, let root" not in controls_window
+assert "library.quitting" in controls_window
 print("PASS: game mapping, button ownership, focus/menu release and multi-window lock wiring")
 
 compiler = shutil.which("swiftc")
