@@ -1291,7 +1291,13 @@ final class LibraryModel: ObservableObject {
         ProMotionIntent.shared.setActive(false)
         if GameRuntime.shared.ownsSession {
             GameRuntime.shared.sessionFinished()
-            SteamOwnedLibrary.shared.sessionChanged(active: false)
+            Task { @MainActor in
+                // finish() is not actor-isolated. Reopen Steam/downloads on
+                // their owner, but do not undo a newer game session's pause.
+                guard LibraryModel.shared.current == nil,
+                      !GameRuntime.shared.ownsSession else { return }
+                SteamOwnedLibrary.shared.sessionChanged(active: false)
+            }
         }
         fputs("[frontend] returned to library\n", stderr)
     }

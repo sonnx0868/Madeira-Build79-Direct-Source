@@ -25,6 +25,10 @@ assert "wine_runtime_prepare_process_exit" in server and "if (runtime_safe) ios_
 assert '"control.bin"' in runtime and '"request.bin"' in runtime
 assert "stoppedConfirmed" in runtime and "wine_runtime_reuse_ready()" in runtime
 assert 'if wineserver_is_running() != 0 { return profile.name }' in library
+finish = library.split("private func finish() {", 1)[1].split("enum LibraryError", 1)[0]
+actor_body = finish.split("Task { @MainActor in\n", 1)[1].split("\n            }", 1)[0]
+assert "SteamOwnedLibrary.shared.sessionChanged(active: false)" in actor_body
+assert "LibraryModel.shared.current == nil" in actor_body and "!GameRuntime.shared.ownsSession" in actor_body
 print("PASS: real warm-launch route, orderly Quit/home, native retirement barrier, controls and live-registry wiring")
 
 compiler = os.environ.get("MD_RUNTIME_CC") or shutil.which("cc")
@@ -118,8 +122,40 @@ do { _ = try RuntimeWire.command(generation: 0, operation: 1); fatalError() } ca
 assert(RuntimeWire.status(Data()) == nil && RuntimeWire.status(Data(repeating: 0, count: 40)) == nil)
 print("PASS: production Swift runtime command/quote/status codec")
 '''
+    # Compile the ACTUAL finish() task against actor-isolated dependencies.
+    # A direct nonisolated call would fail this test as it failed Xcode build569.
+    actor_checks = r'''
+@MainActor final class SteamOwnedLibrary {
+    static let shared = SteamOwnedLibrary()
+    var calls: [Bool] = []
+    func sessionChanged(active: Bool) { calls.append(active) }
+}
+@MainActor final class LibraryModel { static let shared = LibraryModel(); var current: Int? }
+@MainActor final class GameRuntime { static let shared = GameRuntime(); var ownsSession = false }
+func finishActorTask() -> Task<Void, Never> {
+    Task { @MainActor in
+''' + actor_body + r'''
+    }
+}
+Task { @MainActor in
+    await finishActorTask().value
+    assert(SteamOwnedLibrary.shared.calls == [false])
+    let stale = finishActorTask()
+    LibraryModel.shared.current = 2
+    await stale.value
+    assert(SteamOwnedLibrary.shared.calls == [false])
+    LibraryModel.shared.current = nil
+    let preparing = finishActorTask()
+    GameRuntime.shared.ownsSession = true
+    await preparing.value
+    assert(SteamOwnedLibrary.shared.calls == [false])
+    print("PASS: production finish task respects MainActor and never resumes Steam over a newer or preparing game")
+    exit(0)
+}
+dispatchMain()
+'''
     with tempfile.TemporaryDirectory(prefix="madeira-runtime-swift-") as scratch:
         folder = Path(scratch); source = folder / "main.swift"; binary = folder / "check"
-        source.write_text(codec + checks, encoding="utf-8")
-        subprocess.run([swift, str(source), "-o", str(binary)], check=True)
-        subprocess.run([str(binary)], check=True)
+        source.write_text(codec + checks + actor_checks, encoding="utf-8")
+        subprocess.run([swift, str(source), "-o", str(binary)], check=True, timeout=60)
+        subprocess.run([str(binary)], check=True, timeout=60)
