@@ -29,7 +29,7 @@ resolution or controller preference is changed. This is not a verified promise
 of 60 FPS without spikes: first-use managed/JIT compilation and asset loading
 can still stall.
 
-Build **Madeira v0.1.4 source bootstrap + IPA**. Old cached native bundles are
+Build **Madeira v0.1.5 source bootstrap + IPA**. Old cached native bundles are
 rejected by archive markers `gameplay-observers=v1` and `sandbox-v1 reader ready`,
 as well as the real ARM64 PE check for the supervisor. The cache source change
 is reproduced by `patches/dxmt-gameplay-performance.patch` in clean builds.

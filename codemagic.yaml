@@ -1,6 +1,6 @@
 workflows:
-  madeira-v014-bootstrap:
-    name: Madeira v0.1.4 source bootstrap + IPA
+  madeira-v015-bootstrap:
+    name: Madeira v0.1.5 source bootstrap + IPA
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
@@ -27,20 +27,22 @@ workflows:
         - $CM_BUILD_DIR/research/freetype
         - $CM_BUILD_DIR/app/Madeira/x86_64-vcruntime
     scripts:
-      - name: Build Madeira v0.1.4 native dependencies
+      - name: Build Madeira v0.1.5 native dependencies
         script: bash scripts/bootstrap-native-deps.sh
       - name: Package reusable native bundle
-        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-v0.1.4-native-deps.zip"
+        script: bash scripts/package-native-deps.sh "$CM_BUILD_DIR/madeira-v0.1.5-native-deps.zip"
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
+          python3 "$CM_BUILD_DIR/tests/host/check-version.py"
+          python3 "$CM_BUILD_DIR/tests/host/check-bootstrap-resources.py"
           python3 "$CM_BUILD_DIR/tests/host/check-remote-support.py" --require-swift
           python3 "$CM_BUILD_DIR/tests/host/check-frontend.py"
           python3 "$CM_BUILD_DIR/tests/host/check-game-pointer.py" --require-swift
           python3 "$CM_BUILD_DIR/tests/host/check-runtime-profilers.py"
           python3 "$CM_BUILD_DIR/tests/host/check-gameplay-performance.py" --require-tools --require-objc
           python3 "$CM_BUILD_DIR/tests/host/check-multi-game.py" --require-tools --require-swift
-          bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.4-source-bootstrap.ipa
+          bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.5-source-bootstrap.ipa
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
             CURRENT_PROJECT_VERSION="$(cat "$CM_BUILD_DIR/build/release-info/build-number.txt")" \
@@ -56,23 +58,23 @@ workflows:
           codesign --force --sign - --timestamp=none "$app/PlugIns/MadeiraJITHelper.appex"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
           codesign --verify --deep --strict "$app"
-          out="$CM_BUILD_DIR/build/v0.1.4-bootstrap"
+          out="$CM_BUILD_DIR/build/v0.1.5-bootstrap"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source-bootstrap.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.5-source-bootstrap.ipa Payload)
       - name: Publish GitHub test release when configured
-        script: bash scripts/publish-release.sh "$CM_BUILD_DIR/build/v0.1.4-bootstrap/Madeira-v0.1.4-source-bootstrap.ipa"
+        script: bash scripts/publish-release.sh "$CM_BUILD_DIR/build/v0.1.5-bootstrap/Madeira-v0.1.5-source-bootstrap.ipa"
     artifacts:
-      - build/v0.1.4-bootstrap/Madeira-v0.1.4-source-bootstrap.ipa
-      - madeira-v0.1.4-native-deps.zip
+      - build/v0.1.5-bootstrap/Madeira-v0.1.5-source-bootstrap.ipa
+      - madeira-v0.1.5-native-deps.zip
       - build/release-info/madeira-update.json
       - build/ntdll-unix/obj/*.err
       - build/win32u-unix/obj/*.err
       - build/wineserver/obj/*.txt
       - build/dxmt-ios/obj/*.err
 
-  madeira-v014-ipa:
-    name: Madeira v0.1.4 IPA from cached native bundle
+  madeira-v015-ipa:
+    name: Madeira v0.1.5 IPA from cached native bundle
     instance_type: mac_mini_m2
     max_build_duration: 60
     environment:
@@ -95,13 +97,15 @@ workflows:
       - name: Build unsigned Debug app
         script: |
           set -euo pipefail
+          python3 "$CM_BUILD_DIR/tests/host/check-version.py"
+          python3 "$CM_BUILD_DIR/tests/host/check-bootstrap-resources.py"
           python3 "$CM_BUILD_DIR/tests/host/check-remote-support.py" --require-swift
           python3 "$CM_BUILD_DIR/tests/host/check-frontend.py"
           python3 "$CM_BUILD_DIR/tests/host/check-game-pointer.py" --require-swift
           python3 "$CM_BUILD_DIR/tests/host/check-runtime-profilers.py"
           python3 "$CM_BUILD_DIR/tests/host/check-gameplay-performance.py" --require-tools --require-objc
           python3 "$CM_BUILD_DIR/tests/host/check-multi-game.py" --require-tools --require-swift
-          bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.4-source.ipa
+          bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.5-source.ipa
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
             CURRENT_PROJECT_VERSION="$(cat "$CM_BUILD_DIR/build/release-info/build-number.txt")" \
@@ -117,13 +121,13 @@ workflows:
           codesign --force --sign - --timestamp=none "$app/PlugIns/MadeiraJITHelper.appex"
           codesign --force --sign - --entitlements "$CM_BUILD_DIR/app/Madeira/Madeira.entitlements" "$app"
           codesign --verify --deep --strict "$app"
-          out="$CM_BUILD_DIR/build/v0.1.4"
+          out="$CM_BUILD_DIR/build/v0.1.5"
           rm -rf "$out"; mkdir -p "$out/Payload"
           ditto "$app" "$out/Payload/Madeira.app"
-          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.4-source.ipa Payload)
+          (cd "$out" && /usr/bin/zip -qry Madeira-v0.1.5-source.ipa Payload)
       - name: Publish GitHub test release when configured
-        script: bash scripts/publish-release.sh "$CM_BUILD_DIR/build/v0.1.4/Madeira-v0.1.4-source.ipa"
+        script: bash scripts/publish-release.sh "$CM_BUILD_DIR/build/v0.1.5/Madeira-v0.1.5-source.ipa"
     artifacts:
-      - build/v0.1.4/Madeira-v0.1.4-source.ipa
+      - build/v0.1.5/Madeira-v0.1.5-source.ipa
       - build/release-info/madeira-update.json
       - /tmp/xcodebuild_logs/*.log

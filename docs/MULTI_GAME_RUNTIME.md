@@ -86,7 +86,7 @@ current log as before.
 
 ## Build and checks
 
-Use **Madeira v0.1.4 source bootstrap + IPA** on `codex/log-upload-updates`.
+Use **Madeira v0.1.5 source bootstrap + IPA** on `codex/log-upload-updates`.
 This change requires new ntdll and DXMT native archives plus the ARM64 session host.
 `check-ios-build.sh` rejects old cached archives lacking lifecycle/GPU hooks.
 The DXMT source change is reproduced by `patches/dxmt-runtime-lifecycle.patch`;

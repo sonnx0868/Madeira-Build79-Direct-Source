@@ -29,6 +29,6 @@ for embedded in ["StikJIT.xcframework", "MadeiraJITHelper.appex", "Madeira JIT.s
 require("test -d \"$app/Frameworks/StikJIT.framework\"" in ci and
         "test -d \"$app/PlugIns/MadeiraJITHelper.appex\"" in ci,
         "IPA packaging must fail if JIT framework/helper disappears")
-require("Madeira-v0.1.4-source-bootstrap.ipa" in ci, "bootstrap artifact is not versioned")
+require("Madeira-v0.1.5-source-bootstrap.ipa" in ci, "bootstrap artifact is not versioned")
 
 print("bootstrap resource contract: ok")

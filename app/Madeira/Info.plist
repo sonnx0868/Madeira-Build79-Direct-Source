@@ -39,7 +39,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>MadeiraBuild</key>
-	<string>v0.1.4-source</string>
+	<string>v0.1.5-source</string>
 	<key>GCSupportsGameMode</key>
 	<true/>
 	<key>LSApplicationCategoryType</key>
