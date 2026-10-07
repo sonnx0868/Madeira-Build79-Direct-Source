@@ -2448,6 +2448,12 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        if GameRuntime.shared.hasEngine {
+            guard library.current == nil else { library.error = "A game is already running."; return }
+            guard GameRuntime.supports(entry) else {
+                library.restartNotice = "This launch route needs a separate Wine engine. Restart Madeira before starting it."; return
+            }
+        }
         // A Steam game starts through Madeira Dock with its own launch profile (SteamGames.swift),
         // unless its Game details page chose "The game": then its own program starts below, like
         // any library game (SteamDirectStart).
@@ -2467,6 +2473,7 @@ struct ContentView: View {
             LogStore.shared.log("[steam-start] app=\(appID) direct source=\(entry.steamProgramSource ?? "-") " +
                                 "args=\(entry.launchArguments.isEmpty ? 0 : 1) folder=\(entry.steamWorkingWindowsPath == nil ? "program" : "steam")")
         }
+        if GameRuntime.shared.hasEngine { startLibraryEntry(entry); return }
         guard wine_process_is_running() == 0, wineserver_is_running() == 0, library.current == nil else {
             library.error = "A session is already running."; return
         }
@@ -2494,17 +2501,30 @@ struct ContentView: View {
             library.error = "The executable path or launch arguments are too long."; return
         }
         entry.configureLaunch()
+        let runtimeLaunch: RuntimeLaunch?
+        do { runtimeLaunch = GameRuntime.supports(entry) ? try GameRuntime.shared.prepare(entry) : nil }
+        catch { library.error = error.localizedDescription; return }
         library.begin(entry, remember: entry.temporarySession != true)
-        runWineFullSequence(profile: entry)
+        if let runtimeLaunch, wine_process_is_running() != 0 {
+            SteamOwnedLibrary.shared.sessionChanged(active: true)
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    runtimeLaunch.restoreEnvironment(); entry.applyEnvironment(); try runtimeLaunch.publish()
+                } catch {
+                    DispatchQueue.main.async { GameRuntime.shared.publicationFailed(error.localizedDescription) }
+                }
+            }
+        } else { runWineFullSequence(profile: entry, runtimeLaunch: runtimeLaunch) }
     }
 
     /// Full sequence: allocate JIT pool, start wineserver, start Wine.
     /// Debugger stays attached during PE loading so mprotect_exec can use BRK
     /// to prepare code pages. Detach happens after Wine finishes + recovery.
     /// `profile` is a library entry whose launch profile applies to this run.
-    private func runWineFullSequence(profile: LibraryEntry? = nil) {
+    private func runWineFullSequence(profile: LibraryEntry? = nil, runtimeLaunch: RuntimeLaunch? = nil) {
         guard jit_check_debugged() else {
             logStore.log("JIT not enabled. Press 'Enable JIT' first.", level: .error)
+            if runtimeLaunch != nil { GameRuntime.shared.publicationFailed("JIT is not enabled for the reusable runtime.") }
             if profile != nil { LibraryModel.shared.launchFailed() }
             return
         }
@@ -2545,8 +2565,19 @@ struct ContentView: View {
             // A library entry's launch profile (executable, arguments, x87
             // precision, frame limit).
             if let profile {
+                runtimeLaunch?.restoreEnvironment()
                 profile.applyEnvironment()
                 logStore.log("[launch-route] library profile applied")
+            }
+            if let runtimeLaunch {
+                do { try runtimeLaunch.publish() }
+                catch {
+                    DispatchQueue.main.async {
+                        GameRuntime.shared.publicationFailed(error.localizedDescription)
+                        logStore.uiPaused = false
+                    }
+                    return
+                }
             }
 
             // Step 1: Allocate JIT pool (BRK suspends entire process)

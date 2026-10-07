@@ -421,6 +421,7 @@ struct ios_child_args {
     int unixdir;
     char **argv;
     int argc;
+    unsigned int runtime_parent_pid;
     struct pe_image_info pe_info;
 };
 
@@ -432,6 +433,7 @@ struct ios_child_args {
  * known, runs long after the TEB exists.  The parent already has the image
  * info in struct ios_child_args. */
 _Thread_local WORD ios_child_main_machine;
+_Thread_local unsigned int ios_runtime_parent_pid;
 
 /* Where this child currently is in wine_ios_child_main (which updates it).  A
  * child that dies during bring-up used to leave no trace at all beyond a couple
@@ -442,6 +444,7 @@ _Thread_local const char *ios_child_boot_stage = "not started";
 static void *ios_child_thread_entry( void *arg )
 {
     struct ios_child_args *args = arg;
+    ios_runtime_parent_pid = args->runtime_parent_pid;
 
     /* An IL-only .NET image without 32BITREQUIRED runs as a native process: the
      * server and exec_wineloader both promote it, so it must not get a guest
@@ -531,6 +534,7 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
     args->unixdir = (unixdir != -1) ? dup( unixdir ) : -1;
     args->argv = argv;
     args->argc = argc;
+    args->runtime_parent_pid = (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess;
     args->pe_info = *pe_info;
 
     if (winedebug) putenv( winedebug );

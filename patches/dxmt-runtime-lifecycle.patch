@@ -1,0 +1,27 @@
+diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -494,9 +494,18 @@ _MTLCommandBuffer_commit(void *obj) {
+-  if (madeira_frame_hooks_on()) {
+-    atomic_fetch_add_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
++  extern int wine_runtime_is_enabled(void) __attribute__((weak));
++  extern void wine_runtime_gpu_begin(void) __attribute__((weak));
++  extern void wine_runtime_gpu_end(void) __attribute__((weak));
++  int runtime = wine_runtime_is_enabled && wine_runtime_is_enabled() && wine_runtime_gpu_begin && wine_runtime_gpu_end;
++  int stats = madeira_frame_hooks_on();
++  if (runtime || stats) {
++    if (runtime) wine_runtime_gpu_begin();
++    if (stats) atomic_fetch_add_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
+     [(id<MTLCommandBuffer>)params->handle addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+-      uint64_t depth = atomic_fetch_sub_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
+-      double span = buffer.GPUEndTime - buffer.GPUStartTime;
+-      ios_frame_gpu(buffer.GPUStartTime > 0.0 && span > 0.0 ? (unsigned long long)(span * 1e9) : 0, depth);
++      if (stats) {
++        uint64_t depth = atomic_fetch_sub_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
++        double span = buffer.GPUEndTime - buffer.GPUStartTime;
++        ios_frame_gpu(buffer.GPUStartTime > 0.0 && span > 0.0 ? (unsigned long long)(span * 1e9) : 0, depth);
++      }
++      if (runtime) wine_runtime_gpu_end();
+     }];
+   }
+   [(id<MTLCommandBuffer>)params->handle commit];

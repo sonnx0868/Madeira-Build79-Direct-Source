@@ -487,6 +487,33 @@ int wine_crash_exit_status(uint32_t *status) {
 }
 static char *g_prefix_path = NULL;
 
+/* Re-applied between child games without rewriting live registry/DLL farms. */
+void wine_prepare_game_compatibility(void) {
+    if (getenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV")) {
+        unsetenv("SDL_OPENGL_ES_DRIVER"); unsetenv("LOVE_GRAPHICS_USE_OPENGLES");
+        unsetenv("ANGLE_DEFAULT_PLATFORM"); unsetenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV");
+    }
+    for (const char **key = (const char *[]){"SDL_OPENGL_ES_DRIVER", "LOVE_GRAPHICS_USE_OPENGLES", "ANGLE_DEFAULT_PLATFORM", NULL}; *key; ++key) {
+        char name[128], value[512]; snprintf(name, sizeof(name), "env.%s", *key);
+        if (madeira_cfg_get(name, value, sizeof(value))) setenv(*key, value, 1);
+    }
+    NSString *bundle = NSBundle.mainBundle.bundlePath;
+    const char *mode = getenv("_MADEIRA_OPENGL_ANGLE_MODE");
+    if (mode && *mode && madeira_cfg_bool("env.MADEIRA_OPENGL_ANGLE", 1)) {
+        NSString *egl = [bundle stringByAppendingPathComponent:@"arm64ec-windows/libEGL.dll"];
+        NSString *gles = [bundle stringByAppendingPathComponent:@"arm64ec-windows/libGLESv2.dll"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:egl] && [[NSFileManager defaultManager] fileExistsAtPath:gles]) {
+            setenv("SDL_OPENGL_ES_DRIVER", "1", 1); setenv("ANGLE_DEFAULT_PLATFORM", "d3d11", 1);
+            if (!strcmp(mode, "love")) setenv("LOVE_GRAPHICS_USE_OPENGLES", "1", 1);
+            setenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV", "1", 1);
+        }
+    }
+    NSString *gc64 = [bundle stringByAppendingPathComponent:@"arm64ec-windows/lua51-gc64.dll"];
+    if (getenv("_MADEIRA_LUA51_GC64") && [[NSFileManager defaultManager] fileExistsAtPath:gc64])
+        setenv("_MADEIRA_LUA51_GC64_PATH", gc64.UTF8String, 1);
+    else unsetenv("_MADEIRA_LUA51_GC64_PATH");
+}
+
 /* Export MADEIRA_DOCS_DIR before main(), while HOME is still the app container.
  * The in-app wineserver thread sets HOME to the Wine prefix before it creates its
  * first object, and madsync reads madeira.cfg inproc-sync right there (then keeps
@@ -1435,7 +1462,9 @@ static void *wine_process_thread(void *arg) {
 
         // Pick which exe to run (env var override, default = cube.exe).
         // Set MADEIRA_EXE=hello-x64.exe in env to launch the ARM64EC test path.
-        const char *madeira_exe = getenv("MADEIRA_EXE");
+        const char *runtime_channel = getenv("_MADEIRA_RUNTIME_CHANNEL");
+        const char *madeira_exe = runtime_channel && *runtime_channel
+            ? "C:\\windows\\system32\\madeira-session-host.exe" : getenv("MADEIRA_EXE");
         if (!madeira_exe || !*madeira_exe) madeira_exe = "cube.exe";
         // Heuristic: x86_64 guest exes (cube-x64, hello-x64, real games like
         // Thumper) need the arm64ec-windows bundle (ARM64EC hybrid system
@@ -1707,7 +1736,7 @@ static void *wine_process_thread(void *arg) {
         static char args_buf[1024];
         char *extra_argv[16] = {0};
         int extra_argc = 0;
-        const char *madeira_args = getenv("MADEIRA_ARGS");
+        const char *madeira_args = runtime_channel && *runtime_channel ? runtime_channel : getenv("MADEIRA_ARGS");
         if (madeira_args && *madeira_args) {
             strncpy(args_buf, madeira_args, sizeof(args_buf) - 1);
             args_buf[sizeof(args_buf) - 1] = 0;

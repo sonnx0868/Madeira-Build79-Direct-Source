@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "GameRuntime.h"
 
 #ifdef __cplusplus
 extern "C" {

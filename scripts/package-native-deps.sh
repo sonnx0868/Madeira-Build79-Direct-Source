@@ -31,6 +31,7 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/d3dcompiler_47.dll \
   app/Madeira/arm64ec-windows/wined3d.dll \
   app/Madeira/arm64ec-windows/dockhost.exe \
+  app/Madeira/arm64ec-windows/madeira-session-host.exe \
   app/Madeira/arm64ec-windows/dock-notices.txt \
   app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html)
 echo "Created $output"

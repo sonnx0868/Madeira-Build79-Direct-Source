@@ -1731,8 +1731,20 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
     pthread_attr_setguardsize( &pthread_attr, 0 );
     pthread_attr_setscope( &pthread_attr, PTHREAD_SCOPE_SYSTEM ); /* force creating a kernel thread */
     InterlockedIncrement( &nb_threads );
+#ifdef WINE_IOS
+    {
+        extern void wine_runtime_thread_reserve( unsigned, unsigned, void * ) __attribute__((weak));
+        if (wine_runtime_thread_reserve) wine_runtime_thread_reserve( GetCurrentProcessId(), tid, teb->Peb );
+    }
+#endif
     if (pthread_create( &pthread_id, &pthread_attr, (void * (*)(void *))start_thread, teb ))
     {
+#ifdef WINE_IOS
+        {
+            extern void wine_runtime_thread_cancel( unsigned, unsigned, void * ) __attribute__((weak));
+            if (wine_runtime_thread_cancel) wine_runtime_thread_cancel( GetCurrentProcessId(), tid, teb->Peb );
+        }
+#endif
         InterlockedDecrement( &nb_threads );
         virtual_free_teb( teb );
         status = STATUS_NO_MEMORY;

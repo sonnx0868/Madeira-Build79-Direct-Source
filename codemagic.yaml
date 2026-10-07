@@ -38,6 +38,7 @@ workflows:
           python3 "$CM_BUILD_DIR/tests/host/check-frontend.py"
           python3 "$CM_BUILD_DIR/tests/host/check-game-pointer.py" --require-swift
           python3 "$CM_BUILD_DIR/tests/host/check-runtime-profilers.py"
+          python3 "$CM_BUILD_DIR/tests/host/check-multi-game.py" --require-tools --require-swift
           bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.4-source-bootstrap.ipa
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
@@ -96,6 +97,7 @@ workflows:
           python3 "$CM_BUILD_DIR/tests/host/check-frontend.py"
           python3 "$CM_BUILD_DIR/tests/host/check-game-pointer.py" --require-swift
           python3 "$CM_BUILD_DIR/tests/host/check-runtime-profilers.py"
+          python3 "$CM_BUILD_DIR/tests/host/check-multi-game.py" --require-tools --require-swift
           bash "$CM_BUILD_DIR/scripts/prepare-release.sh" Madeira-v0.1.4-source.ipa
           xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
             -configuration "$APP_CONFIGURATION" -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \

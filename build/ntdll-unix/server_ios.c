@@ -3587,6 +3587,10 @@ void process_exit_wrapper( int status )
 {
 #ifdef WINE_IOS
     const unsigned int session_pid = (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess;
+    void *runtime_peb = NtCurrentTeb()->Peb;
+    int runtime_safe = 1;
+    extern int wine_runtime_prepare_process_exit( unsigned int pid, void *peb ) __attribute__((weak));
+    if (wine_runtime_prepare_process_exit) runtime_safe = wine_runtime_prepare_process_exit( session_pid, runtime_peb );
     /* Close THIS pseudo-process's master socket — the EOF is how wineserver
      * learns the process died (signals its process object, wakes waiters).
      * Clear the registry slot so a stray second call can't double-close. */
@@ -3601,7 +3605,7 @@ void process_exit_wrapper( int status )
         /* ml987: hand back the fixed-base main image BEFORE the socket closes.
          * NtUnmapViewOfSection needs a live server connection, and this is the
          * last moment we have one while still on the owning process's thread. */
-        ios_retire_own_fixed_base_image( dead_peb );
+        if (runtime_safe) ios_retire_own_fixed_base_image( dead_peb );
         ios_fdt_note_close( ios_proc_sockets[i].fd, "exit-master", dead_peb );
         close( ios_proc_sockets[i].fd );
         ios_proc_sockets[i].peb = NULL;
@@ -3616,7 +3620,7 @@ void process_exit_wrapper( int status )
          * (module copies, trampolines, FEX CodeBuffers). Children only —
          * the session (else-branch) lives as long as the app. Reuse is
          * grace-delayed inside the allocator for laggard exit threads. */
-        ios_jit_reclaim_process( dead_peb );
+        if (runtime_safe) ios_jit_reclaim_process( dead_peb );
         /* and its guest window, if it had one.  Here rather
          * than only in ios_child_thread_entry because THIS is the chokepoint
          * every pseudo-process exit reaches, on whichever thread called
@@ -3624,13 +3628,13 @@ void process_exit_wrapper( int status )
          * return to the boot thread's setjmp at all.  Keyed by the dying PEB,
          * not by the calling thread.  Nothing is unmapped here; see
          * ios_wow_window_mark_released(). */
-        ios_wow_window_release( dead_peb );
+        if (runtime_safe) ios_wow_window_release( dead_peb );
         /* ml988 phase 2: only now may the retired fixed base be handed on. Until
          * this point the old generation's pool mappings and FEX translations are
          * still live, so a new claimant taking the same VA would race them. */
         {
             extern void ios_exe_win_mark_ready( void *peb );
-            ios_exe_win_mark_ready( dead_peb );
+            if (runtime_safe) ios_exe_win_mark_ready( dead_peb );
         }
     }
     else
@@ -3654,6 +3658,9 @@ void process_exit_wrapper( int status )
     {
         extern void wine_session_process_did_exit( unsigned int pid ) __attribute__((weak));
         if (wine_session_process_did_exit) wine_session_process_did_exit( session_pid );
+        extern void wine_runtime_process_retired( unsigned int pid, void *peb, int safe ) __attribute__((weak));
+        if (wine_runtime_process_retired) wine_runtime_process_retired( session_pid, runtime_peb, runtime_safe );
+        if (!runtime_safe) wine_log_write("[runtime-retire] live peer / missing evidence: code retained, restart required");
     }
 #endif
     wine_log_write("[Wine ntdll/server] process_exit_wrapper(%d)", status );
@@ -3935,6 +3942,12 @@ size_t server_init_process(void)
     }
 
     set_thread_id( NtCurrentTeb(), pid, tid );
+#ifdef WINE_IOS
+    {
+        extern void wine_runtime_thread_attach( unsigned, unsigned, unsigned, void * ) __attribute__((weak));
+        if (wine_runtime_thread_attach) wine_runtime_thread_attach( pid, tid, 0, NtCurrentTeb()->Peb );
+    }
+#endif
 
 #ifdef WINE_IOS
     /* First process only (children use server_init_process_child), so the DOS
@@ -4022,6 +4035,15 @@ size_t server_init_process_child( int child_fd_socket )
     if (ret) server_protocol_error( "init_first_thread (child) failed: %x\n", ret );
 
     set_thread_id( NtCurrentTeb(), pid, tid );
+
+    {
+        extern _Thread_local unsigned int ios_runtime_parent_pid;
+        extern void wine_runtime_thread_attach( unsigned, unsigned, unsigned, void * ) __attribute__((weak));
+        extern unsigned int wine_runtime_processors(void) __attribute__((weak));
+        unsigned int processors = wine_runtime_processors ? wine_runtime_processors() : 0;
+        if (processors && processors < 64) NtCurrentTeb()->Peb->NumberOfProcessors = processors;
+        if (wine_runtime_thread_attach) wine_runtime_thread_attach( pid, tid, ios_runtime_parent_pid, NtCurrentTeb()->Peb );
+    }
 
     return info_size;
 }
@@ -4450,6 +4472,14 @@ void server_init_thread( void *entry_point, BOOL *suspend )
     ios_fdt_mark_closed( reply_pipe );   /* expected handoff close (server holds a dup) */
 #endif
     close( reply_pipe );
+#ifdef WINE_IOS
+    {
+        extern void wine_runtime_thread_attach( unsigned, unsigned, unsigned, void * ) __attribute__((weak));
+        if (wine_runtime_thread_attach) wine_runtime_thread_attach(
+            (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess,
+            (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread, 0, NtCurrentTeb()->Peb );
+    }
+#endif
 }
 
 NTSTATUS WINAPI NtAllocateReserveObject( HANDLE *handle, const OBJECT_ATTRIBUTES *attr,

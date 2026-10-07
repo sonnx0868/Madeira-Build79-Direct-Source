@@ -53,6 +53,14 @@ elif ! git -C "$root/dxmt" apply --reverse --check "$dxmt_patch"; then
     exit 1
 fi
 
+runtime_patch="$root/patches/dxmt-runtime-lifecycle.patch"
+if git -C "$root/dxmt" apply --check "$runtime_patch"; then
+    git -C "$root/dxmt" apply "$runtime_patch"
+elif ! git -C "$root/dxmt" apply --reverse --check "$runtime_patch"; then
+    echo "DXMT source no longer matches $runtime_patch" >&2
+    exit 1
+fi
+
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
 # fix into them deterministically until their rebuild joins this bootstrap.
 python3 "$root/tools/patch-dxmt-query-log.py"
@@ -126,6 +134,9 @@ bash "$root/build/llvm-ios/build.sh"
 xcodebuild -downloadComponent MetalToolchain
 xcrun -sdk macosx metal -v >/dev/null
 bash "$root/build/dxmt-ios/build.sh"
+
+log "Build reusable session host"
+LLVM_MINGW="$mingw_dir/bin" bash "$root/build/session-host/build.sh"
 
 log "Build Madeira Dock"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/madeira-dock/build.sh"

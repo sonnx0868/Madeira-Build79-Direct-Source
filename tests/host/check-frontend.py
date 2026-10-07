@@ -28,6 +28,7 @@ exit report.
 Run from anywhere; needs `swift` and `cc` on PATH.
 """
 from pathlib import Path
+import os
 import re
 import subprocess
 import sys
@@ -97,6 +98,7 @@ enum ProMotionIntent { static var has30Cap = true }
 struct TouchControl: Codable, Equatable { var nx = 0.5 }
 enum ControlAction: Codable, Equatable, Hashable { case none }   // LibraryEntry.controllerBinds
 enum GamepadInput { static let keyboardMouseAvailable = true }   // LibraryEntry's per-game DirectInput choice
+func wineserver_is_running() -> Int32 { 0 }
 enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
@@ -408,15 +410,18 @@ int main(void) {
 with tempfile.TemporaryDirectory() as tmp:
     sp = Path(tmp) / 'frontend.swift'
     sp.write_text(swift)
-    r = subprocess.run(['swift', str(sp)], capture_output=True, text=True)
-    sys.stdout.write(r.stdout)
-    if r.returncode:
-        sys.stdout.write(r.stderr[-4000:])
-        failures.append('swift harness')
+    if '--c-only' not in sys.argv:
+        r = subprocess.run(['swift', str(sp)], capture_output=True, text=True)
+        sys.stdout.write(r.stdout)
+        if r.returncode:
+            sys.stdout.write(r.stderr[-4000:])
+            failures.append('swift harness')
+    else:
+        print('SKIP: Swift harness (--c-only); Codemagic runs the complete test')
     cp = Path(tmp) / 'exit.c'
     cp.write_text(c_src)
     exe = Path(tmp) / 'exit'
-    r = subprocess.run(['cc', '-std=c11', '-Wall', '-Werror', '-D_DEFAULT_SOURCE', '-o', str(exe), str(cp)],
+    r = subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Wall', '-Werror', '-D_DEFAULT_SOURCE', '-o', str(exe), str(cp)],
                        capture_output=True, text=True)
     if r.returncode:
         sys.stdout.write(r.stderr[-4000:])
@@ -441,7 +446,7 @@ check('if mode == 1 { return holdMaximum ? panelMaxFPS : 0 }' in fps, 'no displa
 check('__attribute__((weak)) void madeira_set_display_max_fps' in shim and 'ProMotionIntent.has30Cap' in fps
       and 'ProMotionIntent.has30Cap || mode == 3' in lib, 'the 30 FPS cap is offered only with DXMT support')
 check('LibraryView(play: launchLibraryEntry' in content, 'ContentView shows the library when it is the chosen interface')
-check('runWineFullSequence(profile: entry)' in content and 'profile.applyEnvironment()' in content,
+check('runWineFullSequence(profile: entry' in content and 'profile.applyEnvironment()' in content,
       'library launches use the shared launch path with the profile applied')
 check('_MADEIRA_LUA51_GC64_PATH' in loader and '[luajit-gc64] redirect' in loader
       and 'lua51-gc64.dll' in bridge, 'Balatro loads the bundled GC64 LuaJIT without replacing the game file')

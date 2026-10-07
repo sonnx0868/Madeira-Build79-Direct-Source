@@ -325,6 +325,7 @@ struct LibraryEntry: Codable, Identifiable {
             && ExternalGameCompatibility.isUnity(self)
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
         else if unityProfile { setenv("MADEIRA_CPU_COUNT", "4", 1) }
+        else { unsetenv("MADEIRA_CPU_COUNT") }
         // Automatic mode publishes one host pad through both Windows controller
         // APIs. This covers old Unity/DirectInput titles and modern XInput games
         // without a per-game first-run ritual. XInput-only remains an escape
@@ -466,6 +467,8 @@ enum ControllerCompatibility {
 
     static func prepare(_ entry: LibraryEntry) -> String? {
         guard MadeiraConfig.flag("MADEIRA_CONTROLLER_AUTO_PREFS"), let profile = profile(for: entry) else { return nil }
+        // RuntimeLaunch seeds missing preferences through the LIVE registry.
+        if wineserver_is_running() != 0 { return profile.name }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let url = docs.appendingPathComponent("wine/user.reg")
         guard let text = try? String(contentsOf: url, encoding: .utf8),
@@ -752,7 +755,10 @@ final class LibraryModel: ObservableObject {
     private func exitReport() -> String? {
         guard !quitRequested, MadeiraConfig.flag("MADEIRA_EXIT_REPORT") else { return nil }
         var status: UInt32 = 0
-        guard wine_crash_exit_status(&status) != 0 else { return nil }
+        if GameRuntime.shared.ownsSession {
+            status = GameRuntime.shared.lastExitCode
+            guard status >= 0xC0000000 else { return nil }
+        } else { guard wine_crash_exit_status(&status) != 0 else { return nil } }
         LogStore.shared.log("[exit-report] status=0x\(String(status, radix: 16))")
         let kind = status == 0xC0000005 ? " (memory access violation)" : status == 0xC0000017 ? " (out of memory)" : ""
         return "The game stopped with Windows error 0x\(String(status, radix: 16, uppercase: true))\(kind). Export the diagnostic log to report it."
@@ -1019,10 +1025,9 @@ final class LibraryModel: ObservableObject {
 
     // MARK: session
 
-    /// Wine sessions started in this app run. A second one cannot start in the
-    /// same process: the wineserver's permanent objects from the first session
-    /// are still there and init_registry aborts on "\Registry". Madeira asks for
-    /// a restart instead. MADEIRA_ONE_SESSION_PER_RUN=0 lets the launch go ahead.
+    /// Logical games started. Legacy routes must not bootstrap Wine twice:
+    /// permanent registry/server objects survive. GameRuntime warm launches
+    /// use children of the first bootstrap, not a removed safety guard.
     static var sessionsThisRun = 0
     static let restartMessage = "Restart Madeira to start another game: swipe Madeira away in the app switcher, then open it again."
     @Published var restartNotice: String?
@@ -1098,8 +1103,9 @@ final class LibraryModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
     }
     private func poll() {
+        if GameRuntime.shared.ended { sawProcess = true; finish(); return }
         let directInitial = activeEntry?.steamAppID == nil || activeEntry?.startsSteamGameDirectly == true
-        if current != nil, (directInitial && wine_launched_process_has_exited() != 0) ||
+        if current != nil, !GameRuntime.shared.ownsSession, (directInitial && wine_launched_process_has_exited() != 0) ||
                             (quitting && wine_session_close_has_exited() != 0) {
             sawProcess = true
             finish()
@@ -1217,13 +1223,15 @@ final class LibraryModel: ObservableObject {
         // period, then end that guest via its existing ntdll teardown path.
         quitting = true
         LibraryController.shared.configure(enabled: enabled, ownsInput: true)
-        winios_request_session_close(0)
+        if GameRuntime.shared.ownsSession { GameRuntime.shared.quit(force: false) }
+        else { winios_request_session_close(0) }
         sessionMessage = "Closing game…"
         menu = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self, self.current == session, self.quitting,
                   wine_session_close_has_exited() == 0 else { return }
-            winios_request_session_close(1)
+            if GameRuntime.shared.ownsSession { GameRuntime.shared.quit(force: true) }
+            else { winios_request_session_close(1) }
             self.sessionMessage = "Stopping the game session…"
             fputs("[frontend] close grace period expired; guest termination requested\n", stderr)
         }
@@ -1281,6 +1289,10 @@ final class LibraryModel: ObservableObject {
         LibraryController.shared.configure(enabled: enabled, ownsInput: enabled)
         MetalHostView.shared.isHidden = true
         ProMotionIntent.shared.setActive(false)
+        if GameRuntime.shared.ownsSession {
+            GameRuntime.shared.sessionFinished()
+            SteamOwnedLibrary.shared.sessionChanged(active: false)
+        }
         fputs("[frontend] returned to library\n", stderr)
     }
 }
@@ -2265,6 +2277,7 @@ struct LibraryCells<Item: Identifiable, Cell: View>: View {
 }
 
 struct LibraryView: View {
+    @ObservedObject private var runtime = GameRuntime.shared
     @ObservedObject private var model = LibraryModel.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
@@ -2324,6 +2337,13 @@ struct LibraryView: View {
             settings
                 .tabItem { Image(systemName: "gearshape.fill").accessibilityLabel("Settings") }
                 .tag(1)
+        }
+        .safeAreaInset(edge: .bottom) {
+            if runtime.hasEngine && !runtime.message.isEmpty {
+                Text(runtime.message).font(.caption).foregroundStyle(runtime.state == .needsRestart ? Color.orange : Color.secondary)
+                    .frame(maxWidth: .infinity).padding(8).background(.regularMaterial)
+                    .accessibilityLabel("Wine runtime: " + runtime.message)
+            }
         }
         // The system search field (Liquid Glass on iOS 26) in the title's place, left
         // of the library's buttons, on both tabs; each tab keeps its own text.
@@ -3398,13 +3418,14 @@ enum SyncEngine: String, CaseIterable, Identifiable {
 }
 
 struct RuntimeMemorySyncSettings: View {
+    @ObservedObject private var runtime = GameRuntime.shared
     /// Opens a Settings sheet (LibraryView owns the presentation).
     var open: (SettingsSheet) -> Void = { _ in }
     /// Bumped when a Settings sheet closes, so the rows re-read madeira.cfg.
     var refresh = 0
     /// The keys this section owns; All settings leaves them out.
     static let featuredKeys: Set<String> = ["pool", "vram-mb", "swap-mb", "env.MADEIRA_SWAP_COVERAGE", "inproc-sync",
-                                            "env.MADEIRA_FASTSYNC", "eco"]
+                                            "env.MADEIRA_FASTSYNC", "eco", "env.MADEIRA_MULTI_GAME"]
     static let poolChoices = [0, 512, 640, 768, 1024, 1152]          // 0 = the standard 896 MB
     static let vramChoices = [0, 1536, 2048, 3072, 4096, 4352, 4608, 5120, 6144]   // 0 = automatic
     static let swapChoices = [0, 1024, 2048, 3072, 4096]
@@ -3444,6 +3465,9 @@ struct RuntimeMemorySyncSettings: View {
 
     var body: some View {
         Section {
+            Toggle("Reusable game runtime", isOn: Binding(get: { MadeiraConfig.bool("env.MADEIRA_MULTI_GAME", default: true) },
+                set: { on in MadeiraConfig.set("env.MADEIRA_MULTI_GAME", on ? nil : "0"); changed = true }))
+                .disabled(runtime.hasEngine)
             mbPicker("JIT pool", key: "pool", value: $poolMB, choices: Self.poolChoices,
                      zero: "Default (896 MB)", label: { "\($0) MB" })
             mbPicker("Video memory", key: "vram-mb", value: $vramMB, choices: Self.vramChoices,
@@ -3477,6 +3501,7 @@ struct RuntimeMemorySyncSettings: View {
         } header: { Text("Memory & sync") } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("JIT pool is the memory reserved at launch for translated x86 code (256 to 1152 MB).")
+                Text("Reusable runtime keeps Wine/JIT alive after Quit so another direct game can start from the library. A failed cleanup still requires restart; the active engine cannot be switched off in place.")
                 Text("Video memory is how much graphics memory games are told they have. Automatic sizes it from the memory free at launch. Too high can get Madeira closed for using too much memory; too low makes games keep reloading textures.")
                 Text("Swap tier moves game data to a file on this device's storage when memory runs short, up to the chosen size, at some speed cost. Coverage decides which allocations it moves: large ones only (8 MB and up, the default), every allocation of 1 MB and up, or those plus allocations that overflow the game's address range. Wider coverage saves more memory but can slow a game down.")
                 Text("Sync engine: Fastsync (the default) handles events and semaphores in-process; its per-game options are in each game's details. Madsync is the older in-process engine. Wine standard sync uses neither. Only one engine runs at a time.")
