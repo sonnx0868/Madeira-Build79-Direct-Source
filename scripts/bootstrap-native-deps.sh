@@ -61,6 +61,8 @@ elif ! git -C "$root/dxmt" apply --reverse --check "$runtime_patch"; then
     exit 1
 fi
 
+bash "$root/scripts/apply-dxmt-gameplay-patch.sh"
+
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
 # fix into them deterministically until their rebuild joins this bootstrap.
 python3 "$root/tools/patch-dxmt-query-log.py"

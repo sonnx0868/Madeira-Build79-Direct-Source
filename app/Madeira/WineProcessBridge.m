@@ -656,6 +656,7 @@ void madeira_seed_prefix_if_needed(const char *prefix_path) {
  * target take exactly the code path they took before.
  * ========================================================================= */
 #define MADEIRA_IMAGE_FILE_MACHINE_I386 0x014c
+#define MADEIRA_IMAGE_FILE_MACHINE_ARM64 0xaa64
 
 /* build/ntdll-unix/virtual_ios.c: nonzero when this session's MAIN image is
  * 32-bit. The unix side reserves the process's guest window before its first
@@ -720,6 +721,13 @@ static uint16_t madeira_target_machine(const char *exe, const char *prefix, NSSt
             return 0;
     }
     return madeira_pe_machine(probe);
+}
+
+int wine_runtime_native_host_available(void)
+{
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"madeira-session-host"
+                                                  ofType:@"exe" inDirectory:@"aarch64-windows"];
+    return path && madeira_pe_machine(path.fileSystemRepresentation) == MADEIRA_IMAGE_FILE_MACHINE_ARM64;
 }
 
 /* The bundle carries the i386 Wine set. */
@@ -1463,7 +1471,8 @@ static void *wine_process_thread(void *arg) {
         // Pick which exe to run (env var override, default = cube.exe).
         // Set MADEIRA_EXE=hello-x64.exe in env to launch the ARM64EC test path.
         const char *runtime_channel = getenv("_MADEIRA_RUNTIME_CHANNEL");
-        const char *madeira_exe = runtime_channel && *runtime_channel
+        const BOOL runtime_native_host = runtime_channel && *runtime_channel;
+        const char *madeira_exe = runtime_native_host
             ? "C:\\windows\\system32\\madeira-session-host.exe" : getenv("MADEIRA_EXE");
         if (!madeira_exe || !*madeira_exe) madeira_exe = "cube.exe";
         // Heuristic: x86_64 guest exes (cube-x64, hello-x64, real games like
@@ -1485,12 +1494,20 @@ static void *wine_process_thread(void *arg) {
          * keeps the heuristic's answer unchanged. */
         NSString *bundleForProbe = [[NSBundle mainBundle] bundlePath];
         const BOOL has_i386_set = madeira_bundle_has_i386(bundleForProbe);
-        const uint16_t target_machine = madeira_target_machine(madeira_exe, g_prefix_path, bundleForProbe);
+        // The prefix may still contain an old host symlink. Probe the bundled
+        // native helper instead; the farm staging below replaces that symlink.
+        const uint16_t target_machine = runtime_native_host
+            ? madeira_pe_machine([[bundleForProbe stringByAppendingPathComponent:@"aarch64-windows/madeira-session-host.exe"] fileSystemRepresentation])
+            : madeira_target_machine(madeira_exe, g_prefix_path, bundleForProbe);
         const BOOL is_i386_target = has_i386_set && target_machine == MADEIRA_IMAGE_FILE_MACHINE_I386;
         dprintf(STDERR_FILENO, "[WineProc] PE probe: machine=0x%x%s\n", target_machine,
                 is_i386_target ? " (i386: WoW64)" :
                 target_machine == MADEIRA_IMAGE_FILE_MACHINE_I386 ? " (i386, but the bundle has no i386-windows)" : "");
         if (is_i386_target) use_arm64ec = NO;
+        if (runtime_native_host) {
+            use_arm64ec = NO; // internal ARM64 supervisor wins over the game-name/force-EC heuristic
+            dprintf(STDERR_FILENO, "[runtime-host] supervisor=native-arm64 machine=0x%x x64-child-ntdll=fresh\n", target_machine);
+        }
         const char *bundle_subdir = use_arm64ec ? "arm64ec-windows" : "aarch64-windows";
         LOG("Target exe: %{public}s (bundle=%{public}s)", madeira_exe, bundle_subdir);
         dprintf(STDERR_FILENO, "[WineProc] Target exe: %s (bundle=%s)\n", madeira_exe, bundle_subdir);

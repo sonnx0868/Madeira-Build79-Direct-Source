@@ -1402,7 +1402,7 @@ static void *ios_mach_exception_thread( void *arg )
         ios_exc_request_t *req = &msg.typed;
         ios_exc_msg_count++;
         ios_cur_fault_port = req->thread.name;              /* ml690 */
-        ios_store_fault_t0 = mach_absolute_time();          /* ml680 */
+        ios_store_fault_t0 = madeira_diag_enabled ? mach_absolute_time() : 0;
 
         thread_t thread = req->thread.name;
         int handled = 0;
@@ -1414,7 +1414,7 @@ static void *ios_mach_exception_thread( void *arg )
         /* ml649: gate the WORK. This costs two Mach round-trips (thread_get_state
          * + vm_read_overwrite) per sample, so checking the flag before them is the
          * point — checking it before the dprintf would save nothing. */
-        if ((ios_exc_msg_count % 200000) == 0 && ios_store_fault_n)
+        if (madeira_diag_enabled && (ios_exc_msg_count % 200000) == 0 && ios_store_fault_n)
         {   /* ml680: mach_timebase converts ticks to ns once. ONE handler thread
              * serves every Wine thread, so this total is a hard serialised
              * ceiling on the whole app, not a per-thread cost. */
@@ -3722,6 +3722,7 @@ wx_done: ;
                          * ios_store_fault_t0 is stamped at handler ENTRY (see
                          * the exception entry point), so this covers the whole
                          * kernel->handler->emulate path, not just the store. */
+                        if (madeira_diag_enabled)
                         {
                             extern volatile unsigned long long ios_store_fault_t0;
                             extern volatile unsigned long long ios_store_fault_ticks;
@@ -3780,6 +3781,7 @@ wx_done: ;
                          * target page, and how many distinct pages that pc hits
                          * (one page = a hot data structure, many = a memcpy-like
                          * sweep). */
+                        if (madeira_diag_enabled)
                         {
                             enum { FC_SLOTS = 24 };
                             enum { FC_PAGESET = 64, FC_SAMPLES = 12 };

@@ -306,13 +306,21 @@ second weak identity-only hook observes the Windows PID selected by an explicit
 close request, including a Dock child; another helper exiting cannot end that
 session. No program-name list is involved.
 
-Direct games now share one persistent Wine/JIT engine instead of bootstrapping
-Wine for every Play. Quit returns home; the next game can start once native
+Direct games can opt into one persistent Wine/JIT engine instead of bootstrapping
+Wine for every Play. Reuse is experimental and off by default after the build570
+Unity child regression; its new ARM64 supervisor requires device validation.
+Quit returns home; the next game can start once native
 thread/JIT/GPU cleanup is confirmed. See [Reusable game runtime](MULTI_GAME_RUNTIME.md)
 for the safety barrier, unsupported routes, configuration and device tests.
 Legacy routes still run one Wine session per app run: a second full bootstrap
 cannot safely reinitialize the permanent server/registry objects. Those routes,
 changed latched backend settings and unsafe cleanup still ask for restart.
+
+The iOS disk shader/Metal cache now defaults to the sandbox cache for both
+32- and 64-bit games. Quiet gameplay skips per-store classifiers, TLS forensic
+polls and VM commit/decommit read-back probes before they do any work; atomic
+stores, Mono backpatch capture and real memory zeroing/retirement remain intact.
+See [Gameplay performance validation](GAMEPLAY_PERFORMANCE.md).
 
 ## First-run setup
 

@@ -5,7 +5,8 @@ extern "C" {
 #endif
 void wine_runtime_enable(void);
 int wine_runtime_is_enabled(void);
-void wine_runtime_begin_generation(uint64_t generation);
+/* 1: admitted after quiescence; 0: reject without publishing a new child. */
+int wine_runtime_begin_generation(uint64_t generation);
 void wine_runtime_set_processors(unsigned count);
 unsigned wine_runtime_processors(void);
 void wine_runtime_thread_attach(unsigned pid, unsigned tid, unsigned parent_pid, void *peb);

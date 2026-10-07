@@ -15,13 +15,18 @@ typedef int pthread_mutex_t;
 #define KERN_INVALID_ARGUMENT 4
 #define MACH_SEND_INVALID_DEST 0x10000003
 extern unsigned runtime_test_self;
+extern unsigned runtime_test_sleeps, runtime_test_release_after, runtime_test_release_port;
 extern int runtime_test_alive[8192], runtime_test_refs[8192];
 static inline unsigned pthread_self(void) { return runtime_test_self; }
 static inline unsigned pthread_mach_thread_np(unsigned thread) { return thread; }
 static inline unsigned mach_task_self(void) { return 1; }
 static inline void pthread_mutex_lock(pthread_mutex_t *lock) { (void)lock; }
 static inline void pthread_mutex_unlock(pthread_mutex_t *lock) { (void)lock; }
-static inline void usleep(unsigned delay) { (void)delay; }
+static inline void usleep(unsigned delay) {
+    (void)delay;
+    if (++runtime_test_sleeps == runtime_test_release_after && runtime_test_release_port)
+        runtime_test_alive[runtime_test_release_port] = 0;
+}
 static inline int mach_port_mod_refs(unsigned task, unsigned port, unsigned right, int delta) {
     (void)task; (void)right; runtime_test_refs[port] += delta; return KERN_SUCCESS;
 }

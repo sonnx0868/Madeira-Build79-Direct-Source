@@ -30,7 +30,10 @@ for dll in win32u.dll user32.dll dinput.dll dinput8.dll \
   xinput1_1.dll xinput1_2.dll xinput1_3.dll xinput1_4.dll \
   xinput9_1_0.dll; do need "app/Madeira/arm64ec-windows/$dll"; done
 need "app/Madeira/arm64ec-windows/lua51-gc64.dll"
-need "app/Madeira/arm64ec-windows/madeira-session-host.exe"
+need "app/Madeira/aarch64-windows/madeira-session-host.exe"
+if [[ -s "$root/app/Madeira/aarch64-windows/madeira-session-host.exe" ]]; then
+  python3 "$root/tests/host/check-runtime-host-arch.py" || missing=1
+fi
 need "app/Madeira/arm64ec-windows/libEGL.dll"
 need "app/Madeira/arm64ec-windows/libGLESv2.dll"
 need "app/Madeira/licenses/ANGLE-BSD-3.txt"
@@ -99,6 +102,9 @@ if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
   }
 fi
 if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
+  grep -a -q 'gameplay-observers=v1' "$root/app/Madeira/libntdll_unix.a" || {
+    echo "INVALID: libntdll_unix.a predates quiet gameplay observers; rebuild source-bootstrap"; missing=1;
+  }
   nm -g "$root/app/Madeira/libntdll_unix.a" 2>/dev/null | grep -q 'wine_runtime_thread_attach' || {
     echo "INVALID: libntdll_unix.a has no reusable-runtime thread lifecycle hooks"; missing=1;
   }
@@ -111,6 +117,9 @@ if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
 fi
 
 if [[ -s "$root/app/Madeira/libdxmt_combined.a" ]]; then
+  grep -a -q 'sandbox-v1 reader ready' "$root/app/Madeira/libdxmt_combined.a" || {
+    echo "INVALID: libdxmt_combined.a predates the 64-bit iOS shader cache fix; rebuild source-bootstrap"; missing=1;
+  }
   nm -g "$root/app/Madeira/libdxmt_combined.a" 2>/dev/null | grep -q 'wine_runtime_gpu_begin' || {
     echo "INVALID: libdxmt_combined.a has no reusable-runtime GPU completion hooks"; missing=1;
   }

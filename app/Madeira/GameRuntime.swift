@@ -107,12 +107,16 @@ final class GameRuntime: ObservableObject {
     private var stoppedConfirmed = false
     var hasEngine: Bool { state != .off }
     var ended: Bool { ownsSession && stoppedConfirmed }
-    static var enabled: Bool { MadeiraConfig.flag("MADEIRA_MULTI_GAME") && MadeiraConfig.get("env.MADEIRA_JIT_IMAGE_RETIRE") != "0" }
+    // Device build570: a Unity/Mono child crashed during exception unwinding;
+    // the same IPA's direct route entered gameplay. Reuse remains explicit
+    // opt-in until its child-context path is validated on iPad.
+    static var enabled: Bool { MadeiraConfig.flag("MADEIRA_MULTI_GAME", fallback: false) && MadeiraConfig.get("env.MADEIRA_JIT_IMAGE_RETIRE") != "0" }
     static func supports(_ entry: LibraryEntry) -> Bool {
         // A real Steam/Dock session owns a separate authenticated client/service
         // lifecycle. Never quietly bypass it to make this generic route work.
         enabled && entry.desktop != true && entry.temporarySession != true &&
         (entry.steamAppID == nil || entry.startsSteamGameDirectly) &&
+        !(entry.bits == 32 && MadeiraConfig.get("d3d9") == "native") &&
         (MadeiraConfig.get("env.DXMT_REMOTE_METAL") ?? ProcessInfo.processInfo.environment["DXMT_REMOTE_METAL"] ?? "").isEmpty &&
         !MadeiraConfig.bool("d3d12", default: false)
     }
@@ -123,7 +127,7 @@ final class GameRuntime: ObservableObject {
          "aniso=\(entry.anisotropyLimit.map(String.init) ?? "auto")", "unity=\(entry.unityOptimizations != false)"]
         .joined(separator: "|") + ["pool", "inproc-sync", "env.MADEIRA_FASTSYNC", "d3d12"].map {
             "|\($0)=\(MadeiraConfig.get($0) ?? "default")"
-        }.joined()
+        }.joined() + "|d3d9=\(MadeiraConfig.get("d3d9") ?? "default")"
     }
     func prepare(_ entry: LibraryEntry) throws -> RuntimeLaunch {
         guard Self.supports(entry), !ownsSession else { throw SupportError.message("This launch cannot share the active runtime.") }
@@ -136,8 +140,8 @@ final class GameRuntime: ObservableObject {
                 throw SupportError.message("This game's CPU/synchronization/backend settings need a new Wine engine. Restart Madeira to apply them.")
             }
         } else {
-            guard Bundle.main.url(forResource: "madeira-session-host", withExtension: "exe", subdirectory: "arm64ec-windows") != nil else {
-                throw SupportError.message("The reusable session host is missing. Build the source-bootstrap workflow.")
+            guard wine_runtime_native_host_available() != 0 else {
+                throw SupportError.message("The ARM64-native session host is missing or outdated. Build the source-bootstrap workflow.")
             }
             let folder = LibraryModel.drive.appendingPathComponent("madeira-runtime", isDirectory: true)
                 .appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
@@ -157,7 +161,12 @@ final class GameRuntime: ObservableObject {
         }
         generation += 1
         wine_exit_status_reset(); winios_reset_session_close()
-        wine_runtime_begin_generation(generation)
+        guard wine_runtime_begin_generation(generation) == 1 else {
+            state = .needsRestart
+            message = "The previous native runtime did not finish safely. Restart Madeira before another game."
+            logState()
+            throw SupportError.message(message)
+        }
         let configuredCPU = Int(MadeiraConfig.get("cpu-count") ?? "") ?? 0
         let automaticCPU = (1..<64).contains(configuredCPU) ? configuredCPU : ProcessInfo.processInfo.processorCount
         let reportedCPU = entry.cpuCount ?? (ExternalGameCompatibility.isUnity(entry) && entry.unityOptimizations != false
@@ -215,7 +224,7 @@ final class GameRuntime: ObservableObject {
         logState()
     }
     private func logState() {
-        let line = "state=\(state.rawValue) generation=\(generation)" +
+        let line = "state=\(state.rawValue) generation=\(generation) exit=\(lastExitCode)" +
             (state == .draining ? " threads=\(wine_runtime_live_threads()) gpu=\(wine_runtime_gpu_pending())" : "")
         if line != lastLog { lastLog = line; LogStore.shared.log("[multi-game] \(line)") }
     }

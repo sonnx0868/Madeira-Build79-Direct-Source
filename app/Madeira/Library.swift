@@ -3471,8 +3471,8 @@ struct RuntimeMemorySyncSettings: View {
 
     var body: some View {
         Section {
-            Toggle("Reusable game runtime", isOn: Binding(get: { MadeiraConfig.bool("env.MADEIRA_MULTI_GAME", default: true) },
-                set: { on in MadeiraConfig.set("env.MADEIRA_MULTI_GAME", on ? nil : "0"); changed = true }))
+            Toggle("Reusable game runtime", isOn: Binding(get: { MadeiraConfig.bool("env.MADEIRA_MULTI_GAME", default: false) },
+                set: { on in MadeiraConfig.set("env.MADEIRA_MULTI_GAME", on ? "1" : "0"); changed = true }))
                 .disabled(runtime.hasEngine)
             mbPicker("JIT pool", key: "pool", value: $poolMB, choices: Self.poolChoices,
                      zero: "Default (896 MB)", label: { "\($0) MB" })
@@ -3507,7 +3507,7 @@ struct RuntimeMemorySyncSettings: View {
         } header: { Text("Memory & sync") } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("JIT pool is the memory reserved at launch for translated x86 code (256 to 1152 MB).")
-                Text("Reusable runtime keeps Wine/JIT alive after Quit so another direct game can start from the library. A failed cleanup still requires restart; the active engine cannot be switched off in place.")
+                Text("Reusable runtime is experimental and off by default while its ARM64-native supervisor is validated. It keeps Wine/JIT alive after Quit so another direct game can start. Failed cleanup requires restart; the active engine cannot be switched off in place.")
                 Text("Video memory is how much graphics memory games are told they have. Automatic sizes it from the memory free at launch. Too high can get Madeira closed for using too much memory; too low makes games keep reloading textures.")
                 Text("Swap tier moves game data to a file on this device's storage when memory runs short, up to the chosen size, at some speed cost. Coverage decides which allocations it moves: large ones only (8 MB and up, the default), every allocation of 1 MB and up, or those plus allocations that overflow the game's address range. Wider coverage saves more memory but can slow a game down.")
                 Text("Sync engine: Fastsync (the default) handles events and semaphores in-process; its per-game options are in each game's details. Madsync is the older in-process engine. Wine standard sync uses neither. Only one engine runs at a time.")

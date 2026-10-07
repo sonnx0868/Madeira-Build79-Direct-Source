@@ -654,7 +654,7 @@ static void *ios_pool_warmer_thread( void *arg )
 {
     unsigned cycle = 0;
     pthread_set_qos_class_self_np( QOS_CLASS_UTILITY, 0 );
-    dprintf( 2, "[memory-monitor] census=%d residency-warming=1 footprint=1 qos=utility\n",
+    dprintf( 2, "[memory-monitor] census=%d residency-warming=1 footprint=1 qos=utility gameplay-observers=v1\n",
              ios_memory_census_enabled() );
     for (;;)
     {
@@ -2281,6 +2281,10 @@ static volatile unsigned long long ios_alias_highest[IOS_JIT_MAX_ANON_ALIASES];
 void ios_jit_anon_alias_note_write( unsigned long long addr )
 {
     int n = ios_jit_anon_alias_count, i;
+    /* Telemetry, not invalidation/coherence. Do not rescan thousands of aliases
+     * and issue atomic counters for every successful store in normal play. */
+    extern volatile int madeira_diag_enabled;
+    if (!__atomic_load_n( &madeira_diag_enabled, __ATOMIC_RELAXED )) return;
     for (i = 0; i < n; i++)
     {
         uintptr_t b = ios_jit_anon_aliases[i].user_va;
@@ -13440,6 +13444,10 @@ static void ios_verify_commit_zero( const void *base, SIZE_T size, ULONG protect
     unsigned long seq;
     int hi;
 
+    /* Read-back is forensics only. Repeated callret resets otherwise issue a
+     * Mach read and populate fresh pages while virtual_mutex is held. The
+     * allocator's actual zero-fill / alias protection code remains unchanged. */
+    if (!ios_memory_census_enabled()) return;
     if (!base || !size) return;
     if (protect & (PAGE_NOACCESS | PAGE_GUARD)) return;
     if (!(protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
@@ -15041,7 +15049,7 @@ static NTSTATUS decommit_pages( struct file_view *view, char *base, size_t size 
      * that judgement is checkable rather than asserted. */
     {
         static unsigned long dc_big_seen, dc_samples;
-        if (size >= (4u << 20))
+        if (ios_memory_census_enabled() && size >= (4u << 20))
         {
             unsigned long n = ++dc_big_seen;
             if (dc_samples < 16 && (n <= 8 || (n % 512) == 0))
@@ -15150,6 +15158,7 @@ static NTSTATUS decommit_pages( struct file_view *view, char *base, size_t size 
          * repeated FEX-band address (0x7c012a1000), so guest and pool decommits
          * were never measured at all. Unbounded counters, every anomaly logged,
          * only the OK lines rate-limited, totals on every line. */
+        if (ios_memory_census_enabled())
         {
             static unsigned long dc_hi, dc_lo, dcbad_hi, dcbad_lo;
             int dc_isarena = ios_is_arena_addr( base );
@@ -19861,10 +19870,12 @@ void ios_tls38_poll( const char *where )
 {
     static struct { DWORD tid; int state; } seen[48];
     static unsigned nseen, lines;
-    TEB *teb = NtCurrentTeb();
+    TEB *teb;
     void **blocks; ULONG64 v, top = 0, rip = 0, rsp = 0; DWORD tid; unsigned i, slot = ~0u;
     CHPE_V2_CPU_AREA_INFO *area;
 
+    if (!__atomic_load_n( &madeira_diag_enabled, __ATOMIC_RELAXED )) return;
+    teb = NtCurrentTeb();
     if (!teb || lines > 60) return;
     blocks = teb->ThreadLocalStoragePointer;
     if (!blocks || !blocks[0]) return;

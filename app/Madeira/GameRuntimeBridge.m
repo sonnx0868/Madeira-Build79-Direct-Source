@@ -31,6 +31,7 @@ static _Atomic unsigned runtime_gpu;
 static _Atomic unsigned runtime_processors;
 static unsigned runtime_root;
 static uint64_t runtime_generation;
+extern void ios_proc_ident_release(void *peb) __attribute__((weak));
 
 static int port_alive(mach_port_t port) {
     thread_basic_info_data_t info;
@@ -103,8 +104,34 @@ void wine_runtime_thread_cancel(unsigned pid, unsigned tid, void *peb) {
     }
     pthread_mutex_unlock(&runtime_lock);
 }
-void wine_runtime_begin_generation(uint64_t generation) {
+int wine_runtime_begin_generation(uint64_t generation) {
+    void *retired_pebs[MAX_RUNTIME_PROCESSES];
+    unsigned retired_count = 0;
     pthread_mutex_lock(&runtime_lock);
+    if (!wine_runtime_is_enabled() || !generation || generation <= runtime_generation) {
+        pthread_mutex_unlock(&runtime_lock);
+        return 0;
+    }
+    if (runtime_generation && generation != runtime_generation) {
+        unsigned found = 0, pending = atomic_load(&runtime_gpu);
+        for (unsigned i = 0; i < MAX_RUNTIME_PROCESSES; ++i) {
+            const struct runtime_process *p = &runtime_processes[i];
+            if (p->pid && p->generation == runtime_generation) {
+                ++found;
+                if (!p->retired || !p->safe) ++pending;
+            }
+        }
+        for (unsigned i = 0; i < MAX_RUNTIME_THREADS; ++i) {
+            const struct runtime_thread *t = &runtime_threads[i];
+            const struct runtime_process *p = t->pid ? process_find(t->pid, t->peb, 0, 0) : NULL;
+            if (p && p->generation == runtime_generation && (t->reserved || port_alive(t->port))) ++pending;
+        }
+        if (!found || pending || atomic_load(&runtime_unsafe)) {
+            atomic_store(&runtime_unsafe, 1);
+            pthread_mutex_unlock(&runtime_lock);
+            return 0; // never turn an early Play into forced retirement
+        }
+    }
     /* Only the state machine calls this after reuse_ready == 1. Do not drop
      * live references as a way to make the next readiness check pass. */
     for (unsigned i = 0; i < MAX_RUNTIME_THREADS; ++i) {
@@ -116,19 +143,30 @@ void wine_runtime_begin_generation(uint64_t generation) {
     }
     for (unsigned i = 0; i < MAX_RUNTIME_PROCESSES; ++i) {
         struct runtime_process *p = &runtime_processes[i];
-        if (p->pid && p->pid != runtime_root && p->retired && p->safe) memset(p, 0, sizeof(*p));
+        if (p->pid && p->pid != runtime_root && p->retired && p->safe) {
+            retired_pebs[retired_count++] = p->peb;
+            memset(p, 0, sizeof(*p));
+        }
     }
     runtime_generation = generation;
     pthread_mutex_unlock(&runtime_lock);
+    // The cross-arch loader's 64-slot identity registry must not accumulate
+    // dead 64-bit games. Release metadata only after native/GPU quiescence,
+    // outside runtime_lock and before the next child command is published.
+    if (ios_proc_ident_release)
+        for (unsigned i = 0; i < retired_count; ++i) ios_proc_ident_release(retired_pebs[i]);
+    return 1;
 }
 int wine_runtime_prepare_process_exit(unsigned pid, void *peb) {
     if (!wine_runtime_is_enabled()) return 1;
     unsigned self_tid = 0;
     mach_port_t self_port = pthread_mach_thread_np(pthread_self());
-    /* Ordinary orderly quits normally already joined the game's workers.
-     * Give their native destructors 250 ms, but never unmap code beneath an
-     * executing peer just because wineserver considers its thread terminated. */
-    for (unsigned attempt = 0; attempt < 26; ++attempt) {
+    /* Wine's logical exit can precede native destructors. Allow a bounded
+     * three-second drain (inside the UI's ten-second quit budget), not the
+     * old 250 ms which quarantined otherwise orderly delayed teardown.
+     * Time passing is NOT proof: every surviving/reserved peer still blocks
+     * retirement, and an arbitrary Mach query error still counts as alive. */
+    for (unsigned attempt = 0; attempt < 301; ++attempt) {
         unsigned peers = 0;
         pthread_mutex_lock(&runtime_lock);
         for (unsigned i = 0; i < MAX_RUNTIME_THREADS; ++i) {
@@ -140,7 +178,7 @@ int wine_runtime_prepare_process_exit(unsigned pid, void *peb) {
         }
         pthread_mutex_unlock(&runtime_lock);
         if (!peers && self_tid && !atomic_load(&runtime_unsafe)) return 1;
-        if (attempt < 25) usleep(10000);
+        if (attempt < 300) usleep(10000);
     }
     atomic_store(&runtime_unsafe, 1);
     return 0;

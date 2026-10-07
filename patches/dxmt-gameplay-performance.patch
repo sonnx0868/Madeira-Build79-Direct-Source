@@ -1,0 +1,56 @@
+diff --git a/src/winemetal/unix/cache.c b/src/winemetal/unix/cache.c
+index 02fc844..ae00010 100644
+--- a/src/winemetal/unix/cache.c
++++ b/src/winemetal/unix/cache.c
+@@ -29,20 +29,17 @@
+  * the app's NSCachesDirectory instead and a directory that cannot be created
+  * fails cleanly.
+  *
+- * Decided per caller, like winemetal_unix.c's madeira_switch_for_caller: on by
+- * default for a caller in a 32-bit (WoW64) pseudo-process (ios_wow_base() is
+- * its guest-window base), off for a 64-bit caller, which keeps the upstream
+- * lookup below. "0" disables it for every caller, any other non-empty value
+- * enables it for every caller. */
++ * All iOS callers use the sandbox cache, including 64-bit games. Build570
++ * Silksong logged failures opening both the DXMT and Metal caches because
++ * the old default restricted this path to WoW64. "0" retains the legacy
++ * lookup for troubleshooting; any other non-empty value enables it. */
+ #if TARGET_OS_IPHONE
+-extern unsigned long ios_wow_base(void);
+-
+ static bool
+ use_ios_cache_dir(void) {
+   const char *e = getenv("DXMT_IOS_CACHE_DIR");
+   if (e && *e)
+     return strcmp(e, "0") != 0;
+-  return ios_wow_base() != 0;
++  return true;
+ }
+ 
+ static NSString *
+@@ -96,9 +93,14 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+ 
+ - (instancetype)initWithPath:(NSString *)path version:(uint64_t)version {
+   if ((self = [super init])) {
+-    /* Opt-in diagnostics: DXMT_CACHE_STATS=1 logs hit/miss counts. */
++    /* Cheap, sparse hit/miss evidence on iOS; DXMT_CACHE_STATS=0 silences it.
++     * Desktop callers retain the upstream opt-in behavior. */
+     const char *stats = getenv("DXMT_CACHE_STATS");
++#if TARGET_OS_IPHONE
++    _stats = !stats || !*stats || strcmp(stats, "0");
++#else
+     _stats = stats && *stats && strcmp(stats, "0");
++#endif
+     NSString *dbPath = resolve_cache_dir(path, true);
+     if (!dbPath) {
+       NSLog(@"[CacheReader] Failed to resolve cache path");
+@@ -118,6 +120,9 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+       sqlite3_close(_db);
+       return nil;
+     }
++#if TARGET_OS_IPHONE
++    NSLog(@"[shader-cache] sandbox-v1 reader ready version=%llu", version);
++#endif
+   }
+   return self;
+ }

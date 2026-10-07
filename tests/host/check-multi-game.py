@@ -23,6 +23,12 @@ assert "runtimeLaunch.restoreEnvironment(); entry.applyEnvironment(); try runtim
 assert "!GameRuntime.shared.ownsSession" in library and "GameRuntime.shared.ended" in library
 assert "wine_runtime_prepare_process_exit" in server and "if (runtime_safe) ios_jit_reclaim_process" in server
 assert '"control.bin"' in runtime and '"request.bin"' in runtime
+assert "wine_runtime_native_host_available() != 0" in runtime
+host_build = (root / "build/session-host/build.sh").read_text(encoding="utf-8")
+bridge = (root / "app/Madeira/WineProcessBridge.m").read_text(encoding="utf-8")
+assert 'compiler="$mingw/aarch64-w64-mingw32-clang"' in host_build
+assert 'if (runtime_native_host) {\n            use_arm64ec = NO;' in bridge
+assert 'madeira_pe_machine(path.fileSystemRepresentation) == MADEIRA_IMAGE_FILE_MACHINE_ARM64' in bridge
 assert "stoppedConfirmed" in runtime and "wine_runtime_reuse_ready()" in runtime
 assert 'if wineserver_is_running() != 0 { return profile.name }' in library
 finish = library.split("private func finish() {", 1)[1].split("enum LibraryError", 1)[0]
@@ -46,6 +52,7 @@ else:
             "-o", str(lifecycle)], check=True)
         subprocess.run([str(lifecycle)], check=True)
         subprocess.run([str(lifecycle), "unsafe"], check=True)
+        subprocess.run([str(lifecycle), "early"], check=True)
         protocol = folder / ("protocol" + suffix)
         subprocess.run([compiler, "-std=c11", "-O2", "-Wall", "-Werror",
             str(root / "tests/host/runtime-protocol-test.c"), "-o", str(protocol)], check=True)
@@ -55,7 +62,7 @@ else:
             host = folder / "host.exe"
             fixture = folder / "fixture game & unicode.exe"
             for source, output, flags in [(root / "build/session-host/main.c", host, ["-DMD_RUNTIME_NATIVE_TEST", "-ladvapi32", "-luser32"]),
-                                           (root / "tests/host/runtime-game-fixture.c", fixture, [])]:
+                                           (root / "tests/host/runtime-game-fixture.c", fixture, ["-fms-extensions"])]:
                 subprocess.run([compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-static", "-municode", "-mwindows",
                                 str(source), *flags, "-o", str(output)], check=True)
             channel = folder / "channel"; channel.mkdir()
@@ -100,8 +107,12 @@ else:
                 temporary.write_bytes(control); temporary.replace(channel / "control.bin")
                 forced = wait_for(lambda s: s[0] == 4 and s[1] == 3)
                 assert forced[2] == idle[2] and forced[6] == 0
-                print("PASS: real Windows host kept one PID across three launches, changed child PID/env, preserved SYSTEMROOT and waited for grandchild exit")
+                start(5, "seh", "E")
+                seh = wait_for(lambda s: s[0] == 5 and s[1] == 3)
+                assert seh[2] == idle[2] and seh[4] == 0 and seh[6] == 0
+                print("PASS: real Windows host kept one PID across five launches, changed child PID/env, preserved SYSTEMROOT and waited for grandchild exit")
                 print("PASS: stale force cannot stop a later game; current-generation force ends only its job, not the host")
+                print("PASS: actual Windows worker catches the Finalizer naming exception and exits cleanly")
             finally:
                 child.terminate(); child.communicate(timeout=5)
 
