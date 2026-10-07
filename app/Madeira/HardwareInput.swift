@@ -912,7 +912,8 @@ final class HardwareInput: ObservableObject {
         // changing key status, changes focus at once rather than at the next poll.
         for name in [UITextField.textDidBeginEditingNotification, UITextField.textDidEndEditingNotification,
                      UITextView.textDidBeginEditingNotification, UITextView.textDidEndEditingNotification,
-                     UIWindow.didBecomeKeyNotification, UIWindow.didResignKeyNotification] {
+                     UIWindow.didBecomeKeyNotification, UIWindow.didResignKeyNotification,
+                     UIWindow.didBecomeVisibleNotification, UIWindow.didBecomeHiddenNotification] {
             nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.refreshFocus("responder")
             }
@@ -1908,17 +1909,37 @@ extension UIResponder {
 //
 // `prefersPointerLocked` hides and pins the iPad system pointer (containment:
 // an unlocked pointer stops at the screen edge and starts hitting the app's
-// own chrome). UIKit asks the KEY WINDOW's root view controller, and this
-// app's root is SwiftUI's own UIHostingController, which the app never
-// constructs and cannot subclass. So the override is ADDED to that concrete
-// class at runtime, scoped to the scene containing the game view. Refresh
-// follows root replacements and explicit child pointer-lock delegation.
+// own chrome). The game, joystick pad, controls/HUD and keyboard live in
+// separate windows. Updating only the key window can leave higher, non-key
+// overlay roots with a false preference. Keep all Madeira-owned roots in the
+// game scene in agreement, without making an overlay key or moving the Metal
+// layer. SwiftUI creates the main root, so its getter is installed at runtime.
+// Only registered controller INSTANCES change; alerts and system windows keep
+// their original preferences. Refresh also follows pointer-lock delegation.
 // iPadOS honours the preference only while the scene is full screen.
 // ============================================================================
 
 enum PointerLock {
+    private final class Owner {
+        weak var controller: UIViewController?
+        weak var window: UIWindow?
+        var lastPreference: Bool?
+
+        init(controller: UIViewController, window: UIWindow) {
+            self.controller = controller
+            self.window = window
+        }
+    }
+
+    private struct Target: Equatable {
+        let window: ObjectIdentifier
+        let controller: ObjectIdentifier
+        let key: Bool
+    }
+
     private static var installedClasses = Set<ObjectIdentifier>()
-    private static weak var requestedRoot: UIViewController?
+    private static var owners: [ObjectIdentifier: Owner] = [:]
+    private static var targets: [Target] = []
     private static var stateObserver: NSObjectProtocol?
     private static var lastState = ""
 
@@ -1934,66 +1955,112 @@ enum PointerLock {
         }
     }
 
-    private static func keyWindow() -> UIWindow? {
-        if let gameWindow = MetalBackedView.keyboardTarget?.window,
-           let scene = gameWindow.windowScene {
-            return scene.windows.first(where: { $0.isKeyWindow }) ?? gameWindow
+    private static func gameWindows() -> [UIWindow] {
+        guard let gameWindow = MetalBackedView.keyboardTarget?.window,
+              let scene = gameWindow.windowScene else { return [] }
+        // Do not patch UITextEffectsWindow, alerts, or LiveContainer's UI just
+        // because they happen to be key/in the same scene. Our non-key HUDs
+        // still participate, even where hitTest returns nil over the game.
+        return scene.windows.filter { window in
+            !window.isHidden && window.alpha > 0.01 &&
+            (window === gameWindow || window is PassthroughWindow ||
+             window is ControlsWindow || window is LibraryKeyboardWindow)
         }
-        return UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
     }
 
-    /// Follow the current root and its pointer-lock delegation after scene
-    /// rebuilds. The previous one-time flag only patched the first root class.
+    /// Follow all owned windows and their explicit pointer-lock delegates.
+    /// A new delegate matters even when the window's root has not changed.
     static func synchronize(forceUpdate: Bool = false) {
         if stateObserver == nil {
             stateObserver = NotificationCenter.default.addObserver(
                 forName: UIPointerLockState.didChangeNotification, object: nil, queue: .main
             ) { _ in reportState() }
         }
-        guard let root = keyWindow()?.rootViewController else {
-            return
+        let previousOwners = owners
+        var nextOwners: [ObjectIdentifier: Owner] = [:]
+        var nextTargets: [Target] = []
+        for window in gameWindows() {
+            var controller = window.rootViewController
+            var visited = Set<ObjectIdentifier>()
+            while let current = controller, visited.count < 16,
+                  visited.insert(ObjectIdentifier(current)).inserted {
+                let id = ObjectIdentifier(current)
+                if let previous = previousOwners[id], previous.controller === current,
+                   previous.window === window {
+                    nextOwners[id] = previous
+                } else {
+                    nextOwners[id] = Owner(controller: current, window: window)
+                }
+                nextTargets.append(Target(window: ObjectIdentifier(window), controller: id,
+                                          key: window.isKeyWindow))
+                install(on: current)
+                controller = current.childViewControllerForPointerLock
+            }
         }
-        let rootChanged = requestedRoot !== root
-        requestedRoot = root
-        var controller: UIViewController? = root
-        var visited = Set<ObjectIdentifier>()
-        while let current = controller, visited.count < 16,
-              visited.insert(ObjectIdentifier(current)).inserted {
-            install(on: current)
-            controller = current.childViewControllerForPointerLock
+        // Publish the complete set before UIKit can call any of the getters.
+        owners = nextOwners
+        let changed = targets != nextTargets
+        targets = nextTargets
+        if changed || forceUpdate {
+            // Detached/replaced roots must also give their old preference up.
+            for (id, owner) in previousOwners where nextOwners[id] == nil {
+                owner.controller?.setNeedsUpdateOfPrefersPointerLocked()
+            }
+            for target in targets {
+                guard let owner = owners[target.controller], let controller = owner.controller,
+                      let window = owner.window else { continue }
+                owner.lastPreference = nil
+                fputs("[hwinput] pointer-lock-target requested=\(HardwareInput.shared.pointerLocked ? 1 : 0) "
+                      + "window=\(target.window) key=\(window.isKeyWindow ? 1 : 0) "
+                      + "level=\(window.windowLevel.rawValue) controller=\(NSStringFromClass(type(of: controller)))\n", stderr)
+                controller.setNeedsUpdateOfPrefersPointerLocked()
+            }
         }
-        if rootChanged || forceUpdate { root.setNeedsUpdateOfPrefersPointerLocked() }
         reportState()
     }
 
     private static func install(on controller: UIViewController) {
         guard let cls: AnyClass = object_getClass(controller),
-              installedClasses.insert(ObjectIdentifier(cls)).inserted else { return }
+              !installedClasses.contains(ObjectIdentifier(cls)) else { return }
         let sel = NSSelectorFromString("prefersPointerLocked")
+        guard let method = class_getInstanceMethod(cls, sel) else { return }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
         let body: @convention(block) (AnyObject) -> Bool = { object in
             guard let controller = object as? UIViewController,
-                  let scene = controller.viewIfLoaded?.window?.windowScene,
-                  scene === MetalBackedView.keyboardTarget?.window?.windowScene else { return false }
-            return HardwareInput.shared.pointerLocked
+                  let owner = owners[ObjectIdentifier(controller)], owner.controller === controller,
+                  let window = owner.window, !window.isHidden,
+                  let scene = window.windowScene,
+                  scene === MetalBackedView.keyboardTarget?.window?.windowScene else {
+                return original(object, sel)
+            }
+            // A root/delegate can be consulted before its view is attached;
+            // use the owning window, not viewIfLoaded?.window, for scene scope.
+            let preference = HardwareInput.shared.pointerLocked
+            if owner.lastPreference != preference {
+                owner.lastPreference = preference
+                fputs("[hwinput] pointer-lock-preference value=\(preference ? 1 : 0) "
+                      + "window=\(ObjectIdentifier(window)) key=\(window.isKeyWindow ? 1 : 0) "
+                      + "level=\(window.windowLevel.rawValue) controller=\(NSStringFromClass(type(of: controller)))\n", stderr)
+            }
+            return preference
         }
         let imp = imp_implementationWithBlock(body)
-        // "B@:": returns BOOL, takes self and _cmd. Add first; replace only if
-        // this exact class already had one.
-        if !class_addMethod(cls, sel, imp, "B@:") {
-            _ = class_replaceMethod(cls, sel, imp, "B@:")
+        // Preserve the getter's ABI and the original behavior of unregistered
+        // instances of this class (including presented SwiftUI sheets).
+        if !class_addMethod(cls, sel, imp, method_getTypeEncoding(method)) {
+            _ = class_replaceMethod(cls, sel, imp, method_getTypeEncoding(method))
         }
+        installedClasses.insert(ObjectIdentifier(cls))
         fputs("[hwinput] pointer lock installed on \(NSStringFromClass(cls))\n", stderr)
     }
 
     private static func reportState() {
-        let scene = MetalBackedView.keyboardTarget?.window?.windowScene ?? keyWindow()?.windowScene
+        let scene = MetalBackedView.keyboardTarget?.window?.windowScene
         let state = scene?.pointerLockState
         let captured = state?.isLocked ?? false
         let requested = HardwareInput.shared.pointerLocked
-        let line = "requested=\(requested ? 1 : 0) captured=\(captured ? 1 : 0) available=\(state != nil ? 1 : 0) active=\(scene?.activationState == .foregroundActive ? 1 : 0) scene=\(scene?.coordinateSpace.bounds.size ?? .zero) screen=\(scene?.screen.bounds.size ?? .zero)"
+        let line = "requested=\(requested ? 1 : 0) captured=\(captured ? 1 : 0) available=\(state != nil ? 1 : 0) active=\(scene?.activationState == .foregroundActive ? 1 : 0) owners=\(owners.count) assistive-touch=\(UIAccessibility.isAssistiveTouchRunning ? 1 : 0) scene=\(scene?.coordinateSpace.bounds.size ?? .zero) screen=\(scene?.screen.bounds.size ?? .zero)"
         if line != lastState {
             lastState = line
             fputs("[hwinput] pointer-lock-state \(line)\n", stderr)

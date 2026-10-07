@@ -35,7 +35,19 @@ assert "if lockedByUs || captureGame { autoLockSuppressed = true }" in hardware
 assert "locked: pointerCaptured" in hardware
 assert "UIPointerLockState.didChangeNotification" in hardware
 assert "let captured = state?.isLocked ?? false" in hardware
-print("PASS: game mapping, button channel ownership, responder and menu release wiring")
+lock = hardware.split("enum PointerLock {", 1)[1].split("final class PointerHider", 1)[0]
+assert "window === gameWindow" in lock
+for overlay_window in ("PassthroughWindow", "ControlsWindow", "LibraryKeyboardWindow"):
+    assert f"window is {overlay_window}" in lock, f"pointer lock misses {overlay_window}"
+assert "window.isKeyWindow }) ?? gameWindow" not in lock
+assert "owners = nextOwners" in lock and "targets != nextTargets" in lock
+assert "current.childViewControllerForPointerLock" in lock
+assert "viewIfLoaded?.window?.windowScene" not in lock
+assert "return original(object, sel)" in lock, "unowned controllers must keep their preference"
+assert "pointer-lock-target" in lock and "pointer-lock-preference" in lock
+assert "UIWindow.didBecomeVisibleNotification" in hardware
+assert "UIWindow.didBecomeHiddenNotification" in hardware
+print("PASS: game mapping, button ownership, focus/menu release and multi-window lock wiring")
 
 compiler = shutil.which("swiftc")
 if not compiler:

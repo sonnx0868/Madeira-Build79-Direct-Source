@@ -185,10 +185,23 @@ refused). iPhone has no lockable pointer and shows no lock control.
 The requested preference and actual iPadOS capture are tracked separately.
 Input routing uses `UIScene.pointerLockState.isLocked`, observed through
 `UIPointerLockState.didChangeNotification`. `[hwinput] pointer-lock-state`
-reports requested/captured, availability, activation and scene/screen size;
+reports requested/captured, availability, activation, owner count,
+AssistiveTouch status and scene/screen size;
 `requested=1 captured=0` means iPadOS has not granted the lock. The lock button
-shows a waiting glyph until capture is confirmed. The current root and its
-pointer-lock delegate are refreshed after controller or scene changes.
+shows a waiting glyph until capture is confirmed. The game window and Madeira's
+non-key joystick/controls/HUD/keyboard overlay windows share the preference;
+updating only the key window can leave a higher overlay root requesting no lock.
+Roots and their explicit pointer-lock delegates are refreshed after window,
+controller or scene changes. Ownership comes from the window, not a delegate's
+view (which may not be attached yet). Unregistered controller instances and
+system windows keep their original preferences.
+
+`[hwinput] pointer-lock-target` identifies each controller sent an update,
+including its window level and key status. `pointer-lock-preference value=1`
+means that controller's getter was actually consulted with a lock preference;
+it is still **not** proof of capture. Only `pointer-lock-state ... captured=1`
+confirms iPadOS containment. A fullscreen active scene with preference queries
+but `captured=0` needs further device investigation, not a cursor-coordinate clamp.
 
 - **Library games:** as soon as raw GCMouse motion is confirmed and the
   mouse is moving over the game view, capture also applies to games with a
