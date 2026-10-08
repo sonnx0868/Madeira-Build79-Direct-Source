@@ -40,20 +40,13 @@ with tempfile.TemporaryDirectory(prefix="madeira-identity-") as scratch:
     assert out.read_bytes() != first
 print("PASS: production compiler identity is deterministic; changed source/SDK/LLVM inputs invalidate it")
 
-# A clean pinned DXMT checkout must receive every fix from the tracked patch.
-patch_files = ["src/d3d9/d3d9_shader.cpp", "src/d3d11/d3d11_pipeline_cache.cpp", "src/dxmt/dxmt_shader_cache.hpp",
-               "src/dxmt/dxmt_tasks.hpp", "src/winemetal/unix/cache.c", "src/winemetal/unix/winemetal_unix.c"]
-with tempfile.TemporaryDirectory(prefix="madeira-clean-dxmt-") as scratch:
-    folder = Path(scratch)
-    for name in patch_files:
-        p = folder / name; p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(subprocess.check_output(["git", "-C", str(root / "dxmt"), "show", "HEAD:" + name]))
-    patch = str(root / "patches/dxmt-gameplay-performance.patch")
-    subprocess.run(["git", "-C", str(folder), "apply", patch], check=True)
-    subprocess.run(["git", "-C", str(folder), "apply", "--reverse", "--check", patch], check=True)
-    for name in patch_files:
-        assert (folder / name).read_text(encoding="utf-8") == (root / "dxmt" / name).read_text(encoding="utf-8"), name
-print("PASS: clean pinned DXMT sources reproduce all fixes; patch reapplication is detectable")
+# Test the same sequence bootstrap uses, not the gameplay patch in isolation.
+patch_spec = importlib.util.spec_from_file_location("dxmt_patches", root / "tests/host/check-dxmt-patches.py")
+patch_module = importlib.util.module_from_spec(patch_spec)
+patch_spec.loader.exec_module(patch_module)
+for name, expected in patch_module.patched_sources(root).items():
+    assert expected == (root / "dxmt" / name).read_text(encoding="utf-8"), name
+print("PASS: clean pinned DXMT sources reproduce the full ordered patch pipeline; reapplication is detectable")
 
 tasks = (root / "dxmt/src/dxmt/dxmt_tasks.hpp").read_text(encoding="utf-8")
 pipeline = (root / "dxmt/src/d3d11/d3d11_pipeline_cache.cpp").read_text(encoding="utf-8")

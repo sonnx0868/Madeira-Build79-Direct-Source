@@ -93,7 +93,8 @@ workflows:
         script: |
           git submodule update --init FEX wine dxmt madeira-dock
           bash scripts/apply-wine-patches.sh
-          bash scripts/apply-dxmt-gameplay-patch.sh
+          python3 tests/host/check-dxmt-patches.py
+          bash scripts/apply-dxmt-patches.sh
       - name: Restore native bundle
         script: bash scripts/restore-native-deps.sh
       - name: Build unsigned Debug app

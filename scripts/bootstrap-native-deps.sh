@@ -28,6 +28,7 @@ git -C "$root" submodule update --init FEX wine dxmt madeira-dock
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \
     External/fmt External/xxhash External/range-v3 External/unordered_dense
 git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
+python3 "$root/tests/host/check-dxmt-patches.py"
 
 # Keep tiny integration fixes in the main source tree instead of relying on a
 # dirty, unpublished submodule checkout. Applying twice is harmless; any third
@@ -45,23 +46,7 @@ done
 
 bash "$root/scripts/apply-wine-patches.sh"
 
-dxmt_patch="$root/patches/dxmt-madeira-query-log.patch"
-if git -C "$root/dxmt" apply --check "$dxmt_patch"; then
-    git -C "$root/dxmt" apply "$dxmt_patch"
-elif ! git -C "$root/dxmt" apply --reverse --check "$dxmt_patch"; then
-    echo "DXMT source no longer matches $dxmt_patch" >&2
-    exit 1
-fi
-
-runtime_patch="$root/patches/dxmt-runtime-lifecycle.patch"
-if git -C "$root/dxmt" apply --check "$runtime_patch"; then
-    git -C "$root/dxmt" apply "$runtime_patch"
-elif ! git -C "$root/dxmt" apply --reverse --check "$runtime_patch"; then
-    echo "DXMT source no longer matches $runtime_patch" >&2
-    exit 1
-fi
-
-bash "$root/scripts/apply-dxmt-gameplay-patch.sh"
+bash "$root/scripts/apply-dxmt-patches.sh"
 
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
 # fix into them deterministically until their rebuild joins this bootstrap.
