@@ -47,6 +47,7 @@ done
 bash "$root/scripts/apply-wine-patches.sh"
 
 bash "$root/scripts/apply-dxmt-patches.sh"
+python3 "$root/tools/shader-compiler-identity.py" --root "$root" --check-source-inputs
 
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
 # fix into them deterministically until their rebuild joins this bootstrap.

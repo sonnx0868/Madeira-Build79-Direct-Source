@@ -12,6 +12,11 @@ root = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("identity", root / "tools/shader-compiler-identity.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+real_inputs = dict(module.source_inputs(root))
+assert "dxmt/libs/DXBCParser/ShaderBinary.cpp" in real_inputs
+assert "dxmt/libs/DXBCParser/BlobContainer.cpp" in real_inputs
+assert "dxmt/libs/DXBCParser/DXBCUtils.cpp" in real_inputs
+print("PASS: production compiler source paths resolve against the real pinned checkout")
 base = [("shader.cpp", b"compiler"), ("llvm.a", b"archive")]
 assert module.identity(base) == module.identity(list(reversed(base)))
 assert module.identity(base) != module.identity(base + [("sdk.h", b"new")])
@@ -19,7 +24,7 @@ assert module.identity(base) != module.identity([(base[0][0], b"changed"), base[
 assert module.identity([("a", b"bc")]) != module.identity([("ab", b"c")])
 with tempfile.TemporaryDirectory(prefix="madeira-identity-") as scratch:
     folder = Path(scratch)
-    for name in ("dxmt/src/airconv", "dxmt/src/dxbc_parser", "dxmt/include", "madeira-d3d12/src"):
+    for name in ("dxmt/src/airconv", "dxmt/libs/DXBCParser", "dxmt/include", "madeira-d3d12/src"):
         p = folder / name / "compiler.h"; p.parent.mkdir(parents=True); p.write_bytes(b"source")
     for name in ("build/dxmt-ios/build.sh", "build/madeira_cfg.h", "build/llvm-ios/static-libs.txt",
                  "dxmt/src/d3d9/d3d9_shader.cpp", "dxmt/src/d3d11/d3d11_shader.cpp",
@@ -38,6 +43,17 @@ with tempfile.TemporaryDirectory(prefix="madeira-identity-") as scratch:
     (llvm / "libCore.a").write_bytes(b"changed compiler")
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
     assert out.read_bytes() != first
+    # Execute the production generator against the real repo and vendored SDK
+    # headers. Only the unavailable iOS LLVM binaries are stand-ins here.
+    for target in (root / "build/llvm-ios/static-libs.txt").read_text().splitlines():
+        if target.strip():
+            (llvm / f"lib{target.strip()}.a").write_bytes(b"test llvm input")
+    subprocess.run([sys.executable, str(root / "tools/shader-compiler-identity.py"),
+        "--root", str(root), "--output", str(out), "--llvm-libs", str(llvm),
+        "--converter-include", str(root / "madeira-d3d12/third_party/metal-shader-converter/include"),
+        "--toolchain", "host test"], check=True, stdout=subprocess.DEVNULL)
+    assert b"MADEIRA_SHADER_COMPILER_ID" in out.read_bytes()
+print("PASS: production identity generator works with actual repository sources and converter headers")
 print("PASS: production compiler identity is deterministic; changed source/SDK/LLVM inputs invalidate it")
 
 # Test the same sequence bootstrap uses, not the gameplay patch in isolation.
