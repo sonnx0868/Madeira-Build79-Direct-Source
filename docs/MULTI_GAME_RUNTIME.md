@@ -16,9 +16,12 @@ fresh cross-arch ARM64EC ntdll loader, not a clone of a live x64 supervisor's
 ntdll. An old prefix symlink or `MADEIRA_USE_ARM64EC` must not force the internal
 supervisor back onto the x64 path. This addresses the observed route regression;
 the actual iPad exception/quit/second-game run remains an acceptance test.
-Reuse is off by default until device validation; explicitly enable it in
-Settings to test the new native-supervisor route. Existing explicit choices
-are preserved. Disabling it is a safety fallback, not the runtime fix.
+Reuse is off by default until device validation. Unity/Mono engines (including
+Silksong) now select the direct route even when reuse is enabled; this also
+applies when the Unity smoothness profile is disabled. A live reusable engine
+must be closed by restarting Madeira before such a direct launch. The app
+checks this before changing launch environment or beginning another bootstrap.
+Other supported direct executables retain the experimental supervisor route.
 
 ## Lifecycle
 
@@ -101,7 +104,7 @@ launches, checking one persistent host PID, distinct child PIDs, environment
 changes, preserved SYSTEMROOT and waiting for a grandchild. No user game or
 Steam client is run by these tests.
 
-Device acceptance: Play A, Quit, reach home, wait for **ready**, Play B, Quit,
+Device acceptance for supported non-managed games: Play A, Quit, reach home, wait for **ready**, Play B, Quit,
 then Play A again. Require `[runtime-host] supervisor=native-arm64`,
 `[ec-child-ntdll]` for an x64 child, and `state=ready` after healthy cleanup.
 Send a log from each game and after cleanup. Check resolution,

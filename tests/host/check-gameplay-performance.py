@@ -102,6 +102,14 @@ int main(int argc, char **argv) {
     dispatch_data_t value = dispatch_data_create(payload, sizeof(payload), NULL, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
     [writer set:key value:value];
     dispatch_release(value);
+    [writer flush];
+    char borrowedBytes[] = "borrowed-key";
+    NSData *borrowed = [NSData dataWithBytesNoCopy:borrowedBytes length:sizeof(borrowedBytes) freeWhenDone:NO];
+    dispatch_data_t borrowedValue = dispatch_data_create(payload, sizeof(payload), NULL, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+    [writer set:borrowed value:borrowedValue];
+    memset(borrowedBytes, 'x', sizeof(borrowedBytes)); // caller frees/changes guest key immediately
+    dispatch_release(borrowedValue);
+    [writer flush];
     [writer release];
     // A new reader/process lifetime must retrieve the disk entry after writer close.
     CacheReader *reader = [[CacheReader alloc] initWithPath:path version:15];
@@ -113,15 +121,19 @@ int main(int argc, char **argv) {
     assert(length == sizeof(payload) && memcmp(bytes, payload, length) == 0);
     dispatch_release(flat); dispatch_release(found);
     assert([reader get:[@"missing" dataUsingEncoding:NSUTF8StringEncoding]] == NULL);
+    const char originalBytes[] = "borrowed-key";
+    dispatch_data_t originalValue = [reader get:[NSData dataWithBytes:originalBytes length:sizeof(originalBytes)]];
+    assert(originalValue != NULL);
+    dispatch_release(originalValue);
     [reader release];
-    puts("PASS: production Objective-C cache creates directories, writes WAL and reloads the shader bytes");
+    puts("PASS: production Objective-C cache writes asynchronously, owns guest keys and reloads shader bytes");
     [pool drain];
     return 0;
 }
 '''
     with tempfile.TemporaryDirectory(prefix="madeira-shader-cache-") as scratch:
         folder = Path(scratch); source = folder / "test.m"; binary = folder / "test"
-        source.write_text('#import <Foundation/Foundation.h>\n#include <dispatch/dispatch.h>\n#include <sqlite3.h>\n#include <assert.h>\n#include <stdbool.h>\n#include <stdint.h>\n#include <limits.h>\n#include <string.h>\n#include <stdlib.h>\n#include <sys/file.h>\n#include <fcntl.h>\n#include <unistd.h>\n#define TARGET_OS_IPHONE 1\n' + classes + main, encoding="utf-8")
+        source.write_text('#import <Foundation/Foundation.h>\n#include <dispatch/dispatch.h>\n#include <sqlite3.h>\n#include <stdatomic.h>\n#include <assert.h>\n#include <stdbool.h>\n#include <stdint.h>\n#include <limits.h>\n#include <string.h>\n#include <stdlib.h>\n#include <sys/file.h>\n#include <fcntl.h>\n#include <unistd.h>\n#define TARGET_OS_IPHONE 1\n#define MADEIRA_SHADER_COMPILER_ID "test_compiler"\n' + classes + main, encoding="utf-8")
         subprocess.run(["xcrun", "clang", "-fblocks", "-fno-objc-arc", "-Wno-format", str(source), "-framework", "Foundation", "-lsqlite3", "-o", str(binary)], check=True)
         subprocess.run([str(binary), str(folder / "cache" / "shaders.db")], check=True)
 else:

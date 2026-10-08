@@ -204,12 +204,13 @@ enum DiagnosticEvents {
         phase("launch")
         LogStore.shared.log("[diagnostics] bits=\(entry.bits) api=\(entry.graphicsAPI ?? "unknown") resolution=\(entry.resolution) display=\(entry.displayMode.rawValue) controller=\(entry.controllerMode ?? "default") fpsMode=\(entry.effectiveFPSMode) cpuChoice=\(entry.cpuCount.map(String.init) ?? "auto") unityProfile=\(entry.unityOptimizations != false ? 1 : 0)")
         var settings: [String: String] = [:]
-        for key in ["pool", "vram-mb", "swap-mb", "inproc-sync", "env.MADEIRA_FASTSYNC",
+        for key in ["pool", "vram-mb", "swap-mb", "env.MADEIRA_SWAP_PRESSURE", "inproc-sync", "env.MADEIRA_FASTSYNC",
                     "env.MADEIRA_RUNTIME_PROFILERS", "env.MADEIRA_MIP_CLAMP_AUTO",
                     "env.MADEIRA_MEMORY_CENSUS",
                     "env.DXMT_CENSUS_THROTTLE", "env.DXMT_WSI_MODE_TABLE",
                     "env.DXMT_WSI_MONITOR_IDENTITY",
                     "env.MADEIRA_UNITY_RESOLUTION", "env.MADEIRA_PROMOTE",
+                    "env.MADEIRA_UNITY_STARTUP_SYNC", "env.DXMT_COMPILER_THREADS",
                     "env.MADEIRA_MULTI_GAME", "env.DXMT_IOS_CACHE_DIR",
                     "env.DXMT_SHADER_CACHE", "env.DXMT_CACHE_STATS"] {
             settings[key] = String((MadeiraConfig.get(key) ?? "default").prefix(160))

@@ -102,6 +102,9 @@ if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
   }
 fi
 if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
+  grep -a -q 'swap-pressure-v1' "$root/app/Madeira/libntdll_unix.a" || {
+    echo "INVALID: libntdll_unix.a lacks pressure-aware startup swap; rebuild source-bootstrap"; missing=1;
+  }
   grep -a -q 'gameplay-observers=v1' "$root/app/Madeira/libntdll_unix.a" || {
     echo "INVALID: libntdll_unix.a predates quiet gameplay observers; rebuild source-bootstrap"; missing=1;
   }
@@ -117,11 +120,22 @@ if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
 fi
 
 if [[ -s "$root/app/Madeira/libdxmt_combined.a" ]]; then
+  for marker in async-writer-v1 shader-compiler-content-v1; do
+    grep -a -q "$marker" "$root/app/Madeira/libdxmt_combined.a" || {
+      echo "INVALID: libdxmt_combined.a lacks $marker; rebuild source-bootstrap"; missing=1;
+    }
+  done
   grep -a -q 'sandbox-v1 reader ready' "$root/app/Madeira/libdxmt_combined.a" || {
     echo "INVALID: libdxmt_combined.a predates the 64-bit iOS shader cache fix; rebuild source-bootstrap"; missing=1;
   }
   nm -g "$root/app/Madeira/libdxmt_combined.a" 2>/dev/null | grep -q 'wine_runtime_gpu_begin' || {
     echo "INVALID: libdxmt_combined.a has no reusable-runtime GPU completion hooks"; missing=1;
+  }
+fi
+
+if [[ -s "$root/app/Madeira/arm64ec-windows/d3d11.dll" ]]; then
+  grep -a -q 'compiler-workers=v1' "$root/app/Madeira/arm64ec-windows/d3d11.dll" || {
+    echo "INVALID: d3d11.dll predates bounded shader workers; rebuild source-bootstrap"; missing=1;
   }
 fi
 

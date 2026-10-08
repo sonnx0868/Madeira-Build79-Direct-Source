@@ -105,6 +105,7 @@ func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
 swift += block(lib, 'enum ControllerCompatibility') + '\n'
 swift += block(lib, 'enum UnityLaunch') + '\n'
+swift += block(lib, 'enum UnityStartupSync') + '\n'
 swift += block(lib, 'enum ExternalGameCompatibility') + '\n'
 swift += block(lib, 'enum SyncEngine: String, CaseIterable, Identifiable') + '\n'
 swift += '\n'.join(l for l in display.splitlines() if not l.startswith('import ')) + '\n'

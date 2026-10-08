@@ -7,14 +7,14 @@ index 11bf4a7..d8a8cd5 100644
  };
 -
 +
-+#ifndef DXMT_MADEIRA
++#if !defined(DXMT_MADEIRA) && !defined(DXMT_IOS)
  dxmt::mutex g_loggedQueryInterfaceErrorMutex;
  std::unordered_set<GuidPair, DxmtHash, DxmtEq> g_loggedQueryInterfaceErrors;
 +#endif
 -
 +
  bool logQueryInterfaceError(REFIID objectGuid, REFIID requestedGuid) {
-+#ifdef DXMT_MADEIRA
++#if defined(DXMT_MADEIRA) || defined(DXMT_IOS)
 +  // Optional/unsupported QueryInterface calls are expected. The PE-side
 +  // global unordered_set can be reached before its dynamic initializer in an
 +  // ARM64EC process (ANGLE does this while creating a second window), turning

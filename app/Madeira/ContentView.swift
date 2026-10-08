@@ -2500,10 +2500,22 @@ struct ContentView: View {
         guard entry.launchWindowsPath.utf8.count < 1024, entry.launchArguments.utf8.count < 1024 else {
             library.error = "The executable path or launch arguments are too long."; return
         }
-        entry.configureLaunch()
+        // A direct fallback cannot bootstrap over a live persistent engine.
+        // Check before configureLaunch changes the shared process environment.
+        if GameRuntime.shared.hasEngine && !GameRuntime.supports(entry) {
+            library.error = "This game requires a direct launch. Close and reopen Madeira before playing it."
+            return
+        }
+        if GameRuntime.enabled && GameRuntime.requiresDirectLaunch(entry) {
+            logStore.log("[multi-game] managed engine uses direct launch for exception compatibility")
+        }
+        MadeiraConfig.migrateLegacy { self.logStore.log($0) }
         let runtimeLaunch: RuntimeLaunch?
         do { runtimeLaunch = GameRuntime.supports(entry) ? try GameRuntime.shared.prepare(entry) : nil }
         catch { library.error = error.localizedDescription; return }
+        // Readiness/signature failures leave the active engine's environment
+        // intact; the first runtime baseline also precedes per-game exports.
+        entry.configureLaunch()
         library.begin(entry, remember: entry.temporarySession != true)
         if let runtimeLaunch, wine_process_is_running() != 0 {
             SteamOwnedLibrary.shared.sessionChanged(active: true)
@@ -2546,12 +2558,14 @@ struct ContentView: View {
         logStore.log("Running full Wine sequence...")
         DeviceDiagnostics.logLaunch()
 
-        // Start a main thread heartbeat to diagnose hang
+        // Keep the launch heartbeat opt-in: os_log traffic competes with game
+        // loading and the main run loop while the debugger is attached.
         var heartbeatCount = 0
-        let heartbeat = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+        let heartbeat: Timer? = MadeiraConfig.flag("MADEIRA_RUNTIME_PROFILERS", fallback: false)
+            ? Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             heartbeatCount += 1
             os_log("[HEARTBEAT] main thread alive #%d", heartbeatCount)
-        }
+        } : nil
 
         // Pause UI flushing — prevents ALL SwiftUI re-renders during Wine execution,
         // so zero main thread hang time accumulates while debugger is attached
@@ -3172,7 +3186,7 @@ struct ContentView: View {
             StikJITHelper.detachDebugger()
 
             DispatchQueue.main.async {
-                heartbeat.invalidate()
+                heartbeat?.invalidate()
                 if wine_process_is_running() == 0 { LibraryModel.shared.launchFailed() }
             }
         }

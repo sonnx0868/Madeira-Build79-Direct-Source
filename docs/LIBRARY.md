@@ -54,6 +54,20 @@ most once per 10 seconds, with the first report and memory warnings retained.
 An explicit `env.DXMT_CENSUS_THROTTLE` value takes priority. This reduces
 diagnostic scans and output during play without changing buffer reclamation.
 
+The Unity profile also selects Fastsync for that launch when the global engine
+is Wine standard sync. Per-game **Fast synchronization** off, an explicit
+`env.MADEIRA_FASTSYNC` value, Madsync, profile off, or
+`env.MADEIRA_UNITY_STARTUP_SYNC = 0` retain the selected compatibility behavior.
+Fast semaphore waits remain off by default. This addresses the disabled fast
+event path found in the build572 Silksong loading report; a device comparison
+is still required to measure its effect.
+
+With classic swap coverage, the profile enables `env.MADEIRA_SWAP_PRESSURE`:
+fresh allocations remain anonymous while memory headroom exceeds the incoming
+allocation plus 2 GB. The configured swap capacity remains available for low
+or unknown headroom. Existing allocations are not moved. Explicit blocks/wide
+coverage and `env.MADEIRA_SWAP_PRESSURE = 0` retain the original backing policy.
+
 LÖVE 11.5 games are a separate LuaJIT and renderer case. iOS enforces a hard
 4 GB Mach-O `__PAGEZERO`, while old non-GC64 LuaJIT builds request GC memory
 below 2 GB and fail before graphics starts. Madeira detects the LÖVE runtime

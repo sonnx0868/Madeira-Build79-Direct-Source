@@ -43,6 +43,14 @@ INT_READERS = {"madeira_cfg_int", "mad_cfg_int_pe"}
 # Titles, kinds and fixed choices for options with a dedicated Settings row.
 # "choices" are (value, label); the empty value means "remove the key".
 OVERLAY = {
+    "env.MADEIRA_SWAP_PRESSURE": {"category": "Memory & JIT pool", "title": "Swap under memory pressure", "kind": "choice",
+        "note": "The Unity smoothness profile keeps fresh allocations in RAM while headroom exceeds the incoming allocation plus 2 GB. Existing data and the configured swap capacity are retained. Unknown or low headroom uses the configured backing policy.",
+        "choices": [("", "Unity profile default"), ("1", "Only when memory is low"), ("0", "Always back eligible allocations")]},
+    "env.MADEIRA_UNITY_STARTUP_SYNC": {"category": "Synchronisation", "title": "Unity startup synchronization", "kind": "bool", "default": "1",
+        "note": "The Unity smoothness profile selects Fastsync for a game using the global Wine standard engine. Madsync, an explicit env.MADEIRA_FASTSYNC value and per-game Fast synchronization off take priority. Disable to keep the global engine."},
+    "env.DXMT_COMPILER_THREADS": {"category": "Direct3D 9/10/11 (DXMT)", "title": "Shader compiler workers", "kind": "choice",
+        "note": "Automatic uses at most four workers at normal priority. More workers can shorten compilation but compete with game loading and rendering.",
+        "choices": [("", "Automatic"), ("1", "1"), ("2", "2"), ("3", "3"), ("4", "4"), ("6", "6"), ("8", "8")]},
     "swap-mb": { "note": "Moves game data to a file on this device's storage when memory runs short, up to this size. Off by default; read at launch.", "category": "Memory & JIT pool","title": "Swap tier size", "kind": "choice",
                 "choices": [("", "Off"), ("1024", "1 GB"), ("2048", "2 GB"), ("3072", "3 GB"), ("4096", "4 GB")]},
     "env.MADEIRA_SWAP_COVERAGE": {"category": "Memory & JIT pool", "note": "Which allocations the swap tier backs with its file (only when the tier is on). Large allocations (classic, the default): single 8 MB+ commits in the guest band. All allocations of 1 MB+ (blocks). 1 MB+ and overflow (wide): blocks plus allocations outside the band and fresh reservations.", "title": "Swap tier coverage", "kind": "choice",

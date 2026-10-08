@@ -76,6 +76,8 @@ prelude = r'''
 #include <assert.h>
 #include <sys/mman.h>
 #include <linux/falloc.h>
+#include "ios_swap_pressure.h"
+static uint64_t ios_swap_available_bytes;
 typedef unsigned long ULONG_PTR;
 #define VPROT_READ       0x01
 #define VPROT_WRITE      0x02
@@ -463,7 +465,8 @@ with tempfile.TemporaryDirectory() as tmp:
     c = Path(tmp) / 'swap.c'
     exe = Path(tmp) / 'swap'
     c.write_text(prelude + core + harness)
-    subprocess.run(['cc', '-O1', '-Wall', '-Wno-unused-function', '-Werror', '-o', str(exe), str(c)], check=True)
+    subprocess.run(['cc', '-O1', '-Wall', '-Wno-unused-function', '-Werror',
+                    '-I' + str(root / 'build/ntdll-unix'), '-o', str(exe), str(c)], check=True)
     r = subprocess.run([str(exe)], capture_output=True, text=True, env=dict(os.environ))
     print(r.stdout.strip())
     check(r.returncode == 0, 'swap-tier core run failed:\n' + r.stdout + r.stderr)

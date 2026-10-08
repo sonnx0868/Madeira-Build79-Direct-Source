@@ -254,6 +254,15 @@ struct LibraryEntry: Codable, Identifiable {
     var semaphoreFastPath: Bool?
 
     var displayMode: DisplayMode { display.flatMap(DisplayMode.init(rawValue:)) ?? .fit }
+    var unitySmoothnessEnabled: Bool {
+        unityOptimizations != false && MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS") &&
+            ExternalGameCompatibility.isUnity(self)
+    }
+    var fastSyncControlsAvailable: Bool {
+        UnityStartupSync.mode(engine: SyncEngine.current.rawValue, unity: unitySmoothnessEnabled,
+            gameEnabled: true, globalMode: MadeiraConfig.get("env.MADEIRA_FASTSYNC"),
+            automaticAllowed: MadeiraConfig.flag("MADEIRA_UNITY_STARTUP_SYNC")) != nil
+    }
 
     var launchArguments: String {
         if desktop == true { return desktopCommand ?? "/desktop=shell,\(resolution) C:\\windows\\system32\\services.exe" }
@@ -321,8 +330,7 @@ struct LibraryEntry: Codable, Identifiable {
         if reducedX87 { setenv("FEX_X87REDUCEDPRECISION", "1", 1) } else { unsetenv("FEX_X87REDUCEDPRECISION") }
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
-        let unityProfile = unityOptimizations != false && MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS")
-            && ExternalGameCompatibility.isUnity(self)
+        let unityProfile = unitySmoothnessEnabled
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
         else if unityProfile { setenv("MADEIRA_CPU_COUNT", "4", 1) }
         else { unsetenv("MADEIRA_CPU_COUNT") }
@@ -349,12 +357,16 @@ struct LibraryEntry: Codable, Identifiable {
               "prefs=\(controllerPrefs ?? "none") steam-overlay=\((dockGame && steamOverlay) ? 1 : 0) " +
               "external=\(externalCompatibility.joined(separator: ","))\n", stderr)
         if let anisotropyLimit, [1, 2, 4, 8].contains(anisotropyLimit) { setenv("DXMT_D9_ANISO_LIMIT", String(anisotropyLimit), 1) }
-        // Fastsync's per-game switches, only when Settings chose Fastsync; with Madsync
-        // (the default) or Wine's standard sync nothing is exported here.
-        if SyncEngine.current == .fastsync {
-            let mode = MadeiraConfig.get("env.MADEIRA_FASTSYNC") ?? "auto"
-            setenv("MADEIRA_FASTSYNC", fastSync == false ? "0" : mode, 1)
+        else if let configured = MadeiraConfig.get("env.DXMT_D9_ANISO_LIMIT") { setenv("DXMT_D9_ANISO_LIMIT", configured, 1) }
+        else { unsetenv("DXMT_D9_ANISO_LIMIT") }
+        // Fastsync's global choice or the Unity smoothness launch policy.
+        // Madsync and explicit compatibility opt-outs take priority.
+        if let mode = UnityStartupSync.mode(engine: SyncEngine.current.rawValue, unity: unityProfile,
+            gameEnabled: fastSync, globalMode: MadeiraConfig.get("env.MADEIRA_FASTSYNC"),
+            automaticAllowed: MadeiraConfig.flag("MADEIRA_UNITY_STARTUP_SYNC")) {
+            setenv("MADEIRA_FASTSYNC", mode, 1)
             setenv("MADEIRA_FASTSYNC_SEM", semaphoreFastPath == true ? "1" : "0", 1)
+            fputs("[startup-sync] requested=\(mode) unity=\(unityProfile ? 1 : 0) configured=\(SyncEngine.current.rawValue)\n", stderr)
         }
         madeira_set_vsync_locked(effectiveFPSMode)
         fputs("[frontend] launch profile applied\n", stderr)
@@ -490,6 +502,20 @@ enum ControllerCompatibility {
 /// Unity persists its own window dimensions independently of the Windows
 /// monitor. Pass the library size at startup so an old 1408x648 preference does
 /// not silently win over a 2560x1440 monitor. Explicit launch options still win.
+enum UnityStartupSync {
+    static func mode(engine: String, unity: Bool, gameEnabled: Bool?, globalMode: String?,
+                     automaticAllowed: Bool) -> String? {
+        // Never combine Madsync with Fastsync. An explicit env-level off or
+        // per-game off remains available for compatibility comparisons.
+        if engine == "madsync" { return nil }
+        if engine == "fastsync" { return gameEnabled == false ? "0" : (globalMode ?? "auto") }
+        if engine == "wine", unity, automaticAllowed, globalMode == nil, gameEnabled != false {
+            return "auto"
+        }
+        return nil
+    }
+}
+
 enum UnityLaunch {
     static func arguments(_ original: String, resolution: String,
                           matchResolution: Bool, forceD3D11: Bool) -> String {
@@ -627,6 +653,18 @@ enum ExternalGameCompatibility {
             MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS")
         if unityProfile {
             if entry.cpuCount == nil { applied.append("unity-cpu4") }
+            // The build572 Silksong report has abundant RAM but file-backs
+            // hundreds of MB during scene loading. Keep the configured swap
+            // capacity available for pressure, rather than backing every fresh
+            // large commit while there is ample headroom. Wider coverage is an
+            // explicit memory-saving choice and retains its existing policy.
+            let coverage = (MadeiraConfig.get("env.MADEIRA_SWAP_COVERAGE") ??
+                ProcessInfo.processInfo.environment["MADEIRA_SWAP_COVERAGE"] ?? "classic").lowercased()
+            if coverage == "classic", MadeiraConfig.get("env.MADEIRA_SWAP_PRESSURE") == nil,
+               getenv("MADEIRA_SWAP_PRESSURE") == nil {
+                setenv("MADEIRA_SWAP_PRESSURE", "1", 1)
+                applied.append("unity-pressure-swap")
+            }
             if enableUnityMipClamp() { applied.append("unity-mip-pressure") }
             if MadeiraConfig.get("env.DXMT_CENSUS_THROTTLE") == nil,
                getenv("DXMT_CENSUS_THROTTLE") == nil {
@@ -2995,15 +3033,15 @@ struct LibraryDetail: View {
                         Text("Application default").tag(0)
                         ForEach([1, 2, 4, 8], id: \.self) { Text("Up to \($0)×").tag($0) }
                     }
-                    // Fastsync-only switches: shown for every game, usable only while
-                    // Settings › Sync engine is Fastsync.
+                    // The Unity smoothness profile can select Fastsync for this
+                    // launch even when the global setting is Wine standard.
                     Group {
                         Toggle("Fast synchronization", isOn: Binding(get: { entry.fastSync ?? true }, set: { entry.fastSync = $0 }))
                         Toggle("Fast semaphore waits (experimental)",
                                isOn: Binding(get: { entry.semaphoreFastPath ?? false }, set: { entry.semaphoreFastPath = $0 }))
                     }
-                    .disabled(syncEngine != .fastsync)
-                    if syncEngine != .fastsync {
+                    .disabled(!entry.fastSyncControlsAvailable)
+                    if !entry.fastSyncControlsAvailable {
                         Text("Fast synchronization and fast semaphore waits are Fastsync options. Choose Fastsync in Settings › Memory & sync to use them.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -3012,7 +3050,7 @@ struct LibraryDetail: View {
                         TextField("Launch arguments", text: $entry.arguments, axis: .vertical).autocorrectionDisabled().textInputAutocapitalization(.never)
                     }
                 } header: { Text("Compatibility & performance") } footer: {
-                    Text("Reduced-precision x87 can make older games faster at some cost in accuracy; it is off by default. The Unity profile reports four CPU cores unless you choose a count and enables DXMT's memory-pressure mip clamp; turn it off per game if image quality or worker scaling is worse. With Fastsync, fast synchronization (on by default) handles events without a server round trip, and fast semaphore waits (off by default) does the same for semaphores. Settings apply to the next launch; a precision change may still require restarting Madeira.")
+                    Text("Reduced-precision x87 is off by default. The Unity profile reports four CPU cores unless you choose a count, enables pressure-aware texture and swap policies, and selects Fastsync when the global engine is Wine standard. Turn off Fast synchronization to keep standard sync for this game, or turn off the Unity profile to retain the global engine. Madsync and explicit low-level sync settings take priority. Fast semaphore waits remain experimental and off by default. Settings apply to the next launch.")
                 }
                 Section("On screen") {
                     Toggle("Performance overlay", isOn: $entry.performance)
@@ -3507,7 +3545,7 @@ struct RuntimeMemorySyncSettings: View {
         } header: { Text("Memory & sync") } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("JIT pool is the memory reserved at launch for translated x86 code (256 to 1152 MB).")
-                Text("Reusable runtime is experimental and off by default while its ARM64-native supervisor is validated. It keeps Wine/JIT alive after Quit so another direct game can start. Failed cleanup requires restart; the active engine cannot be switched off in place.")
+                Text("Reusable runtime is experimental and off by default. Unity/Mono games use a direct launch for compatibility. Other supported games can keep Wine/JIT alive after Quit. Switching to a game that needs a direct launch, changing runtime settings, or failed cleanup requires restarting Madeira.")
                 Text("Video memory is how much graphics memory games are told they have. Automatic sizes it from the memory free at launch. Too high can get Madeira closed for using too much memory; too low makes games keep reloading textures.")
                 Text("Swap tier moves game data to a file on this device's storage when memory runs short, up to the chosen size, at some speed cost. Coverage decides which allocations it moves: large ones only (8 MB and up, the default), every allocation of 1 MB and up, or those plus allocations that overflow the game's address range. Wider coverage saves more memory but can slow a game down.")
                 Text("Sync engine: Fastsync (the default) handles events and semaphores in-process; its per-game options are in each game's details. Madsync is the older in-process engine. Wine standard sync uses neither. Only one engine runs at a time.")

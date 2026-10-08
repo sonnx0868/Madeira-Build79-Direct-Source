@@ -30,6 +30,10 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/wintypes.dll \
   app/Madeira/arm64ec-windows/d3dcompiler_47.dll \
   app/Madeira/arm64ec-windows/wined3d.dll \
+  app/Madeira/arm64ec-windows/d3d11.dll \
+  app/Madeira/arm64ec-windows/dxgi.dll \
+  app/Madeira/arm64ec-windows/d3d9.dll \
+  app/Madeira/arm64ec-windows/winemetal.dll \
   app/Madeira/arm64ec-windows/dockhost.exe \
   app/Madeira/aarch64-windows/madeira-session-host.exe \
   app/Madeira/arm64ec-windows/dock-notices.txt \

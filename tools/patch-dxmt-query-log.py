@@ -21,6 +21,7 @@ FILES = [
 SYMBOL = "_ZN4dxmt22logQueryInterfaceErrorERK5_GUIDS2_"
 ORIGINAL_PROLOGUE = bytes.fromhex("ffc300d1f35301a9")
 RETURN_FALSE = bytes.fromhex("00008052c0035fd6")  # mov w0,#0; ret
+SOURCE_RETURN_FALSE = bytes.fromhex("e0031f2ac0035fd6")  # clang: mov w0,wzr; ret
 
 
 def symbol_offset(data: bytes) -> int:
@@ -53,10 +54,11 @@ def symbol_offset(data: bytes) -> int:
             name = data[strings + name_offset:end].decode(errors="replace")
         else:
             name = data[pos:pos + 8].rstrip(b"\0").decode(errors="replace")
-        if name == SYMBOL and 1 <= section <= len(sections):
+        if name in (SYMBOL, "#" + SYMBOL) and 1 <= section <= len(sections):
             _virtual, raw = sections[section - 1]
             found.append(raw + value)
         index += 1 + aux
+    found = sorted(set(found)) # ARM64EC can expose both names for one function
     if len(found) != 1:
         raise ValueError(f"expected one {SYMBOL} symbol, found {len(found)}")
     return found[0]
@@ -66,7 +68,7 @@ def process(path: Path, check_only: bool) -> bool:
     data = bytearray(path.read_bytes())
     offset = symbol_offset(data)
     current = bytes(data[offset:offset + len(RETURN_FALSE)])
-    if current == RETURN_FALSE:
+    if current in (RETURN_FALSE, SOURCE_RETURN_FALSE):
         print(f"ok   {path.name}: QueryInterface warning deduper disabled at file+0x{offset:x}")
         return True
     if current != ORIGINAL_PROLOGUE:

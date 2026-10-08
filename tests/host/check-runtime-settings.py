@@ -135,13 +135,13 @@ check('"env.MADEIRA_FASTSYNC"' in settings.split('static let featuredKeys')[1].s
 check('var fastSync: Bool?' in entry and 'var semaphoreFastPath: Bool?' in entry,
       'per-game fastsync switches are optional, so older library files decode')
 check('Toggle("Fast synchronization"' in detail and 'Toggle("Fast semaphore waits (experimental)"' in detail
-      and '.disabled(syncEngine != .fastsync)' in detail and '@State private var syncEngine = SyncEngine.current' in detail,
-      'game details: Fast synchronization and Fast semaphore waits, greyed out unless the engine is Fastsync')
-check('if syncEngine != .fastsync {' in detail and 'Choose Fastsync in Settings' in detail,
+      and '.disabled(!entry.fastSyncControlsAvailable)' in detail and '@State private var syncEngine = SyncEngine.current' in detail,
+      'game details: fastsync controls reflect global engine or the Unity startup profile')
+check('if !entry.fastSyncControlsAvailable {' in detail and 'Choose Fastsync in Settings' in detail,
       'game details: a note says where to choose Fastsync')
-check('if SyncEngine.current == .fastsync {' in apply_env and 'setenv("MADEIRA_FASTSYNC", fastSync == false ? "0" : mode, 1)' in apply_env
+check('if let mode = UnityStartupSync.mode(' in apply_env and 'setenv("MADEIRA_FASTSYNC", mode, 1)' in apply_env
       and 'setenv("MADEIRA_FASTSYNC_SEM", semaphoreFastPath == true ? "1" : "0", 1)' in apply_env,
-      'a launch exports the fastsync switches only when the engine is Fastsync')
+      'a launch exports fastsync through the tested global/Unity policy')
 check('static let swapChoices = [0, 1024, 2048, 3072, 4096]' in settings and 'mb > 0 ? String(mb) : nil' in settings,
       'swap tier: Off removes swap-mb (off by default)')
 check('@State private var hold = ProMotionIntent.holdMaximum' in display

@@ -55,6 +55,7 @@ build/dxmt-ios/obj/
 build/dxmt-ios/shader-headers/
 build/dxmt-ios/libdxmt_unix.a
 build/dxmt-ios/libdxmt_combined.a
+build/dxmt-pe/cross.ini
 
 # D3D11 triangle test — compiled DXBC shaders + host-side HLSL compiler
 build/d3d11-triangle/vs.dxbc

@@ -8,6 +8,7 @@ enum RuntimeWire {
                        "MADEIRA_FOLDER_COMPAT", "MADEIRA_DINPUT_PAD", "MADEIRA_WORKDIR", "MADEIRA_DESKTOP",
                        "MADEIRA_FASTSYNC", "MADEIRA_FASTSYNC_SEM", "FEX_X87REDUCEDPRECISION", "DXMT_D9_ANISO_LIMIT",
                        "DXMT_WSI_MODE_TABLE", "DXMT_WSI_MONITOR_IDENTITY", "DXMT_CENSUS_THROTTLE",
+                       "MADEIRA_SWAP_PRESSURE",
                        "MADEIRA_MIP_CLAMP_AUTO", "SDL_OPENGL_ES_DRIVER", "LOVE_GRAPHICS_USE_OPENGLES",
                        "ANGLE_DEFAULT_PLATFORM", "WINEDLLOVERRIDES", "_MADEIRA_LUA51_GC64_PATH"]
     struct Status {
@@ -115,10 +116,22 @@ final class GameRuntime: ObservableObject {
         // A real Steam/Dock session owns a separate authenticated client/service
         // lifecycle. Never quietly bypass it to make this generic route work.
         enabled && entry.desktop != true && entry.temporarySession != true &&
+        !requiresDirectLaunch(entry) &&
         (entry.steamAppID == nil || entry.startsSteamGameDirectly) &&
         !(entry.bits == 32 && MadeiraConfig.get("d3d9") == "native") &&
         (MadeiraConfig.get("env.DXMT_REMOTE_METAL") ?? ProcessInfo.processInfo.environment["DXMT_REMOTE_METAL"] ?? "").isEmpty &&
         !MadeiraConfig.bool("d3d12", default: false)
+    }
+    static func requiresDirectLaunch(_ entry: LibraryEntry) -> Bool {
+        // The native supervisor still needs device validation for managed
+        // exception unwinding. Detect the engine even when its performance
+        // profile is disabled or the executable is a direct Steam launch.
+        let executable = LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)
+        let folder = executable.deletingLastPathComponent()
+        let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+            .map { $0.lowercased() })
+        return names.contains("unityplayer.dll") || names.contains("mono.dll") ||
+            names.contains("mono-2.0-bdwgc.dll") || names.contains("monobleedingedge")
     }
     private func backendSignature(_ entry: LibraryEntry) -> String {
         // These are latched by Wine/FEX/native backends. A changed setting needs
@@ -127,7 +140,8 @@ final class GameRuntime: ObservableObject {
          "aniso=\(entry.anisotropyLimit.map(String.init) ?? "auto")", "unity=\(entry.unityOptimizations != false)"]
         .joined(separator: "|") + ["pool", "inproc-sync", "env.MADEIRA_FASTSYNC", "d3d12"].map {
             "|\($0)=\(MadeiraConfig.get($0) ?? "default")"
-        }.joined() + "|d3d9=\(MadeiraConfig.get("d3d9") ?? "default")"
+        }.joined() + "|d3d9=\(MadeiraConfig.get("d3d9") ?? "default")" +
+        MadeiraConfig.all().sorted { $0.key < $1.key }.map { "|cfg:\($0.key)=\($0.value)" }.joined()
     }
     func prepare(_ entry: LibraryEntry) throws -> RuntimeLaunch {
         guard Self.supports(entry), !ownsSession else { throw SupportError.message("This launch cannot share the active runtime.") }

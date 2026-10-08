@@ -20,6 +20,8 @@
 #include <errno.h>
 #include <dirent.h>
 #include "../../build/madeira_cfg.h"   /* ml1095: one config file */
+#include "../../build/ntdll-unix/ios_swap_pressure.h"
+#include <os/proc.h>
 #include <sys/stat.h>
 #include <limits.h>
 #include <string.h>
@@ -1369,6 +1371,9 @@ static void *wine_process_thread(void *arg) {
                     fprintf(stderr, "[madeira-env] sync engine: fastsync (default), MADEIRA_FASTSYNC=auto\n");
                 }
             }
+            // Publish launch headroom before the first guest allocations. The
+            // native footprint monitor refreshes it outside the allocator lock.
+            ios_swap_pressure_update((uint64_t)os_proc_available_memory());
 
             /* Generic OpenGL ES route for detected LÖVE and SDL runtimes:
              * SDL's Windows backend officially loads libEGL/libGLESv2 when

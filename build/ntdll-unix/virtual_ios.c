@@ -24,6 +24,7 @@
 
 #include "config.h"
 #include "../madeira_cfg.h"   /* ml1095: one config file */
+#include "ios_swap_pressure.h"
 #include <malloc/malloc.h>
 
 #include <assert.h>
@@ -632,6 +633,11 @@ static void ios_window_inventory( const char *why, unsigned long long lo_arg, un
  * logic; defined further down alongside ios_jit_pool_size_global. */
 extern unsigned long long ios_last_footprint_mb;
 extern int ios_fast_footprint;
+static uint64_t ios_swap_available_bytes;
+void ios_swap_pressure_update(uint64_t available)
+{
+    __atomic_store_n(&ios_swap_available_bytes, available, __ATOMIC_RELAXED);
+}
 
 /* Full VM-map accounting is forensics, not memory-pressure control. Silksong
  * build566 walked 86,694 regions during play, next to a 1,476 ms frame gap.
@@ -847,6 +853,14 @@ static void *ios_pool_warmer_thread( void *arg )
                     unsigned long long fp_mb = (unsigned long long)vmi.phys_footprint >> 20;
                     if (fp_mb > peak_mb) peak_mb = fp_mb;
                     ios_last_footprint_mb = fp_mb;      /* ml668: drives the sampler cadence */
+#ifdef WINE_IOS
+                    /* Sample outside virtual_mutex; allocation decisions only
+                     * read this value and never issue a memory-query syscall. */
+                    {
+                        extern size_t os_proc_available_memory(void);
+                        ios_swap_pressure_update((uint64_t)os_proc_available_memory());
+                    }
+#endif
                     /* ml896: replay CoreAnimation's shmem request EXACTLY. ml894 used
                      * plain ANYWHERE|PURGABLE and never saw a failure, but the
                      * disassembly of CA::Render::Shmem::new_shmem shows
@@ -14604,6 +14618,7 @@ static void ios_dc_census_take( const void *addr, size_t len, struct ios_dc_cens
 #include <fcntl.h>
 /* swap-tier core begin (tests/host/check-swap-coverage.py compiles the code up to "core end") */
 static int      ios_swap_fd = -1;
+static int      ios_swap_pressure_enabled;
 static uint64_t ios_swap_cap, ios_swap_bump;
 static struct { char *va; size_t len; uint64_t off; } ios_swap_ext[16384];
 static unsigned ios_swap_n;
@@ -14689,6 +14704,13 @@ static void ios_swap_init( void )
     ios_swap_fd = open( f, O_RDWR | O_CLOEXEC );
     if (ios_swap_fd < 0) { dprintf( 2, "[swap] ml1077 cannot open %s (errno %d): tier OFF\n", f, errno ); return; }
     if (ftruncate( ios_swap_fd, (off_t)ios_swap_cap )) { dprintf( 2, "[swap] ml1077 ftruncate failed (errno %d): tier OFF\n", errno ); close( ios_swap_fd ); ios_swap_fd = -1; return; }
+    {
+        const char *pressure = getenv("MADEIRA_SWAP_PRESSURE");
+        ios_swap_pressure_enabled = pressure && *pressure && strcmp(pressure, "0");
+        dprintf(2, "[swap-pressure-v1] enabled=%d reserve=2048MB available=%lluMB\n",
+                ios_swap_pressure_enabled,
+                (unsigned long long)(__atomic_load_n(&ios_swap_available_bytes, __ATOMIC_RELAXED) >> 20));
+    }
     dprintf( 2, "[swap] ml1077 file-backed guest data tier ON: %s, cap %llu MB\n", f, (unsigned long long)(ios_swap_cap >> 20) );
     ios_swap_config();
     if (ios_swap_v2)
@@ -14993,6 +15015,20 @@ static void ios_swap_commit( void *base, size_t size, unsigned int vprot, struct
 {
     int why;
     if (ios_swap_fd < 0) return;
+    if (ios_swap_pressure_enabled)
+    {
+        /* Charge only allocations that could actually enter this swap tier.
+         * FEX's repeated call/return-stack recommits are outside the guest
+         * band and must not consume this estimate as if they were new heaps. */
+        if ((!ios_swap_v2 && !ios_swap_eligible(base, size, vprot, view)) ||
+            (ios_swap_v2 && ios_swap_why(base, size, vprot, view) != IOS_SW_BACKED)) return;
+        if (ios_swap_wide && ios_swap_n && ios_swap_overlaps(base, size))
+        {
+            ios_swap_note(IOS_SW_PRESENT, size);
+            return;
+        }
+        if (!ios_swap_pressure_back_commit(1, &ios_swap_available_bytes, size)) return;
+    }
     if (!ios_swap_v2) { if (ios_swap_eligible( base, size, vprot, view )) ios_swap_back( base, size, vprot ); return; }
     if (ios_swap_wide && ios_swap_n && ios_swap_overlaps( base, size )) { ios_swap_note( IOS_SW_PRESENT, size ); return; }
     why = ios_swap_why( base, size, vprot, view );
@@ -15005,6 +15041,8 @@ static void ios_swap_commit( void *base, size_t size, unsigned int vprot, struct
 static void ios_swap_reserve( void *base, size_t size, unsigned int vprot, struct file_view *view )
 {
     if (ios_swap_fd < 0 || !ios_swap_wide) return;
+    if (!ios_swap_pressure_needs_backing(ios_swap_pressure_enabled,
+            __atomic_load_n(&ios_swap_available_bytes, __ATOMIC_RELAXED), size)) return;
     if ((vprot & VPROT_COMMITTED) || size > ios_swap_resv_max) return;
     if (ios_swap_why( base, size, vprot, view ) != IOS_SW_BACKED) return;
     if (ios_swap_map( base, size, get_unix_prot( vprot ) ) != IOS_SW_BACKED) return;

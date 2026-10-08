@@ -26,7 +26,7 @@ else
 fi
 
 COMMON_FLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=18.0 -fblocks -O2"
-INCLUDES="-I$REPO_ROOT/build -I$DXMT_ROOT/include -I$DXMT_ROOT/libs -I$DXMT_SRC/winemetal -I$DXMT_SRC/airconv"
+INCLUDES="-I$OBJ_DIR -I$REPO_ROOT/build -I$DXMT_ROOT/include -I$DXMT_ROOT/libs -I$DXMT_SRC/winemetal -I$DXMT_SRC/airconv"
 INCLUDES_DIRECTX="-I$DXMT_ROOT/include/native/directx -I$DXMT_ROOT/include/native/windows"
 INCLUDES_SHADERS="-I$BUILD_DIR/shader-headers"
 LLVM_INCLUDES="-I$LLVM_BUILD/include -I$LLVM_SRC/include"
@@ -67,8 +67,7 @@ FAILED_FILES=""
 
 compile_objc() {
     local src=$1 name=$2
-    # MADEIRA_ONLY=<name>: recompile one object only. madeira_ir_unix carries a __DATE__
-    # stamp in the shader-cache key, so a full rebuild costs a full shader recompile on device.
+    # MADEIRA_ONLY=<name>: recompile one object only.
     if [ -n "${MADEIRA_ONLY:-}" ] && [ "$name" != "$MADEIRA_ONLY" ]; then return 0; fi
     printf "  %-40s " "$name"
     if xcrun -sdk iphoneos clang $COMMON_FLAGS -x objective-c $INCLUDES \
@@ -81,8 +80,7 @@ compile_objc() {
 
 compile_cxx() {
     local src=$1 name=$2 extra="${3:-}"
-    # MADEIRA_ONLY=<name>: recompile one object only. madeira_ir_unix carries a __DATE__
-    # stamp in the shader-cache key, so a full rebuild costs a full shader recompile on device.
+    # MADEIRA_ONLY=<name>: recompile one object only.
     if [ -n "${MADEIRA_ONLY:-}" ] && [ "$name" != "$MADEIRA_ONLY" ]; then return 0; fi
     printf "  %-40s " "$name"
     if xcrun -sdk iphoneos clang++ $COMMON_FLAGS $CXX_FLAGS $INCLUDES $INCLUDES_DIRECTX $INCLUDES_SHADERS $LLVM_INCLUDES $AIRCONV_DEFS $extra \
@@ -124,8 +122,7 @@ compile_madeira_c() {
 # and the DXMT build must not start failing when it is absent.
 compile_objcxx_arc() {
     local src=$1 name=$2 extra="${3:-}"
-    # MADEIRA_ONLY=<name>: recompile one object only. madeira_ir_unix carries a __DATE__
-    # stamp in the shader-cache key, so a full rebuild costs a full shader recompile on device.
+    # MADEIRA_ONLY=<name>: recompile one object only.
     if [ -n "${MADEIRA_ONLY:-}" ] && [ "$name" != "$MADEIRA_ONLY" ]; then return 0; fi
     printf "  %-40s " "$name"
     if xcrun -sdk iphoneos clang++ $COMMON_FLAGS -std=c++20 -fobjc-arc -x objective-c++ $extra \
@@ -152,8 +149,18 @@ for shader in air_msad air_samplepos air_tessellation; do
     fi
 done
 
+MSC_READY=0
+identity_args=()
 if [[ -f "$BUILD_DIR/../madeira-d3d12/deps.sh" ]] && \
    source "$BUILD_DIR/../madeira-d3d12/deps.sh"; then
+    MSC_READY=1
+    identity_args=(--converter-include "$MSC_INCLUDE")
+fi
+python3 "$REPO_ROOT/tools/shader-compiler-identity.py" --root "$REPO_ROOT" \
+        --output "$OBJ_DIR/madeira_shader_compiler_identity.h" \
+        --llvm-libs "$LLVM_BUILD/lib" "${identity_args[@]}" \
+        --toolchain "$(xcrun -sdk iphoneos clang++ --version) sdk=$(xcrun --sdk iphoneos --show-sdk-version) $CXX_FLAGS $AIRCONV_DEFS"
+if [[ "$MSC_READY" == 1 ]]; then
     echo "=== madeira-d3d12 canary (Objective-C++, Metal Shader Converter) ==="
     compile_objcxx_arc "$REPO_ROOT/madeira-d3d12/tests/native/msc_canary.mm" \
                        msc_canary "-DIR_PRIVATE_IMPLEMENTATION -I$MSC_INCLUDE"
@@ -166,7 +173,7 @@ if [[ -f "$BUILD_DIR/../madeira-d3d12/deps.sh" ]] && \
     # in-tree AIR compiler, which is linked into this same archive, so the shim
     # includes the compiler's real header rather than restating its structs.
     compile_objcxx_arc "$REPO_ROOT/madeira-d3d12/src/unix/madeira_ir_unix.mm" \
-                       madeira_ir_unix "-I$MSC_INCLUDE -I$REPO_ROOT/madeira-d3d12/src $INCLUDES $INCLUDES_DIRECTX"
+                       madeira_ir_unix "-I$OBJ_DIR -I$MSC_INCLUDE -I$REPO_ROOT/madeira-d3d12/src $INCLUDES $INCLUDES_DIRECTX"
     # ml1011: the input-layout resolver, plain C++ because DXBCParser's signature
     # reader includes a Windows shim whose BOOL clashes with Objective-C's.
     compile_cxx "$REPO_ROOT/madeira-d3d12/src/unix/madeira_sm5_ia.cpp" \

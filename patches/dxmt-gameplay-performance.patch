@@ -1,8 +1,179 @@
+diff --git a/src/d3d11/d3d11_pipeline_cache.cpp b/src/d3d11/d3d11_pipeline_cache.cpp
+index fcc0078..4555139 100644
+--- a/src/d3d11/d3d11_pipeline_cache.cpp
++++ b/src/d3d11/d3d11_pipeline_cache.cpp
+@@ -448,6 +448,12 @@ class PipelineCache : public MTLD3D11PipelineCacheBase {
+   }
+ 
+ public:
++  ~PipelineCache() override {
++    // Members are destroyed in reverse declaration order. scheduler_ precedes
++    // the shader/pipeline maps, so its automatic destructor would join workers
++    // AFTER freeing the task objects those workers still access during Quit.
++    scheduler_.shutdown();
++  }
+   PipelineCache(MTLD3D11Device *pDevice) :
+       scache_(ShaderCache::getInstance(pDevice->GetDXMTDevice().metalVersion())),
+       device(pDevice),
+@@ -460,4 +466,4 @@ InitializePipelineCache(MTLD3D11Device *device) {
+   return std::make_unique<PipelineCache>(device);
+ }
+ 
+-}; // namespace dxmt
+\ No newline at end of file
++}; // namespace dxmt
+diff --git a/src/d3d9/d3d9_shader.cpp b/src/d3d9/d3d9_shader.cpp
+index ff97c91..d608b64 100644
+--- a/src/d3d9/d3d9_shader.cpp
++++ b/src/d3d9/d3d9_shader.cpp
+@@ -331,10 +331,13 @@ d9_shader_cache() {
+ static WMT::Reference<WMT::Function>
+ d9_cache_lookup(MTLD3D9Device *device, const std::pair<Sha1Digest, Sha1Digest> &key) {
+   WMT::Reference<WMT::Function> function;
+-  auto reader = d9_shader_cache().getReader();
+-  if (!reader)
+-    return function;
+-  auto data = reader->get(key);
++  WMT::Reference<WMT::DispatchData> data;
++  {
++    auto reader = d9_shader_cache().getReader();
++    if (!reader)
++      return function;
++    data = reader->get(key);
++  } // Release the DB lock before Metal library/function compilation.
+   if (data == nullptr)
+     return function;
+   auto pool = WMT::MakeAutoreleasePool();
+diff --git a/src/dxmt/dxmt_shader_cache.hpp b/src/dxmt/dxmt_shader_cache.hpp
+index 28d0abd..e137fbc 100644
+--- a/src/dxmt/dxmt_shader_cache.hpp
++++ b/src/dxmt/dxmt_shader_cache.hpp
+@@ -2,6 +2,7 @@
+ #include "Metal.hpp"
+ #include "thread.hpp"
+ #include <string>
++#include <utility>
+ 
+ namespace dxmt {
+ 
+@@ -28,7 +29,8 @@ public:
+     }
+     T object;
+     LockProtected(const LockProtected &copy) = delete;
+-    LockProtected(LockProtected &&move) = default;
++    LockProtected(LockProtected &&move) noexcept
++        : object(std::move(move.object)), mutex_(std::exchange(move.mutex_, nullptr)) {}
+ 
+     operator bool() const {
+       return mutex_ != nullptr;
+@@ -70,4 +72,4 @@ private:
+   dxmt::mutex scache_reader_mutex_;
+ };
+ 
+-} // namespace dxmt
+\ No newline at end of file
++} // namespace dxmt
+diff --git a/src/dxmt/dxmt_tasks.hpp b/src/dxmt/dxmt_tasks.hpp
+index f8214c4..e385af1 100644
+--- a/src/dxmt/dxmt_tasks.hpp
++++ b/src/dxmt/dxmt_tasks.hpp
+@@ -2,6 +2,9 @@
+ 
+ #include "thread.hpp"
+ #include "util_win32_compat.h"
++#include "util_env.hpp"
++#include <algorithm>
++#include <charconv>
+ #include <atomic>
+ #include <queue>
+ #include <unordered_map>
+@@ -14,9 +17,19 @@ template <typename Task> struct task_trait {
+   void set_done(Task task);
+ };
+ 
++inline unsigned compiler_worker_limit(unsigned hardware, const std::string &setting) {
++  unsigned limit = std::clamp(hardware, 1u, 4u);
++  unsigned configured = 0;
++  auto result = std::from_chars(setting.data(), setting.data() + setting.size(), configured);
++  if (result.ec == std::errc{} && result.ptr == setting.data() + setting.size() && configured >= 1 && configured <= 8)
++    limit = configured;
++  return limit;
++}
++
+ template <typename Task> class task_scheduler {
+ public:
+   void submit(Task task);
++  void shutdown();
+ 
+   task_scheduler();
+   ~task_scheduler();
+@@ -46,9 +59,14 @@ private:
+ };
+ 
+ template <typename Task> task_scheduler<Task>::task_scheduler() {
+-  max_threads = dxmt::thread::hardware_concurrency() * 2;
++  #ifdef DXMT_IOS
++  max_threads = compiler_worker_limit(dxmt::thread::hardware_concurrency(), env::getEnvVar("DXMT_COMPILER_THREADS"));
++  Logger::info(str::format("compiler-workers=v1 limit=", max_threads));
++  #else
++  max_threads = std::max(2u, dxmt::thread::hardware_concurrency() * 2);
++  #endif
+   workers_.reserve(max_threads);
+-  threads = 2;
++  threads = std::min(uint64_t(2), max_threads);
+ 
+   for (unsigned i = 0; i < threads; i++) {
+     workers_.emplace_back([this]() { worker_func(); });
+@@ -56,7 +74,11 @@ template <typename Task> task_scheduler<Task>::task_scheduler() {
+ }
+ 
+ template <typename Task> task_scheduler<Task>::~task_scheduler() {
+-  destroyed.store(true);
++  shutdown();
++}
++
++template <typename Task> void task_scheduler<Task>::shutdown() {
++  if (destroyed.exchange(true)) return;
+   worker_cond_.notify_all();
+ 
+   for (auto &worker : workers_) {
+@@ -72,7 +94,12 @@ void
+ task_scheduler<Task>::worker_func() {
+   struct task_trait<Task> task_trait;
+   std::vector<Task> continutation_buffer;
++  #ifdef DXMT_IOS
++  // Compile bursts must leave the render, audio and input threads runnable.
++  SetThreadPriority(GetCurrentThread(), 0); // THREAD_PRIORITY_NORMAL
++  #else
+   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
++  #endif
+   while (!destroyed.load()) {
+     Task task;
+     {
 diff --git a/src/winemetal/unix/cache.c b/src/winemetal/unix/cache.c
-index 02fc844..ae00010 100644
+index 02fc844..292c1b2 100644
 --- a/src/winemetal/unix/cache.c
 +++ b/src/winemetal/unix/cache.c
-@@ -29,20 +29,17 @@
+@@ -1,6 +1,10 @@
+ #import <Foundation/Foundation.h>
+ #include <TargetConditionals.h>
+ #include "sqlite3.h"
++#include <stdatomic.h>
++#if TARGET_OS_IPHONE
++#include "madeira_shader_compiler_identity.h"
++#endif
+ #define WINEMETAL_API
+ #include "../winemetal_thunks.h"
+ 
+@@ -12,6 +16,7 @@
+ @interface CacheWriter : NSObject
+ - (instancetype)initWithPath:(NSString *)path version:(uint64_t)version;
+ - (void)set:(NSData *)key value:(dispatch_data_t)value;
++- (void)flush;
+ @end
+ 
+ @interface CacheReader () {
+@@ -29,20 +34,17 @@
   * the app's NSCachesDirectory instead and a directory that cannot be created
   * fails cleanly.
   *
@@ -28,7 +199,19 @@ index 02fc844..ae00010 100644
  }
  
  static NSString *
-@@ -96,9 +93,14 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+@@ -92,32 +94,49 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+   return path;
+ }
+ 
++static NSString *cache_table_name(uint64_t version) {
++#if TARGET_OS_IPHONE
++  return [NSString stringWithFormat:@"cache_%llu_%s", version, MADEIRA_SHADER_COMPILER_ID];
++#else
++  return [NSString stringWithFormat:@"cache_%llu", version];
++#endif
++}
++
+ @implementation CacheReader
  
  - (instancetype)initWithPath:(NSString *)path version:(uint64_t)version {
    if ((self = [super init])) {
@@ -44,8 +227,24 @@ index 02fc844..ae00010 100644
      NSString *dbPath = resolve_cache_dir(path, true);
      if (!dbPath) {
        NSLog(@"[CacheReader] Failed to resolve cache path");
-@@ -118,6 +120,9 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
-       sqlite3_close(_db);
++      [self release];
+       return nil;
+     }
+-    NSString *tableName = [NSString stringWithFormat:@"cache_%llu", version];
++    NSString *tableName = cache_table_name(version);
+     if (sqlite3_open_v2([dbPath fileSystemRepresentation], &_db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, NULL) !=
+         SQLITE_OK) {
+       NSLog(@"[CacheReader] Failed to open DB: %s", sqlite3_errmsg(_db));
+-      sqlite3_close(_db);
++      [self release];
+       return nil;
+     }
+ 
+     NSString *sqlGet = [NSString stringWithFormat:@"SELECT value FROM %@ WHERE key = ?;", tableName];
+     if (sqlite3_prepare_v2(_db, sqlGet.UTF8String, -1, &_stmt, NULL) != SQLITE_OK) {
+       NSLog(@"[CacheReader] Failed to prepare SELECT: %s", sqlite3_errmsg(_db));
+-      sqlite3_close(_db);
++      [self release];
        return nil;
      }
 +#if TARGET_OS_IPHONE
@@ -54,3 +253,195 @@ index 02fc844..ae00010 100644
    }
    return self;
  }
+@@ -134,6 +153,7 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+     result = dispatch_data_create(bytes, len, nil, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
+   }
+   sqlite3_reset(_stmt);
++  sqlite3_clear_bindings(_stmt); // SQLITE_STATIC guest key expires on thunk return
+   if (_stats) {
+     if (result) ++_hits; else ++_misses;
+     uint64_t count = _hits + _misses;
+@@ -156,16 +176,33 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+ @interface CacheWriter () {
+   sqlite3 *_db;
+   sqlite3_stmt *_stmt;
++  dispatch_queue_t _queue;
++  _Atomic size_t _pendingBytes;
++  unsigned _writeErrors;
+ }
+ @end
+ 
++// Shader cache writes are optional. Saturation must drop a cache entry, never
++// stall a frame or retain an unbounded scene's metallibs in host memory.
++#define CACHE_PENDING_LIMIT (32u << 20)
++static bool reserve_cache_bytes(_Atomic size_t *pending, size_t bytes) {
++  size_t current = atomic_load_explicit(pending, memory_order_relaxed);
++  do {
++    if (bytes > CACHE_PENDING_LIMIT || current > CACHE_PENDING_LIMIT - bytes)
++      return false;
++  } while (!atomic_compare_exchange_weak_explicit(pending, &current, current + bytes,
++                                                 memory_order_relaxed, memory_order_relaxed));
++  return true;
++}
++
+ @implementation CacheWriter
+ 
+ - (instancetype)initWithPath:(NSString *)path version:(uint64_t)version {
+   if ((self = [super init])) {
+     NSString *dbPath = resolve_cache_dir(path, true);
+     if (!dbPath) {
+-      NSLog(@"[CacheReader] Failed to resolve cache path");
++      NSLog(@"[CacheWriter] Failed to resolve cache path");
++      [self release];
+       return nil;
+     }
+ 
+@@ -173,9 +210,15 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+     int fd = open([lockPath fileSystemRepresentation], O_RDWR | O_CREAT, 0666);
+     if (fd < 0) {
+       NSLog(@"[CacheWriter] Failed to open file for locking %@", lockPath);
++      [self release];
++      return nil;
++    }
++    // Another process's cache setup cannot hold up the game's startup.
++    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
++      close(fd);
++      [self release];
+       return nil;
+     }
+-    flock(fd, LOCK_EX);
+ 
+     if (sqlite3_open_v2(
+             [dbPath fileSystemRepresentation], &_db, //
+@@ -184,56 +227,83 @@ resolve_cache_dir(NSString *path, bool path_is_file) {
+       NSLog(@"[CacheWriter] Failed to open DB: %s", sqlite3_errmsg(_db));
+       flock(fd, LOCK_UN);
+       close(fd);
++      [self release];
+       return nil;
+     }
+ 
++    sqlite3_busy_timeout(_db, 100); // only setup/background writer may wait
+     sqlite3_exec(_db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
+     sqlite3_exec(_db, "PRAGMA synchronous=NORMAL;", NULL, NULL, NULL);
+ 
+-    NSString *tableName = [NSString stringWithFormat:@"cache_%llu", version];
++    NSString *tableName = cache_table_name(version);
+     NSString *sqlCreate = [NSString stringWithFormat:@"CREATE TABLE IF NOT EXISTS %@ ("
+                                                       "key BLOB PRIMARY KEY, "
+                                                       "value BLOB NOT NULL);",
+                                                      tableName];
+ 
+     char *errMsg = NULL;
+-    if (sqlite3_exec(_db, sqlCreate.UTF8String, NULL, NULL, &errMsg) != SQLITE_OK) {
++    int createResult = sqlite3_exec(_db, sqlCreate.UTF8String, NULL, NULL, &errMsg);
++    if (createResult != SQLITE_OK) {
+       NSLog(@"[CacheWriter] Failed to create table: %s", errMsg);
+       sqlite3_free(errMsg);
+     }
+ 
+     flock(fd, LOCK_UN);
+     close(fd);
++    if (createResult != SQLITE_OK) { [self release]; return nil; }
+ 
+     NSString *sqlSet = [NSString stringWithFormat:@"INSERT OR REPLACE INTO %@ (key, value) VALUES (?, ?);", tableName];
+     if (sqlite3_prepare_v2(_db, sqlSet.UTF8String, -1, &_stmt, NULL) != SQLITE_OK) {
+       NSLog(@"[CacheWriter] Failed to prepare INSERT: %s", sqlite3_errmsg(_db));
+-      sqlite3_close(_db);
++      [self release];
+       return nil;
+     }
++    atomic_init(&_pendingBytes, 0);
++    dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
++    _queue = dispatch_queue_create("madeira.shader-cache.writer", attr);
++    NSLog(@"[shader-cache] async-writer-v1 pending-limit=32MB");
+   }
+   return self;
+ }
+ 
+ - (void)set:(NSData *)key value:(dispatch_data_t)value {
+-  sqlite3_reset(_stmt);
+-  sqlite3_clear_bindings(_stmt);
+-  sqlite3_bind_blob64(_stmt, 1, key.bytes, key.length, SQLITE_STATIC);
+-
+-  const void *bytes = NULL;
+-  size_t length = 0;
+-  dispatch_data_t flat = dispatch_data_create_map(value, &bytes, &length);
+-  sqlite3_bind_blob64(_stmt, 2, bytes, length, SQLITE_STATIC);
+-
+-  if (sqlite3_step(_stmt) != SQLITE_DONE) {
+-    NSLog(@"[CacheWriter] Failed to insert: %s", sqlite3_errmsg(_db));
+-  }
++  size_t length = dispatch_data_get_size(value);
++  if (key.length > CACHE_PENDING_LIMIT - 256 || length > CACHE_PENDING_LIMIT - 256 - key.length)
++    return;
++  size_t retainedBytes = length + key.length + 256; // also bound tiny-entry/block overhead
++  if (!reserve_cache_bytes(&_pendingBytes, retainedBytes)) return;
++  // The thunk's key is a no-copy view into guest memory. Copy BEFORE returning
++  // to Wine; retaining that view would read freed/changed guest bytes later.
++  NSData *ownedKey = [[NSData alloc] initWithBytes:key.bytes length:key.length];
++  dispatch_retain(value);
++  dispatch_async(_queue, ^{
++    @autoreleasepool {
++      const void *bytes = NULL;
++      size_t size = 0;
++      dispatch_data_t flat = dispatch_data_create_map(value, &bytes, &size);
++      sqlite3_reset(_stmt);
++      sqlite3_clear_bindings(_stmt);
++      sqlite3_bind_blob64(_stmt, 1, ownedKey.bytes, ownedKey.length, SQLITE_STATIC);
++      sqlite3_bind_blob64(_stmt, 2, bytes, size, SQLITE_STATIC);
++      if (sqlite3_step(_stmt) != SQLITE_DONE && _writeErrors++ < 4)
++        NSLog(@"[CacheWriter] Failed to insert: %s", sqlite3_errmsg(_db));
++      sqlite3_reset(_stmt);
++      sqlite3_clear_bindings(_stmt);
++      dispatch_release(flat);
++      dispatch_release(value);
++      atomic_fetch_sub_explicit(&_pendingBytes, retainedBytes, memory_order_relaxed);
++    }
++  });
++  [ownedKey release]; // dispatch_async's copied block owns the key and writer
++}
+ 
+-  dispatch_release(flat);
+-  sqlite3_reset(_stmt);
++- (void)flush {
++  dispatch_sync(_queue, ^{});
+ }
+ 
+ - (void)dealloc {
++  // Queued blocks retain self until they finish; no SQLite work survives here.
++  if (_queue) dispatch_release(_queue);
+   if (_stmt)
+     sqlite3_finalize(_stmt);
+   if (_db)
+diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
+index b530504..614d02f 100644
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -493,12 +493,21 @@ _MTLCommandBuffer_commit(void *obj) {
+   /* ml1140: retirement belongs to the GPU completion, not waitUntilCompleted.
+    * The finish thread skips that wait for buffers already completed, so the
+    * old subtraction counted them as queued forever and omitted their GPU time. */
+-  if (madeira_frame_hooks_on()) {
+-    atomic_fetch_add_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
++  extern int wine_runtime_is_enabled(void) __attribute__((weak));
++  extern void wine_runtime_gpu_begin(void) __attribute__((weak));
++  extern void wine_runtime_gpu_end(void) __attribute__((weak));
++  int runtime = wine_runtime_is_enabled && wine_runtime_is_enabled() && wine_runtime_gpu_begin && wine_runtime_gpu_end;
++  int stats = madeira_frame_hooks_on();
++  if (runtime || stats) {
++    if (runtime) wine_runtime_gpu_begin();
++    if (stats) atomic_fetch_add_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
+     [(id<MTLCommandBuffer>)params->handle addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+-      uint64_t depth = atomic_fetch_sub_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
+-      double span = buffer.GPUEndTime - buffer.GPUStartTime;
+-      ios_frame_gpu(buffer.GPUStartTime > 0.0 && span > 0.0 ? (unsigned long long)(span * 1e9) : 0, depth);
++      if (stats) {
++        uint64_t depth = atomic_fetch_sub_explicit(&g_madeira_cmdbuf_inflight, 1, memory_order_relaxed);
++        double span = buffer.GPUEndTime - buffer.GPUStartTime;
++        ios_frame_gpu(buffer.GPUStartTime > 0.0 && span > 0.0 ? (unsigned long long)(span * 1e9) : 0, depth);
++      }
++      if (runtime) wine_runtime_gpu_end();
+     }];
+   }
+   [(id<MTLCommandBuffer>)params->handle commit];

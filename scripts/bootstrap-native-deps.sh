@@ -9,7 +9,7 @@ export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:/opt/homebre
 log() { printf '\n========== %s ==========\n' "$*"; }
 
 log "Install host tools"
-formulae=(cmake ninja ccache bison flex pkg-config sevenzip llvm)
+formulae=(cmake ninja meson ccache bison flex pkg-config sevenzip llvm)
 missing=()
 for formula in "${formulae[@]}"; do brew list "$formula" >/dev/null 2>&1 || missing+=("$formula"); done
 if (( ${#missing[@]} )); then brew install "${missing[@]}"; fi
@@ -136,6 +136,7 @@ bash "$root/build/llvm-ios/build.sh"
 xcodebuild -downloadComponent MetalToolchain
 xcrun -sdk macosx metal -v >/dev/null
 bash "$root/build/dxmt-ios/build.sh"
+bash "$root/build/dxmt-pe/build.sh"
 
 log "Build reusable session host"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/session-host/build.sh"

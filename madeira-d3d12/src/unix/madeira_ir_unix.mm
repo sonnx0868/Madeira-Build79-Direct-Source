@@ -29,6 +29,16 @@
 
 #include "madeira_ir_abi.h"
 #include "madeira_dxil_cache.h"   /* ml1990 */
+#if defined(MADEIRA_IR_HOST_TEST)
+// Offline round-trip has no disk cache shared with the device. Keep it
+// independently buildable without generated iOS/LLVM inputs.
+#define MADEIRA_SHADER_COMPILER_ID "offline-host-" __DATE__ "-" __TIME__
+#else
+#include "madeira_shader_compiler_identity.h"
+#endif
+
+// Preflight marker: cache keys now survive rebuilds with identical compiler inputs.
+__attribute__((used)) static const char mad_compiler_identity_marker[] = "shader-compiler-content-v1";
 
 #define IR_PRIVATE_IMPLEMENTATION 0   /* the canary owns the one definition */
 #include <metal_irconverter/metal_irconverter.h>
@@ -620,7 +630,7 @@ static int mad_airconv_convert_tess(struct madeira_ir_convert_args *a,
     {   /* cache identity: every input that shapes the output */
         uint64_t key = 1469598103934665603ull;
         uint32_t mv = SM50_SHADER_METAL_320, ver = MAD_SC_VERSION, st[2] = { a->tess_stage, a->tess_index_format };
-        const char *stamp = __DATE__ __TIME__;
+        const char *stamp = MADEIRA_SHADER_COMPILER_ID;
         mad_sc_hash_add(&key, "tess", 4);
         mad_sc_hash_add(&key, bc, bclen);
         mad_sc_hash_add(&key, hs, hslen);
@@ -797,7 +807,7 @@ static int mad_airconv_convert_gs(struct madeira_ir_convert_args *a,
     {   /* cache identity: every input that shapes the output */
         uint64_t key = 1469598103934665603ull;
         uint32_t mv = SM50_SHADER_METAL_320, ver = MAD_SC_VERSION, st[3] = { a->gs_stage, a->tess_index_format, a->gs_strip ? 1u : 0u };
-        const char *stamp = __DATE__ __TIME__;
+        const char *stamp = MADEIRA_SHADER_COMPILER_ID;
         mad_sc_hash_add(&key, "geom", 4);
         mad_sc_hash_add(&key, bc, bclen);
         mad_sc_hash_add(&key, other, olen);
@@ -1057,12 +1067,9 @@ static int mad_airconv_convert(struct madeira_ir_convert_args *a,
             mad_sc_hash_add(&key, bc, bclen);
             mad_sc_hash_add(&key, &mv, sizeof mv);
             mad_sc_hash_add(&key, &ver, sizeof ver);
-            /* ml1020: bind the key to THIS BUILD. A cache entry produced by an
-             * older compiler is not safe to reuse -- the airconv changes in this
-             * session alone would have invalidated it -- and a silently stale
-             * shader is far worse than recompiling. Rebuilding the archive
-             * changes this stamp and orphans the old entries. */
-            { const char *stamp = __DATE__ __TIME__;
+            /* Bind to compiler content, SDK headers, LLVM archives and flags.
+             * Identical rebuilds retain the cache; compiler changes invalidate it. */
+            { const char *stamp = MADEIRA_SHADER_COMPILER_ID;
               mad_sc_hash_add(&key, stamp, strlen(stamp)); }
             if (ia_nel) mad_sc_hash_add(&key, ia_el, (size_t)ia_nel * sizeof ia_el[0]);
             /* ml1031: the emitted pixel shader now depends on WHICH vertex stage
@@ -1373,7 +1380,7 @@ extern "C" int madeira_ir_convert_impl(struct madeira_ir_convert_args *a) {
         void *hit = NULL;
         size_t hit_len = 0;
         env.converter_ident = g_ir.ident;
-        env.build_stamp = __DATE__ " " __TIME__;
+        env.build_stamp = MADEIRA_SHADER_COMPILER_ID;
         env.ags_rewrite = (uint32_t)mad_ags_enabled();
         env.compat_flags = (uint32_t)IRCompatibilityFlagForceTextureArray;
         mad_dxc_key(a, &env, &dxc_key, &dxc_check);
