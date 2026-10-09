@@ -55,6 +55,9 @@ jobs:
           bash build/wine-pe/build-modules.sh gdiplus mlang sspicli opengl32 glu32
       - name: Compile native WGL driver and OpenGL unix dispatch
         run: |
+          git clone --depth 1 --branch VER-2-13-3 https://github.com/freetype/freetype.git research/freetype
+          test "$(git -C research/freetype rev-parse HEAD)" = 42608f77f20749dd6ddc9e0536788eaad70ea4b5
+          bash build/freetype-ios/build.sh
           bash build/win32u-unix/build.sh
           sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
           for source in build/ntdll-unix/virtual_ios.c wine/dlls/opengl32/unix_wgl.c wine/dlls/opengl32/unix_thunks.c; do

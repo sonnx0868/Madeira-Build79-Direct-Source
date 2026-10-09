@@ -32,6 +32,7 @@ jobs:
           python3 tests/host/check-udp-control.py --require-tools
           python3 tests/host/check-audio-downmix.py
           python3 tests/host/check-thin-reserve-policy.py
+          python3 tests/host/check-opengl-renderer.py
       - name: Compile audio driver and app bridge against the iOS SDK
         run: |
           sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
