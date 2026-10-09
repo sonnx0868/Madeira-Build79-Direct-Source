@@ -36,7 +36,7 @@ struct DiagnosticUploadView: View {
                         else { Label("Send log to server", systemImage: "square.and.arrow.up") }
                     }.disabled(upload.busy)
                 } header: { Text("Diagnostic report") } footer: {
-                    Text("Sends the selected session log, build and device details to your private server. Large logs keep the startup and final output, up to 20 MB. Your log stays on this iPad.")
+                    Text("Sends the selected session log, recent Unity Player.log and Steam network logs, plus build and device details to your private server. Logs are limited to 20 MB total. Your logs stay on this iPad.")
                 }
                 if let status = upload.status { Section { Text(status).textSelection(.enabled) } }
                 if let id = upload.reportID {

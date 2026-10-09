@@ -35,6 +35,7 @@ python3 "$root/tests/host/check-dxmt-patches.py"
 # state is a real source drift and must fail rather than silently mispatch.
 for wine_patch in \
     "$root/patches/wine-socket-cmsg-rate-limit.patch" \
+    "$root/patches/wine-ios-udp-tos.patch" \
     "$root/patches/wine-luajit-gc64-file-redirect.patch"; do
     if git -C "$root/wine" apply --check "$wine_patch"; then
         git -C "$root/wine" apply "$wine_patch"
@@ -43,6 +44,8 @@ for wine_patch in \
         exit 1
     fi
 done
+
+python3 "$root/tests/host/check-udp-control.py" --require-tools
 
 bash "$root/scripts/apply-wine-patches.sh"
 

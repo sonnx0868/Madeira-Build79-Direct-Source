@@ -61,11 +61,32 @@ final class DiagnosticUploadDelegate: NSObject, URLSessionTaskDelegate {
 
 enum DiagnosticSnapshot {
     static let maxBytes = 20 * 1024 * 1024
-    static func create(from source: URL) throws -> (url: URL, originalBytes: UInt64, truncated: Bool) {
+    static func create(from source: URL, companions: [DiagnosticCompanionLogs.Source] = []) throws
+        -> (url: URL, originalBytes: UInt64, truncated: Bool, companionCount: Int) {
         let input = try FileHandle(forReadingFrom: source)
         defer { try? input.close() }
         let size = try input.seekToEnd()
         guard size > 0 else { throw SupportError.message("There is no log in this session yet.") }
+        // Read only small tails at upload time; no game-thread polling or full
+        // Steam/profile directory archive. Reserve their space inside 20 MB.
+        var sections: [Data] = []
+        var companionTruncated = false
+        for log in companions.prefix(8) {
+            guard let handle = try? FileHandle(forReadingFrom: log.url) else { continue }
+            defer { try? handle.close() }
+            guard let bytes = try? handle.seekToEnd(), bytes > 0 else { continue }
+            let limit = 512 * 1024
+            let offset = bytes > UInt64(limit) ? bytes - UInt64(limit) : 0
+            do { try handle.seek(toOffset: offset) } catch { continue }
+            guard let tail = try? handle.read(upToCount: limit), !tail.isEmpty else { continue }
+            let name = String(log.name.prefix(300)).replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
+            var section = Data("\n[companion-log] name=\(name) originalBytes=\(bytes) tailOffset=\(offset)\n".utf8)
+            section.append(tail)
+            section.append(Data("\n[/companion-log]\n".utf8))
+            sections.append(section)
+            companionTruncated = companionTruncated || offset > 0
+        }
+        let sessionBudget = maxBytes - sections.reduce(0) { $0 + $1.count }
         let target = FileManager.default.temporaryDirectory.appendingPathComponent("madeira-report-\(UUID().uuidString).txt")
         guard FileManager.default.createFile(atPath: target.path, contents: nil) else { throw SupportError.message("The log snapshot could not be created.") }
         let output = try FileHandle(forWritingTo: target)
@@ -80,16 +101,62 @@ enum DiagnosticSnapshot {
                     try output.write(contentsOf: data); remaining -= data.count
                 }
             }
-            if size <= UInt64(maxBytes) { try copy(0, Int(size)) }
+            if size <= UInt64(sessionBudget) { try copy(0, Int(size)) }
             else {
                 let marker = Data("\n[report] Middle of log omitted; keeping startup and final output. Original bytes=\(size)\n".utf8)
                 let head = 64 * 1024
-                let tail = maxBytes - head - marker.count
+                let tail = sessionBudget - head - marker.count
                 try copy(0, head); try output.write(contentsOf: marker)
                 try copy(size - UInt64(tail), tail)
             }
-            return (target, size, size > UInt64(maxBytes))
+            for section in sections { try output.write(contentsOf: section) }
+            return (target, size, size > UInt64(sessionBudget) || companionTruncated, sections.count)
         } catch { try? FileManager.default.removeItem(at: target); throw error }
+    }
+}
+
+enum DiagnosticCompanionLogs {
+    struct Source { let url: URL; let name: String }
+
+    /// Unity and Steam write important network errors to their own files,
+    /// outside stderr. Include only known log names updated during this test.
+    /// Previous-session reports exclude files overwritten by the current run.
+    static func find(in drive: URL, since: Date, before: Date) -> [Source] {
+        let fm = FileManager.default
+        let root = drive.resolvingSymlinksInPath()
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        var found: [Source] = []
+        var visited = 0
+        func inside(_ url: URL) -> Bool { url.resolvingSymlinksInPath().path.hasPrefix(root.path + "/") }
+        func add(_ url: URL) {
+            guard found.count < 8, inside(url),
+                  let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true,
+                  values.isSymbolicLink != true, let modified = values.contentModificationDate,
+                  modified >= since, modified <= before else { return }
+            let name = String(url.path.dropFirst(root.path.count + 1))
+            found.append(Source(url: url, name: name))
+        }
+        for name in ["connection_log.txt", "networking_sockets.txt", "steamnetworkingsockets.log"] {
+            add(root.appendingPathComponent("Program Files (x86)/Steam/logs/" + name))
+        }
+        let users = root.appendingPathComponent("users", isDirectory: true)
+        guard inside(users), let profiles = try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else { return found }
+        for profile in profiles.sorted(by: { $0.path < $1.path }).prefix(32) {
+            let localLow = profile.appendingPathComponent("AppData/LocalLow", isDirectory: true)
+            guard inside(localLow), let enumerator = fm.enumerator(at: localLow, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else { continue }
+            while let file = enumerator.nextObject() as? URL {
+                visited += 1
+                if visited > 4096 || found.count >= 8 { return found }
+                guard inside(file), let values = try? file.resourceValues(forKeys: keys), values.isSymbolicLink != true else {
+                    enumerator.skipDescendants(); continue
+                }
+                // Unity layout: LocalLow/company/product/Player.log.
+                if values.isDirectory == true {
+                    if enumerator.level >= 3 { enumerator.skipDescendants() }
+                } else if file.lastPathComponent == "Player.log" { add(file) }
+            }
+        }
+        return found
     }
 }
 
@@ -161,12 +228,24 @@ enum DiagnosticSnapshot {
             }
             if pending == nil {
                 let source = LogStore.shared.fileForUpload(previous: previous)
-                let snapshot = try await Task.detached(priority: .utility) { try DiagnosticSnapshot.create(from: source) }.value
                 var metadata = LogStore.shared.metadataForUpload(previous: previous)
+                let formatter = ISO8601DateFormatter()
+                let since = (metadata["testStartedAt"] ?? metadata["startedAt"]).flatMap { formatter.date(from: $0) }
+                let before = previous
+                    ? LogStore.shared.metadataForUpload(previous: false)["startedAt"].flatMap { formatter.date(from: $0) }
+                    : Date()
+                let drive = LibraryModel.drive
+                let snapshot = try await Task.detached(priority: .utility) {
+                    let logs: [DiagnosticCompanionLogs.Source]
+                    if let since, let before { logs = DiagnosticCompanionLogs.find(in: drive, since: since, before: before) }
+                    else { logs = [] }
+                    return try DiagnosticSnapshot.create(from: source, companions: logs)
+                }.value
                 metadata["label"] = cleanLabel.isEmpty ? "Game test" : cleanLabel
                 metadata["source"] = previous ? "previous" : "current"
                 metadata["originalBytes"] = String(snapshot.originalBytes)
                 metadata["truncated"] = snapshot.truncated ? "true" : "false"
+                metadata["companionLogs"] = String(snapshot.companionCount)
                 pending = (snapshot.url, UUID().uuidString.lowercased(), metadata, previous, cleanLabel)
             }
             guard let report = pending else { return }

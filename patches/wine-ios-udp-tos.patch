@@ -1,0 +1,25 @@
+diff --git a/dlls/ntdll/unix/socket.c b/dlls/ntdll/unix/socket.c
+--- a/dlls/ntdll/unix/socket.c
++++ b/dlls/ntdll/unix/socket.c
+@@ -490,8 +490,21 @@ static int convert_control_headers(struct msghdr *hdr, WSABUF *control)
+ 
+ #if defined(IP_TOS)
+                     case IP_TOS:
++#if defined(__APPLE__) && defined(IP_RECVTOS) && IP_RECVTOS != IP_TOS
++                    /* Darwin returns a one-byte IP_RECVTOS cmsg, whereas
++                     * Windows applications expect an INT IP_TOS cmsg. */
++                    case IP_RECVTOS:
++#endif
+                     {
+                         INT tos = *(unsigned char *)CMSG_DATA(cmsg_unix);
++#if defined(WINE_IOS) && defined(IP_RECVTOS) && IP_RECVTOS != IP_TOS
++                        if (cmsg_unix->cmsg_type == IP_RECVTOS)
++                        {
++                            static unsigned int announced;
++                            if (!__atomic_exchange_n( &announced, 1, __ATOMIC_RELAXED ))
++                                dprintf( 2, "[udp-control] darwin-tos-v1 translating received TOS to Winsock\n" );
++                        }
++#endif
+                         ptr = fill_control_message( WS_IPPROTO_IP, WS_IP_TOS, ptr, &ctlsize,
+                                                     &tos, sizeof(INT) );
+                         if (!ptr) goto error;
