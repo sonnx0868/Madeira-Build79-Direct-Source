@@ -4346,6 +4346,7 @@ void ios_jit_sync_write(void *addr, size_t size)
 #define X18_ROLE_RN   1  /* bits[9:5] = base register for loads/stores/data-proc */
 #define X18_ROLE_RM   2  /* bits[20:16] = second register (MOV, register offset) */
 #define X18_ROLE_RT2  3  /* bits[14:10] = second register in LDP/STP */
+#define X18_ROLE_RT   4  /* bits[4:0] = the register being STORED (64-bit STR/STUR/STP) */
 
 static int ios_insn_x18_role(uint32_t insn)
 {
@@ -4353,7 +4354,8 @@ static int ios_insn_x18_role(uint32_t insn)
     int rn = (insn >> 5) & 0x1f;
     int rm = (insn >> 16) & 0x1f;
     int rt2 = (insn >> 10) & 0x1f;
-    if (rn != 18 && rm != 18 && rt2 != 18) return X18_ROLE_NONE;
+    int rt = insn & 0x1f;
+    if (rn != 18 && rm != 18 && rt2 != 18 && rt != 18) return X18_ROLE_NONE;
 
     /* Classify instruction to verify the field is actually a register */
     uint32_t top8 = insn >> 24;
@@ -4416,7 +4418,55 @@ static int ios_insn_x18_role(uint32_t insn)
         if (rm == 18) return X18_ROLE_RM;
     }
 
+    /* x18 as the VALUE stored: `str x18, [sp, #n]` / `stp x18, xM, [sp, #n]`.
+     * This is NtCurrentTeb() written into a struct -- Wine's opengl32 thunks do
+     * it in nearly every function (`.teb = NtCurrentTeb()` in each params
+     * struct: 3,102 sites), and on iOS it stored a zeroed x18, so every GL call
+     * reached the unix side with teb == NULL. Only the plain 64-bit store forms
+     * are recognised: STR (unsigned offset), STUR, STP (signed offset). Loads
+     * INTO x18 are never patched. */
+    if (rt == 18 && rn != 18)
+    {
+        if ((insn & 0xFFC00000) == 0xF9000000) return X18_ROLE_RT;                /* STR  Xt, [Xn, #imm12*8] */
+        if ((insn & 0xFFE00C00) == 0xF8000000) return X18_ROLE_RT;                /* STUR Xt, [Xn, #simm9] */
+        if ((insn & 0xFFC00000) == 0xA9000000 && rt2 != 18) return X18_ROLE_RT;   /* STP  Xt, Xt2, [Xn, #simm7*8] */
+    }
+
     return X18_ROLE_NONE;
+}
+
+/* The trampoline pushes its scratch register (`str xS, [sp, #-16]!`) before
+ * running the rewritten instruction, so an SP-based X18_ROLE_RT store must
+ * address 16 bytes further up. Returns FALSE when the adjusted offset does not
+ * encode (the site is then left unpatched). */
+static BOOL ios_insn_x18_store_sp_fixup( uint32_t *insn )
+{
+    uint32_t v = *insn;
+    int64_t imm;
+
+    if (((v >> 5) & 0x1f) != 31) return TRUE;                  /* base is not SP */
+    if ((v & 0xFFC00000) == 0xF9000000)                        /* STR: imm12, scaled by 8 */
+    {
+        imm = ((v >> 10) & 0xfff) + 2;
+        if (imm > 0xfff) return FALSE;
+        *insn = (v & ~(0xfffu << 10)) | ((uint32_t)imm << 10);
+        return TRUE;
+    }
+    if ((v & 0xFFE00C00) == 0xF8000000)                        /* STUR: signed imm9, bytes */
+    {
+        imm = ((int64_t)((int32_t)(v << 11) >> 23)) + 16;
+        if (imm > 255) return FALSE;
+        *insn = (v & ~(0x1ffu << 12)) | (((uint32_t)imm & 0x1ff) << 12);
+        return TRUE;
+    }
+    if ((v & 0xFFC00000) == 0xA9000000)                        /* STP: signed imm7, scaled by 8 */
+    {
+        imm = ((int64_t)((int32_t)(v << 10) >> 25)) + 2;
+        if (imm > 63) return FALSE;
+        *insn = (v & ~(0x7fu << 15)) | (((uint32_t)imm & 0x7f) << 15);
+        return TRUE;
+    }
+    return FALSE;
 }
 
 /* Replace x18 in an instruction with a different register */
@@ -4427,6 +4477,7 @@ static uint32_t ios_insn_replace_x18(uint32_t insn, int role, int scratch)
     case X18_ROLE_RN:  return (insn & ~(0x1f << 5)) | (scratch << 5);
     case X18_ROLE_RM:  return (insn & ~(0x1f << 16)) | (scratch << 16);
     case X18_ROLE_RT2: return (insn & ~(0x1f << 10)) | (scratch << 10);
+    case X18_ROLE_RT:  return (insn & ~0x1fu) | scratch;
     default:           return insn;
     }
 }
@@ -4664,9 +4715,17 @@ int ios_jit_patch_x18(char *text_rw, char *text_rx, size_t text_size,
         int rt = insn & 0x1f;
         int rn = (insn >> 5) & 0x1f;
         int rm = (insn >> 16) & 0x1f;
-        if (rt == 17 || rn == 17 || rm == 17) scratch = 16;
+        int rt2 = (role == X18_ROLE_RT) ? (insn >> 10) & 0x1f : -1;   /* STP's second register */
+        uint32_t replaced;
+        if (rt == 17 || rn == 17 || rm == 17 || rt2 == 17) scratch = 16;
         /* Double-check: if both x16 and x17 are used, skip (extremely rare) */
-        if (scratch == 16 && (rt == 16 || rn == 16 || rm == 16))
+        if (scratch == 16 && (rt == 16 || rn == 16 || rm == 16 || rt2 == 16))
+        {
+            skipped++;
+            continue;
+        }
+        replaced = ios_insn_replace_x18(insn, role, scratch);
+        if (role == X18_ROLE_RT && !ios_insn_x18_store_sp_fixup( &replaced ))
         {
             skipped++;
             continue;
@@ -4729,7 +4788,7 @@ int ios_jit_patch_x18(char *text_rw, char *text_rx, size_t text_size,
             *(uint32_t *)(tramp_rw + tramp_off) = 0xF9400000 | ((slot_off / 8) << 10) | (scratch << 5) | scratch;
             tramp_off += 4;
             /* Modified instruction with x18 replaced by scratch */
-            *(uint32_t *)(tramp_rw + tramp_off) = ios_insn_replace_x18(insn, role, scratch);
+            *(uint32_t *)(tramp_rw + tramp_off) = replaced;
             tramp_off += 4;
             /* ldr xSCRATCH, [sp], #16 */
             *(uint32_t *)(tramp_rw + tramp_off) = (scratch == 17) ? 0xF84107F1 : 0xF84107F0;
@@ -4831,6 +4890,10 @@ struct reserved_area
      * entirely (see mmap_add_reserved_area) so an adjacent range can never
      * silently coalesce the type away. */
     unsigned int fex_only;
+    /* Madeira: THIN_ONLY. An arena for thin reservations (see ios_thin_reserve):
+     * only heads placed by ios_thin_reserve may map here. Same exclusions as
+     * fex_only, and generic placement never searches it. */
+    unsigned int thin_only;
 };
 
 static struct list reserved_areas = LIST_INIT(reserved_areas);
@@ -6162,7 +6225,7 @@ static void mmap_add_reserved_area( void *addr, SIZE_T size )
          * enough for the merge below to swallow it, and the type would vanish
          * with no diagnostic -- after which generic placement could allocate
          * inside the arena. Skipping keeps the insert position correct. */
-        if (area->fex_only) continue;
+        if (area->fex_only || area->thin_only) continue;
         if (area_end < addr) continue;
         if (area->base > addr)
         {
@@ -6195,6 +6258,7 @@ static void mmap_add_reserved_area( void *addr, SIZE_T size )
         area->base = addr;
         area->size = size;
         area->fex_only = 0;
+        area->thin_only = 0;
         list_add_before( ptr, &area->entry );
     }
 }
@@ -6236,6 +6300,7 @@ static int mmap_add_fex_reserved_area( void *addr, SIZE_T size )
     area->base = addr;
     area->size = size;
     area->fex_only = 1;
+    area->thin_only = 0;
     list_add_before( ptr, &area->entry );
     ERR( "[fex-arena] ml799 registered FEX_ONLY reserved area %p..%p (%llu MB) -- generic "
          "placement cannot allocate here\n", addr, (char *)addr + size,
@@ -6293,6 +6358,7 @@ static void mmap_remove_reserved_area( void *addr, SIZE_T size )
                          * of a FEX_ONLY area is still FEX_ONLY; defaulting it to
                          * generic would quietly open the arena to everything. */
                         new_area->fex_only = area->fex_only;
+                        new_area->thin_only = area->thin_only;
                         list_add_after( ptr, &new_area->entry );
                     }
                     area->size = (char *)addr - (char *)area->base;
@@ -8632,6 +8698,11 @@ extern const void *dwrite_unix_call_funcs[];
  * STATUS_NOT_IMPLEMENTED. */
 extern const void *winegstreamer_unix_call_funcs[];
 
+/* opengl32's unix side, compiled from wine/dlls/opengl32/unix_{wgl,thunks}.c
+ * into libntdll_unix.a (build/ntdll-unix/build.sh). */
+extern const void *opengl32_unix_call_funcs[];
+extern const void *opengl32_unix_call_wow64_funcs[];
+
 /* win32u's unix init, statically linked via libwin32u_unix.a. Renamed
  * from __wine_unix_lib_init in build/win32u-unix/build.sh so future
  * statically-linked unix libs can keep their own init without colliding.
@@ -8980,11 +9051,22 @@ static NTSTATUS load_builtin_unixlib( void *module, BOOL wow, const void **funcs
             libname = "win32u (stub table)";
             funcs64 = funcs_wow64 = (const void *)ios_stub_unix_call_table;
         } else if (match && strstr(match, "opengl32")) {
+            /* Real opengl32 unix side (OpenGL ES / desktop GL through the winios
+             * WGL driver). MADEIRA_NO_GL=1 keeps the old GL-absent stub table.
+             * The wow64 table's thunks convert every embedded guest pointer with
+             * ios_wow_host_ptr() (patches/wine-opengl-winios.patch: make_opengl),
+             * so 32-bit GL games (Quake 3 engine, GLQuake) reach the driver. */
             pthread_once( &ios_stub_tables_once, ios_init_stub_tables );
-            WARN_(module)("iOS: module %p (%s) -> GL-absent stub table (attach ok, wgl/gl NOT_SUPPORTED)\n",
-                          module, match);
-            libname = "opengl32 (GL-absent stub table)";
-            funcs64 = funcs_wow64 = (const void *)ios_gl_stub_unix_call_table;
+            if (getenv("MADEIRA_NO_GL")) {
+                WARN_(module)("iOS: module %p (%s) -> GL-absent stub table (MADEIRA_NO_GL)\n",
+                              module, match);
+                libname = "opengl32 (GL-absent stub table, MADEIRA_NO_GL)";
+                funcs64 = funcs_wow64 = (const void *)ios_gl_stub_unix_call_table;
+            } else {
+                libname = "opengl32 (winios WGL)";
+                funcs64 = (const void *)opengl32_unix_call_funcs;
+                funcs_wow64 = (const void *)opengl32_unix_call_wow64_funcs;
+            }
         } else {
             pthread_once( &ios_stub_tables_once, ios_init_stub_tables );
             WARN_(module)("iOS: no unix .so for module %p (unix_path=%s, modname=%s, mapped=%s), using stub table\n",
@@ -13751,6 +13833,7 @@ static void *map_reserved_area_inner( void *limit_low, void *limit_high, size_t 
 
             /* ml799: the FEX arena serves only requests contained in it. */
             if (area->fex_only && !fex_arena_covers( limit_low, limit_high )) continue;
+            if (area->thin_only) continue;   /* Madeira: thin heads are placed at fixed slots */
             if (start >= limit_high) continue;
             if (end <= limit_low) return NULL;
             if (start < limit_low) start = (void *)ROUND_SIZE( 0, limit_low, host_page_mask );
@@ -13768,6 +13851,7 @@ static void *map_reserved_area_inner( void *limit_low, void *limit_high, size_t 
 
             /* ml799: the FEX arena serves only requests contained in it. */
             if (area->fex_only && !fex_arena_covers( limit_low, limit_high )) continue;
+            if (area->thin_only) continue;   /* Madeira: thin heads are placed at fixed slots */
             if (start >= limit_high) return NULL;
             if (end <= limit_low) continue;
             if (start < limit_low) start = (void *)ROUND_SIZE( 0, limit_low, host_page_mask );
@@ -13786,6 +13870,12 @@ static void *map_reserved_area_inner( void *limit_low, void *limit_high, size_t 
  * Map a memory area at a fixed address.
  * virtual_mutex must be held by caller.
  */
+#ifdef WINE_IOS
+/* Madeira: set by ios_thin_reserve, with virtual_mutex held, while it maps a
+ * head inside a thin arena. */
+static int ios_thin_placing;
+#endif
+
 static NTSTATUS map_fixed_area( void *base, size_t size, int unix_prot )
 {
     struct reserved_area *area;
@@ -13794,6 +13884,20 @@ static NTSTATUS map_fixed_area( void *base, size_t size, int unix_prot )
 
     if ((UINT_PTR)base & host_page_mask) return STATUS_CONFLICTING_ADDRESSES;
     if (find_view_range( base, size )) return STATUS_CONFLICTING_ADDRESSES;
+#ifdef WINE_IOS
+    /* Madeira: every address in a thin arena lies inside some thin reservation's
+     * range (or the arena's margin), so a fixed map there conflicts, as it would
+     * on Windows. Only ios_thin_reserve places heads in it. */
+    if (!ios_thin_placing)
+    {
+        LIST_FOR_EACH_ENTRY( area, &reserved_areas, struct reserved_area, entry )
+        {
+            if (area->base >= (void *)end) break;
+            if (area->thin_only && (char *)area->base + area->size > start)
+                return STATUS_CONFLICTING_ADDRESSES;
+        }
+    }
+#endif
 
     LIST_FOR_EACH_ENTRY( area, &reserved_areas, struct reserved_area, entry )
     {
@@ -17018,7 +17122,7 @@ static void *alloc_virtual_heap( SIZE_T size )
          * must not widen address_space_limit to the arena's top: that number
          * feeds placement decisions elsewhere, and stretching it to cover a
          * range nothing generic may use would misreport the usable space. */
-        if (area->fex_only) continue;
+        if (area->fex_only || area->thin_only) continue;
         if (is_beyond_limit( base, area->size, address_space_limit ))
             address_space_limit = host_addr_space_limit = end;
         if (is_win64 && base < (void *)0x80000000) break;
@@ -19471,7 +19575,7 @@ static void free_reserved_memory( char *base, char *limit )
              * lifetime, and the 0x80000000..address_space_limit call below
              * spans it -- releasing it here would hand the emulator's address
              * space back to general use mid-run, silently. */
-            if (area->fex_only) continue;
+            if (area->fex_only || area->thin_only) continue;
             if (area_end <= base) continue;
             if (area_base >= limit) return;
             if (area_base < base) area_base = base;
@@ -19562,6 +19666,385 @@ void virtual_set_large_address_space(void)
  *
  * NtAllocateVirtualMemory[Ex] implementation.
  */
+#ifdef WINE_IOS
+static NTSTATUS allocate_virtual_memory( void **ret, SIZE_T *size_ptr, ULONG type, ULONG protect,
+                                         ULONG_PTR limit_low, ULONG_PTR limit_high,
+                                         ULONG_PTR align, ULONG attributes );
+
+/* Madeira: THIN RESERVATIONS.
+ *
+ * Some programs reserve address space in 1 GB blocks (MEM_RESERVE, PAGE_READWRITE,
+ * no address) and commit only a few MB at the start of each. On Windows that is
+ * free. Here a device can map only ~64 GB, Wine and FEX already use part of it,
+ * and every reservation takes its full size: one game reached 42 x 1 GB with
+ * 6 MB committed, the 43rd failed with STATUS_NO_MEMORY, and it wrote through
+ * the NULL.
+ *
+ * Once ios_thin_after bytes of such reservations have been made normally, the
+ * next ones get only a real HEAD: a view of ios_thin_head bytes at a slot in a
+ * thin arena, a THIN_ONLY reserved area. The caller is told it got the full
+ * size. The rest of the range (the tail) overlaps the heads after it and the
+ * arena's margin, all of it held by the arena, so nothing outside the arena can
+ * be mapped there:
+ *
+ *   arena:  [head 0][g][head 1][g][head 2][g] ... [margin: IOS_THIN_MAX_SIZE]
+ *   range 0: |<------------------- reported size ------------------->|
+ *
+ * - A commit inside the head is an ordinary commit.
+ * - Each head is followed by a 1 MB guard (g) that no view covers. A range that
+ *   grows contiguously past its head must commit into the guard first, which
+ *   has no view, so the commit fails (STATUS_NOT_MAPPED_VIEW, as for any commit
+ *   outside a view) instead of reaching the next head. That failure is logged
+ *   as [thin] OVERFLOW.
+ * - Only a commit that jumps past the guard straight into a later head can land
+ *   in another reservation's memory; nothing can tell the two apart there.
+ *   Raise MADEIRA_THIN_RESERVE_MB if a program does that.
+ * - MEM_DECOMMIT past the head is clamped to the head (the tail holds nothing),
+ *   and MEM_RELEASE of the base frees the head and its slot.
+ * - NtQueryVirtualMemory reports a tail as MEM_RESERVE of the reservation.
+ *
+ * Experimental, off by default. MADEIRA_THIN_RESERVE=1 enables it for the
+ * selected game session; existing reservations remain tracked when disabled.
+ * MADEIRA_THIN_RESERVE_MB sets the slot stride (default 64, 16-512);
+ * MADEIRA_THIN_RESERVE_AFTER_GB sets how much is reserved normally first
+ * (default 8). */
+#define IOS_THIN_ARENAS   4
+#define IOS_THIN_SLOTS    256
+#define IOS_THIN_MAX      (IOS_THIN_ARENAS * IOS_THIN_SLOTS)
+#define IOS_THIN_MIN_SIZE 0x40000000ULL    /* 1 GB */
+#define IOS_THIN_MAX_SIZE 0x80000000ULL    /* 2 GB, also each arena's margin */
+#define IOS_THIN_HEADS    0x100000000ULL   /* head slots per arena, at most */
+#define IOS_THIN_GUARD    0x100000ULL      /* 1 MB */
+
+struct ios_thin_arena
+{
+    ULONG_PTR     base;
+    unsigned      nslots;
+    unsigned char used[IOS_THIN_SLOTS];
+};
+
+struct ios_thin_res
+{
+    ULONG_PTR      base;      /* head base = reservation base */
+    ULONG_PTR      size;      /* size the caller was given */
+    ULONG_PTR      hw;        /* highest committed offset seen, for the log */
+    ULONG          protect;
+    unsigned short arena, slot;
+    unsigned char  live, marks;
+};
+
+static struct ios_thin_arena ios_thin_arenas[IOS_THIN_ARENAS];
+static unsigned ios_thin_arena_n;
+static struct ios_thin_res ios_thin[IOS_THIN_MAX];
+static unsigned ios_thin_n;          /* entries in use, live or not */
+static unsigned ios_thin_live_n;     /* 0 = every thin hook is a no-op */
+static unsigned ios_thin_grants;
+static int ios_thin_mode = -1;       /* -1 unread, 0 off, 1 on */
+static ULONG_PTR ios_thin_stride, ios_thin_head, ios_thin_after, ios_thin_seen;
+
+static int ios_thin_config(void)
+{
+    const char *e;
+    unsigned long mb, gb;
+
+    e = getenv( "MADEIRA_THIN_RESERVE" );
+    if (!e || strcmp( e, "1" )) return 0;
+    if (ios_thin_mode >= 0) return ios_thin_mode;
+    ios_thin_mode = 1;
+    mb = (e = getenv( "MADEIRA_THIN_RESERVE_MB" )) ? strtoul( e, NULL, 10 ) : 64;
+    if (mb < 16) mb = 16;
+    if (mb > 512) mb = 512;
+    gb = (e = getenv( "MADEIRA_THIN_RESERVE_AFTER_GB" )) ? strtoul( e, NULL, 10 ) : 8;
+    if (gb > 64) gb = 64;  /* keep the byte conversion bounded */
+    ios_thin_stride = (ULONG_PTR)mb << 20;
+    ios_thin_head   = ios_thin_stride - IOS_THIN_GUARD;
+    ios_thin_after  = (ULONG_PTR)gb << 30;
+    dprintf( 2, "[thin] %s: 1-2 GB read-write reserves get a %lu MB head once %lu GB of them "
+                "were reserved normally\n", ios_thin_mode ? "on" : "off (MADEIRA_THIN_RESERVE=0)",
+             (unsigned long)(ios_thin_head >> 20), gb );
+    return ios_thin_mode;
+}
+
+/* Like mmap_add_fex_reserved_area: never merged, and an overlap is refused. */
+static int mmap_add_thin_reserved_area( void *addr, SIZE_T size )
+{
+    struct reserved_area *area;
+    struct list *ptr;
+
+    LIST_FOR_EACH( ptr, &reserved_areas )
+    {
+        area = LIST_ENTRY( ptr, struct reserved_area, entry );
+        if (area->base > addr) break;
+        if ((char *)area->base + area->size > (char *)addr) return 0;
+    }
+    if (!(area = malloc( sizeof(*area) ))) return 0;
+    area->base = addr;
+    area->size = size;
+    area->fex_only = 0;
+    area->thin_only = 1;
+    list_add_before( ptr, &area->entry );
+    return 1;
+}
+
+/* virtual_mutex held. Halves the head span until the kernel finds room. */
+static int ios_thin_new_arena(void)
+{
+    ULONG_PTR heads;
+
+    if (ios_thin_arena_n >= IOS_THIN_ARENAS) return 0;
+    for (heads = IOS_THIN_HEADS; heads >= IOS_THIN_HEADS / 4; heads /= 2)
+    {
+        ULONG_PTR span = heads + IOS_THIN_MAX_SIZE, total = span + granularity_mask + 1;
+        ULONG_PTR p, base;
+        struct ios_thin_arena *ar;
+        unsigned n = heads / ios_thin_stride;
+
+        if (n > IOS_THIN_SLOTS) n = IOS_THIN_SLOTS;
+        if ((p = (ULONG_PTR)anon_mmap_alloc( total, PROT_NONE )) == (ULONG_PTR)MAP_FAILED) continue;
+        base = (p + granularity_mask) & ~(ULONG_PTR)granularity_mask;
+        if (base > p) munmap( (void *)p, base - p );
+        if (p + total > base + span) munmap( (void *)(base + span), p + total - (base + span) );
+        if (is_beyond_limit( (void *)base, span, user_space_limit ) ||
+            !mmap_add_thin_reserved_area( (void *)base, span ))
+        {
+            munmap( (void *)base, span );
+            continue;
+        }
+        ar = &ios_thin_arenas[ios_thin_arena_n++];
+        ar->base = base;
+        ar->nslots = n;
+        memset( ar->used, 0, sizeof(ar->used) );
+        dprintf( 2, "[thin] arena #%u [%p,%p): %u heads of %lu MB, %lu MB margin\n",
+                 ios_thin_arena_n - 1, (void *)base, (void *)(base + span), n,
+                 (unsigned long)(ios_thin_head >> 20), (unsigned long)(IOS_THIN_MAX_SIZE >> 20) );
+        return 1;
+    }
+    dprintf( 2, "[thin] no room for another arena (%u in use): reserving normally\n", ios_thin_arena_n );
+    return 0;
+}
+
+/* Called before the normal placement of every unhinted MEM_RESERVE. TRUE: done,
+ * *status says how. */
+static BOOL ios_thin_reserve( void **ret, SIZE_T *size_ptr, ULONG protect, NTSTATUS *status )
+{
+    SIZE_T size = ROUND_SIZE( 0, *size_ptr, granularity_mask );
+    sigset_t sigset;
+    unsigned a, s, r, pass;
+    BOOL done = FALSE;
+
+    if (protect != PAGE_READWRITE || size < IOS_THIN_MIN_SIZE || size > IOS_THIN_MAX_SIZE) return FALSE;
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    if (!ios_thin_config()) goto out;
+    if (ios_thin_seen < ios_thin_after)
+    {
+        ios_thin_seen += size;
+        goto out;
+    }
+    for (r = 0; r < ios_thin_n; r++) if (!ios_thin[r].live) break;
+    if (r == IOS_THIN_MAX) goto out;
+
+    for (pass = 0; pass < 2 && !done; pass++)
+    {
+        if (pass && !ios_thin_new_arena()) break;
+        for (a = pass ? ios_thin_arena_n - 1 : 0; a < ios_thin_arena_n && !done; a++)
+        {
+            struct ios_thin_arena *ar = &ios_thin_arenas[a];
+
+            for (s = 0; s < ar->nslots && !done; s++)
+            {
+                void *head = (void *)(ar->base + (ULONG_PTR)s * ios_thin_stride);
+                SIZE_T hs = ios_thin_head;
+                NTSTATUS st;
+
+                if (ar->used[s]) continue;
+                ios_thin_placing = 1;
+                st = allocate_virtual_memory( &head, &hs, MEM_RESERVE, protect, 0, 0, 0, 0 );
+                ios_thin_placing = 0;
+                if (st)
+                {
+                    /* nothing else maps here, so this is unexpected: retire the slot */
+                    dprintf( 2, "[thin] head at %p failed (%08x); slot retired\n", head, (unsigned)st );
+                    ar->used[s] = 2;
+                    continue;
+                }
+                ar->used[s] = 1;
+                ios_thin[r].base = (ULONG_PTR)head;
+                ios_thin[r].size = size;
+                ios_thin[r].hw = 0;
+                ios_thin[r].protect = protect;
+                ios_thin[r].arena = a;
+                ios_thin[r].slot = s;
+                ios_thin[r].marks = 0;
+                ios_thin[r].live = 1;
+                if (r == ios_thin_n) ios_thin_n++;
+                ios_thin_live_n++;
+                *ret = head;
+                *size_ptr = size;
+                *status = STATUS_SUCCESS;
+                done = TRUE;
+                if (++ios_thin_grants <= 64 || !(ios_thin_grants % 64))
+                    dprintf( 2, "[thin] #%u %p: %lu MB reserved, %lu MB head (arena %u slot %u, %u live)\n",
+                             ios_thin_grants, head, (unsigned long)(size >> 20),
+                             (unsigned long)(ios_thin_head >> 20), a, s, ios_thin_live_n );
+            }
+        }
+    }
+out:
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return done;
+}
+
+/* virtual_mutex held. The live entry whose head, or whose whole range, holds a.
+ * Ranges overlap; the one with the highest base at or below a is the one whose
+ * tail a is nearest the start of. */
+static int ios_thin_find( ULONG_PTR a, BOOL head_only )
+{
+    unsigned i;
+    int best = -1;
+
+    for (i = 0; i < ios_thin_n; i++)
+    {
+        const struct ios_thin_res *t = &ios_thin[i];
+
+        if (!t->live || a < t->base) continue;
+        if (a >= t->base + (head_only ? ios_thin_head : t->size)) continue;
+        if (best < 0 || t->base > ios_thin[best].base) best = i;
+    }
+    return best;
+}
+
+/* virtual_mutex held. Lowest live head base above a, or 0. */
+static ULONG_PTR ios_thin_next_base( ULONG_PTR a )
+{
+    unsigned i;
+    ULONG_PTR next = 0;
+
+    for (i = 0; i < ios_thin_n; i++)
+        if (ios_thin[i].live && ios_thin[i].base > a && (!next || ios_thin[i].base < next))
+            next = ios_thin[i].base;
+    return next;
+}
+
+/* Every commit at an explicit address while thin reservations are live: track
+ * how far each head is used, and name a commit that ran past one. The commit
+ * itself is left to the normal path, which fails it when no view covers it. */
+static void ios_thin_note_commit( void *addr, SIZE_T size )
+{
+    ULONG_PTR a = (ULONG_PTR)addr, end = a + size;
+    static unsigned overflow_logs;
+    sigset_t sigset;
+    int r;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    if ((r = ios_thin_find( a, TRUE )) >= 0)
+    {
+        struct ios_thin_res *t = &ios_thin[r];
+
+        if (end <= t->base + ios_thin_head)
+        {
+            ULONG_PTR used = end - t->base;
+            unsigned pct;
+
+            if (used > t->hw) t->hw = used;
+            pct = (unsigned)(t->hw * 100 / ios_thin_head);
+            if ((pct >= 25 && !(t->marks & 1)) || (pct >= 50 && !(t->marks & 2)) ||
+                (pct >= 75 && !(t->marks & 4)))
+            {
+                t->marks |= (pct >= 25 ? 1 : 0) | (pct >= 50 ? 2 : 0) | (pct >= 75 ? 4 : 0);
+                dprintf( 2, "[thin] %p: %u%% of its %lu MB head committed\n", (void *)t->base,
+                         pct, (unsigned long)(ios_thin_head >> 20) );
+            }
+        }
+        else if (overflow_logs++ < 64)
+            dprintf( 2, "[thin] OVERFLOW: commit %p+0x%lx runs past the %lu MB head of %p "
+                        "(highest commit so far +0x%lx); it fails. Raise MADEIRA_THIN_RESERVE_MB\n",
+                     addr, (unsigned long)size, (unsigned long)(ios_thin_head >> 20),
+                     (void *)t->base, (unsigned long)t->hw );
+    }
+    else if ((r = ios_thin_find( a, FALSE )) >= 0 && !find_view( addr, 0 ) && overflow_logs++ < 64)
+        dprintf( 2, "[thin] OVERFLOW: commit %p+0x%lx is %lu MB into %p, past its %lu MB head "
+                    "(highest commit so far +0x%lx); it fails. Raise MADEIRA_THIN_RESERVE_MB\n",
+                 addr, (unsigned long)size, (unsigned long)((a - ios_thin[r].base) >> 20),
+                 (void *)ios_thin[r].base, (unsigned long)(ios_thin_head >> 20),
+                 (unsigned long)ios_thin[r].hw );
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+}
+
+/* virtual_mutex held, MEM_DECOMMIT. Clamps a decommit that starts in a head
+ * and runs into its tail. TRUE: base is in a tail, where nothing is committed,
+ * so the decommit succeeds without doing anything. */
+static BOOL ios_thin_decommit_fixup( void *base, SIZE_T *size )
+{
+    struct file_view *view = find_view( base, 0 );
+    int r;
+
+    if (view)
+    {
+        ULONG_PTR vend = (ULONG_PTR)view->base + view->size;
+
+        if (*size && (ULONG_PTR)base + *size > vend && (r = ios_thin_find( (ULONG_PTR)base, TRUE )) >= 0 &&
+            ios_thin[r].base == (ULONG_PTR)view->base &&
+            (ULONG_PTR)base + *size <= ios_thin[r].base + ios_thin[r].size)
+            *size = vend - (ULONG_PTR)base;
+        return FALSE;
+    }
+    if ((r = ios_thin_find( (ULONG_PTR)base, FALSE )) < 0) return FALSE;
+    if (!*size) *size = ios_thin[r].base + ios_thin[r].size - (ULONG_PTR)base;
+    return TRUE;
+}
+
+/* virtual_mutex held, after a successful MEM_RELEASE at base. */
+static void ios_thin_released( void *base )
+{
+    unsigned i;
+
+    for (i = 0; i < ios_thin_n; i++)
+    {
+        struct ios_thin_res *t = &ios_thin[i];
+
+        if (!t->live || t->base != (ULONG_PTR)base || find_view( base, 0 )) continue;
+        ios_thin_arenas[t->arena].used[t->slot] = 0;
+        t->live = 0;
+        ios_thin_live_n--;
+        dprintf( 2, "[thin] %p released (highest commit +0x%lx, %u live)\n", base,
+                 (unsigned long)t->hw, ios_thin_live_n );
+        return;
+    }
+}
+
+/* After fill_basic_memory_info: report a thin tail as part of its reservation. */
+static void ios_thin_fix_query( const void *addr, MEMORY_BASIC_INFORMATION *info )
+{
+    ULONG_PTR a = (ULONG_PTR)addr & ~page_mask, end, next;
+    sigset_t sigset;
+    int r;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    if (info->State == MEM_FREE && (r = ios_thin_find( a, FALSE )) >= 0)
+    {
+        end = ios_thin[r].base + ios_thin[r].size;
+        if ((next = ios_thin_next_base( a )) && next < end) end = next;
+        info->BaseAddress       = (void *)a;
+        info->AllocationBase    = (void *)ios_thin[r].base;
+        info->AllocationProtect = ios_thin[r].protect;
+        info->RegionSize        = end - a;
+        info->State             = MEM_RESERVE;
+        info->Protect           = 0;
+        info->Type              = MEM_PRIVATE;
+    }
+    else if (info->State == MEM_RESERVE &&
+             (r = ios_thin_find( (ULONG_PTR)info->AllocationBase, TRUE )) >= 0 &&
+             ios_thin[r].base == (ULONG_PTR)info->AllocationBase &&
+             (ULONG_PTR)info->BaseAddress + info->RegionSize == ios_thin[r].base + ios_thin_head)
+    {
+        end = ios_thin[r].base + ios_thin[r].size;
+        if ((next = ios_thin_next_base( ios_thin[r].base )) && next < end) end = next;
+        info->RegionSize = end - (ULONG_PTR)info->BaseAddress;
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+}
+#endif /* WINE_IOS */
+
 static NTSTATUS allocate_virtual_memory( void **ret, SIZE_T *size_ptr, ULONG type, ULONG protect,
                                          ULONG_PTR limit_low, ULONG_PTR limit_high,
                                          ULONG_PTR align, ULONG attributes )
@@ -19581,6 +20064,16 @@ static NTSTATUS allocate_virtual_memory( void **ret, SIZE_T *size_ptr, ULONG typ
      * below 4 GB is mappable on iOS, so it can never be a host constraint.
      * A no-op for a process without a window. */
     ios_wow_translate_limits( &limit_low, &limit_high );
+
+    /* Madeira: see ios_thin_reserve. */
+    if (!*ret && type == MEM_RESERVE && !limit_low && !limit_high && !align && !attributes)
+    {
+        NTSTATUS thin_status;
+
+        if (ios_thin_reserve( ret, size_ptr, protect, &thin_status )) return thin_status;
+    }
+    else if (*ret && (type & MEM_COMMIT) && !(type & MEM_RESERVE) && ios_thin_live_n)
+        ios_thin_note_commit( *ret, *size_ptr );
 #endif
 
     /* Round parameters to a page boundary */
@@ -22669,6 +23162,17 @@ NTSTATUS WINAPI NtFreeVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T *si
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
 
+#ifdef WINE_IOS
+    /* Madeira: a thin reservation's tail holds nothing; see ios_thin_reserve. */
+    if (ios_thin_live_n && type == MEM_DECOMMIT && base && ios_thin_decommit_fixup( base, &size ))
+    {
+        *addr_ptr = base;
+        *size_ptr = size;
+        server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+        return STATUS_SUCCESS;
+    }
+#endif
+
     /* avoid freeing the DOS area when a broken app passes a NULL pointer */
     if (!base)
     {
@@ -22711,6 +23215,9 @@ NTSTATUS WINAPI NtFreeVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T *si
     {
         *addr_ptr = base;
         *size_ptr = size;
+#ifdef WINE_IOS
+        if ((type & MEM_RELEASE) && ios_thin_live_n) ios_thin_released( base );
+#endif
     }
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
     return status;
@@ -23358,6 +23865,9 @@ static unsigned int get_basic_memory_info( HANDLE process, LPCVOID addr,
     }
 
     if ((status = fill_basic_memory_info( addr, info ))) return status;
+#ifdef WINE_IOS
+    if (ios_thin_live_n) ios_thin_fix_query( addr, info );
+#endif
 
     if (res_len) *res_len = sizeof(*info);
     return STATUS_SUCCESS;

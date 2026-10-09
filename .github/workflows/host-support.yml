@@ -31,6 +31,7 @@ jobs:
         run: |
           python3 tests/host/check-udp-control.py --require-tools
           python3 tests/host/check-audio-downmix.py
+          python3 tests/host/check-thin-reserve-policy.py
       - name: Compile audio driver and app bridge against the iOS SDK
         run: |
           sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -40,3 +41,6 @@ jobs:
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
             -miphoneos-version-min=17.0 -fobjc-arc -fsyntax-only \
             app/Madeira/WineProcessBridge.m
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
+            -miphoneos-version-min=17.0 -fobjc-arc -fsyntax-only \
+            app/Madeira/IOSDisplayShim.m app/Madeira/Winios/WiniosGL.m

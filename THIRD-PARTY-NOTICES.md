@@ -1,5 +1,12 @@
 # Third-party components
 
+Desktop OpenGL integration ports c-gow/Madeira `opengl-test-7` (`a144444`).
+Wine OpenGL changes and the winios C driver remain LGPL-2.1-or-later;
+the iOS presenter/build integration retains the Madeira converter licence.
+Mesa 25.0.7 and the six Mesa patches use Mesa's MIT licence. MoltenVK 1.4.2,
+SPIRV-Cross and SPIRV-Tools use Apache-2.0; cereal uses BSD-3-Clause.
+Native bootstrap stages their licence texts into `app/Madeira/licenses`.
+
 Madeira is built from several upstream projects plus original work. Each
 component keeps its own license. This file records what is here, what ships in
 the binary, and what is still unresolved.

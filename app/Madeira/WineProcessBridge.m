@@ -489,8 +489,43 @@ int wine_crash_exit_status(uint32_t *status) {
 }
 static char *g_prefix_path = NULL;
 
+static void madeira_prepare_opengl_backend(void) {
+    NSString *dir = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"gl"];
+    char choice[32] = "auto";
+    const char *profile = getenv("_MADEIRA_GL_PROFILE");
+    if (profile && *profile) setenv("MADEIRA_GL_BACKEND", profile, 1);
+    const char *requested = getenv("MADEIRA_GL_BACKEND");
+    if (!requested || !*requested) {
+        madeira_cfg_get("gl-backend", choice, sizeof(choice));
+        if (!choice[0]) strlcpy(choice, "auto", sizeof(choice));
+        setenv("MADEIRA_GL_BACKEND", choice, 1);
+    }
+    setenv("MADEIRA_GL_DIR", dir.UTF8String, 1);
+    setenv("MESA_SHADER_CACHE_MAX_SIZE", "256M", 0);
+    const char *thin = getenv("_MADEIRA_THIN_PROFILE");
+    setenv("MADEIRA_THIN_RESERVE", thin && !strcmp(thin, "1") ? "1" : "0", 1);
+    // Namespace disk shaders by both renderer binaries to avoid stale shaders.
+    NSString *identity = [NSString stringWithContentsOfFile:[dir stringByAppendingPathComponent:@"backend.version"]
+                                                  encoding:NSUTF8StringEncoding error:nil];
+    identity = [identity stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSCharacterSet *hex = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"];
+    if (identity.length == 64 && [identity rangeOfCharacterFromSet:hex.invertedSet].location == NSNotFound) {
+        const char *docsPath = getenv("MADEIRA_DOCS_DIR");
+        NSString *docs = docsPath ? [NSString stringWithUTF8String:docsPath] : NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        NSString *cache = [[docs stringByAppendingPathComponent:@"madeira-gl-cache"] stringByAppendingPathComponent:identity];
+        if ([[NSFileManager defaultManager] createDirectoryAtPath:cache withIntermediateDirectories:YES attributes:nil error:nil])
+            setenv("MESA_SHADER_CACHE_DIR", cache.UTF8String, 1);
+    }
+}
+
+static int madeira_angle_route_allowed(void) {
+    const char *backend = getenv("MADEIRA_GL_BACKEND");
+    return !backend || !strcmp(backend, "auto") || !strcmp(backend, "angle");
+}
+
 /* Re-applied between child games without rewriting live registry/DLL farms. */
 void wine_prepare_game_compatibility(void) {
+    madeira_prepare_opengl_backend();
     if (getenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV")) {
         unsetenv("SDL_OPENGL_ES_DRIVER"); unsetenv("LOVE_GRAPHICS_USE_OPENGLES");
         unsetenv("ANGLE_DEFAULT_PLATFORM"); unsetenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV");
@@ -501,7 +536,7 @@ void wine_prepare_game_compatibility(void) {
     }
     NSString *bundle = NSBundle.mainBundle.bundlePath;
     const char *mode = getenv("_MADEIRA_OPENGL_ANGLE_MODE");
-    if (mode && *mode && madeira_cfg_bool("env.MADEIRA_OPENGL_ANGLE", 1)) {
+    if (mode && *mode && madeira_angle_route_allowed() && madeira_cfg_bool("env.MADEIRA_OPENGL_ANGLE", 1)) {
         NSString *egl = [bundle stringByAppendingPathComponent:@"arm64ec-windows/libEGL.dll"];
         NSString *gles = [bundle stringByAppendingPathComponent:@"arm64ec-windows/libGLESv2.dll"];
         if ([[NSFileManager defaultManager] fileExistsAtPath:egl] && [[NSFileManager defaultManager] fileExistsAtPath:gles]) {
@@ -514,6 +549,7 @@ void wine_prepare_game_compatibility(void) {
     if (getenv("_MADEIRA_LUA51_GC64") && [[NSFileManager defaultManager] fileExistsAtPath:gc64])
         setenv("_MADEIRA_LUA51_GC64_PATH", gc64.UTF8String, 1);
     else unsetenv("_MADEIRA_LUA51_GC64_PATH");
+    if (!strcmp(getenv("MADEIRA_GL_BACKEND"), "gles")) setenv("LOVE_GRAPHICS_USE_OPENGLES", "1", 1);
 }
 
 /* Export MADEIRA_DOCS_DIR before main(), while HOME is still the app container.
@@ -1398,6 +1434,8 @@ static void *wine_process_thread(void *arg) {
             // native footprint monitor refreshes it outside the allocator lock.
             ios_swap_pressure_update((uint64_t)os_proc_available_memory());
 
+            madeira_prepare_opengl_backend();
+            if (!strcmp(getenv("MADEIRA_GL_BACKEND"), "gles")) setenv("LOVE_GRAPHICS_USE_OPENGLES", "1", 1);
             /* Generic OpenGL ES route for detected LÖVE and SDL runtimes:
              * SDL's Windows backend officially loads libEGL/libGLESv2 when
              * SDL_OPENGL_ES_DRIVER is enabled. ANGLE emits D3D11 calls, DXMT
@@ -1410,7 +1448,7 @@ static void *wine_process_thread(void *arg) {
                 const char *option = getenv("MADEIRA_OPENGL_ANGLE");
                 BOOL disabled = option && (!strcmp(option, "0") || !strcasecmp(option, "false") ||
                                            !strcasecmp(option, "off") || !strcasecmp(option, "no"));
-                if (mode && *mode && !disabled) {
+                if (mode && *mode && madeira_angle_route_allowed() && !disabled) {
                     NSString *egl = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/libEGL.dll"];
                     NSString *gles = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/libGLESv2.dll"];
                     if ([[NSFileManager defaultManager] fileExistsAtPath:egl] &&

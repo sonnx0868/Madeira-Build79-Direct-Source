@@ -138,6 +138,10 @@
 		A1000281 /* Winios/WiniosCursor.c in Sources */ = {isa = PBXBuildFile; fileRef = A2000281 /* Winios/WiniosCursor.c */; };
 		A1000245 /* TouchGamepad.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000245 /* TouchGamepad.swift */; };
 		A1000246 /* TouchControlPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000246 /* TouchControlPresets.swift */; };
+		C1000E01 /* Winios/WiniosGL.m in Sources */ = {isa = PBXBuildFile; fileRef = C2000E01 /* Winios/WiniosGL.m */; };
+		C1000E02 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C2000E02 /* OpenGLES.framework */; };
+		C1000E03 /* IOSurface.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C2000E03 /* IOSurface.framework */; };
+		C1000E04 /* gl in Resources */ = {isa = PBXBuildFile; fileRef = C2000E04 /* gl */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -322,6 +326,10 @@
 		A2000281 /* Winios/WiniosCursor.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "Winios/WiniosCursor.c"; sourceTree = "<group>"; };
 		A2000245 /* TouchGamepad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchGamepad.swift; sourceTree = "<group>"; };
 		A2000246 /* TouchControlPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchControlPresets.swift; sourceTree = "<group>"; };
+		C2000E01 /* Winios/WiniosGL.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = Winios/WiniosGL.m; sourceTree = "<group>"; };
+		C2000E02 /* OpenGLES.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGLES.framework; path = System/Library/Frameworks/OpenGLES.framework; sourceTree = SDKROOT; };
+		C2000E03 /* IOSurface.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOSurface.framework; path = System/Library/Frameworks/IOSurface.framework; sourceTree = SDKROOT; };
+		C2000E04 /* gl */ = {isa = PBXFileReference; lastKnownFileType = folder; path = gl; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -345,6 +353,8 @@
 				A1000052 /* Metal.framework in Frameworks */,
 				A1000053 /* QuartzCore.framework in Frameworks */,
 				A1000054 /* MetalFX.framework in Frameworks */,
+				C1000E02 /* OpenGLES.framework in Frameworks */,
+				C1000E03 /* IOSurface.framework in Frameworks */,
 				A1000055 /* libsqlite3.tbd in Frameworks */,
 				A1000615 /* liblzma.tbd in Frameworks */,
 				A1000060 /* libwin32u_unix.a in Frameworks */,
@@ -485,6 +495,7 @@
 				A2000210 /* i386-windows */,
 				A20000D1 /* d3d12 */,
 				A20000D2 /* licenses */,
+				C2000E04 /* gl */,
 				A2000081 /* x86_64-vcruntime */,
 				A2000040 /* prefix-template.tar.gz */,
 				A2000094 /* cacert.pem */,
@@ -493,6 +504,7 @@
 				A2000050 /* IOSDisplayShim.m */,
 				A2000056 /* IOSDisplayShim.h */,
 				A2000070 /* Winios/Winios.m */,
+				C2000E01 /* Winios/WiniosGL.m */,
 				A2000071 /* Winios/Winios.h */,
 				A2000034 /* wine_stubs.c */,
 				A2000006 /* Madeira-Bridging-Header.h */,
@@ -530,6 +542,8 @@
 				A2000052 /* Metal.framework */,
 				A2000053 /* QuartzCore.framework */,
 				A2000054 /* MetalFX.framework */,
+				C2000E02 /* OpenGLES.framework */,
+				C2000E03 /* IOSurface.framework */,
 				A2000055 /* libsqlite3.tbd */,
 				A2000615 /* liblzma.tbd */,
 				A2000060 /* libwin32u_unix.a */,
@@ -654,6 +668,7 @@
 				A1000210 /* i386-windows in Resources */,
 				A10000D1 /* d3d12 in Resources */,
 				A10000D2 /* licenses in Resources */,
+				C1000E04 /* gl in Resources */,
 				A1000081 /* x86_64-vcruntime in Resources */,
 				A1000040 /* prefix-template.tar.gz in Resources */,
 				A1000094 /* cacert.pem in Resources */,
@@ -679,7 +694,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Licence texts bundled with the converter must match their sources (staged by\n# build/madeira-d3d12/fetch-converter.sh); stale copies fail the build.\nfor pair in COPYING:LICENSE-MADEIRA-GPL-3.0.txt LICENSE-EXCEPTION.md:LICENSE-MADEIRA-EXCEPTION.txt; do\n  src=\"$SRCROOT/../${pair%%:*}\"; dst=\"$CODESIGNING_FOLDER_PATH/licenses/${pair##*:}\"\n  if [ ! -f \"$dst\" ] || ! cmp -s \"$src\" \"$dst\"; then echo \"error: bundled ${pair##*:} is missing or stale; run build/stage-licenses.sh\"; exit 1; fi\ndone\n# A loose dylib copied as a resource is sealed by the bundle\n# signature but is not itself re-signed, and dyld will not load code\n# whose own signature does not match. Sign it with whatever identity\n# this configuration resolved to, rather than hardcoding one.\nDYLIB=\"$CODESIGNING_FOLDER_PATH/d3d12/libmetalirconverter.dylib\"\n[ -f \"$DYLIB\" ] || exit 0\nif [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ] && [ \"$CODE_SIGNING_ALLOWED\" != \"NO\" ]; then\n  codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$DYLIB\"\nelse\n  codesign --force --sign - \"$DYLIB\"\nfi\n";
+			shellScript = "# Licence texts bundled with the converter must match their sources (staged by\n# build/madeira-d3d12/fetch-converter.sh); stale copies fail the build.\nfor pair in COPYING:LICENSE-MADEIRA-GPL-3.0.txt LICENSE-EXCEPTION.md:LICENSE-MADEIRA-EXCEPTION.txt; do\n  src=\"$SRCROOT/../${pair%%:*}\"; dst=\"$CODESIGNING_FOLDER_PATH/licenses/${pair##*:}\"\n  if [ ! -f \"$dst\" ] || ! cmp -s \"$src\" \"$dst\"; then echo \"error: bundled ${pair##*:} is missing or stale; run build/stage-licenses.sh\"; exit 1; fi\ndone\n# A loose dylib copied as a resource is sealed by the bundle\n# signature but is not itself re-signed, and dyld will not load code\n# whose own signature does not match. Sign each one with whatever identity\n# this configuration resolved to, rather than hardcoding one:\n# d3d12/ (Metal Shader Converter) and gl/ (Mesa OSMesa + MoltenVK).\nfor DYLIB in \"$CODESIGNING_FOLDER_PATH\"/d3d12/*.dylib \"$CODESIGNING_FOLDER_PATH\"/gl/*.dylib; do\n  [ -f \"$DYLIB\" ] || continue\n  if [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ] && [ \"$CODE_SIGNING_ALLOWED\" != \"NO\" ]; then\n    codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --timestamp=none \"$DYLIB\"\n  else\n    codesign --force --sign - \"$DYLIB\"\n  fi\ndone\n";
 		};
 		B3000007 /* Embed StikJIT */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -777,6 +792,7 @@
 				A1000041 /* PrefixExtractor.c in Sources */,
 				A1000050 /* IOSDisplayShim.m in Sources */,
 				A1000070 /* Winios/Winios.m in Sources */,
+				C1000E01 /* Winios/WiniosGL.m in Sources */,
 				A1000035 /* StikJITHelper.swift in Sources */,
 				B1000001 /* JITSetup.swift in Sources */,
 				B1000050 /* JITNetwork.swift in Sources */,

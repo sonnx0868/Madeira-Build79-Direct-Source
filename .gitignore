@@ -12,6 +12,12 @@ research/FEX/
 research/gamescope/
 research/LiveContainer/
 research/MoltenVK/
+research/madeira-moltenvk-v1.4.2/
+research/mesa-25.0.7/
+research/mesa-venv/
+build/mesa-ios/obj/
+app/Madeira/gl/*.dylib
+app/Madeira/gl/*.version
 research/ProjectChampollion/
 research/Proton/
 research/StikDebug/

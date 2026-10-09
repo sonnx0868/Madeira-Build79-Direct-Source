@@ -166,6 +166,14 @@ static void my_release_metal_device(macdrv_metal_device d) {
 }
 
 // The critical two: return a "view" handle that maps to the CAMetalLayer.
+CAMetalLayer *madeira_display_layer_for_hwnd(void *hwnd) {
+    if (madeira_desktop_mode()) return winios_metal_layer_for_hwnd(hwnd);
+    pthread_mutex_lock(&g_lock);
+    CAMetalLayer *layer = g_layer;
+    pthread_mutex_unlock(&g_lock);
+    return layer;
+}
+
 // We pack the layer pointer directly. `v` carries the swapchain's HWND
 // (see my_get_win_data). Desktop mode: per-window layer in the desktop
 // compositor. Game mode: the fullscreen singleton, exactly as before.

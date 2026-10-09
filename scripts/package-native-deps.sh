@@ -27,6 +27,12 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/lua51-gc64.dll \
   app/Madeira/arm64ec-windows/libEGL.dll \
   app/Madeira/arm64ec-windows/libGLESv2.dll \
+  app/Madeira/arm64ec-windows/gdiplus.dll \
+  app/Madeira/arm64ec-windows/mlang.dll \
+  app/Madeira/arm64ec-windows/sspicli.dll \
+  app/Madeira/arm64ec-windows/opengl32.dll \
+  app/Madeira/arm64ec-windows/glu32.dll \
+  app/Madeira/gl \
   app/Madeira/arm64ec-windows/wintypes.dll \
   app/Madeira/arm64ec-windows/d3dcompiler_47.dll \
   app/Madeira/arm64ec-windows/wined3d.dll \
@@ -37,6 +43,11 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/dockhost.exe \
   app/Madeira/aarch64-windows/madeira-session-host.exe \
   app/Madeira/arm64ec-windows/dock-notices.txt \
-  app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html)
+  app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html \
+  app/Madeira/licenses/Mesa-license.rst \
+  app/Madeira/licenses/MoltenVK-Apache-2.0.txt \
+  app/Madeira/licenses/SPIRV-Cross-Apache-2.0.txt \
+  app/Madeira/licenses/SPIRV-Tools-Apache-2.0.txt \
+  app/Madeira/licenses/cereal-BSD-3-Clause.txt)
 echo "Created $output"
 shasum -a 256 "$output"

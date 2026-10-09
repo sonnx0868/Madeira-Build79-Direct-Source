@@ -94,6 +94,7 @@ log "Rebuild Wine controller PE bridge"
 bash "$root/build/wine-pe/build-controller.sh"
 bash "$root/build/wine-pe/build-wintypes.sh"
 bash "$root/build/wine-pe/build-d3dcompiler.sh"
+bash "$root/build/wine-pe/build-modules.sh" gdiplus mlang sspicli opengl32 glu32
 
 log "Build FEX iOS"
 bash "$root/build/fex-ios/build.sh"
@@ -113,6 +114,8 @@ test "$(git -C "$root/research/freetype" rev-parse HEAD)" = 42608f77f20749dd6ddc
 bash "$root/build/freetype-ios/build.sh"
 
 log "Build Wine iOS static archives"
+bash "$root/build/moltenvk-ios/build.sh"
+bash "$root/build/mesa-ios/build.sh"
 bash "$root/build/wineserver/build.sh"
 bash "$root/build/ntdll-unix/build.sh"
 bash "$root/build/win32u-unix/build.sh"

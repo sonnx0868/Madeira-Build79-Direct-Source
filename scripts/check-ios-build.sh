@@ -24,6 +24,14 @@ for path in \
   app/Madeira/arm64ec-windows/wintypes.dll \
   app/Madeira/arm64ec-windows/d3dcompiler_47.dll \
   app/Madeira/arm64ec-windows/wined3d.dll \
+  app/Madeira/arm64ec-windows/gdiplus.dll \
+  app/Madeira/arm64ec-windows/mlang.dll \
+  app/Madeira/arm64ec-windows/sspicli.dll \
+  app/Madeira/arm64ec-windows/opengl32.dll \
+  app/Madeira/arm64ec-windows/glu32.dll \
+  app/Madeira/gl/libOSMesa.dylib \
+  app/Madeira/gl/libMoltenVK.dylib \
+  app/Madeira/gl/backend.version \
   app/Madeira/arm64ec-windows/dockhost.exe; do need "$path"; done
 
 for dll in win32u.dll user32.dll dinput.dll dinput8.dll \
@@ -102,6 +110,12 @@ if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
   }
 fi
 if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
+  grep -a -q 'opengl32 (winios WGL)' "$root/app/Madeira/libntdll_unix.a" || {
+    echo "INVALID: libntdll_unix.a lacks the OpenGL unix dispatch; rebuild source-bootstrap"; missing=1;
+  }
+  grep -a -q 'THIN_RESERVE' "$root/app/Madeira/libntdll_unix.a" || {
+    echo "INVALID: libntdll_unix.a lacks optional thin reservations; rebuild source-bootstrap"; missing=1;
+  }
   grep -a -q 'ml1230 pacing stream' "$root/app/Madeira/libntdll_unix.a" || {
     echo "INVALID: libntdll_unix.a lacks ring-fill audio pacing; rebuild source-bootstrap"; missing=1;
   }

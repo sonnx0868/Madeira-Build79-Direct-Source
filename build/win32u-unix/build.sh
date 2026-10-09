@@ -127,6 +127,8 @@ for src in $WINE_SRC/dlls/win32u/*.c $WINE_SRC/dlls/win32u/dibdrv/*.c; do
 done
 
 echo ""
+compile_one "$BUILD_DIR/opengl_ios.c" "opengl_ios"
+
 echo "Results: $SUCCEEDED succeeded, $FAILED failed"
 if [ -n "$FAILED_FILES" ]; then
     echo "Failed:$FAILED_FILES"

@@ -18,6 +18,7 @@ void madeira_display_set_layer(CAMetalLayer *layer);
 
 // Posted (on the main queue) when the guest's virtual monitor changes size.
 extern NSString * const MadeiraDisplayModeChangedNotification;
+CAMetalLayer *madeira_display_layer_for_hwnd(void *hwnd);
 #endif
 
 // The guest's virtual-monitor size in guest pixels, for the front end's

@@ -281,7 +281,7 @@ enum DiagnosticEvents {
     }
     static func begin(_ entry: LibraryEntry) {
         LogStore.shared.recordTest(entry)
-        sampledAt = Date(); lastFrames = madeira_get_present_count()
+        sampledAt = Date(); lastFrames = madeira_frame_count()
         sessionStartFrames = lastFrames
         phase("launch")
         LogStore.shared.log("[diagnostics] bits=\(entry.bits) api=\(entry.graphicsAPI ?? "unknown") resolution=\(entry.resolution) display=\(entry.displayMode.rawValue) controller=\(entry.controllerMode ?? "default") fpsMode=\(entry.effectiveFPSMode) cpuChoice=\(entry.cpuCount.map(String.init) ?? "auto") unityProfile=\(entry.unityOptimizations != false ? 1 : 0)")
@@ -305,7 +305,7 @@ enum DiagnosticEvents {
         // suspension or VM-map walks. Keep it in ordinary gameplay reports.
         let now = Date(), elapsed = now.timeIntervalSince(sampledAt)
         guard elapsed >= 10 else { return }
-        let frames = madeira_get_present_count()
+        let frames = madeira_frame_count()
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {

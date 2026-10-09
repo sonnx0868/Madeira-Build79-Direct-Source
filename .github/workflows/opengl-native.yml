@@ -1,0 +1,91 @@
+name: OpenGL native integration
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/log-upload-updates]
+    paths:
+      - build/mesa-ios/**
+      - build/moltenvk-ios/**
+      - build/win32u-unix/opengl_ios.c
+      - build/ntdll-unix/virtual_ios.c
+      - patches/wine-opengl-winios.patch
+      - .github/workflows/opengl-native.yml
+permissions:
+  contents: read
+concurrency:
+  group: madeira-opengl-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      JOBS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            research/madeira-moltenvk-v1.4.2
+            research/mesa-25.0.7
+            research/mesa-venv
+            build/mesa-ios/obj
+          key: madeira-gl-${{ runner.os }}-${{ hashFiles('build/moltenvk-ios/build.sh', 'build/mesa-ios/build.sh', 'build/mesa-ios/patches/*') }}
+          restore-keys: madeira-gl-${{ runner.os }}-
+      - name: Install host tools and pinned llvm-mingw
+        run: |
+          brew install bison flex meson ninja
+          name=llvm-mingw-20260421-ucrt-macos-universal
+          mkdir -p toolchains
+          curl --fail --location --retry 3 "https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/$name.tar.xz" -o /tmp/madeira-mingw.tar.xz
+          printf '%s  %s\n' bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7 /tmp/madeira-mingw.tar.xz | shasum -a 256 -c -
+          tar -xJf /tmp/madeira-mingw.tar.xz -C toolchains
+          echo "$PWD/toolchains/$name/bin" >> "$GITHUB_PATH"
+          echo /opt/homebrew/opt/bison/bin >> "$GITHUB_PATH"
+          echo /opt/homebrew/opt/flex/bin >> "$GITHUB_PATH"
+      - name: Configure Wine and rebuild the GL and compatibility PE modules
+        run: |
+          git submodule update --init --depth 1 wine
+          bash scripts/apply-wine-patches.sh
+          mkdir -p wine/build-macos wine/build-arm64ec
+          (cd wine/build-macos && ../configure --enable-archs=aarch64 --without-x --without-vulkan --without-freetype --without-gnutls --disable-tests)
+          make -C wine/build-macos -j4 include/all tools/widl/all tools/winebuild/all
+          (cd wine/build-arm64ec && ../configure --enable-archs=arm64ec --without-x --without-vulkan --without-freetype --without-gnutls --disable-tests)
+          make -C wine/build-arm64ec -j4 include/all tools/widl/all tools/winebuild/all
+          bash build/wine-pe/build-modules.sh gdiplus mlang sspicli opengl32 glu32
+      - name: Compile native WGL driver and OpenGL unix dispatch
+        run: |
+          bash build/win32u-unix/build.sh
+          sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          for source in build/ntdll-unix/virtual_ios.c wine/dlls/opengl32/unix_wgl.c wine/dlls/opengl32/unix_thunks.c; do
+            xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" -miphoneos-version-min=17.0 \
+              -Wno-implicit-function-declaration -Wno-int-conversion -fsyntax-only \
+              -include wine/build-macos/include/config.h -include build/ntdll-unix/shims/wine_ios_exit.h \
+              -Ibuild/ntdll-unix/shims -Ibuild/madsync -Iwine/build-macos/include -Iwine/include \
+              -Iwine/dlls/ntdll/unix -Iwine/dlls/ntdll -Iwine/build-macos/dlls/ntdll -Iwine/dlls/opengl32 \
+              -D__WINESRC__ -D_NTSYSTEM_ -D_ACRTIMP= -DWINBASEAPI= -DWINE_UNIX_LIB -DWINE_IOS=1 \
+              -DBINDIR='"/usr/local/bin"' -DLIBDIR='"/usr/local/lib"' -DDATADIR='"/usr/local/share"' -DSYSTEMDLLPATH='""' \
+              "$source"
+          done
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" -miphoneos-version-min=17.0 -fobjc-arc -fsyntax-only app/Madeira/Winios/WiniosGL.m
+          plutil -lint app/Madeira.xcodeproj/project.pbxproj
+      - name: Build MoltenVK and Mesa with all six shader fixes
+        run: |
+          bash build/moltenvk-ios/build.sh
+          bash build/mesa-ios/build.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: madeira-opengl-native
+          path: |
+            app/Madeira/gl
+            app/Madeira/arm64ec-windows/gdiplus.dll
+            app/Madeira/arm64ec-windows/mlang.dll
+            app/Madeira/arm64ec-windows/sspicli.dll
+            app/Madeira/arm64ec-windows/opengl32.dll
+            app/Madeira/arm64ec-windows/glu32.dll
+            app/Madeira/libwin32u_unix.a
+            app/Madeira/licenses/Mesa-license.rst
+            app/Madeira/licenses/*Apache*
+            app/Madeira/licenses/cereal-BSD-3-Clause.txt
+            build/win32u-unix/obj/*.err

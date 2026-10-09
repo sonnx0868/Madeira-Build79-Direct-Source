@@ -43,6 +43,11 @@ INT_READERS = {"madeira_cfg_int", "mad_cfg_int_pe"}
 # Titles, kinds and fixed choices for options with a dedicated Settings row.
 # "choices" are (value, label); the empty value means "remove the key".
 OVERLAY = {
+    "gl-backend": {"title": "OpenGL renderer", "kind": "choice", "default": "auto", "category": "OpenGL",
+        "note": "Automatic keeps ANGLE for detected OpenGL ES games and enables desktop OpenGL through Zink/MoltenVK. A game's renderer choice takes priority. Restart Madeira after changing a native renderer.",
+        "choices": [("", "Automatic"), ("zink", "Desktop OpenGL (Zink)"), ("gles", "Native OpenGL ES"), ("angle", "ANGLE (OpenGL ES)")]},
+    "env.MADEIRA_THIN_RESERVE": {"title": "Thin reservations", "kind": "bool", "default": "0", "category": "Memory & JIT pool",
+        "note": "Experimental and controlled per game in Game details. Off by default. Compact reservations can fail or overlap memory for unsupported allocation patterns."},
     "env.MADEIRA_SWAP_PRESSURE": {"category": "Memory & JIT pool", "title": "Swap under memory pressure", "kind": "choice",
         "note": "The Unity smoothness profile keeps fresh allocations in RAM while headroom exceeds the incoming allocation plus 2 GB. Existing data and the configured swap capacity are retained. Unknown or low headroom uses the configured backing policy.",
         "choices": [("", "Unity profile default"), ("1", "Only when memory is low"), ("0", "Always back eligible allocations")]},

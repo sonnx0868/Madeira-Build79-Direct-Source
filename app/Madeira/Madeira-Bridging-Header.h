@@ -20,6 +20,7 @@ void wine_set_ui_log_callback(wine_ui_log_callback_t cb);
 // DXMT present counter (winemetal_unix.c) — for SwiftUI FPS overlay
 #include <stdint.h>
 uint64_t madeira_get_present_count(void);
+uint64_t madeira_frame_count(void);
 // ml1098: ask the D3D12 runtime to capture the next N frames (winemetal_unix.c)
 void madeira_capture_request(int frames);
 // ml1133: ECO switch (ntdll unix sync.c). 1 = every guest thread drops to a

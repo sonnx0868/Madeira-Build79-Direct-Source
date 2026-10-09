@@ -222,6 +222,10 @@ struct LibraryEntry: Codable, Identifiable {
     /// Direct-folder Unity smoothness profile. Nil is on for backward
     /// compatibility; false is an explicit per-game opt-out.
     var unityOptimizations: Bool?
+    /// Native WGL backend changes require restarting Madeira.
+    var glBackend: String?
+    /// Optional experimental compact reservations for this game session.
+    var thinReserve: Bool?
     /// D3D9 anisotropic filtering limit (DXMT_D9_ANISO_LIMIT: 1, 2, 4 or 8);
     /// nil = the application's own choice.
     var anisotropyLimit: Int?
@@ -331,6 +335,12 @@ struct LibraryEntry: Codable, Identifiable {
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
         let unityProfile = unitySmoothnessEnabled
+        if let glBackend, ["zink", "gles", "angle"].contains(glBackend) {
+            setenv("MADEIRA_GL_BACKEND", glBackend, 1)
+            setenv("_MADEIRA_GL_PROFILE", glBackend, 1)
+        } else { unsetenv("MADEIRA_GL_BACKEND"); unsetenv("_MADEIRA_GL_PROFILE") }
+        setenv("MADEIRA_THIN_RESERVE", thinReserve == true ? "1" : "0", 1)
+        setenv("_MADEIRA_THIN_PROFILE", thinReserve == true ? "1" : "0", 1)
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
         else if unityProfile { setenv("MADEIRA_CPU_COUNT", "4", 1) }
         else { unsetenv("MADEIRA_CPU_COUNT") }
@@ -1105,7 +1115,7 @@ final class LibraryModel: ObservableObject {
         quitting = false
         LibraryController.shared.configure(enabled: enabled, ownsInput: false)
         Self.sessionsThisRun += 1
-        launchPresent = madeira_get_present_count(); launchStarted = Date(); launchSlow = false; launchLogs = entry.liveLogs
+        launchPresent = madeira_frame_count(); launchStarted = Date(); launchSlow = false; launchLogs = entry.liveLogs
         launchSurface = winios_surface_present_count()
         MetalBackedView.presentCountAtLaunch = launchPresent; laidOutAfterFirstPresent = false
         launching = true; overlayFields = entry.overlayFields ?? ["FPS", "Frame time", "RAM", "Battery"]
@@ -1154,12 +1164,12 @@ final class LibraryModel: ObservableObject {
         if dockStart.active {
             // A Dock start: the desktop's own frames (explorer, the host's console window)
             // do not end this starting screen; the game's window does (DockStartScreen).
-            dockStart.poll(self, rendered: madeira_get_present_count() >= launchPresent + 3)
+            dockStart.poll(self, rendered: madeira_frame_count() >= launchPresent + 3)
         }
         if dockStart.holding {
             if launching && !launchSlow && Date().timeIntervalSince(launchStarted) > 30 { launchSlow = true }
         } else if launching {
-            if madeira_get_present_count() >= launchPresent + 3 {
+            if madeira_frame_count() >= launchPresent + 3 {
                 showGameView(reason: "present")
             } else if winios_surface_present_count() > launchSurface {
                 showGameView(reason: "surface")
@@ -1175,7 +1185,7 @@ final class LibraryModel: ObservableObject {
             if sessionMessage == "Starting…" { sessionMessage = "" }
         } else if sawProcess && wineserver_is_running() == 0 { finish() }
         // The first frame gives Aspect and Fill height the drawable's shape.
-        if current != nil, !laidOutAfterFirstPresent, madeira_get_present_count() != MetalBackedView.presentCountAtLaunch {
+        if current != nil, !laidOutAfterFirstPresent, madeira_frame_count() != MetalBackedView.presentCountAtLaunch {
             laidOutAfterFirstPresent = true
             MetalBackedView.refreshDisplayMode(reason: "first-present")
         }
@@ -3016,6 +3026,19 @@ struct LibraryDetail: View {
                     }
                     FPSChoice(mode: $entry.fpsMode)
                 }
+                Section("OpenGL & memory compatibility") {
+                    Picker("OpenGL renderer", selection: Binding(get: { entry.glBackend ?? "auto" }, set: { entry.glBackend = $0 == "auto" ? nil : $0 })) {
+                        Text("Automatic").tag("auto")
+                        Text("Desktop OpenGL (Zink)").tag("zink")
+                        Text("Native OpenGL ES").tag("gles")
+                        Text("ANGLE (OpenGL ES)").tag("angle")
+                    }
+                    Text("Change the renderer, save, then restart Madeira before testing it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Toggle("Thin reservations (experimental)", isOn: Binding(get: { entry.thinReserve ?? false }, set: { entry.thinReserve = $0 }))
+                    Text("Off by default. An experiment for Mewgenics-style memory reservations. Other allocation patterns can fail or overlap memory; enable only for a game that needs it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section {
                     Toggle("Reduced-precision x87", isOn: $entry.reducedX87)
                     // Exported for this game only when chosen (applyEnvironment).
@@ -3948,10 +3971,10 @@ struct LibraryMetrics: View {
         Text(parts.joined(separator: "  ·  "))
             .font(.caption.monospacedDigit().weight(.medium)).padding(.horizontal, 12).padding(.vertical, 8)
             .background(.black.opacity(0.8), in: Capsule()).foregroundStyle(.white)
-            .onAppear { lastCount = madeira_get_present_count(); lastTime = Date(); UIDevice.current.isBatteryMonitoringEnabled = true }
+            .onAppear { lastCount = madeira_frame_count(); lastTime = Date(); UIDevice.current.isBatteryMonitoringEnabled = true }
             .onDisappear { UIDevice.current.isBatteryMonitoringEnabled = false }
             .onReceive(ticks) { now in
-                let count = madeira_get_present_count(); let dt = now.timeIntervalSince(lastTime)
+                let count = madeira_frame_count(); let dt = now.timeIntervalSince(lastTime)
                 fps = count >= lastCount ? Double(count - lastCount) / max(0.001, dt) : 0; lastCount = count; lastTime = now
                 var info = task_vm_info_data_t(); var size = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
                 let result = withUnsafeMutablePointer(to: &info) { $0.withMemoryRebound(to: integer_t.self, capacity: Int(size)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &size) } }
