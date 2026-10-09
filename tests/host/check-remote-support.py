@@ -19,7 +19,15 @@ error = diagnostics[diagnostics.index("enum SupportError"):diagnostics.index("en
 snapshot = diagnostics[diagnostics.index("enum DiagnosticSnapshot"):diagnostics.index("@MainActor final class RemoteDiagnostics")]
 library = (root / "app/Madeira/Library.swift").read_text(encoding="utf-8")
 unity = library[library.index("enum UnityLaunch {"):library.index("enum ExternalGameCompatibility {")]
+fps = (root / "app/Madeira/FPSOverlay.swift").read_text(encoding="utf-8")
+rate_policy = fps[fps.index("    static func maxHz(for mode:"):fps.index("    /// Arms or releases the link")]
+display = "enum TestDisplayPolicy { static var panelMaxFPS = 120\n" + rate_policy + "}\n"
 checks = r'''
+for panel in [60, 120] {
+    TestDisplayPolicy.panelMaxFPS = panel
+    assert(TestDisplayPolicy.maxHz(for: 1) == 0 && TestDisplayPolicy.maxHz(for: 3) == 0)
+    assert(TestDisplayPolicy.maxHz(for: 0) == panel && TestDisplayPolicy.maxHz(for: 2) == panel)
+}
 let selected = UnityLaunch.arguments("", resolution: "2560x1440", matchResolution: true, forceD3D11: true)
 assert(selected == "-force-d3d11 -screen-width 2560 -screen-height 1440")
 assert(UnityLaunch.arguments(selected, resolution: "2560x1440", matchResolution: true, forceD3D11: true) == selected)
@@ -83,7 +91,12 @@ let linked = drive.appendingPathComponent("users/madeira/AppData/LocalLow/Linked
 try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: directory)
 let since = Date(timeIntervalSince1970: 900), before = Date(timeIntervalSince1970: 1100)
 let logs = DiagnosticCompanionLogs.find(in: drive, since: since, before: before)
-assert(logs.count == 2 && logs.contains { $0.url == player } && logs.contains { $0.url == steam })
+// macOS temporary paths may be spelled /var or /private/var. The collector
+// deliberately resolves symlinks before checking containment.
+let capturedPaths = Set(logs.map { $0.url.resolvingSymlinksInPath().path })
+let expectedPaths = Set([player, steam].map { $0.resolvingSymlinksInPath().path })
+assert(logs.count == 2 && capturedPaths == expectedPaths,
+       "Unexpected companion logs: \(capturedPaths), expected \(expectedPaths)")
 assert(DiagnosticCompanionLogs.find(in: drive, since: since, before: Date(timeIntervalSince1970: 950)).isEmpty)
 let bundled = try DiagnosticSnapshot.create(from: file, companions: logs)
 let bundleData = try Data(contentsOf: bundled.url)
@@ -106,6 +119,6 @@ print("PASS: Unity arguments, update rules, bounded session and companion snapsh
 with tempfile.TemporaryDirectory() as folder:
     source = Path(folder) / "main.swift"
     binary = Path(folder) / "check"
-    source.write_text(update + error + snapshot + unity + checks, encoding="utf-8")
+    source.write_text(update + error + snapshot + unity + display + checks, encoding="utf-8")
     subprocess.run([swift, str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

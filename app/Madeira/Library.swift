@@ -2489,7 +2489,6 @@ struct LibraryView: View {
                 Section("Pointer") { LibraryPointerSettings() }
             }
             if MadeiraConfig.flag("MADEIRA_RUNTIME_SETTINGS") {
-                if settingsShow("display", "refresh", "rate", "ProMotion", "120 Hz") { DisplayRateSettings() }
                 if settingsShow("memory", "JIT pool", "pool", "video memory", "VRAM", "swap", "coverage", "madsync", "sync", "eco", "all settings") {
                     RuntimeMemorySyncSettings(open: { settingsSheet = $0 }, refresh: settingsRefresh)
                 }
@@ -3374,25 +3373,6 @@ struct FPSChoice: View {
             if ProMotionIntent.has30Cap || mode == 3 { Text("30 FPS").tag(3) }
             Text("60 FPS").tag(1); Text("Display maximum").tag(0); Text("Uncapped").tag(2)
         }.labelsHidden().pickerStyle(.menu) }
-    }
-}
-
-/// Holding the display at its maximum refresh rate in the 60 FPS limit
-/// (madeira.cfg env.MADEIRA_PROMOTE = 1, off by default; see ProMotionIntent).
-/// Applies from the next session start or FPS limit change.
-struct DisplayRateSettings: View {
-    @State private var hold = ProMotionIntent.holdMaximum
-
-    var body: some View {
-        Section {
-            Toggle("Hold the display at its maximum rate", isOn: Binding(get: { hold }, set: { on in
-                hold = on
-                MadeiraConfig.set("env.MADEIRA_PROMOTE", on ? "1" : nil)
-                LogStore.shared.log("[runtime-settings] promote=\(on ? 1 : 0)")
-            }))
-        } header: { Text("Display") } footer: {
-            Text("Off by default. On a 120 Hz display, keeps the panel at 120 Hz during a game's 60 FPS limit so a frame that misses one refresh waits 8 ms instead of 17 ms. Uses more power.")
-        }
     }
 }
 

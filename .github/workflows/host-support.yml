@@ -1,0 +1,42 @@
+name: Host support and audio checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/log-upload-updates]
+    paths:
+      - app/Madeira/**
+      - build/ntdll-unix/audio_null_ios.c
+      - tests/host/**
+      - .github/workflows/host-support.yml
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned Wine source for UDP converter checks
+        run: git submodule update --init --depth 1 wine
+      - name: Exercise report snapshots, session selection and display policy
+        run: python3 tests/host/check-remote-support.py --require-swift
+      - name: Check settings and frontend behavior
+        run: |
+          python3 tests/host/check-runtime-settings.py
+          python3 tests/host/check-frontend.py
+      - name: Exercise native UDP control and audio downmix
+        run: |
+          python3 tests/host/check-udp-control.py --require-tools
+          python3 tests/host/check-audio-downmix.py
+      - name: Compile audio driver and app bridge against the iOS SDK
+        run: |
+          sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
+            -miphoneos-version-min=17.0 -std=gnu11 -fsyntax-only \
+            build/ntdll-unix/audio_null_ios.c
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
+            -miphoneos-version-min=17.0 -fobjc-arc -fsyntax-only \
+            app/Madeira/WineProcessBridge.m

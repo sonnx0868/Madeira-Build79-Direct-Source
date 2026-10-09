@@ -28,3 +28,9 @@ env.FEX_EXTENDEDVOLATILEMETADATA = oo2core_5_win64.dll:bink2w64.dll
 # f6-compute-open = 1
 # ml1133: start with ECO on (guest threads at a low QoS class); eco-qos = utility | background | initiated
 # eco = 0
+
+# Audio: ring-fill pacing tolerates delayed event wake-ups. 0 uses the old timer.
+# env.MADEIRA_AUDIO_LEAD_MS = 60
+# AVAudioSession preferred I/O duration (ms); iOS may grant another value.
+# 0 leaves the current system preference; restart Madeira after changing it.
+# env.MADEIRA_AUDIO_IO_MS = 5

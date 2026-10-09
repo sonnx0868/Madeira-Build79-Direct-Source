@@ -109,7 +109,6 @@ OVERLAY = {
                 "note": "On by default for detected LOVE 11.5 games (including Balatro). Redirects the low-address LuaJIT runtime to the pinned official GC64 lua51.dll without modifying game files."},
     "env.MADEIRA_OPENGL_ANGLE": {"title": "OpenGL ES through ANGLE and DXMT", "category": "Direct3D 9/10/11 (DXMT)",
                 "note": "On by default for detected LOVE and SDL games. Routes OpenGL ES through ANGLE D3D11, then DXMT to Metal. Turn off only when a game supplies a better EGL/GLES route."},
-    "env.MADEIRA_PROMOTE": {"title": "Hold the display at its maximum rate"},
     "dxmt": {"title": "DXMT options (a=b;c=d)"},
 }
 

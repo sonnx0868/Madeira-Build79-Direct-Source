@@ -9,19 +9,9 @@ import QuartzCore
 /// documented way for present-driven Metal apps to hold the panel higher.
 /// The tick itself does nothing.
 ///
-/// Default (as on main): armed only outside the 60 and 30 caps, i.e. for
-/// MAX and RAW, where the game is meant to run above 60.
-///
-/// Opt-in `env.MADEIRA_PROMOTE = 1` (Settings > Display > Hold the display
-/// at its maximum rate) also arms it in the 60 cap. The panel rate is the
-/// grid a present snaps to: the 60 cap is a minimum spacing between
-/// presentations (afterMinimumDuration), and a drawable becomes visible at
-/// a vblank, never between two. With the panel parked at 60Hz a frame
-/// ready at 17-25ms waits for the 33.3ms vblank, so a 20ms pipeline reports
-/// 30 FPS; at 120Hz the same frame lands at 25ms (40 FPS). The cap itself is
-/// unchanged, but the panel runs at 120Hz for the whole session, which
-/// costs power, so it is not the default. The 30 cap keeps a 60Hz intent
-/// (33.3ms is an exact multiple of 16.67ms).
+/// Armed only for MAX and RAW. The old capped-mode override was removed
+/// after device reports of worse frame pacing. Saved configuration cannot
+/// enable that override again; capped sessions release the display link.
 final class ProMotionIntent {
     static let shared = ProMotionIntent()
     private var link: CADisplayLink?
@@ -29,9 +19,6 @@ final class ProMotionIntent {
 
     /// Honest report of what the panel can do, for the native `[frame]` line.
     static var panelMaxFPS: Int { UIScreen.main.maximumFramesPerSecond }
-
-    /// The opt-in above; read when a session's pacing is applied.
-    static var holdMaximum: Bool { MadeiraConfig.flag("MADEIRA_PROMOTE", fallback: false) }
 
     /// Whether DXMT has the 30 FPS cap (vsync mode 3) and the display-rate
     /// hook. Both arrive with willfaust/dxmt#1; without it mode 3 would run
@@ -67,9 +54,8 @@ final class ProMotionIntent {
 
     /// The intent that belongs to a given pacing mode (0 = none). See the type comment.
     static func maxHz(for mode: Int32) -> Int {
-        if mode == 3 { return holdMaximum ? min(60, panelMaxFPS) : 0 }   // 30 cap
-        if mode == 1 { return holdMaximum ? panelMaxFPS : 0 }            // 60 cap
-        return panelMaxFPS                                                // MAX, RAW
+        if mode == 1 || mode == 3 { return 0 }   // 60/30 FPS: let iOS manage refresh
+        return panelMaxFPS                     // MAX, RAW
     }
 
     /// Arms or releases the link for `mode` and publishes the rates to DXMT.

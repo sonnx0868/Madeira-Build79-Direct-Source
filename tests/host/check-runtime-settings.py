@@ -12,10 +12,10 @@
    env.MADEIRA_FASTSYNC; a hand-edited madeira.cfg reads back as the engine
    Wine will run (madsync wins over any MADEIRA_FASTSYNC value).
 2. Source checks on app/Madeira/Library.swift and FPSOverlay.swift: the
-   defaults are swap tier off, Fastsync and display-rate hold off, the
+   defaults are swap tier off and Fastsync, the display-rate hold is removed, the
    Sync engine picker writes through SyncEngine.apply, game details offer the
    Fastsync-only switches greyed out unless Fastsync is chosen, launches export
-   them only with Fastsync, and MADEIRA_RUNTIME_SETTINGS=0 hides both sections.
+   them only with Fastsync, and MADEIRA_RUNTIME_SETTINGS=0 hides memory controls.
 
 Run from anywhere; needs `swift` on PATH.
 """
@@ -119,7 +119,6 @@ with tempfile.TemporaryDirectory() as tmp:
         failures.append('swift harness')
 
 settings = lib[lib.index('struct RuntimeMemorySyncSettings: View'):lib.index('struct LibraryPointerSettings: View')]
-display = lib[lib.index('struct DisplayRateSettings: View'):lib.index('struct RuntimeMemorySyncSettings: View')]
 engine = block(lib, 'enum SyncEngine: String, CaseIterable, Identifiable')
 detail = lib[lib.index('struct LibraryDetail: View'):lib.index('struct RuntimeMemorySyncSettings: View')]
 apply_env = block(lib, 'func applyEnvironment()')
@@ -144,15 +143,12 @@ check('if let mode = UnityStartupSync.mode(' in apply_env and 'setenv("MADEIRA_F
       'a launch exports fastsync through the tested global/Unity policy')
 check('static let swapChoices = [0, 1024, 2048, 3072, 4096]' in settings and 'mb > 0 ? String(mb) : nil' in settings,
       'swap tier: Off removes swap-mb (off by default)')
-check('@State private var hold = ProMotionIntent.holdMaximum' in display
-      and 'MadeiraConfig.set("env.MADEIRA_PROMOTE", on ? "1" : nil)' in display, 'display-rate hold writes env.MADEIRA_PROMOTE')
-check('static var holdMaximum: Bool { MadeiraConfig.flag("MADEIRA_PROMOTE", fallback: false) }' in fps,
-      'display-rate hold is off by default')
-# Both sections sit inside the one MADEIRA_RUNTIME_SETTINGS block (each is also
-# wrapped in the Settings search filter, settingsShow(...), since main d5a8e0a).
+check('DisplayRateSettings' not in lib and 'MADEIRA_PROMOTE' not in fps,
+      'display-rate override and its UI are removed')
+# Memory controls remain inside the MADEIRA_RUNTIME_SETTINGS block.
 _rt = lib[lib.index('if MadeiraConfig.flag("MADEIRA_RUNTIME_SETTINGS") {'):]
 _rt = _rt[:_rt.index('\n            }\n')]
-check('DisplayRateSettings()' in _rt and 'RuntimeMemorySyncSettings(' in _rt,
-      'MADEIRA_RUNTIME_SETTINGS=0 hides both sections')
+check('RuntimeMemorySyncSettings(' in _rt,
+      'MADEIRA_RUNTIME_SETTINGS=0 hides memory controls')
 print('check-runtime-settings:', 'FAIL' if failures else 'PASS')
 sys.exit(1 if failures else 0)

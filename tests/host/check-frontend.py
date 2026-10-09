@@ -16,7 +16,7 @@ exit report.
    checks that only an NTSTATUS error of the launched program is recorded and
    that a reset clears it.
 3. Source checks: ntdll reports only the launched (initial) process's exit
-   status, with no image names; the display-rate hold is opt-in and the 30 FPS
+   status, with no image names; the display-rate hold is removed and the 30 FPS
    cap is detected; the app wires the library into ContentView and
    GamepadInput; game details offer Resolution (with Screen shape) for every
    entry, Aspect & scaling and control opacity/size; the in-game menu offers
@@ -441,9 +441,9 @@ check('__attribute__((weak))' in initial and 'ImagePathName' not in server and '
       'the hook is weak and gets no image name')
 check('madeira_exit_is_helper' not in bridge and '.exe"' not in bridge[bridge.index('static uint64_t g_launch_exit'):bridge.index('static char *g_prefix_path')],
       'no program-name list in the exit report')
-check('MadeiraConfig.flag("MADEIRA_PROMOTE", fallback: false)' in fps,
-      'holding the display at its maximum rate is opt-in (MADEIRA_PROMOTE)')
-check('if mode == 1 { return holdMaximum ? panelMaxFPS : 0 }' in fps, 'no display link in the 60 cap by default')
+check('MADEIRA_PROMOTE' not in fps and 'DisplayRateSettings' not in lib,
+      'removed display-rate override cannot be enabled by saved settings')
+check('if mode == 1 || mode == 3 { return 0 }' in fps, 'capped 60/30 FPS sessions release the display link')
 check('__attribute__((weak)) void madeira_set_display_max_fps' in shim and 'ProMotionIntent.has30Cap' in fps
       and 'ProMotionIntent.has30Cap || mode == 3' in lib, 'the 30 FPS cap is offered only with DXMT support')
 check('LibraryView(play: launchLibraryEntry' in content, 'ContentView shows the library when it is the chosen interface')
