@@ -492,6 +492,12 @@ static mach_timebase_info_data_t g_timebase;
  * runs on a real Wine thread (mmdevapi spawns it into this unix call),
  * so calling into ntdll here is legal — unlike from the RT callback. */
 extern NTSTATUS NtSetEvent( HANDLE handle, void *prev_state );
+/* Stream teardown joins and closes the Wine timer thread. Match ntdll's
+ * native signatures instead of relying on implicit C declarations. */
+union _LARGE_INTEGER;
+extern NTSTATUS NtWaitForSingleObject( HANDLE handle, unsigned char alertable,
+                                      const union _LARGE_INTEGER *timeout );
+extern NTSTATUS NtClose( HANDLE handle );
 
 /* Per-function call counters. Print every 1000 calls so we can confirm
  * FMOD is actually exercising the driver. Cheap atomic increments. */

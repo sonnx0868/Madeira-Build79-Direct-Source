@@ -102,6 +102,9 @@ if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
   }
 fi
 if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
+  grep -a -q 'ml1230 pacing stream' "$root/app/Madeira/libntdll_unix.a" || {
+    echo "INVALID: libntdll_unix.a lacks ring-fill audio pacing; rebuild source-bootstrap"; missing=1;
+  }
   grep -a -q 'darwin-tos-v1' "$root/app/Madeira/libntdll_unix.a" || {
     echo "INVALID: libntdll_unix.a lacks Darwin UDP TOS translation; rebuild source-bootstrap"; missing=1;
   }
