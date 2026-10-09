@@ -1,26 +1,25 @@
 diff --git a/src/dxmt/dxmt_command.cpp b/src/dxmt/dxmt_command.cpp
 --- a/src/dxmt/dxmt_command.cpp
 +++ b/src/dxmt/dxmt_command.cpp
-@@ -4,6 +4,14 @@
+@@ -4,6 +4,12 @@
  #include "dxmt_format.hpp"
  
  #include "dxmt_command.h"
-+#ifdef DXMT_MADEIRA
 +#include "dxmt_command_source.h"
 +
 +extern "C" uint64_t madeira_mtl_new_library_source(uint64_t device_handle,
 +                                                    const char *source,
 +                                                    uint64_t source_length,
 +                                                    uint64_t *error_out);
-+#endif
  
  #include <cfloat>
  #define CREATE_PIPELINE(name)                                                                                          \
-@@ -17,8 +25,32 @@
+@@ -16,7 +22,26 @@ InternalCommandLibrary::InternalCommandLibrary(WMT::Device device) {
    library_ = device.newLibrary(dxmt_command, dxmt_command_len, error);
  
    if (error) {
-+#ifdef DXMT_MADEIRA
+-    ERR("Failed to create internal command library: ", error.description().getUTF8String());
+-    abort();
 +    WARN("Embedded internal command library was rejected; compiling Metal 3.1 source: ",
 +         error.description().getUTF8String());
 +    error = nullptr;
@@ -42,10 +41,5 @@ diff --git a/src/dxmt/dxmt_command.cpp b/src/dxmt/dxmt_command.cpp
 +      abort();
 +    }
 +    WARN("DXMT internal command library compiled on-device as Metal 3.1");
-+#else
-     ERR("Failed to create internal command library: ", error.description().getUTF8String());
-     abort();
-+#endif
    }
  };
- 

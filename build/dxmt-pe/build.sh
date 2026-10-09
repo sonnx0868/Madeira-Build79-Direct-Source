@@ -6,6 +6,8 @@ build="$root/dxmt/build-arm64ec"
 tc="$root/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin"
 export PATH="$tc:$PATH"
 jobs="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
+bash "$root/scripts/apply-dxmt-patches.sh"
+python3 "$root/tests/host/check-dxmt-pe-compile.py" --compiler "$tc/arm64ec-w64-mingw32-clang++" --require-tools
 make -C "$root/wine/build-arm64ec" -j"$jobs" \
     libs/winecrt0/arm64ec-windows/libwinecrt0.a \
     dlls/ntdll/arm64ec-windows/libntdll.a \
