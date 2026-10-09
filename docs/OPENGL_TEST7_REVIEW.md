@@ -51,8 +51,10 @@ Log `build_unsigned_debug_app (1).log` dừng ở assert dòng 253 trong Swift
 harness của `check-remote-support.py`, trước xcodebuild. Collector chuẩn hóa
 đường dẫn bằng `resolvingSymlinksInPath`, nhưng test so URL nguyên bản của
 temporary directory. macOS có thể viết cùng đường dẫn là `/var` và `/private/var`.
-Sửa test so tập đường dẫn đã resolve ở cả hai phía, giữ kiểm tra số log,
-filter theo phiên, giới hạn dung lượng và loại symlink ra ngoài prefix.
+Sửa test so tập đường dẫn đã resolve ở cả hai phía. Lần chạy GitHub Actions
+đã tái hiện thêm việc recursive enumerator bỏ sót Player.log; collector đổi
+sang duyệt rõ hai cấp company/product, giữ kiểm tra số log, filter theo phiên,
+giới hạn dung lượng và loại symlink ra ngoài prefix.
 
 GitHub Actions `Host support and audio checks` chạy Swift tests trên macOS,
 UDP/downmix behavior tests và syntax compile C/ObjC với iPhoneOS SDK.

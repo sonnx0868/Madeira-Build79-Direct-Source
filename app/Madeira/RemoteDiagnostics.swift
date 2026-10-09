@@ -140,20 +140,23 @@ enum DiagnosticCompanionLogs {
             add(root.appendingPathComponent("Program Files (x86)/Steam/logs/" + name))
         }
         let users = root.appendingPathComponent("users", isDirectory: true)
-        guard inside(users), let profiles = try? fm.contentsOfDirectory(at: users, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else { return found }
-        for profile in profiles.sorted(by: { $0.path < $1.path }).prefix(32) {
+        func folders(at directory: URL) -> [URL] {
+            guard inside(directory), let entries = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else { return [] }
+            return entries.filter {
+                guard inside($0), let values = try? $0.resourceValues(forKeys: keys) else { return false }
+                return values.isDirectory == true && values.isSymbolicLink != true
+            }.sorted { $0.path < $1.path }
+        }
+        for profile in folders(at: users).prefix(32) {
             let localLow = profile.appendingPathComponent("AppData/LocalLow", isDirectory: true)
-            guard inside(localLow), let enumerator = fm.enumerator(at: localLow, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else { continue }
-            while let file = enumerator.nextObject() as? URL {
-                visited += 1
-                if visited > 4096 || found.count >= 8 { return found }
-                guard inside(file), let values = try? file.resourceValues(forKeys: keys), values.isSymbolicLink != true else {
-                    enumerator.skipDescendants(); continue
+            // Visit the known Unity company/product layout explicitly. Avoid
+            // recursive enumeration and skipDescendants semantics for links.
+            for company in folders(at: localLow) {
+                for product in folders(at: company) {
+                    visited += 1
+                    if visited > 4096 || found.count >= 8 { return found }
+                    add(product.appendingPathComponent("Player.log"))
                 }
-                // Unity layout: LocalLow/company/product/Player.log.
-                if values.isDirectory == true {
-                    if enumerator.level >= 3 { enumerator.skipDescendants() }
-                } else if file.lastPathComponent == "Player.log" { add(file) }
             }
         }
         return found
