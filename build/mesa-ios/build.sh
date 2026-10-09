@@ -62,8 +62,9 @@ done
 mkdir -p "$B"
 sed "s|@SDK@|$SDK|g" "$HERE/ios-arm64.cross" > "$B/ios-arm64.cross"
 
-if [ ! -f "$B/build.ninja" ]; then
-    meson setup "$B" "$SRC" --cross-file "$B/ios-arm64.cross" \
+setup_mode=""
+[ ! -f "$B/build.ninja" ] || setup_mode="--reconfigure"
+    meson setup $setup_mode "$B" "$SRC" --cross-file "$B/ios-arm64.cross" \
         --buildtype=release -Db_ndebug=true --default-library=shared \
         -Dplatforms= \
         -Dgallium-drivers=softpipe,zink \
@@ -76,7 +77,6 @@ if [ ! -f "$B/build.ninja" ]; then
         -Dexpat=disabled -Dbuild-tests=false \
         -Dvideo-codecs= \
         -Dmoltenvk-dir="$MVK"
-fi
 ninja -C "$B" -j"${JOBS:-4}"
 
 mkdir -p "$OUT"

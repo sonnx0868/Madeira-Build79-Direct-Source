@@ -125,6 +125,12 @@ expect(published == (1280, 720), "desktop size published to the display shim")
 
 // A direct game: its Windows path and arguments; no desktop state left over.
 var game = LibraryEntry(title: "Game", relativePath: "Games/Some Game/bin/game.exe", bits: 32)
+game.glBackend = "zink"; game.thinReserve = true; game.applyEnvironment()
+expect(env("MADEIRA_GL_BACKEND") == "zink" && env("_MADEIRA_GL_PROFILE") == "zink", "the game selects its native GL renderer")
+expect(env("MADEIRA_THIN_RESERVE") == "1" && env("_MADEIRA_THIN_PROFILE") == "1", "thin reservations are explicitly selected per game")
+game.glBackend = nil; game.thinReserve = nil; game.applyEnvironment()
+expect(env("MADEIRA_GL_BACKEND") == nil && env("_MADEIRA_GL_PROFILE") == nil, "next game's automatic GL route clears the previous choice")
+expect(env("MADEIRA_THIN_RESERVE") == "0" && env("_MADEIRA_THIN_PROFILE") == "0", "next game disables thin reservations")
 game.arguments = "-windowed \"-name=a b\""
 game.configureLaunch()
 expect(env("MADEIRA_EXE") == "C:\\Games\\Some Game\\bin\\game.exe", "direct executable path")

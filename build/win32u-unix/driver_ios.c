@@ -1830,7 +1830,8 @@ static void load_display_driver(void)
         winios_user_driver.pUpdateDisplayDevices = winios_UpdateDisplayDevices;
         /* OpenGL ES behind WGL (opengl_ios.c). MADEIRA_NO_GL=1 restores the
          * GL-absent behaviour (every context creation fails). */
-        if (!getenv( "MADEIRA_NO_GL" )) winios_user_driver.pOpenGLInit = winios_OpenGLInit;
+        const char *no_gl = getenv( "MADEIRA_NO_GL" );
+        if (!no_gl || strcmp( no_gl, "1" )) winios_user_driver.pOpenGLInit = winios_OpenGLInit;
         __wine_set_user_driver( &winios_user_driver, WINE_GDI_DRIVER_VERSION );
 #else
         __wine_set_user_driver( &null_user_driver, WINE_GDI_DRIVER_VERSION );

@@ -9057,7 +9057,8 @@ static NTSTATUS load_builtin_unixlib( void *module, BOOL wow, const void **funcs
              * ios_wow_host_ptr() (patches/wine-opengl-winios.patch: make_opengl),
              * so 32-bit GL games (Quake 3 engine, GLQuake) reach the driver. */
             pthread_once( &ios_stub_tables_once, ios_init_stub_tables );
-            if (getenv("MADEIRA_NO_GL")) {
+            const char *no_gl = getenv("MADEIRA_NO_GL");
+            if (no_gl && !strcmp(no_gl, "1")) {
                 WARN_(module)("iOS: module %p (%s) -> GL-absent stub table (MADEIRA_NO_GL)\n",
                               module, match);
                 libname = "opengl32 (GL-absent stub table, MADEIRA_NO_GL)";

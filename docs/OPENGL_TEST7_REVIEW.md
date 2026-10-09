@@ -12,16 +12,55 @@ Source trước lần sửa này là build 577 (`31900d3`).
 | Xóa scratch audio trước khi trả GetBuffer; downmix 7.1.4 | Chưa có | Nhập sửa từ upstream |
 | Audio event theo ring fill, xử lý luồng client ngừng trả lời | Timer 10 ms cố định | Nhập sửa và bản sửa bổ sung giảm polling khi client không trả lời |
 | AVAudioSession I/O 5 ms | Không yêu cầu I/O duration | Nhập; log ghi duration thực tế iOS cấp |
-| Desktop OpenGL qua Mesa/Zink/MoltenVK, triangle fan và tên shader Metal | ANGLE cho OpenGL ES; chưa có Mesa backend | Cần tích hợp đầy đủ renderer, Vulkan bridge, thư viện và workflow; các patch Mesa không áp dụng trực tiếp vào ANGLE |
-| Thin reservations cho Mewgenics | Chưa có | Chưa nhập: thay đổi lớn trong VirtualAlloc, đuôi reservation chồng lên head kế tiếp, giới hạn commit và chưa có kiểm chứng thiết bị ở commit gốc |
-| Thêm gdiplus/mlang/sspicli 64-bit | Không có các DLL này trong arm64ec-windows | Là cải tiến tương thích Factorio/Dome Keeper; cần bổ sung build PE riêng, không chứng minh tăng FPS cho Unity/D3D11 |
-| FPS overlay cho OpenGL | Overlay đọc present counter DXMT | Chỉ có ích sau khi tích hợp renderer OpenGL mới |
+| Desktop OpenGL qua Mesa/Zink/MoltenVK, triangle fan và tên shader Metal | ANGLE cho OpenGL ES; chưa có Mesa backend | Đã tích hợp renderer, unix dispatch, build từ source, bundle và ký dylib; nhập đủ sáu patch Mesa |
+| Thin reservations cho Mewgenics | Chưa có | Đã nhập dưới dạng thử nghiệm theo game, mặc định tắt; vẫn có giới hạn và rủi ro với mẫu cấp phát khác |
+| Thêm gdiplus/mlang/sspicli 64-bit | Không có các DLL này trong arm64ec-windows | Rebuild từ Wine đang ghim, cùng opengl32/glu32; không chứng minh tăng FPS cho Unity/D3D11 |
+| FPS overlay cho OpenGL | Overlay đọc present counter DXMT | Frame counter mới cộng frame GL và DXMT, dùng chung cho overlay và kiểm tra frame đầu |
 
 Các tối ưu startup/shader cache đã thêm sau build 557 (async cache writer,
 identity theo compiler source, giới hạn compiler workers, Unity startup sync,
 swap theo headroom, quiet gameplay observers) được giữ trong source hiện tại.
 Không có số đo thiết bị để kết luận các thay đổi audio làm tăng FPS của
 Silksong hoặc giải quyết lỗi tìm trận Liar's Bar.
+
+## Tích hợp và chỉnh sửa OpenGL
+
+Trong Game details → **OpenGL & memory compatibility**:
+
+- Automatic giữ ANGLE cho LÖVE/SDL OpenGL ES đã nhận diện; game desktop GL
+  dùng Zink nếu các thư viện khởi tạo được. Native GLES là fallback khi Zink
+  không khởi tạo được.
+- Desktop OpenGL (Zink), Native OpenGL ES và ANGLE có thể chọn riêng theo game.
+  Đổi native renderer rồi lưu và khởi động lại Madeira trước khi thử.
+- Thin reservations mặc định tắt, chỉ bật cho Mewgenics/mẫu reserve tương tự.
+  Đây là cách mô phỏng vùng reserve lớn bằng các head nhỏ: đuôi vùng báo cáo
+  chồng lấn head kế tiếp. Commit đi xa có thể thất bại hoặc chạm vùng khác;
+  không bật cho tất cả game và không coi nó là tối ưu FPS chung.
+
+Các sửa bổ sung so với source test 7:
+
+- Kiểm tra tên renderer khi context còn sống; không dùng chuỗi glGetString
+  sau khi hủy context. Probe vẫn từ chối softpipe.
+- Present OpenGL áp dụng giới hạn 60/30 FPS; không ép panel 120 Hz.
+- Các cửa sổ dùng chung Metal library của shader present theo device.
+- Bật Mesa disk shader cache, giới hạn mặc định 256 MB. Namespace theo hash
+  của hai renderer binary, tránh sử dụng shader của bản compiler cũ.
+- Native build dùng MoltenVK commit cố định, Mesa archive kiểm tra SHA256,
+  Python build tools ghim version. Kiểm tra patch đã áp dụng bằng nội dung,
+  không chỉ dựa vào marker; reconfigure cả Mesa cache có sẵn.
+- Thin reserve yêu cầu giá trị `1` rõ ràng, tắt được sau khi cấu hình đã khởi
+  tạo. Khởi tạo geometry nằm trong virtual mutex; giới hạn threshold 64 GB.
+- Các lựa chọn renderer/thin của game được xuất lại sau cấu hình global,
+  và game kế tiếp xóa lựa chọn renderer cũ, tắt thin nếu không được chọn.
+
+Zink/MoltenVK không cung cấp geometry shaders của desktop GL đầy đủ.
+Version override trong backend giúp một số game yêu cầu GL 3.3/4.1 khởi tạo;
+game thật sự dùng tính năng Metal không hỗ trợ vẫn có thể lỗi shader/pipeline.
+
+Workflow **OpenGL native integration** rebuild năm PE DLL, win32u archive,
+kiểm tra virtual memory/OpenGL unix source với iOS SDK, build MoltenVK/Mesa
+và xuất artifact. Artifact này là các thành phần native, chưa phải IPA.
+IPA vẫn cần **madeira-v015-bootstrap**; native bundle cũ bị preflight từ chối.
 
 ## Phần audio đã nhập
 

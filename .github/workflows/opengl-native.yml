@@ -67,6 +67,8 @@ jobs:
               -Ibuild/ntdll-unix/shims -Ibuild/madsync -Iwine/build-macos/include -Iwine/include \
               -Iwine/dlls/ntdll/unix -Iwine/dlls/ntdll -Iwine/build-macos/dlls/ntdll -Iwine/dlls/opengl32 \
               -D__WINESRC__ -D_NTSYSTEM_ -D_ACRTIMP= -DWINBASEAPI= -DWINE_UNIX_LIB -DWINE_IOS=1 \
+              -DLTC_NO_PROTOTYPES -DLTC_SOURCE -DHAVE_LINUX_NTSYNC_H=1 \
+              -Dget_thread_context=ntdll_get_thread_context -Dset_thread_context=ntdll_set_thread_context \
               -DBINDIR='"/usr/local/bin"' -DLIBDIR='"/usr/local/lib"' -DDATADIR='"/usr/local/share"' -DSYSTEMDLLPATH='""' \
               "$source"
           done
