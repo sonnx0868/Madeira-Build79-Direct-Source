@@ -53,6 +53,8 @@ jobs:
           (cd wine/build-arm64ec && ../configure --enable-archs=arm64ec --without-x --without-vulkan --without-freetype --without-gnutls --disable-tests)
           make -C wine/build-arm64ec -j4 include/all tools/widl/all tools/winebuild/all
           bash build/wine-pe/build-modules.sh gdiplus mlang sspicli opengl32 glu32
+          WINE_PE_ARCH=aarch64 bash build/wine-pe/build-modules.sh opengl32 glu32
+          git -C wine rev-parse HEAD > build/wine-pe/opengl-pe.version
       - name: Compile native WGL driver and OpenGL unix dispatch
         run: |
           git clone --depth 1 --branch VER-2-13-3 https://github.com/freetype/freetype.git research/freetype
@@ -89,6 +91,9 @@ jobs:
             app/Madeira/arm64ec-windows/sspicli.dll
             app/Madeira/arm64ec-windows/opengl32.dll
             app/Madeira/arm64ec-windows/glu32.dll
+            app/Madeira/aarch64-windows/opengl32.dll
+            app/Madeira/aarch64-windows/glu32.dll
+            build/wine-pe/opengl-pe.version
             app/Madeira/libwin32u_unix.a
             app/Madeira/licenses/Mesa-license.rst
             app/Madeira/licenses/*Apache*

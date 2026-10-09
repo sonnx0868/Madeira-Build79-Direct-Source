@@ -47,6 +47,16 @@ need "app/Madeira/arm64ec-windows/libGLESv2.dll"
 need "app/Madeira/licenses/ANGLE-BSD-3.txt"
 need "app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html"
 need "build/wine-pe/controller-pe.version"
+need "build/wine-pe/opengl-pe.version"
+need "app/Madeira/aarch64-windows/opengl32.dll"
+need "app/Madeira/aarch64-windows/glu32.dll"
+if [[ -s "$root/build/wine-pe/opengl-pe.version" ]]; then
+  expected="$(git -C "$root/wine" rev-parse HEAD)"
+  actual="$(tr -d '[:space:]' < "$root/build/wine-pe/opengl-pe.version")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "INVALID: OpenGL PE bridge came from a different Wine source; rebuild source-bootstrap"; missing=1;
+  fi
+fi
 
 if [[ -s "$root/app/Madeira/arm64ec-windows/lua51-gc64.dll" ]]; then
   printf '%s  %s\n' 94fb3e3d4b1f6acce0110e46aadf1ecab1fa17c4ed1ab34caef3c5c2121c208e \

@@ -32,10 +32,15 @@ if command -v brew >/dev/null 2>&1; then
     BISON_BIN="$(brew --prefix bison 2>/dev/null)/bin"
     [ -x "$BISON_BIN/bison" ] && export PATH="$BISON_BIN:$PATH"
 fi
-B="$R/wine/build-arm64ec"
-DEST="${DEST:-$R/app/Madeira/arm64ec-windows}"
+ARCH="${WINE_PE_ARCH:-arm64ec}"
+case "$ARCH" in
+    arm64ec) B="$R/wine/build-arm64ec" ;;
+    aarch64) B="$R/wine/build-macos" ;;
+    *) echo "Unsupported Wine PE architecture: $ARCH" >&2; exit 1 ;;
+esac
+DEST="${DEST:-$R/app/Madeira/$ARCH-windows}"
 JOBS="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
-STRIP="$TC/arm64ec-w64-mingw32-strip"
+STRIP="$TC/$ARCH-w64-mingw32-strip"
 
 case "${1:-}" in
     -h|--help) sed -n '2,/^set -eu/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
@@ -54,17 +59,19 @@ for m in "$@"; do
     esac
     [ -f "$R/wine/dlls/$m/Makefile.in" ] || { echo "$m: no wine/dlls/$m/Makefile.in" >&2; exit 1; }
     case "$m" in *.*) f="$m" ;; *) f="$m.dll" ;; esac
-    targets+=("dlls/$m/arm64ec-windows/$f")
+    targets+=("dlls/$m/$ARCH-windows/$f")
 done
 
 if [ ! -f "$B/config.status" ]; then
-    mkdir -p "$B" && (cd "$B" && ../configure --enable-archs=arm64ec --without-x --disable-tests --enable-winegstreamer)
+    mkdir -p "$B" && (cd "$B" && ../configure --enable-archs="$ARCH" --without-x --disable-tests --enable-winegstreamer)
 fi
 # widl looks for stdole2.tlb under aarch64-windows/ when it builds an ARM64EC
 # typelib import (shell32 and others); this tree builds it into arm64ec-windows/.
-mkdir -p "$B/dlls/stdole2.tlb"
-[ -e "$B/dlls/stdole2.tlb/aarch64-windows" ] || [ -L "$B/dlls/stdole2.tlb/aarch64-windows" ] \
-    || ln -s arm64ec-windows "$B/dlls/stdole2.tlb/aarch64-windows"
+if [ "$ARCH" = arm64ec ]; then
+    mkdir -p "$B/dlls/stdole2.tlb"
+    [ -e "$B/dlls/stdole2.tlb/aarch64-windows" ] || [ -L "$B/dlls/stdole2.tlb/aarch64-windows" ] \
+        || ln -s arm64ec-windows "$B/dlls/stdole2.tlb/aarch64-windows"
+fi
 
 # The DLL file targets, not dlls/<name>/all: that would also build a module's
 # unix side (winegstreamer's needs GStreamer, see build-ntdll.sh).

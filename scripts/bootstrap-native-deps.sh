@@ -95,6 +95,8 @@ bash "$root/build/wine-pe/build-controller.sh"
 bash "$root/build/wine-pe/build-wintypes.sh"
 bash "$root/build/wine-pe/build-d3dcompiler.sh"
 bash "$root/build/wine-pe/build-modules.sh" gdiplus mlang sspicli opengl32 glu32
+WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-modules.sh" opengl32 glu32
+git -C "$root/wine" rev-parse HEAD > "$root/build/wine-pe/opengl-pe.version"
 
 log "Build FEX iOS"
 bash "$root/build/fex-ios/build.sh"

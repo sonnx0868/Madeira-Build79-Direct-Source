@@ -9,6 +9,7 @@ rm -f "$output"
   wine/build-macos/include wine/build-macos/config.status \
   wine/build-arm64ec/include wine/build-arm64ec/config.status \
   build/wine-pe/controller-pe.version \
+  build/wine-pe/opengl-pe.version \
   app/Madeira/libwineserver.a app/Madeira/libntdll_unix.a \
   app/Madeira/libwin32u_unix.a app/Madeira/libdxmt_combined.a \
   app/Madeira/libavformat.a app/Madeira/libavcodec.a \
@@ -32,6 +33,8 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/sspicli.dll \
   app/Madeira/arm64ec-windows/opengl32.dll \
   app/Madeira/arm64ec-windows/glu32.dll \
+  app/Madeira/aarch64-windows/opengl32.dll \
+  app/Madeira/aarch64-windows/glu32.dll \
   app/Madeira/gl \
   app/Madeira/arm64ec-windows/wintypes.dll \
   app/Madeira/arm64ec-windows/d3dcompiler_47.dll \

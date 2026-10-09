@@ -57,7 +57,8 @@ Zink/MoltenVK không cung cấp geometry shaders của desktop GL đầy đủ.
 Version override trong backend giúp một số game yêu cầu GL 3.3/4.1 khởi tạo;
 game thật sự dùng tính năng Metal không hỗ trợ vẫn có thể lỗi shader/pipeline.
 
-Workflow **OpenGL native integration** rebuild năm PE DLL, win32u archive,
+Workflow **OpenGL native integration** rebuild năm PE DLL ARM64EC và hai DLL
+OpenGL/GLU ARM64 cho đường WoW64 của game 32-bit, win32u archive,
 kiểm tra virtual memory/OpenGL unix source với iOS SDK, build MoltenVK/Mesa
 và xuất artifact. Artifact này là các thành phần native, chưa phải IPA.
 IPA vẫn cần **madeira-v015-bootstrap**; native bundle cũ bị preflight từ chối.
