@@ -85,6 +85,8 @@ restart Madeira first so there is no existing in-memory store.
 - A mismatch uses fresh code, disables the store and writes a persistent disable
   marker. Truncated/corrupt/oversized files are rejected. Windows takes one
   writer share lock; another process can read but cannot interleave writes.
+  Contended cache/registry locks skip caching and keep the normal compiler
+  available; a force-terminated holder cannot park another game thread there.
 - Files and in-memory data are bounded to 48 MiB per store and 16,384 records.
   Stores do sequential record writes without additional game threads and do
   not depend on CRT exit destructors flushing a buffer. File

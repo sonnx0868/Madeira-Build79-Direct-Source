@@ -6,6 +6,7 @@ root = Path(__file__).resolve().parents[2]
 cxx = os.environ.get('CXX') or shutil.which('clang++')
 if not cxx: raise SystemExit('clang++ is required')
 fixture = r'''
+#define MADEIRA_CPU_CACHE_TEST 1
 #include "madeira_code_cache.h"
 #include <cassert>
 #include <fstream>
@@ -35,11 +36,28 @@ int main(int argc, char** argv) {
         std::vector<std::thread> threads;
         for (unsigned i=0; i<64; ++i) threads.emplace_back([&,i] {
             Bytes k {uint8_t(i)}, p {uint8_t(i),1,2};
-            for (unsigned j=0; j<16; ++j) { assert(store.observe(k,p)); assert(store.find(k)->payload==p); }
+            for (unsigned j=0; j<16; ++j) {
+                assert(store.observe(k,p)); if (auto value=store.find(k)) assert(value->payload==p);
+            }
         });
-        for (auto& thread: threads) thread.join(); store.flush();
+        for (auto& thread: threads) thread.join();
+        for (unsigned i=0; i<64; ++i) {
+            Bytes k {uint8_t(i)}, p {uint8_t(i),1,2};
+            assert(store.observe(k,p)); assert(store.observe(k,p));
+        }
+        store.flush();
     }
     { Store store(file); for (unsigned i=0; i<64; ++i) assert(store.find(Bytes {uint8_t(i)})->validated); }
+    {
+        Store store(base + "/held-lock.bin");
+        auto held=store.holdForTest();
+        std::thread reader([&] {
+            assert(!store.find(key)); assert(store.observe(key,payload)); store.flush();
+        });
+        reader.join(); // Must finish while the writer remains locked.
+        held.unlock(); assert(!store.find(key));
+        assert(store.observe(key,payload)); assert(!store.find(key)->validated);
+    }
     // A truncated record cannot become validated and cannot conceal an appended record.
     file = base + "/truncated.bin";
     { Store store(file); assert(store.observe(key,payload)); store.flush(); }

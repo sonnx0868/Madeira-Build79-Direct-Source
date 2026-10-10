@@ -184,7 +184,8 @@ public:
     Store& operator=(const Store&) = delete;
 
     std::optional<Value> find(const Bytes& key) {
-        std::lock_guard guard(lock);
+        std::unique_lock guard(lock, std::try_to_lock);
+        if (!guard.owns_lock()) return {}; // A force-terminated holder must not park the game.
         if (!enabled) return {};
         if (auto* item = locate(key)) return item->value;
         return {};
@@ -193,7 +194,8 @@ public:
     // an independent identical emission promotes it. A mismatch shuts down this
     // store and removes its file so no old promoted record survives next launch.
     bool observe(const Bytes& key, const Bytes& payload) {
-        std::lock_guard guard(lock);
+        std::unique_lock guard(lock, std::try_to_lock);
+        if (!guard.owns_lock()) return true; // Contention skips learning, not a validation failure.
         if (!enabled || key.empty() || payload.empty() || key.size() + payload.size() > MaxRecord) return false;
         if (auto* item = locate(key)) {
             if (item->value.payload != payload) {
@@ -214,7 +216,10 @@ public:
         if (retain(key, value)) write(key, value);
         return true;
     }
-    void flush() { std::lock_guard guard(lock); if (writer) fflush(writer); }
+    void flush() { std::unique_lock guard(lock, std::try_to_lock); if (guard.owns_lock() && writer) fflush(writer); }
+#ifdef MADEIRA_CPU_CACHE_TEST
+    std::unique_lock<std::mutex> holdForTest() { return std::unique_lock(lock); }
+#endif
 };
 
 // Shared within a PE translator instance. No new game threads; sequential
@@ -223,7 +228,8 @@ public:
 inline std::shared_ptr<Store> open(const std::string& path) {
     static std::mutex guard;
     static std::unordered_map<std::string, std::shared_ptr<Store>> stores;
-    std::lock_guard hold(guard);
+    std::unique_lock hold(guard, std::try_to_lock);
+    if (!hold.owns_lock()) return {};
     if (auto it = stores.find(path); it != stores.end()) return it->second;
     if (stores.size() >= 16 || path.empty()) return {};
     return stores.emplace(path, std::make_shared<Store>(path)).first->second;
