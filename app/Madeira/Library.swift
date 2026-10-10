@@ -335,6 +335,11 @@ struct LibraryEntry: Codable, Identifiable {
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
         let unityProfile = unitySmoothnessEnabled
+        if let configured = MadeiraConfig.get("env.MADEIRA_CTX_FRAME") {
+            setenv("MADEIRA_CTX_FRAME", configured, 1)
+        } else if unityProfile {
+            setenv("MADEIRA_CTX_FRAME", "1", 1)
+        } else { unsetenv("MADEIRA_CTX_FRAME") }
         if let glBackend, ["zink", "gles", "angle"].contains(glBackend) {
             setenv("MADEIRA_GL_BACKEND", glBackend, 1)
             setenv("_MADEIRA_GL_PROFILE", glBackend, 1)
@@ -1279,7 +1284,10 @@ final class LibraryModel: ObservableObject {
             guard let self, self.current == session, self.quitting,
                   wine_session_close_has_exited() == 0 else { return }
             if GameRuntime.shared.ownsSession { GameRuntime.shared.quit(force: true) }
-            else { winios_request_session_close(1) }
+            else {
+                let direct = self.activeEntry?.steamAppID == nil || self.activeEntry?.steamStart == "game"
+                if wine_force_close_game_session(direct ? 1 : 0) == 0 { winios_request_session_close(1) }
+            }
             self.sessionMessage = "Stopping the game session…"
             fputs("[frontend] close grace period expired; guest termination requested\n", stderr)
         }

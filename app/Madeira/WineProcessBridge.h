@@ -33,6 +33,8 @@ int wine_session_close_targets_process(uint32_t pid);
 int wine_session_close_targets_thread(uint32_t pid, uint32_t tid);
 void wine_session_process_did_exit(uint32_t pid);
 int wine_session_close_has_exited(void);
+void wine_launched_process_started(uint32_t pid, uint32_t tid);
+int wine_force_close_game_session(int allow_initial_process);
 int wine_crash_exit_status(uint32_t *status);
 // Forget the recorded status; called when a session begins.
 void wine_exit_status_reset(void);

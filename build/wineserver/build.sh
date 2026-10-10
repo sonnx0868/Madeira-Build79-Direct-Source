@@ -61,6 +61,7 @@ compile_one() {
 
 # Patched files: name:source_file:replaces_in_archive
 PATCHED_FILES=(
+    "session_control_ios:session_control_ios.c:session_control_ios.o"
     "wine_log_ios:wine_log_ios.c:wine_log_ios.o"
     "request_ios:request_ios.c:request.o"
     "main_ios:main_ios.c:main.o"
@@ -155,6 +156,7 @@ echo "=== Updating libwineserver.a ==="
 # iteration to avoid bash assoc-array word-splitting issues seen in zsh-launched
 # build environments.
 REPLACEMENTS=(
+    "session_control_ios.o:session_control_ios.o"
     "wine_log_ios.o:wine_log_ios.o"
     "request_ios.o:request.o"
     "main_ios.o:main.o"

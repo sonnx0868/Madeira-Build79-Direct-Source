@@ -8,6 +8,8 @@ on:
       - build/moltenvk-ios/**
       - build/win32u-unix/opengl_ios.c
       - build/ntdll-unix/virtual_ios.c
+      - build/ntdll-unix/server_ios.c
+      - build/wineserver/**
       - patches/wine-opengl-winios.patch
       - .github/workflows/opengl-native.yml
 permissions:
@@ -60,6 +62,7 @@ jobs:
           git clone --depth 1 --branch VER-2-13-3 https://github.com/freetype/freetype.git research/freetype
           test "$(git -C research/freetype rev-parse HEAD)" = 42608f77f20749dd6ddc9e0536788eaad70ea4b5
           bash build/freetype-ios/build.sh
+          bash build/wineserver/build.sh
           bash build/win32u-unix/build.sh
           sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
           for source in build/ntdll-unix/virtual_ios.c wine/dlls/opengl32/unix_wgl.c wine/dlls/opengl32/unix_thunks.c; do
@@ -95,6 +98,7 @@ jobs:
             app/Madeira/aarch64-windows/glu32.dll
             build/wine-pe/opengl-pe.version
             app/Madeira/libwin32u_unix.a
+            app/Madeira/libwineserver.a
             app/Madeira/licenses/Mesa-license.rst
             app/Madeira/licenses/*Apache*
             app/Madeira/licenses/cereal-BSD-3-Clause.txt

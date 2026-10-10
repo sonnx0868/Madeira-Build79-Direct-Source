@@ -1309,6 +1309,8 @@ void main_loop(void)
             if (!active_users) { ws_log("[wineserver-fd] LOOP EXIT: active_users=0 at iter=%d", ios_iter); break; }
 
             ios_iter++;
+            extern void ios_wineserver_drain_game_stop(void);
+            ios_wineserver_drain_game_stop();
             /* Heartbeat via ws_log (file-based, not stderr) */
             if (ios_iter % 50000 == 0)
             {

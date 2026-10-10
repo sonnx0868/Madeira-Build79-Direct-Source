@@ -27,6 +27,7 @@ jobs:
         run: |
           python3 tests/host/check-runtime-settings.py
           python3 tests/host/check-frontend.py
+          python3 tests/host/check-game-pointer.py --require-swift
       - name: Exercise native UDP control and audio downmix
         run: |
           python3 tests/host/check-udp-control.py --require-tools

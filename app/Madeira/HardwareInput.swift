@@ -852,6 +852,12 @@ final class HardwareInput: ObservableObject {
     private var diagnostics: Bool { InputSettings.shared.diagnostics }
     /// Either GameController stream has spoken: the UIKit fallback stands aside.
     private var gcLive: Bool { gcDeltaSeen || gcButtonSeen }
+    // A trackpad may deliver UIKit events before pointer lock and raw GC
+    // deltas only after capture. Capability must not depend on past motion.
+    private var rawPointerAvailable: Bool {
+        GCMouse.current?.mouseInput != nil || GCMouse.mice().contains { $0.mouseInput != nil }
+    }
+    private var lastUIKitMotionAt: CFTimeInterval = 0
 
     // MARK: - lifecycle
 
@@ -1582,12 +1588,12 @@ final class HardwareInput: ObservableObject {
             captureSession = LibraryModel.shared.current
             autoLockSuppressed = false
         }
-        guard Self.autoLockEnabled, directCursorLive, Self.pointerLockAvailable, mousePath == .gcmouse else {
+        guard Self.autoLockEnabled, directCursorLive, Self.pointerLockAvailable, rawPointerAvailable else {
             if pointerLocked && lockedByUs { setPointerLocked(false, byUs: true, why: "automatic lock unavailable") }
             return
         }
         let now = CACurrentMediaTime()
-        motionLock.lock(); let lastDelta = lastGCDeltaAt; motionLock.unlock()
+        motionLock.lock(); let lastDelta = max(lastGCDeltaAt, lastUIKitMotionAt); motionLock.unlock()
         let action = AutoLock.decide(
             locked: pointerLocked, lockedByUs: lockedByUs, cursorShown: cursorState.shown != 0,
             hiddenFor: cursorState.reports == 0 || cursorHiddenSince == 0 ? 0 : now - cursorHiddenSince,
@@ -1748,8 +1754,11 @@ final class HardwareInput: ObservableObject {
     }
 
     func uikitMoved(_ dx: CGFloat, _ dy: CGFloat, src: String) {
-        guard Self.enabled, !gcLive else { return }     // the HID stream owns it
+        guard Self.enabled else { return }
         guard dx != 0 || dy != 0 else { return }
+        lastUIKitMotionAt = CACurrentMediaTime()
+        updateAutoLock()
+        guard !gcLive else { return }     // the HID stream owns delivered motion
         logRaw(src, Double(dx), Double(dy))
         noteUIKitPointer()
         setMouseInUse(true)
@@ -1815,9 +1824,9 @@ final class HardwareInput: ObservableObject {
             }
             want = false
         }
-        // Locking while UIKit carries the mouse would END it: the lock stops
-        // UIKit pointer delivery, and this device has no GCMouse stream.
-        if want, mousePath == .uikit {
+        // A device with no raw GC profile cannot move after UIKit capture.
+        // A raw-capable trackpad can be captured before its first GC delta.
+        if want, !rawPointerAvailable {
             log("pointer lock refused (\(why)): path=uikit")
             want = false
         }
@@ -1832,6 +1841,10 @@ final class HardwareInput: ObservableObject {
     /// The public UIScene state is authoritative; a successful preference
     /// request alone never proves containment. Called on the main queue.
     fileprivate func pointerCaptureChanged(_ captured: Bool) {
+        if captured {
+            for mouse in GCMouse.mice() { attachMouse(mouse, why: "pointer-capture") }
+            attachMouse(GCMouse.current, why: "pointer-capture-current")
+        }
         guard pointerCaptured != captured else { return }
         pointerCaptured = captured
         refreshFocus("iPadOS pointer capture changed")

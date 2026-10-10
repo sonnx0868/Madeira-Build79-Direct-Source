@@ -4104,6 +4104,12 @@ void server_init_process_done(void)
 
     assert( !status );
 #ifdef WINE_IOS
+    if (ios_proc_socket_index() < 0) {
+        extern void wine_launched_process_started(unsigned int, unsigned int) __attribute__((weak));
+        if (wine_launched_process_started) wine_launched_process_started(
+            (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess,
+            (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread);
+    }
     /* On iOS, the parent's PE code (CreateProcessInternalW) should call
      * NtResumeThread to unsuspend the child. But since we use thread-based
      * CreateProcess, the resume mechanism may not work correctly.

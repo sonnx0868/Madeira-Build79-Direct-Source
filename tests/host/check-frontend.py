@@ -354,6 +354,7 @@ c_src = r'''
 start = bridge.index('static uint64_t g_launch_exit')
 end = bridge.index('static char *g_prefix_path')
 c_src += 'void wine_launched_process_did_exit(int status);\nvoid wine_exit_status_reset(void);\nint wine_crash_exit_status(uint32_t *status);\nint wine_session_close_targets_thread(uint32_t pid, uint32_t tid);\n'
+c_src += 'int wine_session_close_accept_target(uint32_t pid,uint32_t tid);\nint wine_session_close_has_exited(void);\nstatic uint32_t requested_stop;\nvoid ios_wineserver_request_game_stop(uint32_t pid) { requested_stop=pid; }\n'
 c_src += bridge[start:end]
 c_src += r'''
 typedef void *HWND;
@@ -378,6 +379,11 @@ int main(void) {
     wine_exit_status_reset();
     expect(!wine_crash_exit_status(&status), "nothing recorded at the start of a session");
     expect(!wine_launched_process_has_exited() && !wine_session_close_has_exited(), "session exit flags start clear");
+    expect(!wine_force_close_game_session(1), "no process is guessed before publication");
+    wine_launched_process_started(24, 32);
+    expect(!wine_force_close_game_session(0), "a Dock host is never used as a guessed close target");
+    expect(wine_force_close_game_session(1) && requested_stop == 24, "direct game force-close is queued independently of its event pump");
+    wine_exit_status_reset();
     expect(wine_session_close_accept_target(24, 32), "foreground game is selected for close");
     expect(!wine_session_close_accept_target(28, 36), "a helper cannot replace the close target");
     expect(!wine_session_close_accept_target(24, 36), "a renderer/worker cannot replace the GUI thread");

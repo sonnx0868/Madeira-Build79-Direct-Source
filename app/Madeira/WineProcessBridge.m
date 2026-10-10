@@ -442,6 +442,23 @@ static int g_launch_exited = 0;
 static uint32_t g_session_close_pid = 0;
 static uint32_t g_session_close_tid = 0;
 static int g_session_close_exited = 0;
+static uint32_t g_launched_pid, g_launched_tid;
+void wine_launched_process_started(uint32_t pid, uint32_t tid) {
+    __atomic_store_n(&g_launched_tid, tid, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_launched_pid, pid, __ATOMIC_RELEASE);
+}
+extern void ios_wineserver_request_game_stop(uint32_t pid);
+int wine_force_close_game_session(int allow_initial_process) {
+    uint32_t pid = __atomic_load_n(&g_session_close_pid, __ATOMIC_ACQUIRE);
+    if (!pid && allow_initial_process) {
+        pid = __atomic_load_n(&g_launched_pid, __ATOMIC_ACQUIRE);
+        uint32_t tid = __atomic_load_n(&g_launched_tid, __ATOMIC_ACQUIRE);
+        if (pid && tid) wine_session_close_accept_target(pid, tid);
+    }
+    if (!pid || wine_session_close_has_exited()) return 0;
+    ios_wineserver_request_game_stop(pid);
+    return 1;
+}
 int wine_session_close_accept_target(uint32_t pid, uint32_t tid) {
     uint32_t expected = 0;
     if (!pid || !tid) return 0;
@@ -480,6 +497,8 @@ void wine_exit_status_reset(void) {
     __atomic_store_n(&g_session_close_pid, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_session_close_tid, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_session_close_exited, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_launched_pid, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_launched_tid, 0, __ATOMIC_RELEASE);
 }
 int wine_crash_exit_status(uint32_t *status) {
     uint64_t value = __atomic_load_n(&g_launch_exit, __ATOMIC_ACQUIRE);

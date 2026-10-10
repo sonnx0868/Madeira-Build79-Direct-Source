@@ -36,6 +36,11 @@ assert "if lockedByUs || captureGame { autoLockSuppressed = true }" in hardware
 assert "locked: pointerCaptured" in hardware
 assert "UIPointerLockState.didChangeNotification" in hardware
 assert "let captured = state?.isLocked ?? false" in hardware
+assert "private var rawPointerAvailable" in hardware
+assert "if want, !rawPointerAvailable" in hardware
+assert "mousePath == .uikit" not in hardware.split("private func setPointerLocked", 1)[1].split("private func startTicker", 1)[0]
+assert "max(lastGCDeltaAt, lastUIKitMotionAt)" in hardware
+assert 'why: "pointer-capture"' in hardware
 lock = hardware.split("enum PointerLock {", 1)[1].split("final class PointerHider", 1)[0]
 assert "window === gameWindow" in lock
 for overlay_window in ("PassthroughWindow", "ControlsWindow", "LibraryKeyboardWindow"):

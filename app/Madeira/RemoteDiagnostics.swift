@@ -293,6 +293,7 @@ enum DiagnosticEvents {
                     "env.DXMT_WSI_MONITOR_IDENTITY",
                     "env.MADEIRA_UNITY_RESOLUTION",
                     "env.MADEIRA_UNITY_STARTUP_SYNC", "env.DXMT_COMPILER_THREADS",
+                    "env.MADEIRA_CTX_FRAME",
                     "env.MADEIRA_MULTI_GAME", "env.DXMT_IOS_CACHE_DIR",
                     "env.DXMT_SHADER_CACHE", "env.DXMT_CACHE_STATS"] {
             settings[key] = String((MadeiraConfig.get(key) ?? "default").prefix(160))

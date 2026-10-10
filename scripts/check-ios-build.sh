@@ -149,6 +149,12 @@ if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
   }
 fi
 
+if [[ -s "$root/app/Madeira/libwineserver.a" ]]; then
+  grep -a -q 'server-stop-v1' "$root/app/Madeira/libwineserver.a" || {
+    echo "INVALID: libwineserver.a lacks independent game termination; rebuild source-bootstrap"; missing=1;
+  }
+fi
+
 if [[ -s "$root/app/Madeira/libdxmt_combined.a" ]]; then
   for marker in async-writer-v1 shader-compiler-content-v1; do
     grep -a -q "$marker" "$root/app/Madeira/libdxmt_combined.a" || {
