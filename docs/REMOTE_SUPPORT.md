@@ -141,6 +141,31 @@ FPS mỗi 10 giây, nhiệt độ, shader-cache hits và Player.log chưa đủ 
 gian tải asset, dịch mã x64, GC và tạo Metal pipeline. Không quy các đoạn
 0 FPS cho một nguyên nhân duy nhất hoặc khẳng định hết khựng từ host tests.
 
+## Cache pipeline Metal
+
+Cache shader DXMT trung gian và cache pipeline GPU là hai tầng khác nhau.
+`build/dxmt-ios/pipeline-cache.patch` nối render/compute pipeline của winemetal
+vào `pipeline_cache_ios.m`. `MTLBinaryArchive` giữ pipeline đã biên dịch cho
+GPU; namespace gồm tên GPU và phiên bản OS. Lookup archive là bất biến, writer
+là object riêng, chạy tuần tự ở QoS background. Tối đa 128 descriptor đang
+chờ, 2048 lượt học mỗi app run và file tối đa 64 MB. Ghi file tạm rồi rename;
+không I/O đồng bộ trên đường vẽ. File cũ được giữ nếu serialize không thành công.
+
+Archive thiếu, hỏng hoặc không chứa pipeline yêu cầu đều quay về biên dịch
+Metal bình thường. Caller có archive/policy riêng giữ nguyên đường đó. Chỉ
+học pipeline đã tạo thành công; không bỏ draw hoặc giả pipeline thành công.
+Log `pipeline-cache` có hits/misses, thời gian native creation trung bình/tối
+đa và trạng thái save. Đây là timing từng API call, không phải tổng thời gian
+game đứng chờ. `env.MADEIRA_PIPELINE_CACHE=0` tắt lookup/training.
+
+Tầng này hỗ trợ DXMT D3D9/11, không thay cache của backend Vulkan/OpenGL/D3D12.
+Shader mới vẫn cần biên dịch lần đầu. Hiệu quả cache giữa các lần mở app và
+ảnh hưởng CPU của background training phải đo trên iPad; cache không giải
+quyết toàn bộ thời gian tải scene hoặc dịch mã CPU x64. Preflight yêu cầu
+`pipeline-binary-v1`; dùng source-bootstrap để rebuild native dependencies.
+
+API đối chiếu: https://developer.apple.com/documentation/metal/mtlbinaryarchive
+
 ## Liar's Bar: kiểm tra chất lượng kết nối
 
 Log build 585 có Player.log: Unity Authentication lặp `Curl error 60`,

@@ -162,7 +162,7 @@ if [[ -s "$root/app/Madeira/libwineserver.a" ]]; then
 fi
 
 if [[ -s "$root/app/Madeira/libdxmt_combined.a" ]]; then
-  for marker in async-writer-v1 shader-compiler-content-v1; do
+  for marker in async-writer-v1 shader-compiler-content-v1 pipeline-binary-v1; do
     grep -a -q "$marker" "$root/app/Madeira/libdxmt_combined.a" || {
       echo "INVALID: libdxmt_combined.a lacks $marker; rebuild source-bootstrap"; missing=1;
     }

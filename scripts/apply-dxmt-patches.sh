@@ -3,7 +3,8 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 for name in patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.patch \
-            patches/dxmt-gameplay-performance.patch build/dxmt-ios/clean-build.patch; do
+            patches/dxmt-gameplay-performance.patch build/dxmt-ios/clean-build.patch \
+            build/dxmt-ios/pipeline-cache.patch; do
     patch="$root/$name"
     if git -C "$root/dxmt" apply --reverse --check "$patch" >/dev/null 2>&1; then
         echo "DXMT patch already applied: $name"

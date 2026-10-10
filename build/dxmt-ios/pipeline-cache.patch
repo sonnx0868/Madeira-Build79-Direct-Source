@@ -1,0 +1,58 @@
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -45,6 +45,9 @@
+ #define WINEMETAL_API
+ #include "../winemetal_thunks.h"
+ #include "../airconv_thunks.h"
++#if TARGET_OS_IOS
++#include "../../../../build/dxmt-ios/pipeline_cache_ios.h"
++#endif
+ 
+ /* iOS-Madeira 2026-05-22 draw-call telemetry. Defined further down with
+  * the present counter; forward-declared here so the draw command cases
+@@ -1256,8 +1259,13 @@
+                                                     count:info->num_binary_archives_for_lookup];
+   MTLPipelineOption options =
+       info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
++#if TARGET_OS_IOS
++  params->ret_pso = (obj_handle_t)madeira_new_compute_pipeline(device, descriptor, options, NULL, &err,
++                                                           !info->binary_archive_for_serialization);
++#else
+   params->ret_pso =
+       (obj_handle_t)[device newComputePipelineStateWithDescriptor:descriptor options:options reflection:nil error:&err];
++#endif
+   params->ret_error = (obj_handle_t)err;
+   if (!err && info->binary_archive_for_serialization) {
+     [(id<MTLBinaryArchive>)info->binary_archive_for_serialization addComputePipelineFunctionsWithDescriptor:descriptor
+@@ -1509,10 +1517,15 @@
+   NSError *err = NULL;
+   MTLPipelineOption options =
+       info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
++#if TARGET_OS_IOS
++  params->ret_pso = (obj_handle_t)madeira_new_render_pipeline((id<MTLDevice>)params->device, descriptor, options,
++                                                          NULL, &err, !info->binary_archive_for_serialization);
++#else
+   params->ret_pso = (obj_handle_t)[(id<MTLDevice>)params->device newRenderPipelineStateWithDescriptor:descriptor
+                                                                                               options:options
+                                                                                            reflection:nil
+                                                                                                 error:&err];
++#endif
+   params->ret_error = (obj_handle_t)err;
+   if (!err && info->binary_archive_for_serialization) {
+     [(id<MTLBinaryArchive>)info->binary_archive_for_serialization addRenderPipelineFunctionsWithDescriptor:descriptor
+@@ -1608,10 +1621,15 @@
+   NSError *err = NULL;
+   MTLPipelineOption options =
+       info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
++#if TARGET_OS_IOS
++  params->ret_pso = (obj_handle_t)madeira_new_render_pipeline((id<MTLDevice>)params->device, descriptor, options,
++                                                          NULL, &err, !info->binary_archive_for_serialization);
++#else
+   params->ret_pso = (obj_handle_t)[(id<MTLDevice>)params->device newRenderPipelineStateWithDescriptor:descriptor
+                                                                                               options:options
+                                                                                            reflection:nil
+                                                                                                 error:&err];
++#endif
+   params->ret_error = (obj_handle_t)err;
+   if (!err && info->binary_archive_for_serialization) {
+     [(id<MTLBinaryArchive>)info->binary_archive_for_serialization addRenderPipelineFunctionsWithDescriptor:descriptor

@@ -25,6 +25,14 @@ else
     git -C "$DXMT_ROOT" apply "$PATCH"
 fi
 
+PIPELINE_PATCH="$BUILD_DIR/pipeline-cache.patch"
+if git -C "$DXMT_ROOT" apply --reverse --check "$PIPELINE_PATCH" >/dev/null 2>&1; then
+    echo "Metal pipeline cache hooks already applied"
+else
+    git -C "$DXMT_ROOT" apply --check "$PIPELINE_PATCH"
+    git -C "$DXMT_ROOT" apply "$PIPELINE_PATCH"
+fi
+
 COMMON_FLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=18.0 -fblocks -O2"
 INCLUDES="-I$OBJ_DIR -I$REPO_ROOT/build -I$DXMT_ROOT/include -I$DXMT_ROOT/libs -I$DXMT_SRC/winemetal -I$DXMT_SRC/airconv"
 INCLUDES_DIRECTX="-I$DXMT_ROOT/include/native/directx -I$DXMT_ROOT/include/native/windows"
@@ -67,10 +75,11 @@ FAILED_FILES=""
 
 compile_objc() {
     local src=$1 name=$2
+    local extra="${3:-}"
     # MADEIRA_ONLY=<name>: recompile one object only.
     if [ -n "${MADEIRA_ONLY:-}" ] && [ "$name" != "$MADEIRA_ONLY" ]; then return 0; fi
     printf "  %-40s " "$name"
-    if xcrun -sdk iphoneos clang $COMMON_FLAGS -x objective-c $INCLUDES \
+    if xcrun -sdk iphoneos clang $COMMON_FLAGS -x objective-c $INCLUDES $extra \
         -c "$src" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
         echo "OK"; SUCCEEDED=$((SUCCEEDED+1))
     else
@@ -195,6 +204,7 @@ fi
 echo "=== winemetal unix (Objective-C) ==="
 compile_objc "$DXMT_SRC/winemetal/unix/winemetal_unix.c" winemetal_unix
 compile_objc "$DXMT_SRC/winemetal/unix/cache.c"          cache
+compile_objc "$BUILD_DIR/pipeline_cache_ios.m"          pipeline_cache_ios "-fobjc-arc"
 
 echo "=== airconv (C++ 20, needs LLVM headers) ==="
 for cpp in airconv_context.cpp air_type.cpp air_signature.cpp air_operations.cpp \

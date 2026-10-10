@@ -9,6 +9,7 @@ on:
       - build/ntdll-unix/audio_null_ios.c
       - tests/host/**
       - build/crypto-unix/**
+      - build/dxmt-ios/**
       - .github/workflows/host-support.yml
 
 permissions:
@@ -21,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Fetch pinned Wine source for UDP converter checks
-        run: git submodule update --init --depth 1 wine
+        run: git submodule update --init --depth 1 wine dxmt
       - name: Exercise report snapshots, session selection and display policy
         run: python3 tests/host/check-remote-support.py --require-swift
       - name: Check settings and frontend behavior
@@ -33,6 +34,8 @@ jobs:
           python3 tests/host/check-server-wake.py
           python3 tests/host/check-shared-roots.py
           python3 tests/host/check-cm-retry.py
+          python3 tests/host/check-pipeline-cache.py
+          python3 tests/host/check-dxmt-patches.py
       - name: Exercise native UDP control and audio downmix
         run: |
           python3 tests/host/check-udp-control.py --require-tools
@@ -51,3 +54,6 @@ jobs:
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
             -miphoneos-version-min=17.0 -fobjc-arc -fsyntax-only \
             app/Madeira/IOSDisplayShim.m app/Madeira/Winios/WiniosGL.m
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
+            -miphoneos-version-min=18.0 -fobjc-arc -fblocks -fsyntax-only \
+            build/dxmt-ios/pipeline_cache_ios.m
