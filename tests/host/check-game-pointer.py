@@ -37,9 +37,15 @@ assert "locked: pointerCaptured" in hardware
 assert "UIPointerLockState.didChangeNotification" in hardware
 assert "let captured = state?.isLocked ?? false" in hardware
 assert "private var rawPointerAvailable" in hardware
-assert "if want, !rawPointerAvailable" in hardware
+assert "if want, !rawPointerAvailable || !rawMotionLive" in hardware
 assert "mousePath == .uikit" not in hardware.split("private func setPointerLocked", 1)[1].split("private func startTicker", 1)[0]
-assert "max(lastGCDeltaAt, lastUIKitMotionAt)" in hardware
+assert "max(lastGCDeltaAt, lastUIKitMotionAt)" not in hardware
+assert "if !pointerLocked && !rawMotionLive" in hardware
+assert "guard !rawMotionLive else" in hardware
+assert "gcLive" not in hardware
+assert "characters: key.characters" in hardware
+assert "return HardwareInput.shared.uikitPressWithoutKey" in view
+assert "UIPress.PressType.menu.rawValue" in hardware
 assert 'why: "pointer-capture"' in hardware
 lock = hardware.split("enum PointerLock {", 1)[1].split("final class PointerHider", 1)[0]
 assert "window === gameWindow" in lock
@@ -180,6 +186,13 @@ assert(PointerPolicy.route(focused: true, hover: true, locked: false,
                            cursorShown: true, absoluteAllowed: true) == .absolute)
 assert(PointerPolicy.route(focused: true, hover: false, locked: true,
                            cursorShown: true, absoluteAllowed: true) == .relative)
+// Device presence and button clicks do not count as a moving raw pointer.
+assert(!PointerMotionStream.rawIsLive(lastDelta: 0, now: 1))
+assert(PointerMotionStream.rawIsLive(lastDelta: 1, now: 1.1))
+assert(!PointerMotionStream.rawIsLive(lastDelta: 1, now: 1.3))
+assert(!PointerMotionStream.rawIsLive(lastDelta: 2, now: 1))
+assert(HardwareKeyMap.canonicalPressUsage(0, characters: "\u{1b}") == 0x29)
+assert(HardwareKeyMap.canonicalPressUsage(0, characters: "a") == 0)
 let escape = HardwareKeyMap.stroke(forHIDUsage: HardwareKeyMap.canonicalPressUsage(669))!
 assert(escape.vk == 0x1b && escape.scan == 0x01 && !escape.extended)
 print("PASS: production pointer geometry, single click edges, hit focus, capture/release and Globe mapping")

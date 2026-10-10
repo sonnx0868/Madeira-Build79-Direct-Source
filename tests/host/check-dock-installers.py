@@ -447,9 +447,10 @@ with tempfile.TemporaryDirectory(prefix='madeira-dock-installers-') as tmp:
     tmp = Path(tmp)
     (tmp / 'stubs.swift').write_text(stubs + launch_src, encoding='utf-8')
     (tmp / 'checks.swift').write_text(checks, encoding='utf-8')
+    (tmp / 'installers.swift').write_text(installers.split('// MARK: - Direct-folder components', 1)[0], encoding='utf-8')
     exe = tmp / 'check'
     build = subprocess.run([SWIFTC, '-parse-as-library', '-swift-version', '5', '-sanitize=address', '-o', str(exe),
-                            str(tmp / 'stubs.swift'), str(tmp / 'checks.swift'), str(app / 'DockInstallers.swift')])
+                            str(tmp / 'stubs.swift'), str(tmp / 'checks.swift'), str(tmp / 'installers.swift')])
     require(build.returncode == 0, 'production installer Swift compiles on the host')
     batch_text = ''
     if build.returncode == 0:

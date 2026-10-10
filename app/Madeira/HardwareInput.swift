@@ -311,7 +311,8 @@ enum HardwareKeyMap {
     /// USB Return-or-Enter / keypad-comma usages used by GCKeyboard. iPadOS also reports
     /// the Globe/Language key as the Apple-private raw usage 669; use it as the Windows
     /// Escape key, which gives a physical iPad keyboard a reliable way out of game menus.
-    static func canonicalPressUsage(_ usage: Int) -> Int {
+    static func canonicalPressUsage(_ usage: Int, characters: String? = nil) -> Int {
+        if characters == "\u{1b}" { return 0x29 }
         switch usage {
         case 0x9E: return 0x28    // UIKeyboardHIDUsage.keyboardReturn
         case 0x9F: return 0x85    // UIKeyboardHIDUsage.keyboardSeparator
@@ -656,6 +657,15 @@ enum AutoLock {
     }
 }
 
+/// A button report or an enumerated device is not evidence of working motion.
+/// UIKit remains the movement fallback whenever the raw delta stream is quiet.
+enum PointerMotionStream {
+    static let liveWindow = 0.25
+    static func rawIsLive(lastDelta: Double, now: Double) -> Bool {
+        lastDelta > 0 && now >= lastDelta && now - lastDelta <= liveWindow
+    }
+}
+
 // MARK: - Device glue
 
 final class HardwareInput: ObservableObject {
@@ -850,14 +860,15 @@ final class HardwareInput: ObservableObject {
     private static let absoluteFlag: UInt32 = 0x8000
 
     private var diagnostics: Bool { InputSettings.shared.diagnostics }
-    /// Either GameController stream has spoken: the UIKit fallback stands aside.
-    private var gcLive: Bool { gcDeltaSeen || gcButtonSeen }
-    // A trackpad may deliver UIKit events before pointer lock and raw GC
-    // deltas only after capture. Capability must not depend on past motion.
+    // A profile can deliver buttons without delivering any raw movement.
     private var rawPointerAvailable: Bool {
         GCMouse.current?.mouseInput != nil || GCMouse.mice().contains { $0.mouseInput != nil }
     }
-    private var lastUIKitMotionAt: CFTimeInterval = 0
+    private var rawMotionLive: Bool {
+        motionLock.lock(); let last = lastGCDeltaAt; motionLock.unlock()
+        return PointerMotionStream.rawIsLive(lastDelta: last, now: CACurrentMediaTime())
+    }
+    private var lastGCScrollAt: CFTimeInterval = 0
 
     // MARK: - lifecycle
 
@@ -1139,12 +1150,19 @@ final class HardwareInput: ObservableObject {
     @discardableResult
     func uikitKey(_ key: UIKey, _ pressed: Bool) -> Bool {
         if key.keyCode.rawValue == 669, pressed { log("Globe -> Escape via=UIKit") }
-        let usage = HardwareKeyMap.canonicalPressUsage(Int(key.keyCode.rawValue))
+        let usage = HardwareKeyMap.canonicalPressUsage(Int(key.keyCode.rawValue), characters: key.characters)
         return keyUsage(usage, pressed, source: "UIKit")
     }
 
-    func uikitPressWithoutKey(type: Int, down: Bool) {
+    @discardableResult
+    func uikitPressWithoutKey(type: Int, down: Bool) -> Bool {
+        // UIKit can deliver a cancel/menu press without a UIKey. It used to
+        // be logged and passed on without ever sending Escape to the game.
+        if type == UIPress.PressType.menu.rawValue {
+            return keyUsage(0x29, down, source: "UIKit menu")
+        }
         traceInputEdge("UIKit press without key type=\(type) \(down ? "down" : "up")")
+        return false
     }
 
     @discardableResult
@@ -1238,6 +1256,9 @@ final class HardwareInput: ObservableObject {
             }
         }
         m.scroll.valueChangedHandler = { [weak self] _, x, y in
+            if let self, x != 0 || y != 0 {
+                self.motionLock.lock(); self.lastGCScrollAt = CACurrentMediaTime(); self.motionLock.unlock()
+            }
             self?.scrolled(Double(x), Double(y))
         }
         noteMousePresent()
@@ -1272,7 +1293,7 @@ final class HardwareInput: ObservableObject {
             gcButtonSeen = false
             buttonStreams = MouseButtonStreams()
             attachedMice.removeAll()
-            motionLock.lock(); gcDeltaLive = false; motionLock.unlock()
+            motionLock.lock(); gcDeltaLive = false; lastGCDeltaAt = 0; lastGCScrollAt = 0; motionLock.unlock()
             if mousePath == .gcmouse { mousePath = .none; log("mouse path: none") }
             setPointerLocked(false, byUs: false, why: "mouse disconnected")
             setMouseInUse(false)
@@ -1593,7 +1614,8 @@ final class HardwareInput: ObservableObject {
             return
         }
         let now = CACurrentMediaTime()
-        motionLock.lock(); let lastDelta = max(lastGCDeltaAt, lastUIKitMotionAt); motionLock.unlock()
+        if !pointerLocked && !rawMotionLive { return }
+        motionLock.lock(); let lastDelta = lastGCDeltaAt; motionLock.unlock()
         let action = AutoLock.decide(
             locked: pointerLocked, lockedByUs: lockedByUs, cursorShown: cursorState.shown != 0,
             hiddenFor: cursorState.reports == 0 || cursorHiddenSince == 0 ? 0 : now - cursorHiddenSince,
@@ -1756,9 +1778,7 @@ final class HardwareInput: ObservableObject {
     func uikitMoved(_ dx: CGFloat, _ dy: CGFloat, src: String) {
         guard Self.enabled else { return }
         guard dx != 0 || dy != 0 else { return }
-        lastUIKitMotionAt = CACurrentMediaTime()
-        updateAutoLock()
-        guard !gcLive else { return }     // the HID stream owns delivered motion
+        guard !rawMotionLive else { return }
         logRaw(src, Double(dx), Double(dy))
         noteUIKitPointer()
         setMouseInUse(true)
@@ -1785,7 +1805,9 @@ final class HardwareInput: ObservableObject {
 
     /// 14 points per notch, the ratio the touch trackpad's two-finger scroll uses.
     func uikitScroll(_ dxPoints: CGFloat, _ dyPoints: CGFloat) {
-        guard Self.enabled, !gcLive else { return }
+        guard Self.enabled else { return }
+        motionLock.lock(); let last = lastGCScrollAt; motionLock.unlock()
+        guard !PointerMotionStream.rawIsLive(lastDelta: last, now: CACurrentMediaTime()) else { return }
         guard dxPoints != 0 || dyPoints != 0 else { return }
         noteUIKitPointer()
         scrolled(Double(dxPoints) / 14.0, Double(dyPoints) / 14.0)
@@ -1824,10 +1846,10 @@ final class HardwareInput: ObservableObject {
             }
             want = false
         }
-        // A device with no raw GC profile cannot move after UIKit capture.
-        // A raw-capable trackpad can be captured before its first GC delta.
-        if want, !rawPointerAvailable {
-            log("pointer lock refused (\(why)): path=uikit")
+        // Capturing hides UIKit's movement stream. Require actual raw movement,
+        // rather than a mouse profile or a button click, before taking it away.
+        if want, !rawPointerAvailable || !rawMotionLive {
+            log("pointer lock refused (\(why)): no live raw movement; keeping UIKit trackpad input")
             want = false
         }
         guard want != pointerLocked else { return }

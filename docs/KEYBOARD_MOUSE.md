@@ -47,6 +47,8 @@ menus, launch screens and other text fields keep their own keyboard focus.
   Keyboard > Modifier Keys > Globe Key > Escape** on the iPad. The resulting
   physical Escape uses the same raw-key bridge; Madeira cannot remap a system
   key that iPadOS does not deliver to the app.
+  UIKit Escape characters and menu/cancel presses without a UIKey also use
+  the Escape bridge. Other unidentified presses remain with UIKit.
 
 ## Focus
 
@@ -209,6 +211,13 @@ but `captured=0` needs further device investigation, not a cursor-coordinate cla
   launch screen, backgrounding, disconnect and ending the session release it.
   Press **Ctrl+Alt+P**, or touch the lock button, to release it by hand; manual
   release keeps automatic capture off for the rest of that game session.
+  Merely enumerating a trackpad or receiving its buttons does not allow
+  capture. UIKit motion and scroll keep working independently of GC button
+  delivery, and become the fallback when the corresponding raw stream stops.
+  A UIKit-only trackpad cannot have its system cursor confined using public
+  pointer lock without losing hover movement; its Windows cursor is still
+  clamped by the surface mapping. Do not mistake that for suppression of the
+  iPad's top/bottom system gestures.
 - **Other direct programs:** while a program on the game view hides its cursor (for half a
   second, so a program about to show one does not lock), the pointer is over
   the game view and the mouse is moving, the pointer is locked, as a PC game

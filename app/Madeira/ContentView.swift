@@ -122,8 +122,7 @@ final class MetalBackedView: UIView {
     private func hardwarePresses(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
         Set(presses.filter { press in
             guard let key = press.key else {
-                HardwareInput.shared.uikitPressWithoutKey(type: press.type.rawValue, down: down)
-                return false
+                return HardwareInput.shared.uikitPressWithoutKey(type: press.type.rawValue, down: down)
             }
             return HardwareInput.shared.uikitKey(key, down)
         })
