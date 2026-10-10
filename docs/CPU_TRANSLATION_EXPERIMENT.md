@@ -63,6 +63,8 @@ Game details › Compatibility & performance offers Off (default), Verify
 generated code, and Reuse verified code. CPU experiments require a separate
 engine; restart Madeira between launches. The built-in comparison selects
 Reuse, which learns and verifies unknown blocks before permitting later reuse.
+Clear CPU code cache removes the current build's cache and disable marker;
+restart Madeira first so there is no existing in-memory store.
 
 - The authoritative x86 decoder, IR generation, optimization and register
   allocation still run. The entire IR and node buffers are compared exactly;
@@ -84,7 +86,8 @@ Reuse, which learns and verifies unknown blocks before permitting later reuse.
   marker. Truncated/corrupt/oversized files are rejected. Windows takes one
   writer share lock; another process can read but cannot interleave writes.
 - Files and in-memory data are bounded to 48 MiB per store and 16,384 records.
-  Stores do buffered sequential writes without additional game threads. File
+  Stores do sequential record writes without additional game threads and do
+  not depend on CRT exit destructors flushing a buffer. File
   loading, hashing, copying and writes have costs; reduced stutter is not yet
   demonstrated. New app builds use separate file identities.
 - `[cpu-cache]` logs attempts, actual reused records, rejection counts and

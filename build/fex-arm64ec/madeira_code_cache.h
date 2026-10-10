@@ -97,6 +97,9 @@ class Store {
     };
     static_assert(sizeof(Header) == 40);
     static constexpr uint32_t Magic = 0x3143434d; // MCC1
+    static uint64_t payloadHash(const Bytes& payload, bool validated) {
+        return hash(payload) ^ (validated ? 0xe70cceb1d65a37f9ULL : 0);
+    }
     std::unordered_map<uint64_t, std::vector<Item>> items;
     std::mutex lock;
     std::string path;
@@ -104,7 +107,6 @@ class Store {
     uint64_t fileBytes = 0, memoryBytes = 0;
     uint32_t entries = 0;
     bool enabled = true, cleanTail = true;
-    char writeBuffer[64 * 1024] {};
 
     Item* locate(const Bytes& key) {
         auto it = items.find(hash(key));
@@ -128,8 +130,8 @@ class Store {
     void write(const Bytes& key, const Value& value) {
         const uint64_t size = sizeof(Header) + key.size() + value.payload.size();
         if (!writer || fileBytes + size > MaxFile) return;
-        Header head {Magic, 1, static_cast<uint32_t>(key.size()), static_cast<uint32_t>(value.payload.size()),
-                     hash(key), hash(value.payload), value.validated ? 1U : 0U, 0};
+        Header head {Magic, 2, static_cast<uint32_t>(key.size()), static_cast<uint32_t>(value.payload.size()),
+                     hash(key), payloadHash(value.payload, value.validated), value.validated ? 1U : 0U, 0};
         Bytes record; record.reserve(size);
         append(record, &head, sizeof(head)); append(record, key.data(), key.size());
         append(record, value.payload.data(), value.payload.size());
@@ -150,7 +152,7 @@ public:
             uint64_t consumed = 0;
             while (consumed < fileBytes) {
                 Header head {};
-                if (fread(&head, 1, sizeof(head), reader) != sizeof(head) || head.magic != Magic || head.version != 1 ||
+                if (fread(&head, 1, sizeof(head), reader) != sizeof(head) || head.magic != Magic || head.version != 2 ||
                     head.reserved || head.validated > 1 || !head.keySize || !head.payloadSize ||
                     uint64_t(head.keySize) + head.payloadSize > MaxRecord ||
                     sizeof(head) + uint64_t(head.keySize) + head.payloadSize > fileBytes - consumed) {
@@ -160,7 +162,7 @@ public:
                 if (fread(key.data(), 1, key.size(), reader) != key.size() ||
                     fread(payload.data(), 1, payload.size(), reader) != payload.size()) { cleanTail = false; break; }
                 consumed += sizeof(head) + key.size() + payload.size();
-                if (hash(key) == head.keyHash && hash(payload) == head.payloadHash) {
+                if (hash(key) == head.keyHash && payloadHash(payload, head.validated == 1) == head.payloadHash) {
                     retain(key, {std::move(payload), head.validated == 1});
                 } else { cleanTail = false; } // Never append behind corruption.
             }
@@ -172,7 +174,9 @@ public:
 #else
             writer = fopen(path.c_str(), "ab");
 #endif
-            if (writer) setvbuf(writer, writeBuffer, _IOFBF, sizeof(writeBuffer));
+            // One contiguous write per record. A game/iOS exit may skip CRT
+            // destructors; users must not depend on buffered data being flushed.
+            if (writer) setvbuf(writer, nullptr, _IONBF, 0);
         }
     }
     ~Store() { if (writer) fclose(writer); }
@@ -213,8 +217,8 @@ public:
     void flush() { std::lock_guard guard(lock); if (writer) fflush(writer); }
 };
 
-// Shared within a PE translator instance. No new game threads; sequential,
-// buffered writes are bounded. Losing the Windows writer lock is a read-only
+// Shared within a PE translator instance. No new game threads; sequential
+// writes are bounded. Losing the Windows writer lock is a read-only
 // cache, so Steam children cannot interleave writers into the same file.
 inline std::shared_ptr<Store> open(const std::string& path) {
     static std::mutex guard;

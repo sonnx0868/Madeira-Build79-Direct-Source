@@ -2798,6 +2798,8 @@ struct LibraryDetail: View {
     @State private var installerArguments = ""
     @State private var installerResult: String?
     @State private var componentMessage: String?
+    @State private var cpuCacheClearing = false
+    @State private var cpuCacheMessage: String?
     /// Settings › Sync engine, read when the details open: the fastsync switches
     /// below only apply while it is Fastsync.
     @State private var syncEngine = SyncEngine.current
@@ -3061,6 +3063,20 @@ struct LibraryDetail: View {
                         Text("Reuse verified code").tag("reuse")
                     }
                     .disabled(entry.bits == 32)
+                    Button("Clear CPU code cache") {
+                        cpuCacheClearing = true
+                        let path = entry.launchRelativePath, drive = LibraryModel.drive
+                        Task {
+                            do {
+                                try await Task.detached(priority: .utility) {
+                                    try CPUTranslationSettings.clear(relativePath: path, drive: drive)
+                                }.value
+                                cpuCacheMessage = "CPU code cache cleared. The next run will learn again."
+                            } catch { cpuCacheMessage = error.localizedDescription }
+                            cpuCacheClearing = false
+                        }
+                    }.disabled(cpuCacheClearing || model.current != nil || LibraryModel.sessionsThisRun > 0)
+                    if let cpuCacheMessage { Text(cpuCacheMessage).font(.caption).foregroundStyle(.secondary) }
                     Picker("CPU compilation block size", selection: Binding(
                         get: { entry.cpuTranslationBudget ?? 0 }, set: { entry.cpuTranslationBudget = $0 == 0 ? nil : $0 })) {
                         Text("Automatic").tag(0)

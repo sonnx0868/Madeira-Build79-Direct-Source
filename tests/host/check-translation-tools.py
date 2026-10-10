@@ -39,6 +39,12 @@ assert(TranslationTools.latestReport(drive:drive)?.contains("Last result:")==tru
 CPUTranslationSettings.apply(mode:"reuse",budget:512,relativePath:path,drive:drive)
 assert(String(cString:getenv("MADEIRA_CPU_CACHE"))=="reuse")
 assert(String(cString:getenv("FEX_MAXINST"))=="512")
+let cacheRelative="Madeira/Cache/cpu-v1/"+CPUTranslationSettings.fileKey(relativePath:path)+".bin"
+let cacheFile=try TranslationTools.checkedPath(cacheRelative,drive:drive)
+try Data("cache fixture".utf8).write(to:cacheFile)
+try Data("disabled fixture".utf8).write(to:cacheFile.appendingPathExtension("disabled"))
+try CPUTranslationSettings.clear(relativePath:path,drive:drive)
+assert(!fm.fileExists(atPath:cacheFile.path) && !fm.fileExists(atPath:cacheFile.appendingPathExtension("disabled").path))
 CPUTranslationSettings.apply(mode:"off",budget:nil,relativePath:path,drive:drive)
 assert(String(cString:getenv("MADEIRA_CPU_CACHE"))=="0"); assert(getenv("MADEIRA_CPU_CACHE_PATH")==nil)
 assert(getenv("FEX_MAXINST")==nil)

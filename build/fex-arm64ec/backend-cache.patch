@@ -69,7 +69,7 @@
 +      uint64_t(CTX->Config.Multiblock()), HostSupportsSVE128, HostSupportsSVE256,
 +      HostSupportsAVX256, HostSupportsRPRES, HostSupportsAFP};
 +    Madeira::CPUCache::append(MadeiraCompatibility, Flags, sizeof(Flags));
-+    LogMan::Msg::IFmt("[cpu-cache] ir-verified-arm64-v1 mode={} identity={} boundedMiB=48", CacheMode, MadeiraCPUIdentity);
++    LogMan::Msg::IFmt("[cpu-cache] ir-verified-arm64-v2 mode={} identity={} boundedMiB=48", CacheMode, MadeiraCPUIdentity);
 +  }
 +#endif
    SetWriteOffset(FEXCore::DualMap::WriteOffset);

@@ -55,10 +55,16 @@ int main(int argc, char** argv) {
     { std::fstream stream(file,std::ios::binary|std::ios::in|std::ios::out); stream.seekp(44); stream.put(0); }
     { Store store(file); assert(!store.find(key)); assert(store.observe(key,payload)); }
     { Store store(file); assert(!store.find(key)); }
+    file = base + "/promotion-bit.bin";
+    { Store store(file); assert(store.observe(key,payload)); }
+    { std::fstream stream(file,std::ios::binary|std::ios::in|std::ios::out); stream.seekp(32); stream.put(1); }
+    { Store store(file); assert(!store.find(key)); } // Header corruption cannot promote a record.
     file = base + "/too-large.bin";
     { std::ofstream stream(file,std::ios::binary); stream.seekp(MaxFile); stream.put(0); }
     { Store store(file); assert(!store.find(key)); assert(!store.observe(key,payload)); }
     { Store store(base); assert(!store.find(key)); assert(store.observe(key,payload)); } // Failed writer is optional.
+    file = base + "/visible.bin";
+    { Store writer(file); assert(writer.observe(key,payload)); Store reader(file); assert(reader.find(key)->payload==payload); }
     { Store store(base + "/limits.bin"); assert(!store.observe(key,Bytes(MaxRecord,1))); }
     Block block;
     block.codeOnlySize=60; block.code.resize(128); uint32_t tail=80;

@@ -62,6 +62,17 @@ enum TranslationTools {
 
 enum CPUTranslationSettings {
     static let budgets = [512, 2048, 5000]
+    static func fileKey(relativePath: String) -> String {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
+        return SHA256.hash(data: Data((build + "\0" + relativePath).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    static func clear(relativePath: String, drive: URL) throws {
+        let relative = "Madeira/Cache/cpu-v1/" + fileKey(relativePath: relativePath) + ".bin"
+        for suffix in ["", ".disabled"] {
+            let file = try TranslationTools.checkedPath(relative + suffix, drive: drive)
+            if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+        }
+    }
     static func apply(mode: String?, budget: Int?, relativePath: String, drive: URL) {
         if let budget, budgets.contains(budget) { setenv("FEX_MAXINST", String(budget), 1) }
         else { unsetenv("FEX_MAXINST") }
@@ -72,9 +83,9 @@ enum CPUTranslationSettings {
         do {
             let folder = try TranslationTools.checkedPath("Madeira/Cache/cpu-v1", drive: drive)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
-            let key = SHA256.hash(data: Data((build + "\0" + relativePath).utf8)).map { String(format: "%02x", $0) }.joined()
+            let key = fileKey(relativePath: relativePath)
             _ = try TranslationTools.checkedPath("Madeira/Cache/cpu-v1/" + key + ".bin", drive: drive)
+            _ = try TranslationTools.checkedPath("Madeira/Cache/cpu-v1/" + key + ".bin.disabled", drive: drive)
             setenv("MADEIRA_CPU_CACHE", choice, 1)
             setenv("MADEIRA_CPU_CACHE_PATH", "C:\\Madeira\\Cache\\cpu-v1\\\(key).bin", 1)
             LogStore.shared.log("[cpu-profile] cache=\(choice) instructionBudget=\(budget.map(String.init) ?? "default")")

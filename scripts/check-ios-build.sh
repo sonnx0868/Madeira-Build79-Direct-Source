@@ -41,7 +41,7 @@ need "app/Madeira/arm64ec-windows/lua51-gc64.dll"
 need "app/Madeira/aarch64-windows/madeira-session-host.exe"
 need "app/Madeira/arm64ec-windows/xtajit64.dll"
 if [[ -s "$root/app/Madeira/arm64ec-windows/xtajit64.dll" ]]; then
-  grep -a -q 'ir-verified-arm64-v1' "$root/app/Madeira/arm64ec-windows/xtajit64.dll" || {
+  grep -a -q 'ir-verified-arm64-v2' "$root/app/Madeira/arm64ec-windows/xtajit64.dll" || {
     echo "INVALID: xtajit64.dll predates the optional validated CPU cache; rebuild source-bootstrap"; missing=1;
   }
 fi
