@@ -8,6 +8,7 @@ on:
       - app/Madeira/**
       - build/ntdll-unix/audio_null_ios.c
       - tests/host/**
+      - build/crypto-unix/**
       - .github/workflows/host-support.yml
 
 permissions:
@@ -30,6 +31,8 @@ jobs:
           python3 tests/host/check-game-pointer.py --require-swift
           python3 tests/host/check-dock-installers.py
           python3 tests/host/check-server-wake.py
+          python3 tests/host/check-shared-roots.py
+          python3 tests/host/check-cm-retry.py
       - name: Exercise native UDP control and audio downmix
         run: |
           python3 tests/host/check-udp-control.py --require-tools

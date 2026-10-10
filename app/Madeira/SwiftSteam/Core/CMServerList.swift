@@ -32,20 +32,20 @@ actor CMServerList {
     // MARK: - Public API
 
     /// Get the best available CM server to connect to
-    func getServer() async throws -> CMServer {
+    func getServer(excluding: Set<String> = []) async throws -> CMServer {
         if servers.isEmpty || isListStale {
             try await refreshServerList()
         }
 
         guard let server = servers
-            .filter({ $0.isHealthy })
+            .filter({ $0.isHealthy && !excluding.contains($0.endpoint) })
             .sorted(by: { ($0.lastAttempt ?? .distantPast) < ($1.lastAttempt ?? .distantPast) })
             .first
         else {
             for i in servers.indices {
                 servers[i].failCount = 0
             }
-            guard let server = servers.first else {
+            guard let server = servers.first(where: { !excluding.contains($0.endpoint) }) else {
                 throw SteamError.noServersAvailable
             }
             return server
@@ -69,7 +69,15 @@ actor CMServerList {
     }
 
     func refreshServerList() async throws {
-        let freshServers = try await fetchServerList()
+        let freshServers: [CMServer]
+        do { freshServers = try await fetchServerList() }
+        catch {
+            let ns = error as NSError
+            if error is CancellationError || (ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled) { throw error }
+            guard let cached = loadCachedServers(), !cached.isEmpty else { throw error }
+            SteamLog.event("[steam-network] stage=cm-directory cached=1 domain=\(ns.domain) code=\(ns.code)")
+            freshServers = cached
+        }
         guard !freshServers.isEmpty else {
             throw SteamError.noServersAvailable
         }

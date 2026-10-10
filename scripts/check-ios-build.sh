@@ -120,6 +120,9 @@ if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
   }
 fi
 if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
+  grep -a -q 'shared-roots-v2' "$root/app/Madeira/libntdll_unix.a" || {
+    echo "INVALID: libntdll_unix.a has destructive shared root enumeration; rebuild source-bootstrap"; missing=1;
+  }
   grep -a -q 'opengl32 (winios WGL)' "$root/app/Madeira/libntdll_unix.a" || {
     echo "INVALID: libntdll_unix.a lacks the OpenGL unix dispatch; rebuild source-bootstrap"; missing=1;
   }

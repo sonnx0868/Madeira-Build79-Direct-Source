@@ -8,6 +8,37 @@
 
 import Foundation
 
+/// Retry transport handshakes against distinct directory-approved endpoints.
+/// Authentication and cloud requests start only after this succeeds.
+enum CMConnectionAttempts {
+    static func run<Server>(limit: Int = 3,
+        next: (Set<String>) async throws -> (endpoint: String, server: Server),
+        dial: (Server) async throws -> Void,
+        failed: (Server, Error, Int) async -> Void) async throws {
+        var seen: Set<String> = []
+        var lastError: Error?
+        for attempt in 1...max(1, limit) {
+            try Task.checkCancellation()
+            let selected: (endpoint: String, server: Server)
+            do { selected = try await next(seen) }
+            catch {
+                let ns = error as NSError
+                if error is CancellationError || (ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled) { throw error }
+                throw lastError ?? error
+            }
+            guard seen.insert(selected.endpoint).inserted else { break }
+            do { try await dial(selected.server); return }
+            catch {
+                let ns = error as NSError
+                if error is CancellationError || (ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled) { throw error }
+                lastError = error
+                await failed(selected.server, error, attempt)
+            }
+        }
+        throw lastError ?? SteamError.noServersAvailable
+    }
+}
+
 // MARK: - WebSocket Delegate
 
 /// Logs WebSocket lifecycle events: protocol negotiation, server-initiated close.
@@ -63,7 +94,20 @@ actor SteamConnection {
     // MARK: - Connect
 
     func connect() async throws {
-        let server = try await serverList.getServer()
+        try await CMConnectionAttempts.run(next: { excluded in
+            let server = try await self.serverList.getServer(excluding: excluded)
+            return (server.endpoint, server)
+        }, dial: { server in
+            try await self.connectSingle(server)
+        }, failed: { server, error, attempt in
+            let ns = error as NSError
+            SteamLog.event("[steam-network] stage=cm-connect attempt=\(attempt) host=\(server.host) domain=\(ns.domain) code=\(ns.code)")
+            await self.serverList.markFailed(endpoint: server.endpoint)
+            await self.disconnect()
+        })
+    }
+
+    private func connectSingle(_ server: CMServerList.CMServer) async throws {
         currentEndpoint = server.endpoint
         SteamLog.trace("Connecting to CM: \(server.url)")
 
@@ -88,7 +132,7 @@ actor SteamConnection {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             task.sendPing { error in
                 if let error {
-                    cont.resume(throwing: SteamError.connectionFailed(error.localizedDescription))
+                    cont.resume(throwing: error)
                 } else {
                     cont.resume()
                 }
@@ -128,7 +172,7 @@ actor SteamConnection {
                 if !isNormalClose {
                     SteamLog.trace("WS receive error: \(error.localizedDescription)")
                 }
-                Task { await self.handleDisconnect(error: isNormalClose ? nil : error) }
+                Task { await self.handleDisconnect(task: task, error: isNormalClose ? nil : error) }
             }
         }
     }
@@ -169,9 +213,9 @@ actor SteamConnection {
         self.disconnectHandler = handler
     }
 
-    private func handleDisconnect(error: Error?) {
+    private func handleDisconnect(task: URLSessionWebSocketTask, error: Error?) {
         // Only fire disconnect once per connection — clear webSocketTask to prevent repeat
-        guard webSocketTask != nil else { return }
+        guard webSocketTask === task else { return }
         webSocketTask = nil
         if let error {
             SteamLog.trace("Connection lost: \(error.localizedDescription)")

@@ -143,6 +143,27 @@ gian tải asset, dịch mã x64, GC và tạo Metal pipeline. Không quy các �
 
 ## Liar's Bar: kiểm tra chất lượng kết nối
 
+Log build 585 có Player.log: Unity Authentication lặp `Curl error 60`,
+`SSL CA certificate error`, rồi QoS lỗi vì chưa có access token. Native UDP
+đã ghi `darwin-tos-v1` và không còn unknown cmsg. Lỗi HTTPS xảy ra trước QoS;
+không coi thông báo chất lượng kết nối là bằng chứng ping/packet loss xấu.
+
+Unix crypt32 dùng chung từng lấy và xoá root certificate khi caller 64-bit
+đọc nó. Caller sau có thể nhận danh sách rỗng; Wine còn đối chiếu danh sách
+đó với root đã nhập. Sửa bằng cache CA bất biến và cursor riêng mỗi thread,
+dùng cho cả 64-bit/WoW64, có dọn cursor khi thread kết thúc. Preflight yêu cầu
+`shared-roots-v2`; cần rebuild source-bootstrap. Host test kiểm tra import
+lặp, buffer resize và 128 lượt đọc đồng thời. Vẫn phải xác nhận đăng nhập
+Unity thành công bằng log từ iPad.
+
+Upload-before-quit dùng kết nối Steam CM native. Một lần bắt tay TLS lỗi
+không tự chứng minh file save hỏng; flow cũ kết thúc ngay ở CM đầu tiên.
+Transport thử tối đa ba endpoint khác nhau do directory cung cấp, đánh dấu
+endpoint lỗi và dùng cache directory khi fetch gặp lỗi mạng. Cancellation
+dừng retry; callback từ socket cũ không đóng socket mới. Log `steam-network`
+ghi stage, host CM, error domain/code, không ghi credential/URL có token.
+Certificate verification và xác nhận upload vẫn bắt buộc.
+
 Log build 576 có SteamAPI khởi tạo thành công, DoH Cloudflare trả lời và
 kết nối Steam truyền dữ liệu. Luồng `SteamNetworkingSockets` nhận UDP nhưng
 Wine bỏ qua ancillary message IPv4 type 27. Trên Darwin, đó là `IP_RECVTOS`
