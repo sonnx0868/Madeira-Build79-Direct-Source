@@ -68,8 +68,15 @@ assert native['native_code_ranges'] > 0 and native['entry_thunks'] >= 3
 assert receipt['madeira-translation-lab.exe']['chpe_version'] == 0
 (args.out/'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n', encoding='utf-8')
 shutil.copyfile(src/'README.md', args.out/'README.md')
+notices = 'Translation lab source: SPDX-License-Identifier: MIT.\n\n'
+for name, path in [
+    ('LLVM toolchain', args.toolchain.parent/'LICENSE.TXT'),
+    ('MinGW-w64 runtime', args.toolchain.parent/'arm64ec-w64-mingw32/share/mingw32/COPYING.MinGW-w64-runtime.txt')]:
+    if not path.is_file(): raise SystemExit('Missing runtime notice: ' + str(path))
+    notices += name + '\n' + path.read_text(encoding='utf-8', errors='replace') + '\n\n'
+(args.out/'notices.txt').write_text(notices, encoding='utf-8')
 with zipfile.ZipFile(args.out/'Madeira-translation-lab.zip', 'w', zipfile.ZIP_DEFLATED) as package:
-    for name in ['madeira-native-work.dll', 'madeira-translation-lab.exe', 'README.md', 'receipt.json']:
+    for name in ['madeira-native-work.dll', 'madeira-translation-lab.exe', 'README.md', 'receipt.json', 'notices.txt']:
         package.write(args.out/name, arcname=name)
 print('PASS: genuine ARM64EC code ranges/entry thunks and x64 caller built; package ready')
 if args.smoke:
