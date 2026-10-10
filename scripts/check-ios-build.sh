@@ -150,6 +150,9 @@ if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
 fi
 
 if [[ -s "$root/app/Madeira/libwineserver.a" ]]; then
+  grep -a -q 'request-wake-coalesced-v1' "$root/app/Madeira/libwineserver.a" || {
+    echo "INVALID: libwineserver.a predates request wake coalescing; rebuild source-bootstrap"; missing=1;
+  }
   grep -a -q 'server-stop-v1' "$root/app/Madeira/libwineserver.a" || {
     echo "INVALID: libwineserver.a lacks independent game termination; rebuild source-bootstrap"; missing=1;
   }

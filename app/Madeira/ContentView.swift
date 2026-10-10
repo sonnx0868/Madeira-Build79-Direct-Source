@@ -1240,6 +1240,7 @@ struct ContentView: View {
     @State private var jitStatus: JITStatus = .unknown
     /// Play without JIT: the start that waits for Enable JIT (jitReadyForLaunch).
     @State private var launchAfterJIT: (() -> Void)?
+    @State private var dockLaunchPreparing = false
     @State private var entitlements: EntitlementStatus?
     @State private var debuggerAttached = isDebuggerAttached()
     @ObservedObject private var input = InputSettings.shared
@@ -2448,6 +2449,7 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        guard !dockLaunchPreparing else { return }
         if GameRuntime.shared.hasEngine {
             guard library.current == nil else { library.error = "A game is already running."; return }
             guard GameRuntime.supports(entry) else {
@@ -2534,6 +2536,7 @@ struct ContentView: View {
     /// to prepare code pages. Detach happens after Wine finishes + recovery.
     /// `profile` is a library entry whose launch profile applies to this run.
     private func runWineFullSequence(profile: LibraryEntry? = nil, runtimeLaunch: RuntimeLaunch? = nil) {
+        guard !dockLaunchPreparing else { return }
         guard jit_check_debugged() else {
             logStore.log("JIT not enabled. Press 'Enable JIT' first.", level: .error)
             if runtimeLaunch != nil { GameRuntime.shared.publicationFailed("JIT is not enabled for the reusable runtime.") }
@@ -3201,6 +3204,7 @@ struct ContentView: View {
     /// `profile` is a Steam game's library entry (its Game details page): the
     /// session then takes that entry's display, performance and on-screen settings.
     private func startDock(_ game: DockGame, compactPool: Bool, profile: LibraryEntry? = nil) {
+        guard !dockLaunchPreparing else { return }
         let inLibrary = library.enabled
         guard jitReadyForLaunch(inLibrary: inLibrary, entry: profile?.id,
                                 then: { startDock(game, compactPool: compactPool, profile: profile) }) else { return }
@@ -3231,7 +3235,10 @@ struct ContentView: View {
         // (library, playtime, downloads) logs off and its socket closes before the sign-in
         // is handed to Valve's client, and it stays off until the Dock session has ended
         // (SteamOwnedLibrary.prepareDock / dockEnded, SteamConnectionGate).
+        dockLaunchPreparing = true
+        MadeiraDockModel.shared.status = "Preparing this game's dependencies…"
         Task { @MainActor in
+            defer { dockLaunchPreparing = false }
             await SteamOwnedLibrary.shared.prepareDock()
             do {
                 // The launch state may have changed while the connection closed.
@@ -3247,7 +3254,13 @@ struct ContentView: View {
             MadeiraDock.configure(game)
             // The game's one-time installs (its Steam install script) run first, in the same
             // session. No session runs yet, so the registry files can be read and written.
-            DockInstallers.prepare(game, drive: MadeiraDock.drive, prefix: MadeiraDock.prefix)
+            await DockInstallers.prepare(game, drive: MadeiraDock.drive, prefix: MadeiraDock.prefix)
+            // Preparation yields to the UI. Recheck before starting a native session.
+            guard StikJITHelper.ready, SteamSignIn.isSignedIn,
+                  wine_process_is_running() == 0, wineserver_is_running() == 0,
+                  !inLibrary || library.current == nil else {
+                fail(DockError.message("The launch state changed. Enable JIT and try again.")); return
+            }
             // Only a start that runs installers turns madsync off, for its own session
             // (build/madsync/madsync.c reads MADEIRA_MADSYNC_SESSION once, when the server starts).
             if DockInstallers.serverSync {
@@ -3291,6 +3304,7 @@ struct ContentView: View {
                 if let profile { library.begin(profile, dock: game) }
                 else { library.begin(.dockSession(title: game.name, width: width, height: height), remember: false, dock: game) }
             }
+            dockLaunchPreparing = false
             runWineFullSequence(profile: profile)
         }
     }

@@ -121,6 +121,26 @@ Windows kiểm tra source/server được, nhưng không xác nhận build
 hay chạy IPA trên iPad. Codemagic bắt buộc chạy
 `tests/host/check-remote-support.py --require-swift` trước khi build app.
 
+## Chuẩn bị Steam và đo khựng lúc tải game
+
+Chuẩn bị các one-time installs chạy ở background, chụp cấu hình trước khi
+bắt đầu và chỉ công bố plan hoàn tất trên main actor. Registry được quét một
+lần cho các DWORD cần tìm; log dùng lại kết quả đó. `[dock-prepare]` ghi các
+mốc begin, registry-scanned và ready cùng thời gian chuẩn bị. Sau bước async,
+Madeira kiểm tra lại trạng thái JIT, đăng nhập và phiên trước khi chạy Wine.
+Các lần bấm Play khác chờ bước chuẩn bị kết thúc.
+
+Wineserver gom các yêu cầu đánh thức thành một tín hiệu đang chờ. Chỉ bỏ cờ
+sau khi semaphore thực sự được tiêu thụ, trước lúc quét request; timeout
+không bỏ tín hiệu. Giữ tick fallback 1 ms và đường poll mạng hiện có.
+Preflight yêu cầu `request-wake-coalesced-v1`, nên native bundle cũ phải
+rebuild bằng source-bootstrap. Host CI kiểm tra burst đa luồng với semaphore
+Mach thật và khả năng main actor tiếp tục chạy khi chuẩn bị prefix lớn.
+
+FPS mỗi 10 giây, nhiệt độ, shader-cache hits và Player.log chưa đủ tách thời
+gian tải asset, dịch mã x64, GC và tạo Metal pipeline. Không quy các đoạn
+0 FPS cho một nguyên nhân duy nhất hoặc khẳng định hết khựng từ host tests.
+
 ## Liar's Bar: kiểm tra chất lượng kết nối
 
 Log build 576 có SteamAPI khởi tạo thành công, DoH Cloudflare trả lời và

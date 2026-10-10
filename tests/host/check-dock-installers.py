@@ -71,11 +71,22 @@ require('DockInstallers.poll(drive: MadeiraDock.drive)' in view and 'Picker(game
         'Text("Run at next start").tag(true)' in view and 'Text("Skip").tag(false)' in view, 'the Dock sheet shows the choice and progress')
 require('Copyright 2026 125hz' in installers.split('\n', 3)[1], 'new file carries the owner copyright')
 
+require('await DockInstallers.prepare(' in body and 'dockLaunchPreparing' in body,
+        'Dock preparation yields and concurrent starts are held')
+require('Task.detached(priority: .userInitiated)' in installers and 'nonisolated private static func prepareFiles' in installers,
+        'prefix work runs outside the UI actor and publishes the completed plan')
+if '--static-only' in sys.argv:
+    raise SystemExit(1 if failures else 0)
+
 # ------------------------------------------------------------------ compiled Swift
 game_src = dock[dock.index('/// A game Steam\'s client has installed'):dock.index('/// Madeira Dock: a small headless host')]
 stubs = r'''
 import Foundation
+#if canImport(Glibc)
 import Glibc
+#else
+import Darwin
+#endif
 enum SteamSignIn {
     static func flag(_ name: String, default fallback: Bool) -> Bool { getenv(name).map { String(cString: $0) != "0" } ?? fallback }
 }
@@ -94,7 +105,11 @@ enum MadeiraDock { static let executable = "C:\\windows\\system32\\dockhost.exe"
 
 checks = r'''
 import Foundation
+#if canImport(Glibc)
 import Glibc
+#else
+import Darwin
+#endif
 var failures = 0
 func require(_ condition: @autoclosure () -> Bool, _ label: String) {
     if condition() { print("PASS: " + label) } else { print("FAIL: " + label); failures += 1 }
@@ -115,7 +130,7 @@ func pe(_ url: URL, machine: UInt16) throws {
 @MainActor func logged(_ text: String) -> Bool { LogStore.shared.lines.contains { $0.contains(text) } }
 
 @main struct Checks {
-    @MainActor static func main() throws {
+    @MainActor static func main() async throws {
         setvbuf(stdout, nil, _IONBF, 0)
         // ---- install scripts
         let script = """
@@ -191,6 +206,15 @@ func pe(_ url: URL, machine: UInt16) throws {
         plan = DockInstallScripts.plan(withKey, limit: 1, done: none, exists: { _ in true })
         require(plan.map(\.status) == [.pending, .limit, .limit, .limit], "per-start limit")
         require(DockInstallScripts.label(SteamInstallRun(name: "a&b|c>%d\"e f", hive: .machine, key: "k", value: 1)) == "abcde f", "labels keep only safe characters")
+
+        // A large prefix with unrelated sections and both registry views. No values
+        // may leak from another key, or between user and machine registry files.
+        let largeRegistry = String(repeating: "[Software\\Unrelated] 0\n\"noise\"=dword:ffffffff\n", count: 120_000) +
+            "[SOFTWARE\\\\Fixture Tool] 0\n\"Tool\"=dword:00000002\n" +
+            "[Software\\\\Wow6432Node\\\\Fixture Tool] 0\n\"tool\"=dword:00013c79\n" +
+            "[Software\\\\Other] 0\n\"tool\"=dword:ffffffff\n"
+        require(DockInstallScripts.recordedValues([tool.run, runtime.run], in: largeRegistry) == [tool.run: 81017],
+                "large registry: both views, highest DWORD, unrelated sections ignored")
 
         // ---- the batch
         let result = "C:\\madeira-dock-installers.result"
@@ -270,7 +294,7 @@ func pe(_ url: URL, machine: UInt16) throws {
         try? FileManager.default.removeItem(at: prefix.appendingPathComponent(DockInstallLedger.fileName))
         try write(prefix.appendingPathComponent("system.reg"), "WINE REGISTRY Version 2\n\n[Software\\\\Wow6432Node\\\\Fixture Shared] 1700000000\n\"Shared Runtime\"=dword:00000001\n")
         try write(prefix.appendingPathComponent("user.reg"), "WINE REGISTRY Version 2\n")
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: false, hasMsiexec: false, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: false, hasMsiexec: false, fusionSource: nil)
         require(DockInstallers.script == "C:\\madeira-dock-installers.cmd" && DockInstallers.serverSync, "pending program: batch and a per-session madsync request")
         let written = (try? String(contentsOf: drive.appendingPathComponent("madeira-dock-installers.cmd"), encoding: .utf8)) ?? ""
         require(written.contains("echo start 1 tool") && !written.contains("start 2") && written.contains("--start-services"), "the batch runs only the runnable pending program, after the service step")
@@ -304,7 +328,7 @@ func pe(_ url: URL, machine: UInt16) throws {
         try write(drive.appendingPathComponent("madeira-dock-installers.result"), finished)
 
         // ---- the next start records the result and plans again: nothing is left to run
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: false, hasMsiexec: false, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: false, hasMsiexec: false, fusionSource: nil)
         let system = (try? String(contentsOf: prefix.appendingPathComponent("system.reg"), encoding: .utf8)) ?? ""
         require(DockInstallScripts.recorded(tool.run, in: system) == 81017 && system.contains("[Software\\\\Wow6432Node\\\\Fixture Tool]") &&
                 system.contains("[SOFTWARE\\\\Fixture Tool]"), "a program that exited 0 is recorded in both views at the next start")
@@ -318,11 +342,11 @@ func pe(_ url: URL, machine: UInt16) throws {
         // ---- Skip, then Run at next start, with 32-bit support and fusion.dll
         let fusion = base.appendingPathComponent("bundle/i386-windows/fusion.dll")
         try write(fusion, "MZ fusion")
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
         require(DockInstallers.script == nil && logged("choice=skip pending=1") && (DockInstallers.note ?? "").contains("skipped"), "Skip starts without the pending program")
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
         require(DockInstallLedger.load(prefix: prefix).runsNext(7000), "Run at next start is saved")
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
         let second = (try? String(contentsOf: drive.appendingPathComponent("madeira-dock-installers.cmd"), encoding: .utf8)) ?? ""
         require(DockInstallers.script != nil && second.contains("echo start 1 runtime a") && second.contains("/silent"), "with 32-bit support the 32-bit installer runs")
         let placed = drive.appendingPathComponent("windows/Microsoft.NET/Framework/v2.0.50727/fusion.dll")
@@ -330,51 +354,64 @@ func pe(_ url: URL, machine: UInt16) throws {
         require(DockInstallers.placeDotNetFusion(drive: drive, source: fusion) == "present", "an existing fusion.dll is never replaced")
         // The batch did not run at all (the app was closed first): nothing recorded, the program is pending again.
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
         require(logged("none: the batch did not start") && DockInstallers.script != nil, "a batch that never ran records nothing")
 
         // ---- switches
         setenv("MADEIRA_DOCK_INSTALL_CHOICE", "0", 1)
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
         require(DockInstallers.script != nil && DockInstallLedger.load(prefix: prefix).runNext["7000"] == nil, "MADEIRA_DOCK_INSTALL_CHOICE=0: runs every start, choice untouched")
         unsetenv("MADEIRA_DOCK_INSTALL_CHOICE")
         setenv("MADEIRA_DOCK_INSTALL_SERVER_SYNC", "0", 1)
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
         let keep = (try? String(contentsOf: drive.appendingPathComponent("madeira-dock-installers.cmd"), encoding: .utf8)) ?? ""
         require(DockInstallers.script != nil && !DockInstallers.serverSync && keep.contains("echo services off") && !keep.contains("--start-services"),
                 "MADEIRA_DOCK_INSTALL_SERVER_SYNC=0 with madsync: madsync kept, service step left out")
         MadeiraConfig.values["inproc-sync"] = "0"
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
         require(!DockInstallers.serverSync && ((try? String(contentsOf: drive.appendingPathComponent("madeira-dock-installers.cmd"), encoding: .utf8)) ?? "").contains("--start-services"),
                 "madsync already off in madeira.cfg: the service step runs without a session request")
         MadeiraConfig.values = [:]
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
         require(!DockInstallers.serverSync && ((try? String(contentsOf: drive.appendingPathComponent("madeira-dock-installers.cmd"), encoding: .utf8)) ?? "").contains("--start-services")
                 && !(DockInstallers.note ?? "").contains("standard synchronization"),
                 "no inproc-sync (fastsync, the default engine): the service step runs, no madsync note")
         unsetenv("MADEIRA_DOCK_INSTALL_SERVER_SYNC")
         setenv("MADEIRA_DOCK_INSTALL_SCM", "0", 1)
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: nil)
         require(((try? String(contentsOf: drive.appendingPathComponent("madeira-dock-installers.cmd"), encoding: .utf8)) ?? "").contains("echo services off"),
                 "MADEIRA_DOCK_INSTALL_SCM=0: services off")
         unsetenv("MADEIRA_DOCK_INSTALL_SCM")
         try? FileManager.default.removeItem(at: placed)
         setenv("MADEIRA_DOTNET_FUSION", "0", 1)
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: false, fusionSource: fusion)
         require(!FileManager.default.fileExists(atPath: placed.path), "MADEIRA_DOTNET_FUSION=0 leaves the folder alone")
         unsetenv("MADEIRA_DOTNET_FUSION")
         setenv("MADEIRA_DOCK_INSTALLERS", "0", 1)
         DockInstallers.setRunsNext(7000, true, prefix: prefix)
-        DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: true, fusionSource: nil)
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: true, fusionSource: nil)
         require(DockInstallers.script == nil && !DockInstallers.serverSync && DockInstallers.note == nil && !DockInstallers.choiceEnabled &&
                 DockInstallers.programCount(game, drive: drive) == 0, "MADEIRA_DOCK_INSTALLERS=0: nothing runs, nothing is shown")
         unsetenv("MADEIRA_DOCK_INSTALLERS")
+
+        // The UI actor must continue running while the prefix is scanned.
+        try write(prefix.appendingPathComponent("system.reg"), largeRegistry)
+        var mainActorTicks = 0
+        let heartbeat = Task { @MainActor in
+            while !Task.isCancelled {
+                mainActorTicks += 1
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+        }
+        await DockInstallers.prepare(game, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: true, fusionSource: nil)
+        heartbeat.cancel()
+        require(mainActorTicks > 1 && logged("stage=ready"), "UI actor stays responsive through a large-prefix preparation")
 
         // ---- per-start limit keeps the choice
         var many = "\"installscript\" { \"run process\" {"
@@ -383,7 +420,7 @@ func pe(_ url: URL, machine: UInt16) throws {
         let big = DockGame(id: 7001, name: "Many", installDir: "Many", library: "Program Files (x86)/Steam/steamapps", installed: true, customExecutables: false)
         try write(common.appendingPathComponent("Many/installscript.vdf"), many)
         for i in 1...9 { try pe(common.appendingPathComponent("Many/p\(i).exe"), machine: 0x8664) }
-        DockInstallers.prepare(big, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: true, fusionSource: nil)
+        await DockInstallers.prepare(big, drive: drive, prefix: prefix, has32Bit: true, hasMsiexec: true, fusionSource: nil)
         require(DockInstallLedger.load(prefix: prefix).session.count == 8 && DockInstallLedger.load(prefix: prefix).runsNext(7001) &&
                 (DockInstallers.note ?? "").contains("Next start: p9"), "over the limit: 8 run, the rest next start, choice stays Run")
 

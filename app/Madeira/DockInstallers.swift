@@ -274,23 +274,40 @@ enum DockInstallScripts {
 
     /// The value a run has in a Wine .reg text (highest of both views), nil when absent.
     static func recorded(_ run: SteamInstallRun, in text: String) -> UInt32? {
-        let lines = text.components(separatedBy: "\n")
-        let valueName = ("\"" + SteamInstallScripts.escape(run.name) + "\"=").lowercased()
-        var best: UInt32?
-        for key in SteamInstallScripts.keys(run) {
-            let header = ("[" + SteamInstallScripts.escape(key) + "]").lowercased()
-            guard let start = lines.firstIndex(where: { $0.lowercased().hasPrefix(header) }) else { continue }
-            var index = start + 1
-            while index < lines.count, !lines[index].hasPrefix("[") {
-                let line = lines[index].lowercased()
-                if line.hasPrefix(valueName), let range = line.range(of: "=dword:"),
-                   let value = UInt32(line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines), radix: 16) {
-                    best = max(best ?? 0, value)
-                }
-                index += 1
+        recordedValues([run], in: text)[run]
+    }
+
+    /// Scan each registry once for all requested runs. Large prefixes used to be split
+    /// and lowercased repeatedly for every program, then again for its log line.
+    static func recordedValues(_ runs: [SteamInstallRun], in text: String) -> [SteamInstallRun: UInt32] {
+        var requested: [String: [String: Set<SteamInstallRun>]] = [:]
+        for run in runs {
+            let name = ("\"" + SteamInstallScripts.escape(run.name) + "\"").lowercased()
+            for key in SteamInstallScripts.keys(run) {
+                let header = ("[" + SteamInstallScripts.escape(key) + "]").lowercased()
+                requested[header, default: [:]][name, default: []].insert(run)
             }
         }
-        return best
+        guard !requested.isEmpty else { return [:] }
+        var values: [SteamInstallRun: UInt32] = [:]
+        var section: [String: Set<SteamInstallRun>] = [:]
+        var seen: Set<String> = []
+        // Byte slices avoid making a String for every unrelated value in a prefix.
+        for bytes in text.utf8.split(separator: 10, omittingEmptySubsequences: false) {
+            if bytes.first == 91 {
+                section = [:]
+                guard let close = bytes.firstIndex(of: 93) else { continue }
+                let header = String(decoding: bytes[...close], as: UTF8.self).lowercased()
+                if let names = requested[header], seen.insert(header).inserted { section = names }
+            } else if !section.isEmpty, bytes.first == 34 {
+                let line = String(decoding: bytes, as: UTF8.self).lowercased()
+                guard let range = line.range(of: "=dword:"),
+                      let selected = section[String(line[..<range.lowerBound])],
+                      let value = UInt32(line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines), radix: 16) else { continue }
+                for run in selected { values[run] = max(values[run] ?? 0, value) }
+            }
+        }
+        return values
     }
 
     /// Whether a run is recorded done (value at least its minimum in either view).
@@ -463,8 +480,8 @@ struct DockInstallLedger: Codable, Equatable, Sendable {
 /// - `MADEIRA_DOTNET_FUSION`: place Wine's fusion.dll in the .NET 2.0 folder when missing.
 @MainActor
 enum DockInstallers {
-    static let scriptName = "madeira-dock-installers.cmd"
-    static let resultName = "madeira-dock-installers.result"
+    nonisolated static let scriptName = "madeira-dock-installers.cmd"
+    nonisolated static let resultName = "madeira-dock-installers.result"
 
     /// The batch this start runs before the host (a C:\ path), nil when none runs.
     private(set) static var script: String?
@@ -593,43 +610,81 @@ enum DockInstallers {
 
     /// Called right before a Dock start, while no session runs (the registry is on disk).
     /// Records the previous batch's results, plans the game's programs and writes the batch.
+    private struct PreparationOptions: Sendable {
+        var enabled: Bool, defaultKey: Bool, choiceOn: Bool, serverSync: Bool, services: Bool, fusion: Bool, madsync: Bool
+        var has32Bit: Bool, hasMsiexec: Bool
+        var fusionSource: URL?
+        var hostExecutable: String
+    }
+    private struct Preparation: Sendable {
+        var script: String?
+        var serverSync = false
+        var note: String?
+    }
+
+    /// Snapshot settings on the main actor; all directory, registry and batch work
+    /// runs off it. Only the completed plan is published to the session UI.
     static func prepare(_ game: DockGame, drive: URL, prefix: URL,
                         has32Bit: Bool = DockInstallers.bundleHas32Bit, hasMsiexec: Bool = DockInstallers.bundleHasMsiexec,
-                        fusionSource: URL? = Bundle.main.resourceURL?.appendingPathComponent("i386-windows/fusion.dll")) {
+                        fusionSource: URL? = Bundle.main.resourceURL?.appendingPathComponent("i386-windows/fusion.dll")) async {
         script = nil; serverSync = false; note = nil; finishedAt = nil; logged = []
+        let options = PreparationOptions(enabled: enabled, defaultKey: flag("MADEIRA_INSTALL_DEFAULT_KEY"),
+            choiceOn: flag("MADEIRA_DOCK_INSTALL_CHOICE"), serverSync: flag("MADEIRA_DOCK_INSTALL_SERVER_SYNC"),
+            services: flag("MADEIRA_DOCK_INSTALL_SCM"), fusion: flag("MADEIRA_DOTNET_FUSION"), madsync: madsyncConfigured,
+            has32Bit: has32Bit, hasMsiexec: hasMsiexec, fusionSource: fusionSource, hostExecutable: MadeiraDock.executable)
+        let started = Date()
+        LogStore.shared.log("[dock-prepare] app=\(game.id) stage=begin worker=background")
+        let result = await Task.detached(priority: .userInitiated) {
+            await prepareFiles(game, drive: drive, prefix: prefix, options: options)
+        }.value
+        script = result.script; serverSync = result.serverSync; note = result.note
+        LogStore.shared.log("[dock-prepare] app=\(game.id) stage=ready elapsed-ms=\(Int(Date().timeIntervalSince(started) * 1000))")
+    }
+
+    nonisolated private static func preparationLog(_ message: String, error: Bool = false) async {
+        await MainActor.run { LogStore.shared.log(message, level: error ? .error : .info) }
+    }
+
+    nonisolated private static func prepareFiles(_ game: DockGame, drive: URL, prefix: URL,
+                                                options: PreparationOptions) async -> Preparation {
+        var prepared = Preparation()
+        var script: String?, note: String?
+        var serverSync = false
         let app = game.id
         let batchFile = drive.appendingPathComponent(scriptName)
         try? FileManager.default.removeItem(at: batchFile)
-        absorbResults(reason: "next-start", drive: drive, prefix: prefix)
+        await absorbResults(reason: "next-start", drive: drive, prefix: prefix)
         try? FileManager.default.removeItem(at: drive.appendingPathComponent(resultName))
-        guard enabled else {
-            LogStore.shared.log("[dock-installers] app=\(app) off (MADEIRA_DOCK_INSTALLERS=0)"); return
+        guard options.enabled else {
+            await preparationLog("[dock-installers] app=\(app) off (MADEIRA_DOCK_INSTALLERS=0)"); return prepared
         }
-        let defaultKey = flag("MADEIRA_INSTALL_DEFAULT_KEY")
+        let defaultKey = options.defaultKey
         let (found, scripts) = Self.found(game, drive: drive, defaultKey: defaultKey)
         guard !found.isEmpty else {
-            LogStore.shared.log("[dock-installers] app=\(app) scripts=\(scripts) programs=0"); return
+            await preparationLog("[dock-installers] app=\(app) scripts=\(scripts) programs=0"); return prepared
         }
         let registry = [SteamInstallRun.Hive.machine: "system.reg", .user: "user.reg"].mapValues {
             (try? String(contentsOf: prefix.appendingPathComponent($0), encoding: .utf8)) ?? ""
         }
+        let recordedValues = registry.mapValues { DockInstallScripts.recordedValues(found.map(\.run), in: $0) }
+        await preparationLog("[dock-prepare] app=\(app) stage=registry-scanned")
         let items = DockInstallScripts.plan(found,
-                                            done: { DockInstallScripts.marked($0, in: registry[$0.hive] ?? "") },
+                                            done: { (recordedValues[$0.hive]?[$0] ?? 0) >= $0.value },
                                             exists: { resolve($0, drive: drive) != nil },
-                                            runnable: { runnable($0, drive: drive, has32Bit: has32Bit, hasMsiexec: hasMsiexec) })
+                                            runnable: { runnable($0, drive: drive, has32Bit: options.has32Bit, hasMsiexec: options.hasMsiexec) })
         var pending = items.filter { $0.status == .pending }.map(\.process)
         var ledger = DockInstallLedger.load(prefix: prefix)
         // The game's One-time installs choice: absent or "Run at next start" runs the pending
         // programs at this start, after which the choice becomes Skip (unless some wait for a
         // later start); Skip starts the game without them. MADEIRA_DOCK_INSTALL_CHOICE=0 ignores it.
-        let choiceOn = flag("MADEIRA_DOCK_INSTALL_CHOICE")
+        let choiceOn = options.choiceOn
         let skipped = choiceOn && !ledger.runsNext(app) && !pending.isEmpty
         if skipped {
-            LogStore.shared.log("[dock-installers] app=\(app) choice=skip pending=\(pending.count)")
+            await preparationLog("[dock-installers] app=\(app) choice=skip pending=\(pending.count)")
             pending = []
         } else if choiceOn && !pending.isEmpty && !items.contains(where: { $0.status == .limit }) {
             ledger.runNext[String(app)] = false
-            LogStore.shared.log("[dock-installers] app=\(app) choice=run pending=\(pending.count); the next start skips them")
+            await preparationLog("[dock-installers] app=\(app) choice=run pending=\(pending.count); the next start skips them")
         }
         // Installers expect a service manager, and a Dock session starts none before the
         // host. With madsync, Wine's services.exe never answered its RPC clients in the
@@ -638,9 +693,9 @@ enum DockInstallers {
         // turns madsync off for its whole session (MADEIRA_MADSYNC_SESSION=0, set by the
         // caller); later sessions use the configured engine again.
         // MADEIRA_DOCK_INSTALL_SERVER_SYNC=0 keeps madsync and leaves the service step out.
-        let sessionOff = !pending.isEmpty && flag("MADEIRA_DOCK_INSTALL_SERVER_SYNC")
-        let services: DockInstallServices = flag("MADEIRA_DOCK_INSTALL_SCM") && (sessionOff || !madsyncConfigured)
-            ? .start(MadeiraDock.executable) : .off
+        let sessionOff = !pending.isEmpty && options.serverSync
+        let services: DockInstallServices = options.services && (sessionOff || !options.madsync)
+            ? .start(options.hostExecutable) : .off
         if !pending.isEmpty {
             do {
                 let text = DockInstallScripts.batch(pending, resultFile: "C:\\" + resultName, services: services)
@@ -648,18 +703,18 @@ enum DockInstallers {
                 script = "C:\\" + scriptName
                 serverSync = sessionOff
             } catch {
-                LogStore.shared.log("[dock-installers] app=\(app) batch not written: \(error.localizedDescription)", level: .error)
+                await preparationLog("[dock-installers] app=\(app) batch not written: \(error.localizedDescription)", error: true)
             }
         }
         ledger.session = script != nil ? pending.map(\.run) : []
         ledger.sessionApp = ledger.session.isEmpty ? 0 : app
         do { try ledger.save(prefix: prefix) }
-        catch { LogStore.shared.log("[dock-installers] app=\(app) ledger not saved: \(error.localizedDescription)", level: .error) }
+        catch { await preparationLog("[dock-installers] app=\(app) ledger not saved: \(error.localizedDescription)", error: true) }
         for item in items {
             let run = item.process.run
-            let recorded = DockInstallScripts.recorded(run, in: registry[run.hive] ?? "").map { String($0) } ?? "-"
+            let recorded = recordedValues[run.hive]?[run].map { String($0) } ?? "-"
             let file = item.process.executable.split(separator: "\\").last.map(String.init) ?? ""
-            LogStore.shared.log("[dock-installers] app=\(app) program=\(DockInstallScripts.label(run)) file=\(file) " +
+            await preparationLog("[dock-installers] app=\(app) program=\(DockInstallScripts.label(run)) file=\(file) " +
                                 "status=\(item.status.rawValue)\(item.reason.map { " reason=" + $0.replacingOccurrences(of: " ", with: "-") } ?? "") " +
                                 "key=\(run.hive == .machine ? "HKLM" : "HKCU")\\\(run.key) recorded=\(recorded) minimum=\(run.value)")
         }
@@ -667,17 +722,19 @@ enum DockInstallers {
             note = "One-time installs skipped. To run them, choose Run at next start under One-time installs."
         } else {
             note = DockInstallScripts.note(items)
-            if serverSync && madsyncConfigured {
+            if serverSync && options.madsync {
                 note = (note.map { $0 + " " } ?? "") + "This start uses Wine's standard synchronization instead of madsync; the next start uses madsync again."
             }
         }
-        if script != nil && flag("MADEIRA_DOTNET_FUSION") {
-            LogStore.shared.log("[dock-installers] app=\(app) dotnet-fusion=\(placeDotNetFusion(drive: drive, source: fusionSource))")
+        if script != nil && options.fusion {
+            await preparationLog("[dock-installers] app=\(app) dotnet-fusion=\(placeDotNetFusion(drive: drive, source: options.fusionSource))")
         }
-        LogStore.shared.log("[dock-installers] app=\(app) scripts=\(scripts) programs=\(found.count) pending=\(pending.count) " +
+        await preparationLog("[dock-installers] app=\(app) scripts=\(scripts) programs=\(found.count) pending=\(pending.count) " +
                             "done=\(items.filter { $0.status == .done }.count) missing=\(items.filter { $0.status == .missing }.count) " +
                             "unsupported=\(items.filter { $0.status == .unsupported }.count) default-key=\(defaultKey ? 1 : 0) " +
                             "services-step=\(script == nil ? "-" : services == .off ? "off" : "start") session-madsync-off=\(serverSync ? 1 : 0)")
+        prepared.script = script; prepared.serverSync = serverSync; prepared.note = note
+        return prepared
     }
 
     /// An installer with a managed step (DirectX setup's is one) loads fusion.dll from the
@@ -685,7 +742,7 @@ enum DockInstallers {
     /// package, which Madeira does not ship, and such a setup ended with -9 in the fork's
     /// device runs. Before a start that runs installers, Wine's own builtin 32-bit fusion.dll
     /// is placed there, only when missing. Returns "placed", "present", "no-source" or "failed".
-    static func placeDotNetFusion(drive: URL, source: URL?) -> String {
+    nonisolated static func placeDotNetFusion(drive: URL, source: URL?) -> String {
         let fm = FileManager.default
         let folder = drive.appendingPathComponent("windows/Microsoft.NET/Framework/v2.0.50727", isDirectory: true)
         let target = folder.appendingPathComponent("fusion.dll")
@@ -701,7 +758,7 @@ enum DockInstallers {
     /// The previous batch's exit statuses, read at the next Dock start (no session runs, so
     /// the registry is on disk): programs that succeeded are recorded done, one summary line
     /// is logged, and the result file and session list are cleared.
-    static func absorbResults(reason: String, drive: URL, prefix: URL) {
+    nonisolated private static func absorbResults(reason: String, drive: URL, prefix: URL) async {
         var ledger = DockInstallLedger.load(prefix: prefix)
         guard !ledger.session.isEmpty else { return }
         let app = ledger.sessionApp
@@ -721,13 +778,13 @@ enum DockInstallers {
             }
             var written = 0
             do { written = try SteamInstallScripts.mark(succeeded, prefix: prefix) }
-            catch { LogStore.shared.log("[dock-installers] app=\(app) results not recorded: \(error.localizedDescription)", level: .error) }
+            catch { await preparationLog("[dock-installers] app=\(app) results not recorded: \(error.localizedDescription)", error: true) }
             let failed = ledger.session.count - succeeded.count
-            LogStore.shared.log("[dock-installers] app=\(app) results reason=\(reason) succeeded=\(succeeded.count) failed=\(failed) " +
+            await preparationLog("[dock-installers] app=\(app) results reason=\(reason) succeeded=\(succeeded.count) failed=\(failed) " +
                                 "recorded-values=\(written) services=\(results.services ?? "-") ended=\(results.ended ? 1 : 0) " +
-                                "statuses=\(statuses.joined(separator: ","))", level: failed > 0 ? .error : .info)
+                                "statuses=\(statuses.joined(separator: ","))", error: failed > 0)
         } else {
-            LogStore.shared.log("[dock-installers] app=\(app) results reason=\(reason) none: the batch did not start", level: .error)
+            await preparationLog("[dock-installers] app=\(app) results reason=\(reason) none: the batch did not start", error: true)
         }
         try? FileManager.default.removeItem(at: file)
         ledger.session = []; ledger.sessionApp = 0

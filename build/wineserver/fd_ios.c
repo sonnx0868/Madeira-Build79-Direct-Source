@@ -38,11 +38,24 @@
  * of pure pickup+round-trip latency = the 55-vs-60 FPS gap. Clients
  * (ntdll's server_call_unlocked, same process) signal this semaphore
  * right after writing a request; the loop sleeps in semaphore_timedwait
- * and wakes instantly. Extra signals just cause cheap extra scans. */
+ * and wakes instantly. Coalesce bursts: the following scan drains all clients,
+ * so one outstanding signal is enough. Reset only after consuming that signal,
+ * before scanning, to allow requests arriving during a scan to wake the next one. */
 semaphore_t ios_srv_wake_sem = 0;
+static int ios_srv_wake_pending;
 void ios_wineserver_wake(void)
 {
-    if (ios_srv_wake_sem) semaphore_signal( ios_srv_wake_sem );
+    if (ios_srv_wake_sem && !__atomic_exchange_n( &ios_srv_wake_pending, 1, __ATOMIC_ACQ_REL ))
+    {
+        if (semaphore_signal( ios_srv_wake_sem ) != KERN_SUCCESS)
+            __atomic_store_n( &ios_srv_wake_pending, 0, __ATOMIC_RELEASE );
+    }
+}
+
+static void ios_wineserver_wake_consumed(kern_return_t result)
+{
+    if (result == KERN_SUCCESS)
+        __atomic_store_n( &ios_srv_wake_pending, 0, __ATOMIC_RELEASE );
 }
 
 /* __WINESRC__ must be defined via -D flag so unicode_fix.h can see it */
@@ -1288,6 +1301,7 @@ void main_loop(void)
                                                   SYNC_POLICY_FIFO, 0 );
             ws_log("[wineserver-fd] request-wake semaphore: kr=%d sem=0x%x", skr, ios_srv_wake_sem);
             if (skr != KERN_SUCCESS) ios_srv_wake_sem = 0;
+            ws_log("[srv-poll] request-wake-coalesced-v1");
         }
         while (active_users)
         {
@@ -1399,13 +1413,8 @@ void main_loop(void)
                     /* ml585 A/B, default OFF. MADEIRA_SRV_NOSEM=1 ignores the
                      * wake semaphore and sleeps the computed duration outright.
                      *
-                     * Why: semaphore_signal() is a COUNTING operation and
-                     * ios_srv_wake_sem_signal() (line ~42) fires on every
-                     * client request with no coalescing and no drain. Once the
-                     * signal rate exceeds the loop rate the count never reaches
-                     * zero, semaphore_timedwait returns instantly forever, and
-                     * the loop stops sleeping — ml584 measured 2,935 iter/s
-                     * against a 1 ms floor that caps it at ~1,000/s.
+                     * The regular path now coalesces requests into one signal.
+                     * Keep the fixed-sleep option for timing comparisons.
                      *
                      * This gate changes ONLY the wait mechanism. sleep_ns is
                      * computed identically above, timers are processed by the
@@ -1429,6 +1438,7 @@ void main_loop(void)
                         wts.tv_sec = (unsigned int)(sleep_ns / 1000000000ull);
                         wts.tv_nsec = (int)(sleep_ns % 1000000000ull);
                         wkr = semaphore_timedwait( ios_srv_wake_sem, wts );
+                        ios_wineserver_wake_consumed( wkr );
                         if (wkr == KERN_OPERATION_TIMED_OUT) ios_c_semto++;
                         else ios_c_semret++;
                     }
@@ -1439,7 +1449,10 @@ void main_loop(void)
                         unsigned long long dl;
                         /* drain every queued signal, then sleep the full tick */
                         while (semaphore_timedwait( ios_srv_wake_sem, z ) == KERN_SUCCESS)
+                        {
+                            ios_wineserver_wake_consumed( KERN_SUCCESS );
                             ios_c_semret++;
+                        }
                         if (!tb.denom) mach_timebase_info( &tb );
                         dl = mach_absolute_time() + sleep_ns * tb.denom / tb.numer;
                         mach_wait_until( dl );
