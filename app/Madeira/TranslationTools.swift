@@ -8,6 +8,21 @@ enum TranslationTools {
     static let reportName = "madeira-translation-lab.txt"
     static let files = ["madeira-translation-lab.exe", "madeira-native-work.dll"]
 
+    /// URL.resolvingSymlinksInPath does not reliably resolve ancestors when
+    /// trailing components do not exist. Inspect every existing component
+    /// before creating our tool/cache folders; their own paths never use links.
+    static func checkedPath(_ relative: String, drive: URL) throws -> URL {
+        var current = drive.resolvingSymlinksInPath().standardizedFileURL
+        for part in relative.split(separator: "/") {
+            guard part != ".", part != ".." else { throw CocoaError(.fileWriteInvalidFileName) }
+            current.appendPathComponent(String(part))
+            if (try? FileManager.default.attributesOfItem(atPath: current.path)[.type]) as? FileAttributeType == .typeSymbolicLink {
+                throw NSError(domain: "TranslationTools", code: 3, userInfo: [NSLocalizedDescriptionKey: "The Madeira tools or cache folder contains a symbolic link."])
+            }
+        }
+        return current
+    }
+
     static func stage(resources: URL, drive: URL) throws -> String {
         let fm = FileManager.default
         let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: resources.appendingPathComponent("receipt.json")))
@@ -25,26 +40,17 @@ enum TranslationTools {
             }
             contents[name] = data
         }
-        let folder = drive.appendingPathComponent(relativeFolder, isDirectory: true)
-        let resolvedDrive = drive.resolvingSymlinksInPath().standardizedFileURL.path + "/"
-        guard folder.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(resolvedDrive) else {
-            throw NSError(domain: "TranslationTools", code: 3, userInfo: [NSLocalizedDescriptionKey: "The tools folder must stay inside drive_c."])
-        }
+        let folder = try checkedPath(relativeFolder, drive: drive)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         for name in files {
-            let target = folder.appendingPathComponent(name)
-            guard target.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(resolvedDrive) else {
-                throw NSError(domain: "TranslationTools", code: 3, userInfo: [NSLocalizedDescriptionKey: "The tool path leaves drive_c."])
-            }
+            let target = try checkedPath(relativeFolder + "/" + name, drive: drive)
             try contents[name]!.write(to: target, options: .atomic)
         }
         return relativeFolder + "/madeira-translation-lab.exe"
     }
 
     static func latestReport(drive: URL) -> String? {
-        let url = drive.appendingPathComponent(reportName)
-        guard url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(
-            drive.resolvingSymlinksInPath().standardizedFileURL.path + "/") else { return nil }
+        guard let url = try? checkedPath(reportName, drive: drive) else { return nil }
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 8192,
               let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8),
@@ -64,16 +70,11 @@ enum CPUTranslationSettings {
             setenv("MADEIRA_CPU_CACHE", "0", 1); unsetenv("MADEIRA_CPU_CACHE_PATH"); return
         }
         do {
-            let folder = drive.appendingPathComponent("Madeira/Cache/cpu-v1", isDirectory: true)
-            guard folder.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(
-                drive.resolvingSymlinksInPath().standardizedFileURL.path + "/") else { throw CocoaError(.fileWriteInvalidFileName) }
+            let folder = try TranslationTools.checkedPath("Madeira/Cache/cpu-v1", drive: drive)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "local"
             let key = SHA256.hash(data: Data((build + "\0" + relativePath).utf8)).map { String(format: "%02x", $0) }.joined()
-            let file = folder.appendingPathComponent(key + ".bin")
-            guard file.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(folder.resolvingSymlinksInPath().standardizedFileURL.path + "/") else {
-                throw CocoaError(.fileWriteInvalidFileName)
-            }
+            _ = try TranslationTools.checkedPath("Madeira/Cache/cpu-v1/" + key + ".bin", drive: drive)
             setenv("MADEIRA_CPU_CACHE", choice, 1)
             setenv("MADEIRA_CPU_CACHE_PATH", "C:\\Madeira\\Cache\\cpu-v1\\\(key).bin", 1)
             LogStore.shared.log("[cpu-profile] cache=\(choice) instructionBudget=\(budget.map(String.init) ?? "default")")

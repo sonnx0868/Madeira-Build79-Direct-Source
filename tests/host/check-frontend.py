@@ -105,7 +105,9 @@ enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
-swift += block((root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8'), 'enum CPUTranslationSettings') + '\n'
+translation = (root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8')
+swift += block(translation, 'enum TranslationTools') + '\n'
+swift += block(translation, 'enum CPUTranslationSettings') + '\n'
 swift += block(lib, 'enum ControllerCompatibility') + '\n'
 swift += block(lib, 'enum UnityLaunch') + '\n'
 swift += block(lib, 'enum UnityStartupSync') + '\n'
