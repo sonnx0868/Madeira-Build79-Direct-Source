@@ -15,6 +15,12 @@ so bị từ chối.
 
 ## Thử trên iPad
 
+- Trên bản Madeira mới: vào Settings › Send diagnostic log › Run CPU translation
+  comparison. App đã có sẵn EXE/DLL, tự kiểm tra và chép vào thư mục Tools.
+  Không cần giải nén hoặc Add game. Phép thử còn bật cache CPU thử nghiệm để
+  log cho biết có tái sử dụng mã ARM64 đã xác minh hay không. Khởi động lại
+  Madeira giữa các lần chạy và gửi log sau khi phép thử kết thúc.
+- Các bước dưới đây dành cho IPA cũ chưa tích hợp nút thử:
 - Giải nén `Madeira-translation-lab.zip` vào cùng một thư mục trong drive_c,
   chẳng hạn `Tools/TranslationLab`. Giữ DLL cạnh EXE.
 - Thoát phiên game đang chạy và mở lại Madeira. Add game chọn

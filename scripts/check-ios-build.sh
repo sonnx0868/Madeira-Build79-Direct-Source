@@ -39,6 +39,15 @@ for dll in win32u.dll user32.dll dinput.dll dinput8.dll \
   xinput9_1_0.dll; do need "app/Madeira/arm64ec-windows/$dll"; done
 need "app/Madeira/arm64ec-windows/lua51-gc64.dll"
 need "app/Madeira/aarch64-windows/madeira-session-host.exe"
+need "app/Madeira/arm64ec-windows/xtajit64.dll"
+if [[ -s "$root/app/Madeira/arm64ec-windows/xtajit64.dll" ]]; then
+  grep -a -q 'ir-verified-arm64-v1' "$root/app/Madeira/arm64ec-windows/xtajit64.dll" || {
+    echo "INVALID: xtajit64.dll predates the optional validated CPU cache; rebuild source-bootstrap"; missing=1;
+  }
+fi
+for file in madeira-translation-lab.exe madeira-native-work.dll receipt.json notices.txt; do
+  need "app/Madeira/translation-lab/$file"
+done
 if [[ -s "$root/app/Madeira/aarch64-windows/madeira-session-host.exe" ]]; then
   python3 "$root/tests/host/check-runtime-host-arch.py" || missing=1
 fi

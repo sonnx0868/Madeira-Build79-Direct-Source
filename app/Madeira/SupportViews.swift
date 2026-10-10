@@ -7,6 +7,8 @@ struct DiagnosticUploadView: View {
     @State private var previous = false
     @State private var label = ""
     @State private var importServer = false
+    @State private var preparingLab = false
+    @State private var labStatus: String?
     init(gameTitle: String? = nil) {
         _label = State(initialValue: gameTitle ?? "")
     }
@@ -39,6 +41,32 @@ struct DiagnosticUploadView: View {
                     Text("Sends the selected session log, recent Unity Player.log and Steam network logs, plus build and device details to your private server. Logs are limited to 20 MB total. Your logs stay on this iPad.")
                 }
                 if let status = upload.status { Section { Text(status).textSelection(.enabled) } }
+                Section {
+                    Button {
+                        preparingLab = true
+                        let drive = MadeiraDock.drive
+                        let resources = Bundle.main.bundleURL.appendingPathComponent("translation-lab")
+                        Task {
+                            do {
+                                let path = try await Task.detached(priority: .utility) {
+                                    try TranslationTools.stage(resources: resources, drive: drive)
+                                }.value
+                                dismiss()
+                                NotificationCenter.default.post(name: TranslationTools.launch, object: path)
+                            } catch { labStatus = error.localizedDescription }
+                            preparingLab = false
+                        }
+                    } label: {
+                        if preparingLab { HStack { ProgressView(); Text("Preparing…") } }
+                        else { Label("Run CPU translation comparison", systemImage: "cpu") }
+                    }.disabled(preparingLab || wine_process_is_running() != 0 || wineserver_is_running() != 0)
+                    if let labStatus { Text(labStatus).font(.footnote) }
+                    if let report = TranslationTools.latestReport(drive: MadeiraDock.drive) {
+                        Text(report).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                } header: { Text("CPU comparison") } footer: {
+                    Text("Uses JIT to compare x64 work with small and grouped ARM64EC calls. The result is included when you send the log. This synthetic test does not predict game FPS. Close the current game before running it.")
+                }
                 if let id = upload.reportID {
                     Section("Report ID") {
                         Text(id).font(.footnote.monospaced()).textSelection(.enabled)

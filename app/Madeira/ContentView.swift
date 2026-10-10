@@ -1337,6 +1337,16 @@ struct ContentView: View {
                 library.refreshFlag()
                 if library.enabled && library.current == nil { MetalHostView.shared.isHidden = true }
             }
+            .onReceive(NotificationCenter.default.publisher(for: TranslationTools.launch)) { note in
+                guard let path = note.object as? String,
+                      path == TranslationTools.relativeFolder + "/madeira-translation-lab.exe" else { return }
+                var entry = LibraryEntry(title: "CPU translation comparison", relativePath: path, bits: 64)
+                entry.temporarySession = true
+                entry.arguments = "\"C:\\Madeira\\Tools\\translation-lab-v1\\madeira-native-work.dll\""
+                entry.unityOptimizations = false
+                entry.cpuCacheMode = "reuse"
+                launchLibraryEntry(entry)
+            }
             .onAppear {
                 jit_install_trap_handler()
                 entitlements = EntitlementStatus.check()
@@ -2508,7 +2518,7 @@ struct ContentView: View {
             return
         }
         if GameRuntime.enabled && GameRuntime.requiresDirectLaunch(entry) {
-            logStore.log("[multi-game] managed engine uses direct launch for exception compatibility")
+            logStore.log("[multi-game] launch profile requires a separate engine")
         }
         MadeiraConfig.migrateLegacy { self.logStore.log($0) }
         let runtimeLaunch: RuntimeLaunch?

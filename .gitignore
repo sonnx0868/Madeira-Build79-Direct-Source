@@ -184,3 +184,4 @@ services/log-server/
 .sites-runtime/
 diagnostics-downloads/
 build/translation-lab/out/
+app/Madeira/translation-lab/

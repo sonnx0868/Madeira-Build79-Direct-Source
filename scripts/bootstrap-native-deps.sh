@@ -26,7 +26,8 @@ bash "$root/scripts/fetch-angle-d3d11.sh"
 log "Initialize pinned upstream submodules"
 git -C "$root" submodule update --init FEX wine dxmt madeira-dock
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \
-    External/fmt External/xxhash External/range-v3 External/unordered_dense
+    External/fmt External/xxhash External/range-v3 External/unordered_dense External/rpmalloc \
+    Source/Common/cpp-optparse
 git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
 python3 "$root/tests/host/check-dxmt-patches.py"
 
@@ -101,6 +102,9 @@ git -C "$root/wine" rev-parse HEAD > "$root/build/wine-pe/opengl-pe.version"
 log "Build FEX iOS"
 bash "$root/build/fex-ios/build.sh"
 
+log "Build FEX ARM64EC translator with optional validated CPU cache"
+LLVM_MINGW="$mingw_dir/bin" bash "$root/build/fex-arm64ec/build.sh"
+
 log "Build GnuTLS and FFmpeg"
 (cd "$root/build/gnutls-ios/src" && shasum -a 256 -c SHA256SUMS)
 bash "$root/build/gnutls-ios/build.sh"
@@ -134,6 +138,10 @@ bash "$root/build/dxmt-pe/build.sh"
 
 log "Build reusable session host"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/session-host/build.sh"
+
+log "Build bundled CPU translation comparison"
+python3 "$root/build/translation-lab/build.py" --toolchain "$mingw_dir/bin" \
+    --out "$root/build/translation-lab/out" --stage "$root/app/Madeira/translation-lab"
 
 log "Build Madeira Dock"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/madeira-dock/build.sh"

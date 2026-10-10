@@ -5,6 +5,11 @@ on:
     branches: [codex/log-upload-updates]
     paths:
       - build/translation-lab/**
+      - build/fex-arm64ec/**
+      - scripts/apply-fex-cache.py
+      - app/Madeira/TranslationTools.swift
+      - tests/host/check-cpu-cache.py
+      - tests/host/check-translation-tools.py
       - .github/workflows/translation-lab.yml
 permissions:
   contents: read
@@ -22,11 +27,25 @@ jobs:
           printf '%s  %s\n' bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7 /tmp/translation-mingw.tar.xz | shasum -a 256 -c -
           tar -xJf /tmp/translation-mingw.tar.xz -C toolchains
       - name: Build and verify ARM64EC metadata
-        run: python3 build/translation-lab/build.py --toolchain toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin --out build/translation-lab/out
+        run: python3 build/translation-lab/build.py --toolchain toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin --out build/translation-lab/out --stage app/Madeira/translation-lab
+      - name: Exercise CPU cache corruption and tool staging
+        run: |
+          python3 tests/host/check-cpu-cache.py
+          python3 tests/host/check-translation-tools.py
+      - name: Fetch pinned translator sources
+        run: |
+          git submodule update --init --depth 1 FEX
+          git -C FEX submodule update --init --depth 1 --jobs 4 External/fmt External/xxhash External/range-v3 External/unordered_dense External/rpmalloc Source/Common/cpp-optparse
+      - name: Rebuild the actual ARM64EC translator
+        run: bash build/fex-arm64ec/build.sh
       - uses: actions/upload-artifact@v4
         with:
           name: translation-lab
           path: build/translation-lab/out/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fex-arm64ec-validated-cache
+          path: app/Madeira/arm64ec-windows/xtajit64.dll
   control:
     runs-on: windows-latest
     needs: build

@@ -66,6 +66,8 @@ def block(text, header):
 
 swift = r'''
 import Foundation
+import CryptoKit
+enum LibraryModel { static let drive = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("madeira-frontend-cpu-fixture") }
 #if canImport(CoreGraphics)
 import CoreGraphics   // CGRect.width and friends: Foundation alone no longer re-exports them on macOS (Swift 6.4)
 #endif
@@ -103,6 +105,7 @@ enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
+swift += block((root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8'), 'enum CPUTranslationSettings') + '\n'
 swift += block(lib, 'enum ControllerCompatibility') + '\n'
 swift += block(lib, 'enum UnityLaunch') + '\n'
 swift += block(lib, 'enum UnityStartupSync') + '\n'
@@ -125,6 +128,10 @@ expect(published == (1280, 720), "desktop size published to the display shim")
 
 // A direct game: its Windows path and arguments; no desktop state left over.
 var game = LibraryEntry(title: "Game", relativePath: "Games/Some Game/bin/game.exe", bits: 32)
+game.cpuCacheMode = "reuse"; game.cpuTranslationBudget = 512; game.applyEnvironment()
+expect(env("MADEIRA_CPU_CACHE") == "reuse" && env("FEX_MAXINST") == "512", "per-game CPU experiments exported")
+game.cpuCacheMode = nil; game.cpuTranslationBudget = nil; game.applyEnvironment()
+expect(env("MADEIRA_CPU_CACHE") == "0" && env("MADEIRA_CPU_CACHE_PATH") == nil && env("FEX_MAXINST") == nil, "next game's default clears CPU experiments")
 game.glBackend = "zink"; game.thinReserve = true; game.applyEnvironment()
 expect(env("MADEIRA_GL_BACKEND") == "zink" && env("_MADEIRA_GL_PROFILE") == "zink", "the game selects its native GL renderer")
 expect(env("MADEIRA_THIN_RESERVE") == "1" && env("_MADEIRA_THIN_PROFILE") == "1", "thin reservations are explicitly selected per game")

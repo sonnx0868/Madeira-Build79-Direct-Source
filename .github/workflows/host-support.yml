@@ -10,6 +10,7 @@ on:
       - tests/host/**
       - build/crypto-unix/**
       - build/dxmt-ios/**
+      - build/fex-arm64ec/**
       - .github/workflows/host-support.yml
 
 permissions:
@@ -36,6 +37,8 @@ jobs:
           python3 tests/host/check-cm-retry.py
           python3 tests/host/check-pipeline-cache.py
           python3 tests/host/check-dxmt-patches.py
+          python3 tests/host/check-cpu-cache.py
+          python3 tests/host/check-translation-tools.py
       - name: Exercise native UDP control and audio downmix
         run: |
           python3 tests/host/check-udp-control.py --require-tools

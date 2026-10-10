@@ -123,6 +123,12 @@ final class GameRuntime: ObservableObject {
         !MadeiraConfig.bool("d3d12", default: false)
     }
     static func requiresDirectLaunch(_ entry: LibraryEntry) -> Bool {
+        // The cache file and instruction budget are latched at FEX creation.
+        // These experiments need an isolated engine for the launch profile.
+        if entry.cpuTranslationBudget != nil ||
+            ["verify", "reuse"].contains(entry.cpuCacheMode ?? MadeiraConfig.get("env.MADEIRA_CPU_CACHE") ?? "off") {
+            return true
+        }
         // The native supervisor still needs device validation for managed
         // exception unwinding. Detect the engine even when its performance
         // profile is disabled or the executable is a direct Steam launch.

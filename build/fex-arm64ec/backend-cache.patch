@@ -1,0 +1,214 @@
+--- a/FEXCore/Source/Interface/Core/JIT/JITClass.h
++++ b/FEXCore/Source/Interface/Core/JIT/JITClass.h
+@@ -27,6 +27,10 @@
+ 
+ #include <CodeEmitter/Emitter.h>
+ 
++#if defined(FEX_IOS_HOST) && defined(ARCHITECTURE_arm64ec)
++#include "Interface/Core/JIT/madeira_code_cache.h"
++#endif
++
+ #include <array>
+ #include <cstdint>
+ #include <functional>
+@@ -61,6 +65,14 @@
+   }
+ 
+ private:
++#if defined(FEX_IOS_HOST) && defined(ARCHITECTURE_arm64ec)
++  std::shared_ptr<Madeira::CPUCache::Store> MadeiraCache;
++  Madeira::CPUCache::Bytes MadeiraCompatibility;
++  Madeira::CPUCache::Bytes MadeiraKey; // Survives the emitter's restart long jump.
++  bool MadeiraReuse = false;
++  uint64_t MadeiraCacheAttempts = 0, MadeiraCacheHits = 0, MadeiraCacheRejects = 0;
++  uint64_t MadeiraStageTotalUS = 0, MadeiraStageMaxUS = 0;
++#endif
+   const bool HostSupportsSVE128 {};
+   const bool HostSupportsSVE256 {};
+   const bool HostSupportsAVX256 {};
+--- a/FEXCore/Source/Interface/Core/JIT/JIT.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/JIT.cpp
+@@ -56,6 +56,12 @@
+ #include <FEXCore/Utils/TypeDefines.h>
+ #include <FEXCore/HLE/SyscallHandler.h>
+ 
++#if defined(FEX_IOS_HOST) && defined(ARCHITECTURE_arm64ec)
++#include "Interface/Core/JIT/madeira_cpu_identity.h"
++#include <FEXCore/Utils/WritePriorityMutex.h>
++#include <cstdlib>
++#include <chrono>
++#endif
+ #include <cstdio>
+ #include <cstring>
+ #include <unistd.h>
+@@ -720,6 +726,33 @@
+   , CTX {ctx}
+   , TempAllocator(ctx->CPUBackendAllocator, 0) {
+ 
++#if defined(FEX_IOS_HOST) && defined(ARCHITECTURE_arm64ec)
++  const char* CacheMode = std::getenv("MADEIRA_CPU_CACHE");
++  const char* CachePath = std::getenv("MADEIRA_CPU_CACHE_PATH");
++  if (CacheMode && CachePath && CTX->Config.Is64BitMode() &&
++      (!std::strcmp(CacheMode, "verify") || !std::strcmp(CacheMode, "reuse"))) {
++    MadeiraReuse = !std::strcmp(CacheMode, "reuse");
++    MadeiraCache = Madeira::CPUCache::open(CachePath);
++    Madeira::CPUCache::append(MadeiraCompatibility, MadeiraCPUIdentity, sizeof(MadeiraCPUIdentity));
++    // Padding can only produce a cache miss. No pointers/vector storage enter
++    // this prefix; CPU model contents are serialized separately below.
++    Madeira::CPUCache::append(MadeiraCompatibility, &CTX->HostFeatures, offsetof(FEXCore::HostFeatures, CPUMIDRs));
++    Madeira::CPUCache::scalar(MadeiraCompatibility, uint64_t(CTX->HostFeatures.CPUMIDRs.size()));
++    Madeira::CPUCache::append(MadeiraCompatibility, CTX->HostFeatures.CPUMIDRs.data(),
++                             CTX->HostFeatures.CPUMIDRs.size() * sizeof(uint32_t));
++    const uint64_t Flags[] = {CTX->Config.VirtualMemSize, CTX->Config.TSCScale,
++      CTX->Config.NeedsPendingInterruptFaultCheck, uint64_t(CTX->Config.DisableVixlIndirectCalls()),
++      uint64_t(CTX->Config.Is64BitMode()), uint64_t(CTX->Config.TSOEnabled()),
++      uint64_t(CTX->Config.VectorTSOEnabled()), uint64_t(CTX->Config.MemcpySetTSOEnabled()),
++      uint64_t(CTX->Config.SMCChecks()), uint64_t(CTX->Config.x87ReducedPrecision()),
++      uint64_t(CTX->Config.StrictInProcessSplitLocks()), uint64_t(CTX->Config.MonoHacks()),
++      uint64_t(CTX->Config.SmallTSCScale()), uint64_t(CTX->Config.MaxInstPerBlock()),
++      uint64_t(CTX->Config.Multiblock()), HostSupportsSVE128, HostSupportsSVE256,
++      HostSupportsAVX256, HostSupportsRPRES, HostSupportsAFP};
++    Madeira::CPUCache::append(MadeiraCompatibility, Flags, sizeof(Flags));
++    LogMan::Msg::IFmt("[cpu-cache] ir-verified-arm64-v1 mode={} identity={} boundedMiB=48", CacheMode, MadeiraCPUIdentity);
++  }
++#endif
+   SetWriteOffset(FEXCore::DualMap::WriteOffset);
+ 
+   RAPass = Thread->PassManager->GetPass<IR::RegisterAllocationPass>("RA");
+@@ -1009,13 +1042,77 @@
+ 
+   CodeData.BlockBegin = GetCursorAddress<uint8_t*>();
+ 
++  auto CodeBegin = CodeData.BlockBegin + sizeof(JITCodeHeader);
++  uint64_t CodeOnlySize = 0;
++#if defined(FEX_IOS_HOST) && defined(ARCHITECTURE_arm64ec)
++  using namespace Madeira::CPUCache;
++  auto& CacheKey = MadeiraKey;
++  bool UsedCachedCode = false;
++  const bool CanCache = MadeiraCache && !CheckTF && !CTX->CodeCache.IsGeneratingCache &&
++    !FEXCore::Utils::WritePriorityMutex::IosUnpublishedCompileActive() &&
++    IR->GetSSACount() >= 64 && IR->GetDataSize() + IR->GetListSize() < MaxRecord / 2;
++  const auto CacheStart = CanCache ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point {};
++  if (CanCache) {
++    CacheKey = MadeiraCompatibility;
++    scalar(CacheKey, Entry); scalar(CacheKey, Size); scalar(CacheKey, SingleInst);
++    scalar(CacheKey, uint64_t(IR->GetDataSize())); scalar(CacheKey, uint64_t(IR->GetListSize()));
++    append(CacheKey, reinterpret_cast<const void*>(IR->GetData()), IR->GetDataSize());
++    append(CacheKey, reinterpret_cast<const void*>(IR->GetListData()), IR->GetListSize());
++    // ExitFunction emission also depends on today's ARM64EC bitmap, not just
++    // IR. Include every constant target's current classification in the key.
++    for (auto [Node, Header] : IR->GetAllCode()) {
++      if (Header->Op == FEXCore::IR::OP_EXITFUNCTION) {
++        auto Op = Header->C<FEXCore::IR::IROp_ExitFunction>();
++        uint64_t Target;
++        if (IsInlineConstant(Op->NewRIP, &Target) || IsInlineEntrypointOffset(Op->NewRIP, &Target)) {
++          scalar(CacheKey, Target);
++          scalar(CacheKey, bool(Target < EC_CODE_BITMAP_MAX_ADDRESS && RtlIsEcCode(Target)));
++        }
++      }
++    }
++    ++MadeiraCacheAttempts;
++    if (auto Cached = MadeiraCache->find(CacheKey); Cached && Cached->validated && MadeiraReuse) {
++      if (auto Block = decode(Cached->payload); Block && Block->code.size() <= UsableBufferRange) {
++        bool Valid = Block->relocations.size() / sizeof(Relocation) <= 4096;
++        JITCodeTail Tail {};
++        uint32_t TailOffset; memcpy(&TailOffset, Block->code.data(), 4);
++        memcpy(&Tail, Block->code.data() + TailOffset, sizeof(Tail));
++        Valid &= Tail.Size == Block->code.size() && Tail.RIP == Entry && Tail.GuestSize == Size &&
++                 Tail.SingleInst == SingleInst && Tail.SpinLockFutex == 0 &&
++                 Tail.NumberOfRIPEntries == Block->opcodes.size() &&
++                 uint64_t(TailOffset) + Tail.OffsetToRIPEntries < Block->code.size();
++        for (size_t i = 0; Valid && i < Block->relocations.size(); i += sizeof(Relocation)) {
++          Relocation R {}; memcpy(&R, Block->relocations.data() + i, sizeof(R));
++          Valid &= R.Header.Offset < Block->code.size() &&
++            (R.Header.Type == RelocationTypes::RELOC_GUEST_RIP_LITERAL ||
++             R.Header.Type == RelocationTypes::RELOC_GUEST_RIP_MOVE ||
++             (R.Header.Type == RelocationTypes::RELOC_NAMED_SYMBOL_LITERAL &&
++              R.NamedSymbolLiteral.Symbol == RelocNamedSymbolLiteral::NamedSymbol::SYMBOL_LITERAL_EXITFUNCTION_LINKER));
++        }
++        if (Valid) {
++          memcpy(TempCodeBuffer, Block->code.data(), Block->code.size());
++          const uint64_t Linker = GetNamedSymbolLiteral(*CTX, RelocNamedSymbolLiteral::NamedSymbol::SYMBOL_LITERAL_EXITFUNCTION_LINKER);
++          for (uint64_t Offset : Block->symbols) memcpy(TempCodeBuffer + Offset, &Linker, sizeof(Linker));
++          for (auto Point : Block->points) CodeData.EntryPoints.emplace(Point.guest, TempCodeBuffer + Point.offset);
++          for (auto Op : Block->opcodes) DebugData->GuestOpcodes.push_back({Op.guestOffset, ptrdiff_t(Op.hostOffset)});
++          for (auto Sub : Block->subblocks) DebugData->Subblocks.push_back({Sub.offset, Sub.size});
++          Relocations.resize(PrevNumAllocations + Block->relocations.size() / sizeof(Relocation));
++          memcpy(Relocations.data() + PrevNumAllocations, Block->relocations.data(), Block->relocations.size());
++          CodeData.Size = Block->code.size(); CodeOnlySize = Block->codeOnlySize;
++          SetCursorOffset(CodeData.Size); UsedCachedCode = true; ++MadeiraCacheHits;
++        } else { ++MadeiraCacheRejects; }
++      }
++    }
++  }
++  if (!UsedCachedCode) {
++#endif
+   // Put the code header at the start of the data block.
+   ARMEmitter::BackwardLabel JITCodeHeaderLabel {};
+   (void)Bind(&JITCodeHeaderLabel);
+   JITCodeHeader* CodeHeader = GetCursorAddress<JITCodeHeader*>();
+   CursorIncrement(sizeof(JITCodeHeader));
+ 
+-  auto CodeBegin = GetCursorAddress<uint8_t*>();
++  CodeBegin = GetCursorAddress<uint8_t*>();
+ 
+   // AAPCS64
+   // r30      = LR
+@@ -1156,7 +1253,7 @@
+   PlaceNamedSymbolLiteral(InsertNamedSymbolLiteral(RelocNamedSymbolLiteral::NamedSymbol::SYMBOL_LITERAL_EXITFUNCTION_LINKER));
+ 
+   // CodeSize not including the header or tail data.
+-  const uint64_t CodeOnlySize = GetCursorAddress<uint8_t*>() - CodeBegin;
++  CodeOnlySize = GetCursorAddress<uint8_t*>() - CodeBegin;
+ 
+   // Add the JitCodeTail (written later)
+   Align(alignof(JITCodeTail));
+@@ -1223,6 +1320,48 @@
+     SetCursorOffset(PrevCur);
+   }
+ 
++#if defined(FEX_IOS_HOST) && defined(ARCHITECTURE_arm64ec)
++  } // Fresh emission, or restored temporary output. Migration stays identical.
++  if (CanCache && !UsedCachedCode) {
++    Block Saved;
++    Saved.codeOnlySize = CodeOnlySize;
++    append(Saved.code, TempCodeBuffer, CodeData.Size);
++    append(Saved.relocations, Relocations.data() + PrevNumAllocations,
++           (Relocations.size() - PrevNumAllocations) * sizeof(Relocation));
++    bool Supported = true;
++    for (size_t i = PrevNumAllocations; i < Relocations.size(); ++i) {
++      const auto& R = Relocations[i];
++      if (R.Header.Type == RelocationTypes::RELOC_NAMED_SYMBOL_LITERAL &&
++          R.NamedSymbolLiteral.Symbol == RelocNamedSymbolLiteral::NamedSymbol::SYMBOL_LITERAL_EXITFUNCTION_LINKER &&
++          R.Header.Offset + 8 <= Saved.code.size()) {
++        Saved.symbols.push_back(R.Header.Offset);
++        memset(Saved.code.data() + R.Header.Offset, 0, 8);
++      } else if (R.Header.Type != RelocationTypes::RELOC_GUEST_RIP_LITERAL && R.Header.Type != RelocationTypes::RELOC_GUEST_RIP_MOVE) {
++        Supported = false; // Native thunk pointers or future relocation types.
++      }
++    }
++    for (auto [Guest, Host] : CodeData.EntryPoints) Saved.points.push_back({Guest, uint64_t(Host - TempCodeBuffer)});
++    for (auto Op : DebugData->GuestOpcodes) Saved.opcodes.push_back({Op.GuestEntryOffset, Op.HostEntryOffset});
++    for (auto Sub : DebugData->Subblocks) Saved.subblocks.push_back({Sub.HostCodeOffset, Sub.HostCodeSize});
++    if (Supported && !Saved.symbols.empty()) {
++      const auto Payload = encode(Saved);
++      if (CacheKey.size() + Payload.size() <= MaxRecord && decode(Payload) && !MadeiraCache->observe(CacheKey, Payload)) {
++        ++MadeiraCacheRejects;
++        LogMan::Msg::EFmt("[cpu-cache] validation mismatch; cache disabled, fresh compiler retained");
++        MadeiraCache.reset();
++      }
++    }
++  }
++  if (CanCache) {
++    const uint64_t StageUS = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - CacheStart).count();
++    MadeiraStageTotalUS += StageUS; MadeiraStageMaxUS = std::max(MadeiraStageMaxUS, StageUS);
++  }
++  if (MadeiraCache && CanCache && (MadeiraCacheAttempts == 1 || MadeiraCacheAttempts % 256 == 0)) {
++    MadeiraCache->flush();
++    LogMan::Msg::IFmt("[cpu-cache] attempts={} reused={} rejected={} mode={} emitCacheAvgUS={} emitCacheMaxUS={}", MadeiraCacheAttempts, MadeiraCacheHits,
++                     MadeiraCacheRejects, MadeiraReuse ? "reuse" : "verify", MadeiraStageTotalUS / MadeiraCacheAttempts, MadeiraStageMaxUS);
++  }
++#endif
+   // Migrate the compile output from temporary storage to the actual CodeBuffer.
+   // This can block progress in other compiling threads, so the duration of the lock should be as small as possible.
+   {

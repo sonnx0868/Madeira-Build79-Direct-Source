@@ -13,6 +13,7 @@ workflows:
     cache:
       cache_paths:
         - $CM_BUILD_DIR/FEX/build-ios
+        - $CM_BUILD_DIR/FEX/build-arm64ec-ios
         - $CM_BUILD_DIR/wine/build-macos
         - $CM_BUILD_DIR/wine/build-arm64ec
         - $CM_BUILD_DIR/toolchains
@@ -36,6 +37,8 @@ workflows:
           set -euo pipefail
           python3 "$CM_BUILD_DIR/tests/host/check-version.py"
           python3 "$CM_BUILD_DIR/tests/host/check-bootstrap-resources.py"
+          python3 "$CM_BUILD_DIR/tests/host/check-cpu-cache.py"
+          python3 "$CM_BUILD_DIR/tests/host/check-translation-tools.py"
           python3 "$CM_BUILD_DIR/tests/host/check-remote-support.py" --require-swift
           python3 "$CM_BUILD_DIR/tests/host/check-frontend.py"
           python3 "$CM_BUILD_DIR/tests/host/check-game-pointer.py" --require-swift

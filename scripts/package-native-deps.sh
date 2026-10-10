@@ -44,6 +44,8 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/d3d9.dll \
   app/Madeira/arm64ec-windows/winemetal.dll \
   app/Madeira/arm64ec-windows/dockhost.exe \
+  app/Madeira/arm64ec-windows/xtajit64.dll \
+  app/Madeira/translation-lab \
   app/Madeira/aarch64-windows/madeira-session-host.exe \
   app/Madeira/arm64ec-windows/dock-notices.txt \
   app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html \

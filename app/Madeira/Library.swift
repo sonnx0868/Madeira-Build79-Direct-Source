@@ -219,6 +219,9 @@ struct LibraryEntry: Codable, Identifiable {
     /// Processors reported to Windows code in this game's sessions
     /// (MADEIRA_CPU_COUNT, ntdll); nil = automatic.
     var cpuCount: Int?
+    /// Optional CPU experiments. Nil keeps the previous translator settings.
+    var cpuCacheMode: String?
+    var cpuTranslationBudget: Int?
     /// Direct-folder Unity smoothness profile. Nil is on for backward
     /// compatibility; false is an explicit per-game opt-out.
     var unityOptimizations: Bool?
@@ -330,6 +333,8 @@ struct LibraryEntry: Codable, Identifiable {
     /// Runs on the launch worker, before the JIT pool is taken.
     func applyEnvironment() {
         configureLaunch()
+        CPUTranslationSettings.apply(mode: cpuCacheMode, budget: cpuTranslationBudget,
+                                     relativePath: launchRelativePath, drive: LibraryModel.drive)
         // Unset unless chosen: FEX's own default then applies, as for any other launch.
         if reducedX87 { setenv("FEX_X87REDUCEDPRECISION", "1", 1) } else { unsetenv("FEX_X87REDUCEDPRECISION") }
         // Exported only when chosen: unset keeps the engine's own default (and any
@@ -3049,6 +3054,22 @@ struct LibraryDetail: View {
                 }
                 Section {
                     Toggle("Reduced-precision x87", isOn: $entry.reducedX87)
+                    Picker("CPU code cache (experimental)", selection: Binding(
+                        get: { entry.cpuCacheMode ?? "off" }, set: { entry.cpuCacheMode = $0 })) {
+                        Text("Off").tag("off")
+                        Text("Verify generated code").tag("verify")
+                        Text("Reuse verified code").tag("reuse")
+                    }
+                    .disabled(entry.bits == 32)
+                    Picker("CPU compilation block size", selection: Binding(
+                        get: { entry.cpuTranslationBudget ?? 0 }, set: { entry.cpuTranslationBudget = $0 == 0 ? nil : $0 })) {
+                        Text("Automatic").tag(0)
+                        Text("512 instructions").tag(512)
+                        Text("2,048 instructions").tag(2048)
+                        Text("5,000 instructions").tag(5000)
+                    }
+                    Text("The cache learns code on the first run and verifies it by compiling again before reuse. Smaller blocks may shorten compilation pauses and increase runtime overhead. Restart Madeira after changing these CPU experiments.")
+                        .font(.caption).foregroundStyle(.secondary)
                     // Exported for this game only when chosen (applyEnvironment).
                     Picker("CPU cores reported", selection: Binding(get: { entry.cpuCount ?? 0 }, set: { entry.cpuCount = $0 == 0 ? nil : $0 })) {
                         Text("Automatic").tag(0)

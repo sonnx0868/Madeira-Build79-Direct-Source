@@ -7,6 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--toolchain', type=Path, required=True, help='llvm-mingw bin directory')
 parser.add_argument('--out', type=Path, required=True)
 parser.add_argument('--smoke', action='store_true', help='Run the x64 control on Windows')
+parser.add_argument('--stage', type=Path, help='Stage validated native tools into the iOS bundle folder')
 args = parser.parse_args()
 src = Path(__file__).resolve().parent
 args.out.mkdir(parents=True, exist_ok=True)
@@ -79,6 +80,10 @@ with zipfile.ZipFile(args.out/'Madeira-translation-lab.zip', 'w', zipfile.ZIP_DE
     for name in ['madeira-native-work.dll', 'madeira-translation-lab.exe', 'README.md', 'receipt.json', 'notices.txt']:
         package.write(args.out/name, arcname=name)
 print('PASS: genuine ARM64EC code ranges/entry thunks and x64 caller built; package ready')
+if args.stage:
+    args.stage.mkdir(parents=True, exist_ok=True)
+    for name in ['madeira-native-work.dll', 'madeira-translation-lab.exe', 'receipt.json', 'notices.txt']:
+        shutil.copyfile(args.out/name, args.stage/name)
 if args.smoke:
     subprocess.run([str(args.out/'madeira-translation-lab.exe'), str(args.out/'madeira-control-work.dll'), '--smoke'],
                     check=True, timeout=30)
