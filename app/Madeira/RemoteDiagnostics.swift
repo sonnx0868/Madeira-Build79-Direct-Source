@@ -139,6 +139,7 @@ enum DiagnosticCompanionLogs {
         for name in ["connection_log.txt", "networking_sockets.txt", "steamnetworkingsockets.log"] {
             add(root.appendingPathComponent("Program Files (x86)/Steam/logs/" + name))
         }
+        add(root.appendingPathComponent("madeira-translation-lab.txt"))
         let users = root.appendingPathComponent("users", isDirectory: true)
         func folders(at directory: URL) -> [URL] {
             guard inside(directory), let entries = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else { return [] }

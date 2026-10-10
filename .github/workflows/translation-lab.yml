@@ -1,0 +1,43 @@
+name: Hybrid translation experiment
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/log-upload-updates]
+    paths:
+      - build/translation-lab/**
+      - .github/workflows/translation-lab.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned ARM64EC compiler
+        run: |
+          name=llvm-mingw-20260421-ucrt-macos-universal
+          mkdir -p toolchains
+          curl --fail --location --retry 3 "https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/$name.tar.xz" -o /tmp/translation-mingw.tar.xz
+          printf '%s  %s\n' bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7 /tmp/translation-mingw.tar.xz | shasum -a 256 -c -
+          tar -xJf /tmp/translation-mingw.tar.xz -C toolchains
+      - name: Build and verify ARM64EC metadata
+        run: python3 build/translation-lab/build.py --toolchain toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin --out build/translation-lab/out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: translation-lab
+          path: build/translation-lab/out/*
+  control:
+    runs-on: windows-latest
+    needs: build
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: translation-lab
+          path: translation-lab
+      - name: Check all execution paths agree on Windows x64
+        shell: pwsh
+        run: |
+          & ./translation-lab/madeira-translation-lab.exe ./translation-lab/madeira-control-work.dll --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
