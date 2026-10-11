@@ -115,8 +115,8 @@ Mở thư mục này trong Codex và yêu cầu đọc `docs/REMOTE_SUPPORT.md`,
 nhánh hiện tại rồi tiếp tục. Git đồng bộ source/commit; không giả định chat local,
 toolchain, file chưa commit hay secret sẽ tự chuyển giữa hai máy.
 
-Build IPA cần macOS/Xcode, hoặc workflow Codemagic `madeira-v015-bootstrap`.
-`madeira-v015-ipa` chỉ dùng khi có native bundle đã rebuild tương thích.
+Build IPA cần macOS/Xcode, hoặc workflow Codemagic `madeira-v016-bootstrap`.
+`madeira-v016-ipa` chỉ dùng khi có native bundle đã rebuild tương thích.
 Windows kiểm tra source/server được, nhưng không xác nhận build
 hay chạy IPA trên iPad. Codemagic bắt buộc chạy
 `tests/host/check-remote-support.py --require-swift` trước khi build app.

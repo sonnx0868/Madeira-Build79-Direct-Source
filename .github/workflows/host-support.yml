@@ -28,6 +28,8 @@ jobs:
         run: python3 tests/host/check-remote-support.py --require-swift
       - name: Check settings and frontend behavior
         run: |
+          python3 tests/host/check-version.py
+          python3 tests/host/check-bootstrap-resources.py
           python3 tests/host/check-runtime-settings.py
           python3 tests/host/check-frontend.py
           python3 tests/host/check-game-pointer.py --require-swift

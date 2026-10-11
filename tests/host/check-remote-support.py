@@ -47,7 +47,7 @@ assert(UpdateRules.newer(version: "0.1.4", build: 560, commit: "new", installedV
 assert(!UpdateRules.newer(version: "0.1.4", build: 560, commit: "same", installedVersion: "0.1.4", installedBuild: 559, installedCommit: "same"))
 assert(!UpdateRules.newer(version: "0.1.3", build: 900, commit: nil, installedVersion: "0.1.4", installedBuild: 11, installedCommit: ""))
 assert(!UpdateRules.newer(version: "0.1.4", build: nil, commit: nil, installedVersion: "0.1.4", installedBuild: 11, installedCommit: ""))
-assert(UpdateRules.newer(version: "0.1.5", build: nil, commit: nil, installedVersion: "0.1.4", installedBuild: 560, installedCommit: ""))
+assert(UpdateRules.newer(version: "0.1.6", build: nil, commit: nil, installedVersion: "0.1.5", installedBuild: 597, installedCommit: ""))
 assert(UpdateRules.assetURL("https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v1/Madeira.ipa") != nil)
 for url in ["http://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v1/Madeira.ipa", "https://evil.example/Madeira.ipa", "https://github.com/other/repo/releases/download/v1/Madeira.ipa", "https://github.com@evil.example/Madeira.ipa"] { assert(UpdateRules.assetURL(url) == nil) }
 let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -29,7 +29,7 @@ for embedded in ["StikJIT.xcframework", "MadeiraJITHelper.appex", "Madeira JIT.s
 require("test -d \"$app/Frameworks/StikJIT.framework\"" in ci and
         "test -d \"$app/PlugIns/MadeiraJITHelper.appex\"" in ci,
         "IPA packaging must fail if JIT framework/helper disappears")
-require("Madeira-v0.1.5-source-bootstrap.ipa" in ci, "bootstrap artifact is not versioned")
+require("Madeira-v0.1.6-source-bootstrap.ipa" in ci, "bootstrap artifact is not versioned")
 require("build/fex-arm64ec/build.sh" in bootstrap and "ir-verified-arm64-v2" in check and
         "arm64ec-windows/xtajit64.dll" in package, "ARM64EC translator rebuild is not shipped and guarded")
 require("check-fex-transition-arch.py" in check, "native preflight does not validate iOS transition machine code")

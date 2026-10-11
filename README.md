@@ -88,12 +88,12 @@ and some inputs that are not in the repository, such as the toolchains.
 
 ### Codemagic source build
 
-The `codex/v0.1.3-source-build` branch starts at the public Madeira `v0.1.3`
-tag (`4e9d45a`) and adds clean-checkout CI portability fixes. It compiles the
-native dependencies and application from source; it does not unpack a released
-IPA. Run `Madeira v0.1.3 source bootstrap + IPA` first. The workflow publishes
-`Madeira-v0.1.3-source.ipa` plus a reusable native dependency ZIP for later app
-or UI-only builds.
+The `codex/log-upload-updates` branch is the Madeira **0.1.6** source line,
+derived from the public Madeira `v0.1.3` tag (`4e9d45a`). Run the Codemagic
+workflow `madeira-v016-bootstrap` first to compile the native dependencies and
+app. It produces `Madeira-v0.1.6-source-bootstrap.ipa` and
+`madeira-v0.1.6-native-deps.zip`. The `madeira-v016-ipa` workflow uses a compatible
+native bundle for later app or UI-only builds.
 
 This branch also pins DXMT's embedded command shaders to Metal 3.1 for iPadOS
 26.1 compatibility and stages Microsoft's signed x64 VC++ 2008 and v14 runtime
