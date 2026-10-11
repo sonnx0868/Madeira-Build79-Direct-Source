@@ -1,5 +1,34 @@
 # Log từ iPad, cập nhật IPA và tiếp tục ở máy nhà
 
+## Liar's Bar: lag ở build 600
+
+Report `7ee2f3ca-2300-431e-9eed-9f5168bf5d9b` là Previous session,
+build 600 / `70883fb`, iPad14,6 (M2, 16 GB). FPS có lúc gần 60,
+nhưng từ 18:44:44 đến 18:51 phần lớn chỉ 15–18 FPS. Drawable 800×600;
+thermal luôn 0. Footprint đạt 14.323 MB rồi giữ khoảng 12.900 MB.
+Không dùng tổng `LIVE=26366MB` của census làm RAM thực: log tự ghi đó
+là requested capacity; Metal `currentAllocatedSize` cuối phiên là 7.924 MB.
+
+Pipeline cache hoạt động, nhưng vẫn có miss và native creation dài nhất
+296,49 ms ở mốc 192 creations. Điều này giải thích một phần khựng khi
+gặp pipeline mới, không chứng minh là nguyên nhân của nhiều phút FPS thấp.
+Các mẫu Present cuối phiên có inside-average khoảng 41–57 ms; chưa có
+GPU execution timing đủ để tách chính xác GPU, driver và CPU trong Present.
+Player.log bị cắt đầu, phần cuối có hàng nghìn dòng debug và lỗi font lặp;
+không dùng nó để khẳng định RTT/packet loss hoặc bước tìm trận cụ thể.
+
+Hai chi phí có thể loại bỏ ở app đã xác định từ source và log:
+
+- Steam/Dock chưa nhận `DXMT_CENSUS_THROTTLE=1` của profile game ngoài.
+  Toàn bộ library launch nay mặc định giới hạn census mỗi 10 giây;
+  cấu hình/env explicit vẫn được giữ, cảnh báo bộ nhớ vẫn báo ngay.
+- Timer app-side gọi `ios_dump_all_thread_stacks()` mỗi 20 giây vẫn
+  chạy khi heavy runtime profilers tắt (16.598 dòng trong phiên này).
+  Timer và callback nay đều cần opt-in `MADEIRA_RUNTIME_PROFILERS`.
+
+Hai thay đổi này không thay texture, giới hạn FPS, đồng bộ hay API Steam.
+Chưa đo mức tăng FPS trên iPad; cần build IPA mới để đối chứng cùng cảnh.
+
 ## Server log riêng
 
 Server: https://madeira-diagnostics-sonnx0868.desprinterval-team2.chatgpt.site

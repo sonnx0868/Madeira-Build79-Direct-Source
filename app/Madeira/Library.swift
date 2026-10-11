@@ -333,6 +333,14 @@ struct LibraryEntry: Codable, Identifiable {
     /// Runs on the launch worker, before the JIT pool is taken.
     func applyEnvironment() {
         configureLaunch()
+        // DXMT's 64-bit default enumerates and prints its memory census every
+        // few frames. Steam/Dock must get the same 10-second reporting bound
+        // as imported games. An explicit config/environment choice still wins.
+        if let census = MadeiraConfig.get("env.DXMT_CENSUS_THROTTLE") {
+            setenv("DXMT_CENSUS_THROTTLE", census, 1)
+        } else if getenv("DXMT_CENSUS_THROTTLE") == nil {
+            setenv("DXMT_CENSUS_THROTTLE", "1", 1)
+        }
         CPUTranslationSettings.apply(mode: cpuCacheMode, budget: cpuTranslationBudget,
                                      relativePath: launchRelativePath, drive: LibraryModel.drive)
         // Unset unless chosen: FEX's own default then applies, as for any other launch.

@@ -691,6 +691,11 @@ extern void winios_drv_post_key_scan(unsigned short vk, unsigned short scan, uns
 extern void winios_dump_window_tree(void);
 extern void ios_dump_all_thread_stacks(void);
 
+static bool winios_stack_profiling_enabled(void) {
+    const char *value = getenv("MADEIRA_RUNTIME_PROFILERS");
+    return value && *value && strcmp(value, "0");
+}
+
 #define WINIOS_RING_SIZE 1024
 #define WINIOS_EV_MOUSE 0
 #define WINIOS_EV_KEY   1
@@ -1144,12 +1149,14 @@ static void winios_ensure_compositor(void) {
      * an app-side timer — keeps firing even when all wine threads are
      * stuck (unlike the tree dump, which rides wine's event drain). */
     static dispatch_source_t stack_timer;
-    if (!stack_timer) {
+    if (!stack_timer && winios_stack_profiling_enabled()) {
         stack_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                           dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
         dispatch_source_set_timer(stack_timer, dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC),
                                   20 * NSEC_PER_SEC, NSEC_PER_SEC);
-        dispatch_source_set_event_handler(stack_timer, ^{ ios_dump_all_thread_stacks(); });
+        dispatch_source_set_event_handler(stack_timer, ^{
+            if (winios_stack_profiling_enabled()) ios_dump_all_thread_stacks();
+        });
         dispatch_resume(stack_timer);
     }
 }

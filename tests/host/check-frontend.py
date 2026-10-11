@@ -130,6 +130,8 @@ expect(published == (1280, 720), "desktop size published to the display shim")
 
 // A direct game: its Windows path and arguments; no desktop state left over.
 var game = LibraryEntry(title: "Game", relativePath: "Games/Some Game/bin/game.exe", bits: 32)
+unsetenv("DXMT_CENSUS_THROTTLE"); game.applyEnvironment()
+expect(env("DXMT_CENSUS_THROTTLE") == "1", "imported games throttle DXMT census by default")
 game.cpuCacheMode = "reuse"; game.cpuTranslationBudget = 512; game.applyEnvironment()
 expect(env("MADEIRA_CPU_CACHE") == "reuse" && env("FEX_MAXINST") == "512", "per-game CPU experiments exported")
 game.cpuCacheMode = nil; game.cpuTranslationBudget = nil; game.applyEnvironment()
@@ -158,6 +160,14 @@ game.resolution = "1280x720"; game.configureLaunch()
 // A Steam game: Madeira Dock sets what starts, so its profile leaves MADEIRA_EXE alone...
 var steamGame = LibraryEntry(title: "Steam game", relativePath: "Program Files (x86)/Steam/steamapps/common/Some Game", bits: 0)
 steamGame.steamAppID = 4242
+unsetenv("DXMT_CENSUS_THROTTLE"); steamGame.applyEnvironment()
+expect(env("DXMT_CENSUS_THROTTLE") == "1", "Steam/Dock gets the census reporting bound before its launch early return")
+MadeiraConfig.set("env.DXMT_CENSUS_THROTTLE", "0"); steamGame.applyEnvironment()
+expect(env("DXMT_CENSUS_THROTTLE") == "0", "explicit diagnostic census opt-out is preserved")
+MadeiraConfig.set("env.DXMT_CENSUS_THROTTLE", nil); steamGame.applyEnvironment()
+expect(env("DXMT_CENSUS_THROTTLE") == "0", "inherited census choice is respected")
+unsetenv("DXMT_CENSUS_THROTTLE"); steamGame.applyEnvironment()
+expect(env("DXMT_CENSUS_THROTTLE") == "1", "a clean Steam launch restores the default reporting bound")
 setenv("MADEIRA_EXE", "set-by-dock", 1); setenv("MADEIRA_STEAM_APPID", "1", 1)
 steamGame.configureLaunch()
 expect(env("MADEIRA_EXE") == "set-by-dock" && env("MADEIRA_STEAM_APPID") == nil, "Madeira Dock (the default): the profile sets nothing that starts")

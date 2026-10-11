@@ -6,6 +6,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[2]
 server = (root / "build/ntdll-unix/server_ios.c").read_text(encoding="utf-8")
 virtual = (root / "build/ntdll-unix/virtual_ios.c").read_text(encoding="utf-8")
+winios = (root / "app/Madeira/Winios/Winios.m").read_text(encoding="utf-8")
 docs = (root / "docs/LIBRARY.md").read_text(encoding="utf-8")
 
 
@@ -24,6 +25,13 @@ for profiler in ("ios_thread_sampler_main", "ios_xprobe_main", "ios_wprof_main")
     require(profiler in startup, f"test no longer covers {profiler}")
 require("if (runtime_profilers)" in startup and "thread_suspend" in startup,
         "the high-frequency profiler is not under the same opt-in")
+stack_policy = winios.split("static bool winios_stack_profiling_enabled(void)", 1)[1].split("\n}", 1)[0]
+require('getenv("MADEIRA_RUNTIME_PROFILERS")' in stack_policy and
+        'return value && *value && strcmp(value, "0");' in stack_policy,
+        "app-side stack profiling must use the same explicit opt-in")
+require("if (!stack_timer && winios_stack_profiling_enabled())" in winios and
+        "if (winios_stack_profiling_enabled()) ios_dump_all_thread_stacks();" in winios,
+        "app-side all-thread stacks must not start or keep sampling ordinary gameplay")
 require("multi-second presentation gaps in Balatro" in docs,
         "the measured gameplay cost is not documented")
 monitor = virtual[virtual.index("static int ios_memory_census_enabled"):virtual.index("/* task #34: WAS THE POOL COPY")]
