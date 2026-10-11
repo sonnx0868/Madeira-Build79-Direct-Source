@@ -9,9 +9,9 @@ The configuration has manual workflows while comparing it with Codemagic.
    `https://github.com/sonnx0868/Madeira-Build79-Direct-Source.git`.
 2. Select branch `codex/log-upload-updates` and the existing root `bitrise.yml`.
    Store the configuration in the repository so each build uses its own source.
-3. Use an Apple Silicon Xcode stack. The initial configuration uses
-   `osx-xcode-latest-stable`; after the first successful build, select the exact
-   working stack to keep the SDK stable. Madeira's helper needs iOS SDK 26 or later.
+3. Use an Apple Silicon Xcode stack. The configuration uses
+   `osx-xcode-27.0.x`, offered by this workspace's trial. Madeira's helper
+   needs iOS SDK 26 or later.
 4. Keep build access private. The artifact step disables its public install
    page and email notifications. No Apple signing certificate is needed for
    this ad-hoc Debug IPA; sideload it with the usual signing tool.
@@ -37,7 +37,8 @@ libraries and generated Wine headers needed for linking the app.
 
 Without a native ZIP, run `madeira-v016-bootstrap` once. It selects the Large
 resource class with 14 GB RAM and caps compilation at four jobs. The cached
-workflow uses Medium. Check which machine classes and build duration limits
+workflow also uses Large: this workspace's limited trial does not offer Medium.
+Check which machine classes and build duration limits
 your trial or plan includes before starting a full native build.
 
 Only reuse bundles from builds with compatible native sources and ABI.

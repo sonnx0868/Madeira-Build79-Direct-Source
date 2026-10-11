@@ -3,11 +3,11 @@ default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: ios
 
 # Manual builds while comparing queue times with Codemagic.
-# Select a version-specific Xcode stack in Bitrise once the first build passes.
+# Match the Xcode 27 stack offered by this workspace's trial.
 meta:
   bitrise.io:
-    stack: osx-xcode-latest-stable
-    machine_type_id: g2.mac.medium
+    stack: osx-xcode-27.0.x
+    machine_type_id: g2.mac.large
 
 app:
   envs:
