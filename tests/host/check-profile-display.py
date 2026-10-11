@@ -163,7 +163,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-profile-display-') as temp:
     temp = Path(temp)
     for name, code, frameworks, args in [
         ('profile', profile_prelude + profile + profile_checks, ['Foundation'], [str(temp / 'prefix')]),
-        ('geometry', geometry_prelude + geometry + geometry_checks, ['Foundation', 'QuartzCore'], []),
+        ('geometry', geometry_prelude + geometry + geometry_checks, ['Foundation', 'QuartzCore', 'CoreGraphics'], []),
     ]:
         source, binary = temp / f'{name}.m', temp / name
         source.write_text(code, encoding='utf-8')
