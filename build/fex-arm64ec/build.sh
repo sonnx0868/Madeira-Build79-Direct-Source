@@ -12,6 +12,7 @@ cmake -S "$R/FEX" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE="$R/FEX/Data/CMake/toolchain_mingw.cmake" \
         -DMINGW_TRIPLE=arm64ec-w64-mingw32 -DFEX_IOS_HOST_BUILD=ON \
         -DCMAKE_C_FLAGS=-DFEX_IOS_HOST=1 -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST=1 \
+        -DCMAKE_ASM_FLAGS=-DFEX_IOS_HOST=1 \
         -DTUNE_CPU=none -DTUNE_ARCH=generic -DENABLE_GUEST_WINDOW=OFF \
         -DENABLE_LTO=OFF -DENABLE_OFFLINE_TELEMETRY=OFF \
         -DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON \
@@ -21,4 +22,5 @@ cmake -S "$R/FEX" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON \
         -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DENABLE_ASSERTIONS=OFF
 cmake --build "$B" --parallel "${JOBS:-4}" --target arm64ecfex
+python3 "$R/tests/host/check-fex-transition-arch.py" --dll "$B/Bin/libarm64ecfex.dll"
 cp "$B/Bin/libarm64ecfex.dll" "$R/app/Madeira/arm64ec-windows/xtajit64.dll" && ls -l "$R/app/Madeira/arm64ec-windows/xtajit64.dll"

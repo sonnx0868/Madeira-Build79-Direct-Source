@@ -12,6 +12,7 @@ on:
       - tests/host/check-cpu-cache.py
       - tests/host/check-translation-tools.py
       - tests/host/check-fex-dependency-isolation.py
+      - tests/host/check-fex-transition-arch.py
       - .github/workflows/translation-lab.yml
 permissions:
   contents: read

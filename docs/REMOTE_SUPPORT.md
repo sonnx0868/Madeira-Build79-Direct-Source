@@ -143,6 +143,29 @@ gian tải asset, dịch mã x64, GC và tạo Metal pipeline. Không quy các �
 
 ## Cache pipeline Metal
 
+### Build 597: đường chuyển CPU dùng nhầm assembly Windows
+
+Log `abe0dade-2888-4d0c-837f-ff7e4b4a185e` là phiên Don't Starve Together
+qua Madeira Dock, dù người gửi mô tả đang gửi log game cài ngoài. Build 597
+đã tạo dispatcher nhưng chưa có frame game. Fault đầu ở pool PC `0x149e1b710`
+thuộc trampoline x18 của `libarm64ecfex.dll`, lệnh `str x16,[sp,#-16]!`,
+SP `0x702a6af4d8` lệch 8 byte. Các exception sau đó mất RSP/RIP; không dùng
+các lỗi sau làm nguyên nhân gốc. Không có log `[cpu-cache]` kích hoạt trong phiên.
+
+Script rebuild chỉ truyền `FEX_IOS_HOST` qua C_FLAGS/CXX_FLAGS. Module.S
+thiếu cờ ở ASM_FLAGS, nên lắp ráp nhánh Windows: sau khi push địa chỉ trả
+về x64 8 byte, `enter_jit` đọc `ldr x17,[x18,#0x1788]`. Patcher x18 chung
+chèn trampoline dùng SP, gây alignment fault trên iOS. Nhánh iOS sẵn có
+dùng TPIDRRO_EL0/TSD trực tiếp và có FFS bypass cùng sweep fences.
+
+Builder truyền cùng cờ cho ASM và kiểm tra mã máy trong DLL qua
+`tests/host/check-fex-transition-arch.py`: RetToEntryThunk, BeginSimulation
+phải có bộ ba đọc TSD; ExitToX64 phải có FFS bypass. Native preflight dùng
+cùng kiểm tra, nên marker C++ của cache không đủ để nhận một native bundle
+là tương thích. Sửa này cần source-bootstrap rebuild; vẫn phải đo lại việc
+chạy game trên iPad bằng IPA mới. Log cài ngoài và Steam khác nếu có cần
+đối chiếu riêng, không suy rằng một log đã chứng minh mọi lỗi đều hết.
+
 Cache shader DXMT trung gian và cache pipeline GPU là hai tầng khác nhau.
 `build/dxmt-ios/pipeline-cache.patch` nối render/compute pipeline của winemetal
 vào `pipeline_cache_ios.m`. `MTLBinaryArchive` giữ pipeline đã biên dịch cho

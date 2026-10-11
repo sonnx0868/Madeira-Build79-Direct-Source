@@ -32,6 +32,7 @@ require("test -d \"$app/Frameworks/StikJIT.framework\"" in ci and
 require("Madeira-v0.1.5-source-bootstrap.ipa" in ci, "bootstrap artifact is not versioned")
 require("build/fex-arm64ec/build.sh" in bootstrap and "ir-verified-arm64-v2" in check and
         "arm64ec-windows/xtajit64.dll" in package, "ARM64EC translator rebuild is not shipped and guarded")
+require("check-fex-transition-arch.py" in check, "native preflight does not validate iOS transition machine code")
 require("--stage" in bootstrap and "translation-lab" in project + package and
         "TranslationTools.swift in Sources" in project, "in-app CPU tools are not built and embedded")
 
