@@ -37,6 +37,7 @@ final class Probe: @unchecked Sendable {
 '''
 checks = r'''
 }
+MainActor.assumeIsolated {
 let probe = Probe(), controller = GCController(), original = GCExtendedGamepad()
 controller.extendedGamepad = original; GCController.live = [controller]
 probe.refreshControllers(); probe.queue.sync {}
@@ -64,6 +65,7 @@ controller.extendedGamepad = replacement
 probe.refreshControllers(); probe.queue.sync {}
 assert(probe.controllers[0] === controller && probe.profiles[0] === replacement)
 print("PASS: production refresh rebinds replacement profiles, retains player slots, clears disconnected handlers and recovers a delayed profile")
+}
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-controller-refresh-') as temp:
     folder = Path(temp)
