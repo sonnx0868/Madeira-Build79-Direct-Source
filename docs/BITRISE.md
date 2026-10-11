@@ -46,6 +46,10 @@ workflow also uses Large: this workspace's limited trial does not offer Medium.
 Check which machine classes and build duration limits
 your trial or plan includes before starting a full native build.
 
+The cached workflow also verifies/downloads Xcode's Metal Toolchain component:
+the app's SwiftUI effects contain Metal shaders even when native libraries are
+restored rather than rebuilt.
+
 Only reuse bundles from builds with compatible native sources and ABI.
 Changes in FEX, Wine, DXMT, their patches or native build flags require a fresh
 bootstrap. `restore-native-deps.sh` verifies the archive hash and invokes the

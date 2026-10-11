@@ -63,6 +63,9 @@ if [[ "$mode" = bootstrap ]]; then
   timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
   shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
 else
+  # A fresh app-only VM still compiles the bundled SwiftUI Metal effects.
+  timed metal-toolchain xcodebuild -downloadComponent MetalToolchain
+  xcrun -sdk macosx metal -v >/dev/null
   timed submodules git submodule update --init FEX wine dxmt madeira-dock
   timed wine-patches bash scripts/apply-wine-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
