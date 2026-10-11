@@ -56,6 +56,12 @@ page separately records queue and provisioning time; those occur before the
 script and are not included in its timings. Compare the same source and native
 bundle against Codemagic before claiming a speed improvement.
 
+The Xcode 27 Metal compiler rejects the pinned DXMT tessellation helper's
+private atomic builtin. The integration patch uses the public
+`atomic_fetch_add_explicit` API with the same threadgroup counter and relaxed
+ordering, matching the upstream DXMT fix. Bootstrap compiles all three AIR
+helpers early, before Wine/FEX/Mesa/LLVM, so a compiler mismatch fails promptly.
+
 The build stamps the full Git history count into both app and helper and
 records the exact source commit in `madeira-update.json`. It does not publish a
 GitHub release or change the app's update server automatically.

@@ -53,6 +53,13 @@ bash "$root/scripts/apply-wine-patches.sh"
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tools/shader-compiler-identity.py" --root "$root" --check-source-inputs
 
+# Detect Metal compiler/source incompatibilities before rebuilding Wine, FEX,
+# Mesa and LLVM. xcrun may resolve a placeholder when the component is absent.
+log "Verify Metal toolchain and embedded AIR shaders"
+xcodebuild -downloadComponent MetalToolchain
+xcrun -sdk macosx metal -v >/dev/null
+bash "$root/scripts/check-metal-shaders.sh"
+
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
 # fix into them deterministically until their rebuild joins this bootstrap.
 python3 "$root/tools/patch-dxmt-query-log.py"
@@ -128,11 +135,6 @@ bash "$root/build/win32u-unix/build.sh"
 
 log "Build LLVM and DXMT"
 bash "$root/build/llvm-ios/build.sh"
-# `xcrun -f metal` can resolve Apple's placeholder launcher even when the
-# separately distributed Metal Toolchain is absent. Always ask Xcode to
-# install/verify the component; the command is a quick no-op when cached.
-xcodebuild -downloadComponent MetalToolchain
-xcrun -sdk macosx metal -v >/dev/null
 bash "$root/build/dxmt-ios/build.sh"
 bash "$root/build/dxmt-pe/build.sh"
 
