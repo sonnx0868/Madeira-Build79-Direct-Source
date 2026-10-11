@@ -1,0 +1,74 @@
+format_version: '13'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: ios
+
+# Manual builds while comparing queue times with Codemagic.
+# Select a version-specific Xcode stack in Bitrise once the first build passes.
+meta:
+  bitrise.io:
+    stack: osx-xcode-latest-stable
+    machine_type_id: g2.mac.medium
+
+app:
+  envs:
+    - XCODE_PROJECT: app/Madeira.xcodeproj
+    - XCODE_SCHEME: Madeira
+    - APP_CONFIGURATION: Debug
+    - JOBS: '4'
+
+workflows:
+  madeira-v016-ipa:
+    title: Madeira 0.1.6 IPA from reusable native bundle
+    description: Set MADEIRA_NATIVE_DEPS_URL and MADEIRA_NATIVE_DEPS_SHA256 before running.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          title: Restore native bundle, check app and build IPA
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh cached
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
+  madeira-v016-bootstrap:
+    title: Madeira 0.1.6 native bootstrap and IPA
+    description: Build native inputs once, then reuse the exported ZIP for later app builds.
+    meta:
+      bitrise.io:
+        # Native LLVM/Wine compilation needs more memory than the app-only job.
+        machine_type_id: g2.mac.large
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          title: Build native bundle, check app and build IPA
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh bootstrap
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''

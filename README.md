@@ -100,6 +100,14 @@ This branch also pins DXMT's embedded command shaders to Metal 3.1 for iPadOS
 payloads supplied by their official redistributable packages. The bootstrap
 also builds the Rust `libmadeira_rppairing.a` required by v0.1.3's in-app JIT.
 
+### Bitrise source build
+
+The root `bitrise.yml` provides `madeira-v016-bootstrap` and the faster
+`madeira-v016-ipa` workflow without GitHub Actions. The latter restores a
+SHA-256 verified native bundle and rebuilds the Debug app. Both export the
+IPA, release identity, build log and phase timings to Bitrise.
+See [`docs/BITRISE.md`](docs/BITRISE.md) for setup and cache compatibility.
+
 ### Repository layout
 
 | Path | Contents |

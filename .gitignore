@@ -185,3 +185,4 @@ services/log-server/
 diagnostics-downloads/
 build/translation-lab/out/
 app/Madeira/translation-lab/
+build/bitrise/
