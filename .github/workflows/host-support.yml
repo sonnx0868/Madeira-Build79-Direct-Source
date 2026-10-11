@@ -35,6 +35,7 @@ jobs:
           python3 tests/host/check-bootstrap-resources.py
           python3 tests/host/check-runtime-settings.py
           python3 tests/host/check-runtime-profilers.py
+          python3 tests/host/check-profile-display.py --require-objc
           python3 tests/host/check-frontend.py
           python3 tests/host/check-game-pointer.py --require-swift
           python3 tests/host/check-dock-installers.py
@@ -63,6 +64,9 @@ jobs:
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
             -miphoneos-version-min=17.0 -fobjc-arc -fsyntax-only \
             app/Madeira/IOSDisplayShim.m app/Madeira/Winios/WiniosGL.m
+          xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
+            -miphoneos-version-min=17.0 -fobjc-arc -fblocks -fsyntax-only \
+            app/Madeira/Winios/Winios.m
           xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" \
             -miphoneos-version-min=18.0 -fobjc-arc -fblocks -fsyntax-only \
             build/dxmt-ios/pipeline_cache_ios.m

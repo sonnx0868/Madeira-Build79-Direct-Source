@@ -61,6 +61,9 @@ void winios_reset_session_close(void);
  * dispatch inside. */
 void winios_set_compositor_frame(double x, double y, double w, double h);
 void winios_set_desktop_rect(double x, double y, double w, double h, int set);
+/* Main thread: show the selected Steam game client across the presentation
+ * area and map input back to its actual window. 0 restores desktop layout. */
+void winios_set_game_window(unsigned long long hwnd);
 
 /* S2 trackpad pointer. (x, y) are ABSOLUTE wine-desktop pixels (the
  * Swift trackpad engine owns the cursor position); flags are raw

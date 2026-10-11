@@ -276,6 +276,7 @@ final class DockStartScreen: ObservableObject {
 
     /// A library session begins; `game` is set for a Dock start.
     func begin(_ game: DockGame?, at start: Date) {
+        winios_set_game_window(0)
         endHold(reason: nil)
         active = game != nil; appID = game?.id; failure = nil
         exitObserved = false; hostStarted = false; early = []; started = start
@@ -288,6 +289,7 @@ final class DockStartScreen: ObservableObject {
 
     /// The session ended.
     func finish() {
+        winios_set_game_window(0)
         endHold(reason: "session-ended")
         active = false; appID = nil; failure = nil
     }
@@ -334,6 +336,7 @@ final class DockStartScreen: ObservableObject {
         case .none:
             break
         case .showGame:
+            if let window = decision.window { winios_set_game_window(window.hwnd) }
             endHold(reason: "game-window")
             if model.launching { model.showGameView(reason: "game-window") }
             return

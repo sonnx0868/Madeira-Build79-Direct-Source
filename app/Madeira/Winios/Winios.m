@@ -926,6 +926,7 @@ static NSMutableDictionary<NSNumber *, CAMetalLayer *> *g_metal_layers; /* hwnd 
 static NSMutableDictionary<NSNumber *, NSValue *> *g_client_rects;      /* hwnd → client px rect */
 /* Desktop fit state (winios_desktop_fit below), main thread only. */
 static NSNumber *g_fit_key;
+static NSNumber *g_game_window_key;
 static CGRect g_fit_client_px;   /* the window's client rect, desktop px */
 static CGRect g_fit_view_pt;     /* where it is shown, compositor-view points */
 static void winios_place_metal_layer(NSNumber *key);
@@ -1087,9 +1088,10 @@ int winios_desktop_point_from_window(double wx, double wy, int *px, int *py) {
     /* a tap on a fitted window (winios_desktop_fit) lands in that window's
      * own client pixels */
     if (g_fit_key && CGRectContainsPoint(g_fit_view_pt, CGPointMake(wx - f.origin.x, wy - f.origin.y))) {
-        CGFloat k = g_fit_client_px.size.width / g_fit_view_pt.size.width;
-        if (px) *px = (int)(g_fit_client_px.origin.x + (wx - f.origin.x - g_fit_view_pt.origin.x) * k);
-        if (py) *py = (int)(g_fit_client_px.origin.y + (wy - f.origin.y - g_fit_view_pt.origin.y) * k);
+        CGFloat kx = g_fit_client_px.size.width / g_fit_view_pt.size.width;
+        CGFloat ky = g_fit_client_px.size.height / g_fit_view_pt.size.height;
+        if (px) *px = (int)(g_fit_client_px.origin.x + (wx - f.origin.x - g_fit_view_pt.origin.x) * kx);
+        if (py) *py = (int)(g_fit_client_px.origin.y + (wy - f.origin.y - g_fit_view_pt.origin.y) * ky);
         return 1;
     }
     double x = (wx - f.origin.x - g_desk_origin.x) / g_px_to_pt;
@@ -1195,6 +1197,7 @@ static void winios_remove_layer(HWND hwnd) {
             [g_metal_layers removeObjectForKey:key];
             [g_client_rects removeObjectForKey:key];
             if (g_fit_key && [g_fit_key isEqual:key]) g_fit_key = nil;
+            if ([g_game_window_key isEqual:key]) g_game_window_key = nil;
             fprintf(stderr, "[winios] metal layer removed for hwnd=%p\n", hwnd);
             fflush(stderr);
         }
@@ -1231,7 +1234,10 @@ static BOOL winios_desktop_fit(NSNumber *key, CAMetalLayer *ml, CGRect c) {
     CGRect desk = CGRectMake(0, 0, desk_w, desk_h);
     BOOL outside = desk_w > 0 && desk_h > 0 && c.size.width >= 64 && c.size.height >= 64
         && !CGRectContainsRect(CGRectInset(desk, -8, -8), c);
-    if (!winios_desktop_fit_enabled() || !outside || !ml.superlayer || !g_compositor_view) {
+    BOOL focused = [g_game_window_key isEqual:key] && c.size.width >= 64 && c.size.height >= 64;
+    if (!winios_desktop_fit_enabled() || (!outside && !focused) ||
+        (g_game_window_key && ![g_game_window_key isEqual:key]) ||
+        !ml.superlayer || ml.superlayer.hidden || !g_compositor_view) {
         if (g_fit_key && [g_fit_key isEqual:key]) g_fit_key = nil;
         return NO;
     }
@@ -1239,6 +1245,18 @@ static BOOL winios_desktop_fit(NSNumber *key, CAMetalLayer *ml, CGRect c) {
     CGSize sz = CGSizeMake(c.size.width * k, c.size.height * k);
     CGRect view = CGRectMake(g_desk_origin.x + (desk_w * g_px_to_pt - sz.width) / 2,
                              g_desk_origin.y + (desk_h * g_px_to_pt - sz.height) / 2, sz.width, sz.height);
+    if (focused) {
+        // The front end already computed Fit/Fill/Stretch/Aspect. Expand only
+        // this selected client; keep the real guest window and its coordinates.
+        CGRect target = g_desk_rect_set ? g_desk_rect : g_desk_bg.frame;
+        if (g_px_to_pt_y > 0) view = target; // Stretch needs distinct X/Y scales.
+        else {
+            CGFloat scale = MIN(target.size.width / c.size.width, target.size.height / c.size.height);
+            CGSize size = CGSizeMake(c.size.width * scale, c.size.height * scale);
+            view = CGRectMake(CGRectGetMidX(target) - size.width / 2,
+                              CGRectGetMidY(target) - size.height / 2, size.width, size.height);
+        }
+    }
     ml.frame = [ml.superlayer convertRect:view fromLayer:g_compositor_view.layer];
     BOOL changed = !g_fit_key || ![g_fit_key isEqual:key] || !CGRectEqualToRect(g_fit_client_px, c);
     g_fit_key = key; g_fit_client_px = c; g_fit_view_pt = view;
@@ -1255,10 +1273,11 @@ static BOOL winios_desktop_fit(NSNumber *key, CAMetalLayer *ml, CGRect c) {
 static BOOL winios_desktop_fit_map(CGFloat x, CGFloat y, CGPoint *pt, CGFloat *scale) {
     if (!g_fit_key || g_fit_client_px.size.width <= 0 || !CGRectContainsPoint(g_fit_client_px, CGPointMake(x, y)))
         return NO;
-    CGFloat k = g_fit_view_pt.size.width / g_fit_client_px.size.width;
-    if (pt) *pt = CGPointMake(g_fit_view_pt.origin.x + (x - g_fit_client_px.origin.x) * k,
-                              g_fit_view_pt.origin.y + (y - g_fit_client_px.origin.y) * k);
-    if (scale) *scale = k;
+    CGFloat kx = g_fit_view_pt.size.width / g_fit_client_px.size.width;
+    CGFloat ky = g_fit_view_pt.size.height / g_fit_client_px.size.height;
+    if (pt) *pt = CGPointMake(g_fit_view_pt.origin.x + (x - g_fit_client_px.origin.x) * kx,
+                              g_fit_view_pt.origin.y + (y - g_fit_client_px.origin.y) * ky);
+    if (scale) *scale = MIN(kx, ky);
     return YES;
 }
 
@@ -1276,6 +1295,20 @@ static void winios_place_metal_layer(NSNumber *key) {
                           (c.origin.y - w.origin.y) * WINIOS_PX_TO_PT_Y,
                           c.size.width * s, c.size.height * WINIOS_PX_TO_PT_Y);
     winios_desktop_fit(key, ml, c);
+}
+
+void winios_set_game_window(unsigned long long hwnd) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSNumber *next = hwnd ? @(hwnd) : nil;
+        if (g_game_window_key == next || [g_game_window_key isEqual:next]) return;
+        g_game_window_key = next;
+        g_fit_key = nil;
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        winios_layout_compositor();
+        [CATransaction commit];
+        fprintf(stderr, "[game-window-fit] hwnd=0x%llx\n", hwnd);
+    });
 }
 
 /* Called by IOSDisplayShim on a wine thread when DXMT creates a swapchain

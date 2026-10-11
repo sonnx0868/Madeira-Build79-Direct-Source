@@ -606,7 +606,7 @@ __attribute__((constructor)) static void madeira_docs_dir_ctor(void)
     g_madeira_docs_early = madeira_docs_dir_early();
 }
 
-/* The profile's AppData\LocalLow folder.
+/* The running profile's Documents and AppData\LocalLow folders.
  *
  * The shell-folder registry maps FOLDERID_LocalAppDataLow to
  * %USERPROFILE%\AppData\LocalLow, and the profile is named after the unix user
@@ -618,14 +618,17 @@ __attribute__((constructor)) static void madeira_docs_dir_ctor(void)
  * that does not exist either, is left with a closed stdout, and its C runtime
  * fast-fails (0xc0000409) before the first frame.
  *
- * Only LocalLow is created. Roaming is left alone: Wine populates it itself and
+ * DST creates Klei's subfolders one level at a time; a missing Documents
+ * parent makes every create fail with STATUS_OBJECT_PATH_NOT_FOUND. The
+ * template's Documents belongs to its build user, not the device's mobile user.
+ * Roaming is left alone: Wine populates it itself and
  * decides by existence (see madeira_undo_appdata_skeleton). Local already
  * exists on every start (the TEMP directory is in it). */
-static void madeira_ensure_locallow(NSString *prefix)
+static void madeira_ensure_profile_folders(NSString *prefix)
 {
-    /* 0 leaves the profile's AppData\LocalLow folder missing, as before. */
+    /* The existing opt-out concerns LocalLow only. */
     const char *off = getenv( "MADEIRA_PROFILE_LOCALLOW" );
-    if (off && off[0] == '0') return;
+    BOOL localLow = !(off && off[0] == '0');
 
     const char *name = getenv( "USER" );
     if (!name)
@@ -637,13 +640,21 @@ static void madeira_ensure_locallow(NSString *prefix)
     if (slash) name = slash + 1;
     if (!name[0]) return;
 
-    NSString *path = [prefix stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"drive_c/users/%s/AppData/LocalLow", name]];
     NSFileManager *fm = [NSFileManager defaultManager];
-    if ([fm fileExistsAtPath:path]) return;
-    BOOL made = [fm createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
     extern void ws_log(const char *fmt, ...);
-    ws_log( "[profile] users/%s/AppData/LocalLow %s", name, made ? "created" : "could NOT be created" );
+    for (NSString *leaf in (localLow ? @[ @"Documents", @"AppData/LocalLow" ] : @[ @"Documents" ])) {
+        NSString *path = [prefix stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"drive_c/users/%s/%@", name, leaf]];
+        BOOL isDirectory = NO;
+        if ([fm fileExistsAtPath:path isDirectory:&isDirectory]) {
+            if (!isDirectory) ws_log("[profile] users/%s/%s blocked by an existing file", name, leaf.UTF8String);
+            continue;
+        }
+        NSError *error = nil;
+        BOOL made = [fm createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:&error];
+        ws_log("[profile] users/%s/%s %s error=%ld", name, leaf.UTF8String,
+               made ? "created" : "could NOT be created", (long)error.code);
+    }
 }
 
 /***********************************************************************
@@ -700,7 +711,7 @@ void madeira_seed_prefix_if_needed(const char *prefix_path) {
         madeira_repair_profile( prefix );
         /* ml581: see madeira_undo_appdata_skeleton() above. */
         madeira_undo_appdata_skeleton( prefix );
-        madeira_ensure_locallow( prefix );
+        madeira_ensure_profile_folders( prefix );
     }
 }
 

@@ -29,6 +29,32 @@ Hai chi phí có thể loại bỏ ở app đã xác định từ source và log
 Hai thay đổi này không thay texture, giới hạn FPS, đồng bộ hay API Steam.
 Chưa đo mức tăng FPS trên iPad; cần build IPA mới để đối chứng cùng cảnh.
 
+## DST: thư mục cấu hình và cửa sổ ở build 600
+
+Report `f33b5e30-7b07-4fab-9b4c-90a8b697acb4`, build 600, ghi
+`STATUS_OBJECT_PATH_NOT_FOUND` (`0xc000003a`) khi tạo
+`C:\users\mobile\Documents\Klei\` và các thư mục con DST.
+Template chỉ có Documents của user tạo template (`mythic`); bootstrap
+trước đây chỉ đảm bảo LocalLow cho user đang chạy. Bootstrap nay tạo
+Documents và LocalLow trước wineserver; giữ opt-out riêng LocalLow,
+không đổi registry/shell-folder hay thay file/save đang có.
+
+Log cũng ghi D3D9 swapchain windowed 1280×720, cửa sổ `0x2007e`,
+client `{4,30,1284,750}` bên trong desktop 2560×1440. Dock nay chọn
+đúng HWND từ scene classifier hiện có và phóng client này vào vùng chơi.
+Không đổi độ phân giải render hoặc kích thước window trong Wine;
+touch và cursor dùng phép biến đổi thuận/ngược với hệ số X/Y riêng.
+Begin/finish hoặc DestroyWindow bỏ lựa chọn cũ; cửa sổ client/installer
+không được chọn làm game trước bước showGame.
+
+Fit vẫn có viền đen khi tỉ lệ game khác iPad. Fill phủ màn hình và cắt
+mép; Stretch phủ màn hình và có thể làm hình giãn. Test host dùng
+Foundation/QuartzCore thật để kiểm tra tạo thư mục Klei tuần tự, giữ save,
+file collision, và tọa độ Fit/Stretch. Chưa chạy đối chứng trên iPad.
+
+Đối chiếu lỗi cấu hình:
+https://support.klei.com/hc/en-us/articles/360029882171-Getting-a-Unable-to-write-to-files-in-the-config-directory-Error-Message
+
 ## Server log riêng
 
 Server: https://madeira-diagnostics-sonnx0868.desprinterval-team2.chatgpt.site
