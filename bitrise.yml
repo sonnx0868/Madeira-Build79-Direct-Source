@@ -38,6 +38,10 @@ workflows:
       - deploy-to-bitrise-io@2:
           is_always_run: true
           inputs:
+            # Sideload IPAs have no mobileprovision. Export a generic ZIP instead
+            # of asking Bitrise's installable-IPA parser to inspect the package.
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
             - is_enable_public_page: 'false'
             - notify_user_groups: none
             - always_notify_user_groups: none
@@ -68,6 +72,8 @@ workflows:
       - deploy-to-bitrise-io@2:
           is_always_run: true
           inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
             - is_enable_public_page: 'false'
             - notify_user_groups: none
             - always_notify_user_groups: none

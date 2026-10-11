@@ -16,6 +16,11 @@ The configuration has manual workflows while comparing it with Codemagic.
    page and email notifications. No Apple signing certificate is needed for
    this ad-hoc Debug IPA; sideload it with the usual signing tool.
 
+Artifacts are exported as `Madeira-v0.1.6-artifacts.zip`. Extract that outer ZIP
+to get the IPA and logs. Bitrise's installable-IPA parser requires
+`embedded.mobileprovision`; this sideload build receives its provisioning
+profile from your signing tool later, so it is uploaded as a generic ZIP.
+
 ## Choose a workflow
 
 | Workflow | Inputs | Output |
