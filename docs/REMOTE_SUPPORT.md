@@ -57,6 +57,54 @@ https://support.klei.com/hc/en-us/articles/360029882171-Getting-a-Unable-to-writ
 
 ## Server log riêng
 
+### Liar's Bar: tay cầm và đối chứng build 601
+
+Report `219a73d4-d127-456b-be03-2d0a60924612`, build 601, xác nhận
+slot 0 có tay cầm vật lý trước Wine (`paired=1`), cần trái và nút A
+được xuất qua `xinput-publish`. Đó là bằng chứng phía host nhận input;
+chưa phải bằng chứng input layer của game dùng được thiết bị Windows.
+Game đang ở controller default, không phải keyboard/mouse mapping.
+Steam Store hiện không công bố controller support cho app 3097560.
+Madeira có thể đổi riêng game sang **Controller → Keyboard and mouse**;
+RS là chuột, RT click trái, Start là Esc; Controller binds chỉnh các phím.
+Dock chạy client headless và không tự áp các community Steam Input layouts.
+
+Early reservation trước đây dùng một cờ touch cho cả tay cầm vật lý.
+Log do đó ghi `touch=1` dù overlay có 0 controller controls. Publisher nay
+giữ reservation vật lý riêng, tắt publication đó trong keyboard/mouse mode,
+kể cả lúc menu library giữ input; nguồn touch thật vẫn độc lập.
+
+Lag chưa hết: cuối phiên 601 có 9,8–11 FPS; footprint giữ khoảng 13 GB,
+peak Metal allocated 11.927 MB, compressed memory cuối phiên khoảng 845 MB.
+Tổng census giảm 1.387 → 63, all-thread dumps 30 → 0, nên bản giảm thống kê
+đã có tác dụng đúng chức năng. Không coi các cảnh game khác nhau là benchmark
+FPS đối chứng: log này không chứng minh bản 601 làm FPS giảm so với 600.
+Native pipeline creation dài nhất 664,81 ms; median Present inside ở phần
+sau khoảng 49,2 ms. Bộ frame GPU instrument trong port vẫn là stub; không
+dùng các số GPU/commit bằng 0 để khẳng định GPU rảnh. Cần GPU timing thật
+và cùng scene để tách CPU/driver/GPU, trước khi hứa mức tăng FPS.
+
+Nguồn Steam Input:
+https://partner.steamgames.com/doc/features/steam_controller/legacy_mode
+
+### Ren'Py / CrossRealms: child runtime ở build 601
+
+Report `d8211d45-3a42-413c-9542-3bd290b61f92`, CrossRealms, build 601,
+khởi động qua native session host và x64 child. Sau đó có fault native
+`NtProtectVirtualMemory+0x71c`, địa chỉ `0x7023004000`, trước khi tải
+librenpython/libpython3.9. Python gọi các cmd helper để đọc version Windows;
+cuối phiên x64 RIP 0, exit `0xc0000005`, chưa có khung hình hoặc log phụ.
+Không coi cảnh báo comctl32/activation context hay lựa chọn OpenGL là
+nguyên nhân đã chứng minh của crash cuối.
+
+App nay nhận diện DLL Ren'Py ở thư mục EXE hoặc `lib/*windows-*` và chọn
+isolated/direct launch, giống đường tránh reusable runtime của Unity.
+Đây là workaround của routing; chưa sửa core memory protection hay xác nhận
+game chạy trên iPad. Nếu engine reusable đã sống, đường kiểm tra cũ vẫn yêu
+cầu restart, không bootstrap chồng lên engine. Test Swift dùng các thư mục
+Ren'Py thật theo cấu trúc phân phối để kiểm tra root/nested launchers, giữ
+reuse cho game native thường và giữ isolation của Unity/CPU experiments.
+
 Server: https://madeira-diagnostics-sonnx0868.desprinterval-team2.chatgpt.site
 
 Sites project ID: `appgprj_6ac4905c4c6881919a5b9e065c3fd854`.

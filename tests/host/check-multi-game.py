@@ -122,6 +122,37 @@ if not swift:
     print("SKIP: Swift behavior needs swiftc; Codemagic requires it")
 else:
     codec = runtime.split("/// Immutable launch descriptor", 1)[0].replace("import Combine\n", "")
+    route = runtime.split("    static func requiresDirectLaunch(_ entry: LibraryEntry) -> Bool {", 1)[1].split("    private func backendSignature", 1)[0]
+    route = 'static func requiresDirectLaunch(_ entry: LibraryEntry) -> Bool {' + route
+    route_checks = r'''
+struct LibraryEntry {
+    var launchRelativePath: String
+    var cpuTranslationBudget: Int? = nil
+    var cpuCacheMode: String? = nil
+}
+enum MadeiraConfig { static func get(_ key: String) -> String? { nil } }
+enum LibraryModel { static var drive = URL(fileURLWithPath: "/") }
+enum RuntimeRoute {
+''' + route + r'''
+}
+let routeDrive = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+defer { try? FileManager.default.removeItem(at: routeDrive) }
+LibraryModel.drive = routeDrive
+let renpy = routeDrive.appendingPathComponent("CrossRealms/lib/py3-windows-x86_64")
+try FileManager.default.createDirectory(at: renpy, withIntermediateDirectories: true)
+try Data().write(to: renpy.appendingPathComponent("librenpython.dll"))
+let entry = LibraryEntry(launchRelativePath: "CrossRealms/CrossRealms.exe")
+assert(RuntimeRoute.requiresDirectLaunch(entry))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "CrossRealms/lib/py3-windows-x86_64/pythonw.exe")))
+let plain = routeDrive.appendingPathComponent("PlainGame/lib/windows-x86_64")
+try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+try Data().write(to: plain.appendingPathComponent("unrelated.dll"))
+assert(!RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", cpuTranslationBudget: 512)))
+try Data().write(to: routeDrive.appendingPathComponent("PlainGame/UnityPlayer.dll"))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
+print("PASS: production launch policy isolates Ren'Py root/nested launchers; ordinary native games retain reuse; Unity and CPU isolation retained")
+'''
     checks = r'''
 enum SupportError: Error { case message(String) }
 let data = try RuntimeWire.command(generation: 1, operation: 2)
@@ -167,6 +198,12 @@ dispatchMain()
 '''
     with tempfile.TemporaryDirectory(prefix="madeira-runtime-swift-") as scratch:
         folder = Path(scratch); source = folder / "main.swift"; binary = folder / "check"
+        # Reuse the existing actor test's LibraryModel name only after compiling
+        # the filesystem route fixture separately.
+        route_source = folder / "route.swift"
+        route_source.write_text("import Foundation\n" + route_checks, encoding="utf-8")
+        subprocess.run([swift, str(route_source), "-o", str(folder / "route")], check=True, timeout=60)
+        subprocess.run([str(folder / "route")], check=True, timeout=60)
         source.write_text(codec + checks + actor_checks, encoding="utf-8")
         subprocess.run([swift, str(source), "-o", str(binary)], check=True, timeout=60)
         subprocess.run([str(binary)], check=True, timeout=60)

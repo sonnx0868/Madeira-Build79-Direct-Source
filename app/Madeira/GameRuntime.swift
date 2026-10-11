@@ -136,8 +136,23 @@ final class GameRuntime: ObservableObject {
         let folder = executable.deletingLastPathComponent()
         let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
             .map { $0.lowercased() })
-        return names.contains("unityplayer.dll") || names.contains("mono.dll") ||
-            names.contains("mono-2.0-bdwgc.dll") || names.contains("monobleedingedge")
+        if names.contains("unityplayer.dll") || names.contains("mono.dll") ||
+            names.contains("mono-2.0-bdwgc.dll") || names.contains("monobleedingedge") { return true }
+        // CrossRealms build601 faults in the native supervisor's child route
+        // before the first frame, while loading librenpython/libpython and
+        // spawning cmd helpers. Keep Ren'Py on the isolated launch route until
+        // its mixed-architecture child transitions are validated on device.
+        if names.contains("librenpython.dll") { return true }
+        let children = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        guard let libName = children.first(where: { $0.lowercased() == "lib" }) else { return false }
+        let lib = folder.appendingPathComponent(libName, isDirectory: true)
+        let libraries = (try? FileManager.default.contentsOfDirectory(atPath: lib.path)) ?? []
+        for name in libraries where name.lowercased().contains("windows-") {
+            let directory = lib.appendingPathComponent(name, isDirectory: true)
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            if files.contains(where: { $0.lowercased() == "librenpython.dll" }) { return true }
+        }
+        return false
     }
     private func backendSignature(_ entry: LibraryEntry) -> String {
         // These are latched by Wine/FEX/native backends. A changed setting needs

@@ -7,6 +7,11 @@ import tempfile
 
 root = Path(__file__).resolve().parents[2]
 source = (root / 'app/Madeira/TouchGamepad.swift').read_text()
+publisher = (root / 'app/Madeira/GamepadInput.swift').read_text(encoding='utf-8')
+assert 'touchState.reserved = touch' in publisher and 'physicalSlotReserved = paired' in publisher
+assert 'physicalSlotReserved && keyboardMouse == nil' in publisher
+assert 'guard pad != nil || touchConnected || reservedPhysical else' in publisher
+assert publisher.count('if keyboardMouse != nil && !touchConnected {') == 1
 pure = source.split('// MARK: - Pure touch state', 1)[1].split('// MARK: - UIKit touch lifetime', 1)[0]
 pure = pure[pure.index('struct GamepadSample'):]
 tests = r'''
