@@ -8,6 +8,8 @@ on:
       - app/Madeira/**
       - build/ntdll-unix/audio_null_ios.c
       - tests/host/**
+      - scripts/prepare-release.sh
+      - scripts/release-metadata.py
       - build/crypto-unix/**
       - build/dxmt-ios/**
       - build/fex-arm64ec/**
@@ -29,6 +31,7 @@ jobs:
       - name: Check settings and frontend behavior
         run: |
           python3 tests/host/check-version.py
+          python3 tests/host/check-release-history.py
           python3 tests/host/check-bootstrap-resources.py
           python3 tests/host/check-runtime-settings.py
           python3 tests/host/check-frontend.py
