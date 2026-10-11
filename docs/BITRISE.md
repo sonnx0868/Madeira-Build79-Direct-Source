@@ -49,6 +49,8 @@ your trial or plan includes before starting a full native build.
 The cached workflow also verifies/downloads Xcode's Metal Toolchain component:
 the app's SwiftUI effects contain Metal shaders even when native libraries are
 restored rather than rebuilt.
+Native restore initializes FEX's pinned dependency headers and DirectX headers,
+then refreshes the generated license copies required by the app's build phase.
 
 Only reuse bundles from builds with compatible native sources and ABI.
 Changes in FEX, Wine, DXMT, their patches or native build flags require a fresh

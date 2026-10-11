@@ -9,5 +9,15 @@ if [[ -n "${MADEIRA_NATIVE_DEPS_TOKEN:-}" ]]; then headers+=(-H "Authorization: 
 curl --fail --location --retry 3 "${headers[@]}" "$MADEIRA_NATIVE_DEPS_URL" --output "$archive"
 printf '%s  %s\n' "$MADEIRA_NATIVE_DEPS_SHA256" "$archive" | shasum -a 256 -c -
 unzip -q -o "$archive" -d "$root"
+# FEXBridge includes these source headers even when its static libraries are
+# restored. A non-recursive parent checkout leaves their directories empty.
+git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \
+  External/fmt External/xxhash External/range-v3 External/unordered_dense \
+  External/rpmalloc Source/Common/cpp-optparse
+git -C "$root/dxmt" submodule update --init --depth 1 include/native/directx
+test -s "$root/FEX/External/fmt/include/fmt/format.h"
+test -s "$root/FEX/External/range-v3/include/range/v3/all.hpp"
+test -s "$root/FEX/External/unordered_dense/include/ankerl/unordered_dense.h"
+bash "$root/build/stage-licenses.sh"
 python3 "$root/tools/patch-dxmt-query-log.py"
 bash "$root/scripts/check-ios-build.sh"
