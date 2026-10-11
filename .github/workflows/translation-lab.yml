@@ -6,10 +6,12 @@ on:
     paths:
       - build/translation-lab/**
       - build/fex-arm64ec/**
+      - build/fex-ios/**
       - scripts/apply-fex-cache.py
       - app/Madeira/TranslationTools.swift
       - tests/host/check-cpu-cache.py
       - tests/host/check-translation-tools.py
+      - tests/host/check-fex-dependency-isolation.py
       - .github/workflows/translation-lab.yml
 permissions:
   contents: read
@@ -36,6 +38,12 @@ jobs:
         run: |
           git submodule update --init --depth 1 FEX
           git -C FEX submodule update --init --depth 1 --jobs 4 External/fmt External/xxhash External/range-v3 External/unordered_dense External/rpmalloc Source/Common/cpp-optparse
+      - name: Build FEX iOS before the Windows translator
+        run: bash build/fex-ios/build.sh
+      - name: Reproduce a cached host fmt package
+        run: |
+          export PATH="$PWD/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
+          python3 tests/host/check-fex-dependency-isolation.py
       - name: Rebuild the actual ARM64EC translator
         run: bash build/fex-arm64ec/build.sh
       - uses: actions/upload-artifact@v4

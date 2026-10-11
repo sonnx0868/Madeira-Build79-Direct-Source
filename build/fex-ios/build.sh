@@ -17,6 +17,7 @@ else
     git -C "$root/FEX" apply "$patch"
 fi
 
+# Use the same pinned sources for iOS; a host package can have the wrong SDK/ABI.
 cmake -S "$root/FEX" -B "$build" -G Ninja \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_SYSTEM_PROCESSOR=arm64 \
@@ -26,6 +27,9 @@ cmake -S "$root/FEX" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
+    -DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_range-v3=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_unordered_dense=ON \
     -DTUNE_CPU=none \
     -DTUNE_ARCH=generic \
     -DBUILD_TESTING=OFF \
