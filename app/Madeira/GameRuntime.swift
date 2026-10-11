@@ -142,17 +142,13 @@ final class GameRuntime: ObservableObject {
         // before the first frame, while loading librenpython/libpython and
         // spawning cmd helpers. Keep Ren'Py on the isolated launch route until
         // its mixed-architecture child transitions are validated on device.
-        if names.contains("librenpython.dll") { return true }
-        let children = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        guard let libName = children.first(where: { $0.lowercased() == "lib" }) else { return false }
-        let lib = folder.appendingPathComponent(libName, isDirectory: true)
-        let libraries = (try? FileManager.default.contentsOfDirectory(atPath: lib.path)) ?? []
-        for name in libraries where name.lowercased().contains("windows-") {
-            let directory = lib.appendingPathComponent(name, isDirectory: true)
-            let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-            if files.contains(where: { $0.lowercased() == "librenpython.dll" }) { return true }
+        switch GameEngineDetection.detect(executable) {
+        case "Ren'Py", "TyranoScript", "RPG Maker MV", "RPG Maker MZ", "NW.js", "Electron":
+            // Python/browser runtimes spawn helpers and carry unvalidated child
+            // lifetimes; identify them without selecting a different renderer.
+            return true
+        default: return false
         }
-        return false
     }
     private func backendSignature(_ entry: LibraryEntry) -> String {
         // These are latched by Wine/FEX/native backends. A changed setting needs

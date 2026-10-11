@@ -57,6 +57,28 @@ https://support.klei.com/hc/en-us/articles/360029882171-Getting-a-Unable-to-writ
 
 ## Server log riêng
 
+### Silksong: khởi động, analog và mất input ở build601
+
+Report `144de888-c458-4902-b3b3-c1a301c1c47e`: start 21:23:25,
+first visible render khoảng 21:24:15, drawable 2560×1440, cpuReported=4.
+Mono loaded assemblies 6,437 s, domain reset 0,133 s; các Present gap lớn
+13.136 và 29.196,6 ms nằm ngoài phần inside Present. Unload/GC cũng có
+các lần khoảng 175–352 ms. Chưa quy mọi thời gian đợi này cho shader.
+Mốc cuối phiên có thermal=2; giảm độ phân giải có thể giảm tải đồ họa/nhiệt,
+nhưng không tránh được cold CPU compilation và scene loading.
+
+Log controller có slot0 paired=1 và physical input đến native publisher.
+64 dòng đầu chủ yếu là nút A rồi cần xuống; không có enough samples ở các
+đoạn người dùng báo gạt ngang thành lên hoặc mất input giữa phiên. Không
+khẳng định đảo trục hay Bluetooth disconnect từ log này. Người dùng xác
+nhận lệch dọc nhỏ khi gạt ngang cũng thành hướng lên: thêm eight-way gate
+cho Silksong với Analog opt-out; mở rộng analog diagnostics, owner/lifecycle
+logs và rebind profile thay thế trên cùng GCController.
+
+CPU cache Automatic của Silksong nay dùng verified reuse của DLL hiện có.
+Đây là thử nghiệm để đo repeated startup; không có số đo device chứng minh
+đã xóa khựng. Không thay FEX core, exception/SMC/TSO hoặc Mono budget hooks.
+
 ### Liar's Bar: tay cầm và đối chứng build 601
 
 Report `219a73d4-d127-456b-be03-2d0a60924612`, build 601, xác nhận

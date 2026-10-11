@@ -185,6 +185,7 @@ struct LibraryEntry: Codable, Identifiable {
     var controlLayout: String?
     var lastPlayed: Date?
     var graphicsAPI: String?
+    var gameEngine: String?
     var folderBytes: Int64?
     var metadataChecked: Date?
     var metadataRevision: Int?
@@ -208,6 +209,14 @@ struct LibraryEntry: Codable, Identifiable {
     /// presses keys and moves the mouse, the game sees no controller). For games
     /// without controller support. Optional, so older files decode.
     var controllerMode: String?
+    /// nil: automatic (eight-way for Silksong), "analog": untouched axes,
+    /// "eightWay": suppress the minor component near a cardinal direction.
+    var stickDirectionMode: String?
+    var cardinalLeftStick: Bool {
+        if stickDirectionMode == "analog" { return false }
+        if stickDirectionMode == "eightWay" { return true }
+        return ControllerCompatibility.profile(for: self)?.name == "silksong"
+    }
     /// Keyboard-and-mouse mode: what each controller input does in this game
     /// (PadBindings.buttonNames plus "LS"/"RS" → key, mouse button, key stick or
     /// .none), on top of the layout's bindings and the built-in template. Only
@@ -221,6 +230,14 @@ struct LibraryEntry: Codable, Identifiable {
     var cpuCount: Int?
     /// Optional CPU experiments. Nil keeps the previous translator settings.
     var cpuCacheMode: String?
+    var launchCPUCacheMode: String? {
+        if let cpuCacheMode { return cpuCacheMode }
+        if MadeiraConfig.get("env.MADEIRA_CPU_CACHE") != nil { return nil }
+        if bits != 32, unityOptimizations != false,
+           MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS"),
+           ControllerCompatibility.profile(for: self)?.name == "silksong" { return "reuse" }
+        return nil
+    }
     var cpuTranslationBudget: Int?
     /// Direct-folder Unity smoothness profile. Nil is on for backward
     /// compatibility; false is an explicit per-game opt-out.
@@ -341,7 +358,7 @@ struct LibraryEntry: Codable, Identifiable {
         } else if getenv("DXMT_CENSUS_THROTTLE") == nil {
             setenv("DXMT_CENSUS_THROTTLE", "1", 1)
         }
-        CPUTranslationSettings.apply(mode: cpuCacheMode, budget: cpuTranslationBudget,
+        CPUTranslationSettings.apply(mode: launchCPUCacheMode, budget: cpuTranslationBudget,
                                      relativePath: launchRelativePath, drive: LibraryModel.drive)
         // Unset unless chosen: FEX's own default then applies, as for any other launch.
         if reducedX87 { setenv("FEX_X87REDUCEDPRECISION", "1", 1) } else { unsetenv("FEX_X87REDUCEDPRECISION") }
@@ -643,6 +660,9 @@ enum ExternalGameCompatibility {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let drive = docs.appendingPathComponent("wine/drive_c", isDirectory: true)
         let runtime = windowsRuntime(entry, drive: drive)
+        if let engine = GameEngineDetection.detect(drive.appendingPathComponent(entry.launchRelativePath)) {
+            fputs("[game-engine] detected=\(engine)\n", stderr)
+        }
         let loveRuntime = runtime.hasLove || balatro
         if (runtime.hasSDL || loveRuntime) && MadeiraConfig.flag("MADEIRA_OPENGL_ANGLE") {
             setenv("_MADEIRA_OPENGL_ANGLE_MODE", loveRuntime ? "love" : "sdl", 1)
@@ -773,6 +793,9 @@ final class LibraryModel: ObservableObject {
     @Published var controllerMode: String? {
         didSet { if oldValue != controllerMode { applyControllerMode() } }
     }
+    @Published var stickDirectionMode: String? {
+        didSet { if oldValue != stickDirectionMode { applyControllerMode() } }
+    }
     /// The session's binds table (LibraryEntry.controllerBinds); a change rebuilds
     /// the driver's bindings at once, so the binds page is live.
     @Published var controllerBinds: [String: ControlAction] = [:] {
@@ -874,6 +897,7 @@ final class LibraryModel: ObservableObject {
             // A details sheet may predate an asynchronous metadata refresh.
             if (next[i].metadataChecked ?? .distantPast) > (entry.metadataChecked ?? .distantPast) {
                 entry.folderBytes = next[i].folderBytes; entry.graphicsAPI = next[i].graphicsAPI
+                entry.gameEngine = next[i].gameEngine
                 entry.bits = next[i].bits; entry.steamMetadataInstall = next[i].steamMetadataInstall
                 entry.metadataChecked = next[i].metadataChecked
                 entry.metadataRevision = next[i].metadataRevision
@@ -925,16 +949,18 @@ final class LibraryModel: ObservableObject {
     /// Install size and graphics API, at most once a day per entry.
     @MainActor
     func refreshMetadata(_ id: UUID) async {
-        let revision = 12
+        let revision = 13
         guard !metadataInFlight.contains(id), let entry = entries.first(where: { $0.id == id }), entry.desktop != true,
               entry.metadataRevision != revision || Date().timeIntervalSince(entry.metadataChecked ?? .distantPast) > 86400,
               let url = try? Self.executable(entry.relativePath) else { return }
         metadataInFlight.insert(id)
         defer { metadataInFlight.remove(id) }
         let result = await LibraryMetadataScanner.shared.scan(url, drive: Self.drive)
+        let engine = await Task.detached(priority: .utility) { GameEngineDetection.detect(url) }.value
         guard !Task.isCancelled, var updated = entries.first(where: { $0.id == id }) else { return }
         updated.folderBytes = result.bytes
         if let api = result.api { updated.graphicsAPI = api }
+        updated.gameEngine = engine
         updated.metadataChecked = Date(); updated.metadataRevision = revision; save(updated)
         fputs("[library-metadata] install scan api=\(updated.graphicsAPI ?? "unknown") bytes=\(result.bytes ?? -1)\n", stderr)
     }
@@ -947,7 +973,7 @@ final class LibraryModel: ObservableObject {
     /// program is known) and kept on the game's entry.
     @MainActor
     func refreshSteamMetadata(_ game: DockGame, title: String) async {
-        let revision = 1
+        let revision = 2
         guard !readOnly, game.installed, !steamMetadataInFlight.contains(game.id) else { return }
         steamMetadataInFlight.insert(game.id)
         defer { steamMetadataInFlight.remove(game.id) }
@@ -968,10 +994,10 @@ final class LibraryModel: ObservableObject {
         // Steam's launch configuration is asked for only when no picked program is installed.
         let kept = await Task.detached(priority: .utility) { picked.flatMap { SteamDirectStart.onDisk($0, in: root, directory: false) } }.value
         let options = kept == nil ? await SteamOwnedLibrary.shared.launchOptions(appID: game.id) : nil
-        let program = await Task.detached(priority: .utility) { () -> (url: URL, bits: Int, api: String?)? in
+        let program = await Task.detached(priority: .utility) { () -> (url: URL, bits: Int, api: String?, engine: String?)? in
             guard let path = SteamDirectStart.program(picked: kept, options: options, installFolder: root),
                   let inspected = try? LibraryModel.inspect(root.appendingPathComponent(path)) else { return nil }
-            return (root.appendingPathComponent(path), inspected.bits, inspected.graphicsAPI)
+            return (root.appendingPathComponent(path), inspected.bits, inspected.graphicsAPI, inspected.gameEngine)
         }.value
         var api = program?.api
         if let program, let scanned = await LibraryMetadataScanner.shared.scan(program.url, drive: drive, countBytes: false).api { api = scanned }
@@ -981,6 +1007,7 @@ final class LibraryModel: ObservableObject {
         updated.relativePath = folder
         updated.bits = program?.bits ?? 0
         updated.graphicsAPI = api
+        updated.gameEngine = program?.engine
         updated.folderBytes = record.size ?? updated.folderBytes
         updated.steamMetadataInstall = install
         updated.metadataChecked = Date(); updated.metadataRevision = revision
@@ -1014,6 +1041,7 @@ final class LibraryModel: ObservableObject {
         let name = url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_", with: " ")
         var entry = LibraryEntry(title: name, relativePath: relative, bits: machine == 0x14c ? 32 : 64)
         entry.graphicsAPI = graphicsImports(url)
+        entry.gameEngine = GameEngineDetection.detect(url)
         return entry
     }
 
@@ -1158,6 +1186,7 @@ final class LibraryModel: ObservableObject {
         controllerBinds = GamepadInput.keyboardMouseAvailable ? (entry.controllerBinds ?? [:]) : [:]
         padMouseVertical = GamepadInput.keyboardMouseAvailable ? (entry.padMouseVertical ?? 1) : 1
         controllerMode = GamepadInput.keyboardMouseAvailable ? entry.controllerMode : nil
+        stickDirectionMode = entry.stickDirectionMode
         applyControllerMode()
         MetalHostView.shared.isHidden = false
         ProMotionIntent.apply(mode: entry.effectiveFPSMode)
@@ -1249,6 +1278,10 @@ final class LibraryModel: ObservableObject {
     /// bindings follow the touch layout on screen, so they are rebuilt when the
     /// controls change (TouchControlsModel.controls, observed below).
     func applyControllerMode() {
+        if var profile = activeEntry, current != nil {
+            profile.stickDirectionMode = stickDirectionMode
+            GamepadInput.shared.setLeftStickDirections(profile.cardinalLeftStick)
+        } else { GamepadInput.shared.setLeftStickDirections(false) }
         guard GamepadInput.keyboardMouseAvailable else { return }
         if current != nil, controllerMode == "keys" {
             GamepadInput.shared.setKeyboardMouse(PadBindings.build(controls: TouchControlsModel.shared.controls, binds: controllerBinds, mouseVertical: padMouseVertical))
@@ -1327,6 +1360,7 @@ final class LibraryModel: ObservableObject {
             entry.overlayFields = overlayFields
             entry.controlOpacity = opacity; entry.controlSize = controls.sizeScale
             if GamepadInput.keyboardMouseAvailable { entry.controllerMode = controllerMode }
+            entry.stickDirectionMode = stickDirectionMode
             if GamepadInput.keyboardMouseAvailable { entry.controllerBinds = controllerBinds.isEmpty ? nil : controllerBinds }
             if GamepadInput.keyboardMouseAvailable { entry.padMouseVertical = padMouseVertical == 1 ? nil : padMouseVertical }
             // The in-game Aspect & scaling choice sticks to the game. MADEIRA_SESSION_TOOLS=0
@@ -1342,6 +1376,7 @@ final class LibraryModel: ObservableObject {
         winios_reset_session_close()
         saveCurrentProfile()
         controllerMode = nil
+        stickDirectionMode = nil
         controllerBinds = [:]
         padMouseVertical = 1
         let controls = TouchControlsModel.shared
@@ -2933,6 +2968,7 @@ struct LibraryDetail: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text(entry.title).font(.title2.bold())
                             LibraryBadges(entry: entry)
+                            if let engine = entry.gameEngine { Text("Engine: \(engine)").font(.subheadline).foregroundStyle(.secondary) }
                             if let appID = entry.steamAppID, let summary = SteamOwnedLibrary.shared.playtime[appID]?.summary {
                                 Text(summary).font(.subheadline).foregroundStyle(.secondary)
                             } else if let played = entry.lastPlayed {
@@ -3065,12 +3101,15 @@ struct LibraryDetail: View {
                 Section {
                     Toggle("Reduced-precision x87", isOn: $entry.reducedX87)
                     Picker("CPU code cache (experimental)", selection: Binding(
-                        get: { entry.cpuCacheMode ?? "off" }, set: { entry.cpuCacheMode = $0 })) {
+                        get: { entry.cpuCacheMode ?? "auto" }, set: { entry.cpuCacheMode = $0 == "auto" ? nil : $0 })) {
+                        Text("Automatic").tag("auto")
                         Text("Off").tag("off")
                         Text("Verify generated code").tag("verify")
                         Text("Reuse verified code").tag("reuse")
                     }
                     .disabled(entry.bits == 32)
+                    Text("Automatic uses verified CPU code reuse for Silksong while its Unity profile is on. Other games stay off. Initial sessions learn the cache; Off disables it. Restart Madeira before testing a changed mode.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Button("Clear CPU code cache") {
                         cpuCacheClearing = true
                         let path = entry.launchRelativePath, drive = LibraryModel.drive
@@ -3133,6 +3172,7 @@ struct LibraryDetail: View {
                     Toggle("Touch controls", isOn: $entry.touchControls)
                     if GamepadInput.keyboardMouseAvailable {
                         ControllerModeChoice(mode: $entry.controllerMode)
+                        StickDirectionChoice(mode: $entry.stickDirectionMode)
                         if entry.controllerMode == "keys" {
                             NavigationLink("Controller binds") {
                                 Form { ControllerBindsPage(binds: $entry.controllerBinds, mouseVertical: $entry.padMouseVertical) }
@@ -3437,6 +3477,17 @@ struct ControllerModeChoice: View {
                 Text("XInput only").tag("xinput")
                 Text("Keyboard and mouse").tag("keys")
             }.pickerStyle(.menu).labelsHidden()
+        }
+    }
+}
+
+struct StickDirectionChoice: View {
+    @Binding var mode: String?
+    var body: some View {
+        Picker("Left stick directions", selection: Binding(get: { mode ?? "" }, set: { mode = $0.isEmpty ? nil : $0 })) {
+            Text("Automatic").tag("")
+            Text("Analog").tag("analog")
+            Text("8-way").tag("eightWay")
         }
     }
 }
@@ -3944,6 +3995,7 @@ struct LibraryHUD: View {
                 Button("Edit controls", systemImage: "slider.horizontal.3") { controls.visible = true; controls.editing = true; model.menu = false }
                 if GamepadInput.keyboardMouseAvailable {
                     ControllerModeChoice(mode: Binding(get: { model.controllerMode }, set: { model.controllerMode = $0; model.saveCurrentProfile() }))
+                    StickDirectionChoice(mode: Binding(get: { model.stickDirectionMode }, set: { model.stickDirectionMode = $0; model.saveCurrentProfile() }))
                     if model.controllerMode == "keys" {
                         Button("Controller binds", systemImage: "gamecontroller") { bindsPage = true }
                     }

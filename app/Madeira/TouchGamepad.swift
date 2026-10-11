@@ -31,6 +31,17 @@ struct GamepadSample: Equatable, Sendable {
     }
 }
 
+/// A 2D platformer's eight-way gate. Dominant cardinals tolerate a small
+/// diagonal tilt; clear diagonals retain both axes and their full range.
+enum LeftStickDirections {
+    static func filter(x: Int16, y: Int16) -> (x: Int16, y: Int16) {
+        let ax = abs(Int32(x)), ay = abs(Int32(y))
+        if ay * 2 < ax { return (x, 0) }
+        if ax * 2 < ay { return (0, y) }
+        return (x, y)
+    }
+}
+
 enum TouchPadAction {
     static let buttons: [String: UInt16] = [
         "A": 0x1000, "B": 0x2000, "X": 0x4000, "Y": 0x8000,

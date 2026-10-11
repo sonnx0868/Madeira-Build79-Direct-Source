@@ -134,3 +134,19 @@ thermal state; compare p95/p99 frame times and loading times as well as FPS.
 
 References: [Microsoft ARM64EC ABI](https://learn.microsoft.com/en-us/windows/arm/arm64ec-abi),
 [FEX ARM64EC architecture](https://wiki.fex-emu.com/index.php/Development%3AARM64EC).
+
+### Silksong automatic cache profile
+
+The source after build604 selects `reuse` for the Silksong profile when its
+per-game cache mode is Automatic, its Unity profile is enabled and there is no
+explicit global cache setting. Explicit Off and Verify/Reuse remain available;
+other game profiles remain off. The instruction budget is unchanged so Mono's
+5000-instruction compatibility hooks remain armed. Cache promotion/checksums,
+exact-IR guards, compiler identity, relocation validation, disable markers and
+fallback compilation remain mandatory. The native backend is unchanged.
+
+This is an app-level experiment; no iPad warm-start improvement is measured yet.
+The cache still decodes/builds IR and allocates registers. It learns from initial
+sessions and reuses only promoted records; an app build update changes its file
+namespace. Measure at least two complete launches of the same build before
+concluding that it helped. A first launch with no validated records can be slower.

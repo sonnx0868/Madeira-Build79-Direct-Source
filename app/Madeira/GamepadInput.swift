@@ -123,6 +123,13 @@ final class GamepadInput: @unchecked Sendable {
     // A physical reservation must not impersonate touch input: keyboard/mouse
     // mode suppresses it while retaining genuine touch controller sources.
     private var physicalSlotReserved = false
+    private var cardinalLeftStick = false
+    func setLeftStickDirections(_ enabled: Bool) {
+        queue.async { [self] in
+            cardinalLeftStick = enabled
+            sample()
+        }
+    }
     private var touchControlCount = -1
     private struct DiagnosticState: Equatable {
         var connected: UInt8
@@ -132,8 +139,13 @@ final class GamepadInput: @unchecked Sendable {
     }
     private var diagnosticState = [DiagnosticState?](repeating: nil, count: 4)
     private var diagnosticTransitions = 0
+    private var axisDiagnosticAt: UInt64 = 0
+    private var rawLeftX = [Int16](repeating: 0, count: 4)
+    private var rawLeftY = [Int16](repeating: 0, count: 4)
     @MainActor private var observers: [NSObjectProtocol] = []
     @MainActor private var started = false
+    @MainActor private var refreshTimer: Timer?
+    private var libraryOwnsPad: Bool?
 
     @MainActor func start() {
         guard !started else { return }
@@ -159,6 +171,18 @@ final class GamepadInput: @unchecked Sendable {
         })
         refreshControllers()
         setActive(UIApplication.shared.applicationState == .active)
+        // Reconcile foreground/profile state even if a controller notification
+        // is missed or an existing GCController receives a replacement profile.
+        let refresh = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let foreground = UIApplication.shared.applicationState == .active
+                if foreground { self.refreshControllers() }
+                self.setActive(foreground)
+            }
+        }
+        refreshTimer = refresh
+        RunLoop.main.add(refresh, forMode: .common)
     }
 
     @MainActor private func refreshControllers() {
@@ -178,8 +202,10 @@ final class GamepadInput: @unchecked Sendable {
                 fputs("[xinput] ml1920 slot=\(i) disconnected\n", stderr)
             }
             for (controller, profile) in live {
-                guard !controllers.contains(where: { $0 === controller }),
-                      let i = controllers.firstIndex(where: { $0 == nil }) else { continue }
+                let existing = controllers.firstIndex(where: { $0 === controller })
+                guard let i = existing ?? controllers.firstIndex(where: { $0 == nil }) else { continue }
+                let rebound = profiles[i] !== profile
+                if rebound { profiles[i]?.valueChangedHandler = nil }
                 controllers[i] = controller
                 profiles[i] = profile
                 profile.valueChangedHandler = { [weak self] _, _ in
@@ -187,7 +213,9 @@ final class GamepadInput: @unchecked Sendable {
                     // when a controller is disconnected or the app resigns active.
                     self?.queue.async { [weak self] in self?.sample() }
                 }
-                fputs("[xinput] ml1920 slot=\(i) connected\n", stderr)
+                if existing == nil || rebound {
+                    fputs("[xinput] slot=\(i) \(existing == nil ? "connected" : "profile-rebound")\n", stderr)
+                }
             }
             updateTimer()
             sample()
@@ -196,7 +224,9 @@ final class GamepadInput: @unchecked Sendable {
 
     private func setActive(_ value: Bool) {
         queue.async { [self] in
+            guard active != value else { return }
             active = value
+            fputs("[controller-lifecycle] active=\(value ? 1 : 0)\n", stderr)
             if !value {
                 touchState.clear()
                 if keyboardMouse != nil { PadKeyboardMouse.shared.releaseAll("inactive") }
@@ -244,6 +274,7 @@ final class GamepadInput: @unchecked Sendable {
             }
             var state = winios_gamepad()
             state.connected = 1
+            var rawLeft: (Int16, Int16) = (0, 0)
             // Keep the connected identity, but release all controls while the
             // app is inactive. A delayed callback cannot republish a held key.
             if active, let pad {
@@ -263,13 +294,23 @@ final class GamepadInput: @unchecked Sendable {
                 state.ly = Self.axis(pad.leftThumbstick.yAxis.value)
                 state.rx = Self.axis(pad.rightThumbstick.xAxis.value)
                 state.ry = Self.axis(pad.rightThumbstick.yAxis.value)
+                rawLeft = (state.lx, state.ly)
                 // The library front end navigates with player 1's pad (Library.swift).
                 // While it owns input (no session, or its menu is open) the game
                 // sees a connected pad at rest.
                 if i == 0 {
                     let library = LibraryController.shared
                     library.sample(buttons: state.buttons, lx: state.lx, ly: state.ly)
-                    if library.ownsInput {
+                    let owns = library.ownsInput
+                    if libraryOwnsPad != owns {
+                        libraryOwnsPad = owns
+                        fputs("[controller-owner] owner=\(owns ? "library" : "game")\n", stderr)
+                    }
+                    if cardinalLeftStick && !owns {
+                        let filtered = LeftStickDirections.filter(x: state.lx, y: state.ly)
+                        state.lx = filtered.x; state.ly = filtered.y
+                    }
+                    if owns {
                         state = winios_gamepad()
                         state.connected = 1
                         if keyboardMouse != nil { PadKeyboardMouse.shared.releaseAll("library menu") }
@@ -305,13 +346,23 @@ final class GamepadInput: @unchecked Sendable {
             let diagnostic = DiagnosticState(connected: state.connected, buttons: state.buttons,
                                              lt: state.left_trigger, rt: state.right_trigger,
                                              lx: state.lx, ly: state.ly, rx: state.rx, ry: state.ry)
-            if diagnosticState[i] != diagnostic {
+            let rawAxesChanged = rawLeftX[i] != rawLeft.0 || rawLeftY[i] != rawLeft.1
+            rawLeftX[i] = rawLeft.0; rawLeftY[i] = rawLeft.1
+            if diagnosticState[i] != diagnostic || rawAxesChanged {
+                let previous = diagnosticState[i]
+                let axesChanged = rawAxesChanged || previous?.lx != state.lx || previous?.ly != state.ly ||
+                    previous?.rx != state.rx || previous?.ry != state.ry
                 diagnosticState[i] = diagnostic
-                if diagnosticTransitions < 64 {
+                let now = DispatchTime.now().uptimeNanoseconds
+                // Keep analog diagnostics after the first 64 button presses;
+                // at most two additional lines a second, without input filtering.
+                if diagnosticTransitions < 64 || (axesChanged && now - axisDiagnosticAt >= 500_000_000) {
+                    if axesChanged { axisDiagnosticAt = now }
                     diagnosticTransitions += 1
                     fputs("[xinput-publish] #\(diagnosticTransitions) slot=\(i) packet-next " +
                           "buttons=0x\(String(state.buttons, radix: 16)) lt=\(state.left_trigger) rt=\(state.right_trigger) " +
                           "ls=(\(state.lx),\(state.ly)) rs=(\(state.rx),\(state.ry)) " +
+                          "raw-ls=(\(rawLeft.0),\(rawLeft.1)) gate=\(cardinalLeftStick ? 1 : 0) " +
                           "physical=\(pad == nil ? 0 : 1) touch=\(touchConnected ? 1 : 0) active=\(active ? 1 : 0)\n", stderr)
                 }
             }

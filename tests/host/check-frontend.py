@@ -112,6 +112,7 @@ swift += block(lib, 'enum ControllerCompatibility') + '\n'
 swift += block(lib, 'enum UnityLaunch') + '\n'
 swift += block(lib, 'enum UnityStartupSync') + '\n'
 swift += block(lib, 'enum ExternalGameCompatibility') + '\n'
+swift += (root / 'app/Madeira/GameEngineDetection.swift').read_text(encoding='utf-8') + '\n'
 swift += block(lib, 'enum SyncEngine: String, CaseIterable, Identifiable') + '\n'
 swift += '\n'.join(l for l in display.splitlines() if not l.startswith('import ')) + '\n'
 swift += block(lib, 'final class LibraryController: ObservableObject, @unchecked Sendable') + '\n'
@@ -130,6 +131,24 @@ expect(published == (1280, 720), "desktop size published to the display shim")
 
 // A direct game: its Windows path and arguments; no desktop state left over.
 var game = LibraryEntry(title: "Game", relativePath: "Games/Some Game/bin/game.exe", bits: 32)
+expect(!game.cardinalLeftStick, "ordinary games retain analog directions")
+var silkPad = LibraryEntry(title: "Hollow Knight: Silksong", relativePath: "Games/Silksong/Silksong.exe", bits: 64)
+expect(silkPad.cardinalLeftStick, "Silksong defaults to eight-way platformer directions")
+expect(silkPad.launchCPUCacheMode == "reuse", "Silksong automatic profile learns and reuses verified CPU blocks")
+silkPad.cpuCacheMode = "off"
+expect(silkPad.launchCPUCacheMode == "off", "explicit CPU cache off overrides Silksong automatic mode")
+silkPad.cpuCacheMode = nil; silkPad.unityOptimizations = false
+expect(silkPad.launchCPUCacheMode == nil, "disabling the Unity profile disables automatic CPU reuse")
+silkPad.unityOptimizations = nil
+MadeiraConfig.set("env.MADEIRA_CPU_CACHE", "0")
+expect(silkPad.launchCPUCacheMode == nil, "global CPU cache opt-out overrides automatic profile")
+MadeiraConfig.set("env.MADEIRA_CPU_CACHE", nil)
+expect(game.launchCPUCacheMode == nil, "other games retain CPU cache off")
+silkPad.stickDirectionMode = "analog"
+expect(!silkPad.cardinalLeftStick, "Silksong can retain unmodified analog axes")
+game.stickDirectionMode = "eightWay"
+expect(game.cardinalLeftStick, "any game can opt into eight-way directions")
+game.stickDirectionMode = nil
 unsetenv("DXMT_CENSUS_THROTTLE"); game.applyEnvironment()
 expect(env("DXMT_CENSUS_THROTTLE") == "1", "imported games throttle DXMT census by default")
 game.cpuCacheMode = "reuse"; game.cpuTranslationBudget = 512; game.applyEnvironment()

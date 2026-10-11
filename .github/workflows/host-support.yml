@@ -38,6 +38,8 @@ jobs:
           python3 tests/host/check-profile-display.py --require-objc
           python3 tests/host/check-multi-game.py --require-tools --require-swift
           python3 tests/host/check-touch-gamepad.py
+          python3 tests/host/check-engine-detection.py --require-swift
+          python3 tests/host/check-controller-refresh.py --require-swift
           python3 tests/host/check-frontend.py
           python3 tests/host/check-game-pointer.py --require-swift
           python3 tests/host/check-dock-installers.py

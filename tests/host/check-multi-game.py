@@ -201,7 +201,7 @@ dispatchMain()
         # Reuse the existing actor test's LibraryModel name only after compiling
         # the filesystem route fixture separately.
         route_source = folder / "route.swift"
-        route_source.write_text("import Foundation\n" + route_checks, encoding="utf-8")
+        route_source.write_text((root / "app/Madeira/GameEngineDetection.swift").read_text(encoding="utf-8") + "\n" + route_checks, encoding="utf-8")
         subprocess.run([swift, str(route_source), "-o", str(folder / "route")], check=True, timeout=60)
         subprocess.run([str(folder / "route")], check=True, timeout=60)
         source.write_text(codec + checks + actor_checks, encoding="utf-8")

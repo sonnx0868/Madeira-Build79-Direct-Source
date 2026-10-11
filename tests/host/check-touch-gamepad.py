@@ -16,6 +16,14 @@ pure = source.split('// MARK: - Pure touch state', 1)[1].split('// MARK: - UIKit
 pure = pure[pure.index('struct GamepadSample'):]
 tests = r'''
 let a = UUID(), b = UUID(), owner1 = UUID(), owner2 = UUID()
+assert(LeftStickDirections.filter(x: 30000, y: 6000).y == 0)
+assert(LeftStickDirections.filter(x: -30000, y: 6000).y == 0)
+assert(LeftStickDirections.filter(x: 2000, y: -30000).x == 0)
+assert(LeftStickDirections.filter(x: 22000, y: 22000).y == 22000)
+assert(LeftStickDirections.filter(x: -22000, y: -22000).x == -22000)
+assert(LeftStickDirections.filter(x: 32767, y: -32768).y == -32768)
+assert(LeftStickDirections.filter(x: 0, y: 0).x == 0)
+assert(LeftStickDirections.filter(x: 20000, y: 10000).y == 10000)
 var state = TouchGamepadState()
 assert(!state.connected)
 state.configure([a, b])

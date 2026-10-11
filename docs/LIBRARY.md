@@ -450,6 +450,46 @@ Log tags: `[frontend]`, `[display]`, `[display-shape]`, `[frontend-pointer]`, `[
 `[session-once]`, `[library-surface]`, `[library-metadata]`, `[onboarding]`,
 `[frontend-controller]`, `[frontend-keyboard]`, `[device-load]`, `[promote]`.
 
+## Engine identification and Silksong input
+
+Game details now show the detected engine. `GameEngineDetection.swift` reads
+runtime DLL names, project layout markers and bounded archive/PE resource
+headers. It identifies Unity, Ren'Py, Kirikiri/KAG, NScripter/ONScripter,
+TyranoScript, RPG Maker MV/MZ and RGSS, Godot, LiveMaker, NW.js and Electron.
+NW.js/Electron are host runtime labels when the exact story engine is unknown.
+Packed or renamed builds without recognizable markers stay unknown; no story
+archive is extracted or edited. Identification alone is not compatibility proof.
+Python and browser runtimes use an isolated launch until their helper process
+lifetimes are validated; renderer selection remains the game's existing choice.
+
+**Left stick directions** is saved per game and can change during a session.
+Automatic uses an eight-way gate for Silksong; Analog retains the input exactly,
+and 8-way enables the same gate elsewhere. When one component is more than twice
+the other, the smaller component becomes zero. Clear diagonals remain diagonal,
+full signed ranges are retained, and the right stick, triggers and D-pad are
+unmodified. This addresses small vertical tilt while moving sideways; it is not
+a Y-axis inversion or a Bluetooth fix.
+
+The physical controller publisher reconciles foreground state and refreshes live
+profiles once per second. Replacement profiles are rebound without reassigning
+player slots. `controller-lifecycle`, `controller-owner`, and rate-limited
+`xinput-publish` raw/filtered axes remain available after the first 64 presses.
+
+Silksong's **CPU code cache → Automatic** selects the existing verified backend
+cache while the Unity profile is enabled. An explicit Off or global cache choice
+wins; other games default off. Initial sessions learn/promote exact code matches,
+and later sessions may reuse them. Decoder/IR/register-allocation work remains,
+cache misses still compile, and cache identity is partitioned by app build.
+No loading-time or FPS improvement is claimed until the same iPad/scene is measured.
+
+Runtime format references:
+
+- https://github.com/renpy/renpy-build/blob/master/tasks/renpython.py
+- https://github.com/ShikemokuMK/tyranoscript
+- https://ogapee.github.io/www/onscripter_en.html
+- https://wamsoft.github.io/krkrz_dev/guide/Xp3Tool/
+- https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_windows.html
+
 ## Tests
 
 `tests/host/check-frontend.py` (profiles incl. resolution and scaling,
