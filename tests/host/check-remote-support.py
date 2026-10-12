@@ -115,12 +115,12 @@ for path in [traceback, renpyLog] {
     try Data("RenPy Python startup exception\n".utf8).write(to: path)
     try FileManager.default.setAttributes([.modificationDate: recent], ofItemAtPath: path.path)
 }
-let selected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+let selectedRenpyLogs = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
                                          executableRelativePath: "Games/VN/VN.exe")
-assert(Set(selected.map(\.name)).isSuperset(of: ["Games/VN/traceback.txt", "Games/VN/log.txt"]))
+assert(Set(selectedRenpyLogs.map(\.name)).isSuperset(of: ["Games/VN/traceback.txt", "Games/VN/log.txt"]))
 let nestedSelected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
                                                executableRelativePath: "Games/VN/lib/py3-windows-x86_64/pythonw.exe")
-assert(Set(nestedSelected.map(\.name)) == Set(selected.map(\.name)))
+assert(Set(nestedSelected.map(\.name)) == Set(selectedRenpyLogs.map(\.name)))
 let outsideSelection = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
                                                  executableRelativePath: "../outside.exe")
 assert(Set(outsideSelection.map(\.name)) == Set(logs.map(\.name)))
