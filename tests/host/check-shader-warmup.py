@@ -114,6 +114,12 @@ int main(void) { @autoreleasepool {
     NSURL *saved = nil;
     for (unsigned i = 0; i < 100 && !(saved = manifest(base)); ++i) usleep(50000);
     assert(saved);
+    NSDictionary *inventory = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:saved] options:0 error:nil];
+    NSLog(@"[warmup-fixture] render-class=%@ compute-class=%@ render-public-class=%d compute-public-class=%d vertex-layout=%d recipes=%@",
+          NSStringFromClass(render.class), NSStringFromClass(compute.class),
+          [render isKindOfClass:MTLRenderPipelineDescriptor.class], [compute isKindOfClass:MTLComputePipelineDescriptor.class],
+          render.vertexDescriptor != nil, [inventory[@"recipes"] valueForKey:@"kind"]);
+    assert([inventory[@"recipes"] count] == 2);
     NSURL *warmFolder = saved.URLByDeletingLastPathComponent;
     NSURL *archive = [[warmFolder URLByDeletingPathExtension] URLByAppendingPathExtension:@"metallib"];
     [@"test archive" writeToURL:archive atomically:YES encoding:NSUTF8StringEncoding error:nil];

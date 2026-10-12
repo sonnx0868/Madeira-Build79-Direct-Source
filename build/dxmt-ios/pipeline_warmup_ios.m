@@ -69,7 +69,11 @@ static NSDictionary *functionRecipe(id<MTLFunction> fn) { return objc_getAssocia
 static NSDictionary *recipe(id descriptor, BOOL compute) {
     if (!objc_getAssociatedObject(descriptor, &allowedKey)) return nil;
     if (compute) {
-        if (![descriptor isKindOfClass:MTLComputePipelineDescriptor.class]) return nil;
+        // Metal returns internal descriptor implementations; their class
+        // ancestry is not the public API contract. The thunk marker plus
+        // required selectors identifies the ordinary descriptor we recorded.
+        if (![descriptor respondsToSelector:@selector(computeFunction)] ||
+            ![descriptor respondsToSelector:@selector(buffers)]) return nil;
         MTLComputePipelineDescriptor *d = descriptor;
         NSDictionary *fn = functionRecipe(d.computeFunction); if (!fn) return nil;
         NSMutableArray *buffers = [NSMutableArray array];
@@ -77,7 +81,8 @@ static NSDictionary *recipe(id descriptor, BOOL compute) {
         return @{@"kind": @"compute", @"function": fn, @"buffers": buffers,
                  @"multiple": @(d.threadGroupSizeIsMultipleOfThreadExecutionWidth)};
     }
-    if (![descriptor isKindOfClass:MTLRenderPipelineDescriptor.class]) return nil;
+    if (![descriptor respondsToSelector:@selector(vertexFunction)] ||
+        ![descriptor respondsToSelector:@selector(colorAttachments)]) return nil;
     MTLRenderPipelineDescriptor *d = descriptor;
     // DXMT's vertex fetching uses Metal buffers. Reject unfamiliar layouts or
     // patch shaders instead of reusing a pipeline with an incomplete recipe.
