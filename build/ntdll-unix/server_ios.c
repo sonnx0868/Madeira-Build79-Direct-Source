@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <sys/time.h>
 #include <time.h>
+#include "ios_process_threads.h"
 /* From signal_arm64_ios.c — written by __wine_syscall_dispatcher at entry */
 extern volatile uint64_t g_wine_dispatcher_x18;
 extern volatile uint64_t g_wine_dispatcher_count;
@@ -3588,6 +3589,7 @@ void process_exit_wrapper( int status )
 #ifdef WINE_IOS
     const unsigned int session_pid = (unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess;
     void *runtime_peb = NtCurrentTeb()->Peb;
+    ios_process_thread_retire(session_pid, runtime_peb);
     int runtime_safe = 1;
     extern int wine_runtime_prepare_process_exit( unsigned int pid, void *peb ) __attribute__((weak));
     if (wine_runtime_prepare_process_exit) runtime_safe = wine_runtime_prepare_process_exit( session_pid, runtime_peb );
@@ -3946,6 +3948,7 @@ size_t server_init_process(void)
     {
         extern void wine_runtime_thread_attach( unsigned, unsigned, unsigned, void * ) __attribute__((weak));
         if (wine_runtime_thread_attach) wine_runtime_thread_attach( pid, tid, 0, NtCurrentTeb()->Peb );
+        ios_process_thread_register(pid, tid, NtCurrentTeb()->Peb);
     }
 #endif
 
@@ -4043,6 +4046,7 @@ size_t server_init_process_child( int child_fd_socket )
         unsigned int processors = wine_runtime_processors ? wine_runtime_processors() : 0;
         if (processors && processors < 64) NtCurrentTeb()->Peb->NumberOfProcessors = processors;
         if (wine_runtime_thread_attach) wine_runtime_thread_attach( pid, tid, ios_runtime_parent_pid, NtCurrentTeb()->Peb );
+        ios_process_thread_register(pid, tid, NtCurrentTeb()->Peb);
     }
 
     return info_size;
@@ -4484,6 +4488,8 @@ void server_init_thread( void *entry_point, BOOL *suspend )
         if (wine_runtime_thread_attach) wine_runtime_thread_attach(
             (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess,
             (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread, 0, NtCurrentTeb()->Peb );
+        ios_process_thread_register((unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess,
+            (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread, NtCurrentTeb()->Peb);
     }
 #endif
 }

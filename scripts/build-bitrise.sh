@@ -82,6 +82,7 @@ checks() {
   if [[ "$mode" = cached ]]; then
     python3 tests/host/check-pipeline-cache.py
     python3 tests/host/check-shader-warmup.py
+    python3 tests/host/check-renpy-startup.py
   fi
   python3 tests/host/check-translation-tools.py
   python3 tests/host/check-remote-support.py --require-swift

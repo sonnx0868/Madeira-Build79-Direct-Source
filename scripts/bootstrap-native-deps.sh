@@ -61,6 +61,7 @@ xcrun -sdk macosx metal -v >/dev/null
 bash "$root/scripts/check-metal-shaders.sh"
 python3 "$root/tests/host/check-pipeline-cache.py"
 python3 "$root/tests/host/check-shader-warmup.py"
+python3 "$root/tests/host/check-renpy-startup.py"
 
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
 # fix into them deterministically until their rebuild joins this bootstrap.

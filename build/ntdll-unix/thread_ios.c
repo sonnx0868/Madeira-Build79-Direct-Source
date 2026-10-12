@@ -78,6 +78,9 @@ volatile long long ios_affinity_sets;   /* ml1117 */
 #include "wine/debug.h"
 #include "unix_private.h"
 #include "ios_wow.h"
+#ifdef WINE_IOS
+#include "ios_process_threads.h"
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(thread);
 WINE_DECLARE_DEBUG_CHANNEL(seh);
@@ -86,7 +89,34 @@ WINE_DECLARE_DEBUG_CHANNEL(threadname);
 
 pthread_key_t teb_key = 0;
 
+#ifdef WINE_IOS
+static struct ios_process_threads ios_threads = { .lock = PTHREAD_MUTEX_INITIALIZER };
+int ios_process_thread_register(unsigned pid, unsigned tid, void *peb) {
+    sigset_t previous;
+    pthread_sigmask(SIG_BLOCK, &server_block_set, &previous);
+    int result = ios_process_threads_add(&ios_threads, pid, tid, peb);
+    pthread_sigmask(SIG_SETMASK, &previous, NULL);
+    return result;
+}
+void ios_process_thread_retire(unsigned pid, void *peb) {
+    sigset_t previous;
+    pthread_sigmask(SIG_BLOCK, &server_block_set, &previous);
+    ios_process_threads_remove(&ios_threads, pid, peb);
+    pthread_sigmask(SIG_SETMASK, &previous, NULL);
+}
+static int ios_depart_current_thread(void) {
+    TEB *teb = NtCurrentTeb();
+    unsigned pid = (unsigned)(ULONG_PTR)teb->ClientId.UniqueProcess;
+    unsigned tid = (unsigned)(ULONG_PTR)teb->ClientId.UniqueThread;
+    int remaining = ios_process_threads_leave(&ios_threads, pid, tid, teb->Peb);
+    static unsigned count;
+    if (__atomic_fetch_add(&count, 1, __ATOMIC_RELAXED) < 128 || !remaining)
+        dprintf(2, "[process-threads] process-threads-v1 pid=%04x tid=%04x remaining=%d\n", pid, tid, remaining);
+    return remaining;
+}
+#else
 static LONG nb_threads = 1;
+#endif
 
 static inline int get_unix_exit_code( NTSTATUS status )
 {
@@ -1730,12 +1760,14 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
     pthread_attr_setstack( &pthread_attr, thread_data->kernel_stack, kernel_stack_size );
     pthread_attr_setguardsize( &pthread_attr, 0 );
     pthread_attr_setscope( &pthread_attr, PTHREAD_SCOPE_SYSTEM ); /* force creating a kernel thread */
-    InterlockedIncrement( &nb_threads );
 #ifdef WINE_IOS
+    ios_process_thread_register(GetCurrentProcessId(), tid, teb->Peb);
     {
         extern void wine_runtime_thread_reserve( unsigned, unsigned, void * ) __attribute__((weak));
         if (wine_runtime_thread_reserve) wine_runtime_thread_reserve( GetCurrentProcessId(), tid, teb->Peb );
     }
+#else
+    InterlockedIncrement( &nb_threads );
 #endif
     if (pthread_create( &pthread_id, &pthread_attr, (void * (*)(void *))start_thread, teb ))
     {
@@ -1745,7 +1777,11 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
             if (wine_runtime_thread_cancel) wine_runtime_thread_cancel( GetCurrentProcessId(), tid, teb->Peb );
         }
 #endif
+#ifdef WINE_IOS
+        (void)ios_process_threads_leave(&ios_threads, GetCurrentProcessId(), tid, teb->Peb);
+#else
         InterlockedDecrement( &nb_threads );
+#endif
         virtual_free_teb( teb );
         status = STATUS_NO_MEMORY;
     }
@@ -1774,7 +1810,11 @@ done:
 void abort_thread( int status )
 {
     pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
+#ifdef WINE_IOS
+    if (ios_depart_current_thread() == 0) abort_process( status );
+#else
     if (InterlockedDecrement( &nb_threads ) <= 0) abort_process( status );
+#endif
     pthread_exit_wrapper( status );
 }
 
@@ -1835,7 +1875,11 @@ static DECLSPEC_NORETURN void exit_thread( int status )
 
     pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
 
+#ifdef WINE_IOS
+    if (ios_depart_current_thread() == 0) exit_process( status );
+#else
     if (InterlockedDecrement( &nb_threads ) <= 0) exit_process( status );
+#endif
 
     if ((teb = InterlockedExchangePointer( &prev_teb, NtCurrentTeb() )))
     {

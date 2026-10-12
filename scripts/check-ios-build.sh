@@ -39,6 +39,7 @@ for dll in win32u.dll user32.dll dinput.dll dinput8.dll \
   xinput9_1_0.dll; do need "app/Madeira/arm64ec-windows/$dll"; done
 need "app/Madeira/arm64ec-windows/lua51-gc64.dll"
 need "app/Madeira/aarch64-windows/madeira-session-host.exe"
+need "app/Madeira/aarch64-windows/ntdll.dll"
 need "app/Madeira/arm64ec-windows/xtajit64.dll"
 if [[ -s "$root/app/Madeira/arm64ec-windows/xtajit64.dll" ]]; then
   python3 "$root/tests/host/check-fex-transition-arch.py" \
@@ -131,6 +132,11 @@ if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
   }
 fi
 if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then
+  for marker in private-child-ntdll-v1 process-threads-v1 bounded-reloc-sync-v1; do
+    grep -a -q "$marker" "$root/app/Madeira/libntdll_unix.a" || {
+      echo "INVALID: libntdll_unix.a lacks $marker; rebuild source-bootstrap"; missing=1;
+    }
+  done
   grep -a -q 'shared-roots-v2' "$root/app/Madeira/libntdll_unix.a" || {
     echo "INVALID: libntdll_unix.a has destructive shared root enumeration; rebuild source-bootstrap"; missing=1;
   }

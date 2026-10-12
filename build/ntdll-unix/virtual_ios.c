@@ -25,6 +25,7 @@
 #include "config.h"
 #include "../madeira_cfg.h"   /* ml1095: one config file */
 #include "ios_swap_pressure.h"
+#include "ios_pe_relocations.h"
 #include <malloc/malloc.h>
 
 #include <assert.h>
@@ -23491,50 +23492,15 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
                         uint64_t img_base  = ios_jit_mappings[idx].pe_image_base;
                         intptr_t r_delta   = ios_jit_mappings[idx].reloc_delta;
                         size_t img_size    = ios_jit_mappings[idx].size;
-                        /* Region bounds as offsets within the PE image */
-                        size_t rgn_off_start = off;
-                        size_t rgn_off_end   = off + size;
-                        char *block = rw_image + r_rva;
-                        char *block_end = block + r_sz;
-                        int dir64_count = 0;
-
-                        while (block < block_end)
-                        {
-                            unsigned int block_rva  = *(unsigned int *)block;
-                            unsigned int block_size = *(unsigned int *)(block + 4);
-                            int j2, num_entries;
-                            unsigned short *entries;
-
-                            if (!block_size || block_size < 8) break;
-                            num_entries = (block_size - 8) / 2;
-                            entries = (unsigned short *)(block + 8);
-
-                            for (j2 = 0; j2 < num_entries; j2++)
-                            {
-                                int type = entries[j2] >> 12;
-                                int eoff = entries[j2] & 0xFFF;
-                                unsigned int fixup_rva = block_rva + eoff;
-
-                                if (type == 0) continue;
-                                if (type != 10) continue; /* IMAGE_REL_BASED_DIR64 */
-
-                                /* Only fix entries within the synced region */
-                                if (fixup_rva < rgn_off_start || fixup_rva + 8 > rgn_off_end)
-                                    continue;
-
-                                {
-                                    uint64_t *fixup = (uint64_t *)(rw_image + fixup_rva);
-                                    uint64_t val = *fixup;
-                                    if (val >= img_base && val < img_base + img_size)
-                                    {
-                                        *fixup += r_delta;
-                                        dir64_count++;
-                                    }
-                                }
-                            }
-                            block += block_size;
+                        int dir64_count = ios_reloc_sync_dir64((uint8_t *)rw_image, img_size,
+                            r_rva, r_sz, img_base, r_delta, off, size);
+                        if (dir64_count < 0) {
+                            static unsigned invalid_tables;
+                            if (__atomic_fetch_add(&invalid_tables, 1, __ATOMIC_RELAXED) < 16)
+                                dprintf(2, "[reloc-sync] bounded-reloc-sync-v1 invalid directory rva=%x size=%x image=%lx; skipped\n",
+                                    r_rva, r_sz, (unsigned long)img_size);
                         }
-                        if (dir64_count)
+                        if (dir64_count > 0)
                             ERR("iOS JIT IAT sync: re-applied %d DIR64 fixups in region %p+0x%lx\n",
                                 dir64_count, base, (unsigned long)size);
                     }

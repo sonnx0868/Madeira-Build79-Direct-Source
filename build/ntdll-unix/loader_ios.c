@@ -90,6 +90,7 @@
 #include "winternl.h"
 #include "unix_private.h"
 #include "ios_wow.h"
+#include "ios_child_ntdll.h"
 #include "wine/list.h"
 #include "wine/debug.h"
 
@@ -2391,14 +2392,14 @@ static void redirect_ntdll_functions( HMODULE module )
  * session image (including the Round-7 EC unix-call swap), with every
  * PE-.data write synced into the pool copy.
  */
-static int ios_load_child_ec_ntdll( PEB *child_peb )
+static int ios_load_child_private_ntdll( PEB *child_peb, USHORT machine )
 {
     static WCHAR path[] = {'\\','?','?','\\','C',':','\\','w','i','n','d','o','w','s','\\',
                            's','y','s','t','e','m','3','2','\\','n','t','d','l','l','.','d','l','l',0};
     extern void ios_jit_sync_write(void *addr, size_t size);
     extern void *ios_jit_translate_addr(void *addr);
     extern void *ios_arm64ec_bitmap_base(void);
-    const char *pe_dir = get_pe_dir( IMAGE_FILE_MACHINE_AMD64 );  /* owner-aware → /arm64ec-windows */
+    const char *pe_dir = get_pe_dir( machine );
     unsigned int status;
     SECTION_IMAGE_INFORMATION info;
     OBJECT_ATTRIBUTES attr;
@@ -2415,9 +2416,9 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
     if (build_dir) asprintf( &name, "%s%s/ntdll.dll", ntdll_dir, pe_dir );
     else asprintf( &name, "%s%s/ntdll.dll", dll_dir, pe_dir );
 
-    dprintf(2, "[ec-child-ntdll] loading %s for peb=%p\n", name, (void *)child_peb);
+    dprintf(2, "[child-ntdll] private-child-ntdll-v1 machine=%04x loading %s for peb=%p\n", machine, name, (void *)child_peb);
     status = open_builtin_pe_file( name, &attr, &module, &size, &info, 0, 0,
-                                   IMAGE_FILE_MACHINE_AMD64, FALSE, 0 );
+                                   machine, FALSE, 0 );
     if (status == STATUS_IMAGE_NOT_AT_BASE) status = virtual_relocate_module( module );
     if (status)
     {
@@ -2460,7 +2461,8 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
         EC_GET( p__wine_unix_call_dispatcher_arm64ec,  "__wine_unix_call_dispatcher_arm64ec" );
         EC_GET( p__wine_unixlib_handle,                "__wine_unixlib_handle" );
 #undef EC_GET
-        if (!funcs.LdrInitializeThunk || !p__wine_syscall_dispatcher || !p__wine_unixlib_handle)
+        if (!funcs.LdrInitializeThunk || !p__wine_syscall_dispatcher ||
+            !p__wine_unix_call_dispatcher || !p__wine_unixlib_handle)
             return -1;
 
         /* Same slot recipe as load_ntdll_functions for the session image. */
@@ -2491,7 +2493,7 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
             }
             else dprintf(2, "[fex-arena] ml797 ec-child exports ios_fex_arena_base/end NOT FOUND\n");
         }
-        if (p__wine_unix_call_dispatcher_arm64ec)
+        if (machine == IMAGE_FILE_MACHINE_AMD64 && p__wine_unix_call_dispatcher_arm64ec)
         {
             /* Round-7 EC unix-call swap (see load_ntdll_functions). */
             *p__wine_unix_call_dispatcher = *p__wine_unix_call_dispatcher_arm64ec;
@@ -2539,6 +2541,7 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
 
     /* Redirect exported entry points to their EC variants (hybrid metadata),
      * mirroring redirect_ntdll_functions on the p* globals. */
+    if (machine == IMAGE_FILE_MACHINE_AMD64)
     {
         const IMAGE_LOAD_CONFIG_DIRECTORY *loadcfg;
         const IMAGE_ARM64EC_METADATA *metadata;
@@ -2564,7 +2567,8 @@ static int ios_load_child_ec_ntdll( PEB *child_peb )
     /* The EC code bitmap is lazily created by the first hybrid AMD64 map;
      * only the creating PEB gets EcCodeBitMap set. Every EC child needs it
      * (arm64x_check_call reads TEB->Peb->EcCodeBitMap). */
-    if (!child_peb->EcCodeBitMap) child_peb->EcCodeBitMap = ios_arm64ec_bitmap_base();
+    if (machine == IMAGE_FILE_MACHINE_AMD64 && !child_peb->EcCodeBitMap)
+        child_peb->EcCodeBitMap = ios_arm64ec_bitmap_base();
     dprintf(2, "[ec-child-ntdll] EcCodeBitMap=%p LdrInitializeThunk=%p (pool %p)\n",
             child_peb->EcCodeBitMap, funcs.LdrInitializeThunk,
             ios_jit_translate_addr( funcs.LdrInitializeThunk ));
@@ -3724,16 +3728,17 @@ DECLSPEC_EXPORT void wine_ios_child_main( int argc, char *argv[], int child_fd_s
             ios_child_load_apiset( ios_cur_image_info()->Machine );
         }
 
-        /* X3c: a cross-arch child (AMD64 exe, non-EC session) cannot run on
-         * the session's aarch64 ntdll at all — load the ARM64EC build as a
-         * private second image instead of copying the session image. The
+        /* A cross-arch child needs its matching ntdll in both directions.
+         * A native ARM64 cmd.exe has no CHPE CPU area; copying an EC ntdll
+         * made it dereference NULL at ntdll+0x612b0 in CrossRealms build612.
+         * Load the appropriate build as a private second image. The
          * fresh image needs no per-child copy (nobody else uses its .data);
          * the standard map pipeline gave it pool/EC/x18 treatment. */
-        if (ios_cur_image_info()->Machine == IMAGE_FILE_MACHINE_AMD64 && !is_arm64ec())
+        if (ios_child_needs_private_ntdll(ios_cur_image_info()->Machine, is_arm64ec()))
         {
-            CHILD_STAGE( "load_child_ec_ntdll" );
-            if (ios_load_child_ec_ntdll( child_peb ) != 0)
-                CHILD_BOOT_FAIL( "EC ntdll load failed — a cross-arch child cannot start\n" );
+            CHILD_STAGE( "load_child_private_ntdll" );
+            if (ios_load_child_private_ntdll( child_peb, ios_cur_image_info()->Machine ) != 0)
+                CHILD_BOOT_FAIL( "matching ntdll load failed — a cross-arch child cannot start\n" );
         }
         else
         /* S1: per-child ntdll copy. The child cannot share the parent's
