@@ -77,6 +77,12 @@ checks() {
   python3 tests/host/check-version.py
   python3 tests/host/check-bootstrap-resources.py
   python3 tests/host/check-cpu-cache.py
+  python3 tests/host/check-cpu-aot-survey.py
+  # Bootstrap runs these native fixtures before expensive dependency builds.
+  if [[ "$mode" = cached ]]; then
+    python3 tests/host/check-pipeline-cache.py
+    python3 tests/host/check-shader-warmup.py
+  fi
   python3 tests/host/check-translation-tools.py
   python3 tests/host/check-remote-support.py --require-swift
   python3 tests/host/check-frontend.py

@@ -109,6 +109,7 @@ swift += block(lib, 'enum GameExitReport') + '\n'
 translation = (root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8')
 swift += block(translation, 'enum TranslationTools') + '\n'
 swift += block(translation, 'enum CPUTranslationSettings') + '\n'
+swift += block(translation, 'enum ShaderPreparationSettings') + '\n'
 swift += block(lib, 'enum ControllerCompatibility') + '\n'
 swift += block(lib, 'enum UnityLaunch') + '\n'
 swift += block(lib, 'enum UnityStartupSync') + '\n'

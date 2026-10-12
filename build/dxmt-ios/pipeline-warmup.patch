@@ -1,0 +1,69 @@
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -300,6 +300,9 @@
+     return STATUS_SUCCESS;
+   }
+   params->ret = (obj_handle_t)MTLCopyAllDevices();
++#if TARGET_OS_IOS
++  for (id<MTLDevice> device in (NSArray *)params->ret) madeira_prepare_pipeline_cache(device);
++#endif
+   return STATUS_SUCCESS;
+ }
+ 
+@@ -1185,6 +1188,9 @@
+   id<MTLDevice> device = (id<MTLDevice>)params->device;
+   NSError *err = NULL;
+   params->ret_library = (obj_handle_t)[device newLibraryWithData:(dispatch_data_t)params->data error:&err];
++#if TARGET_OS_IOS
++  madeira_warmup_track_library((id<MTLLibrary>)params->ret_library, (dispatch_data_t)params->data);
++#endif
+   params->ret_error = (obj_handle_t)err;
+   return STATUS_SUCCESS;
+ }
+@@ -1213,6 +1219,9 @@
+   id<MTLLibrary> library = (id<MTLLibrary>)params->handle;
+   NSString *name = [[NSString alloc] initWithCString:(char *)params->arg encoding:NSUTF8StringEncoding];
+   params->ret = (obj_handle_t)[library newFunctionWithName:name];
++#if TARGET_OS_IOS
++  madeira_warmup_track_function(library, (id<MTLFunction>)params->ret, name, @[], NO);
++#endif
+   [name release];
+   return STATUS_SUCCESS;
+ }
+@@ -1247,6 +1256,9 @@
+   id<MTLDevice> device = (id<MTLDevice>)params->device;
+   const struct WMTComputePipelineInfo *info = params->info.ptr;
+   MTLComputePipelineDescriptor *descriptor = [[MTLComputePipelineDescriptor alloc] init];
++#if TARGET_OS_IOS
++  madeira_pipeline_allow_warmup(descriptor, YES);
++#endif
+   NSError *err = NULL;
+   descriptor.computeFunction = (id<MTLFunction>)info->compute_function;
+   descriptor.threadGroupSizeIsMultipleOfThreadExecutionWidth = info->tgsize_is_multiple_of_sgwidth;
+@@ -1471,6 +1483,9 @@
+   }
+   const struct WMTRenderPipelineInfo *info = params->info.ptr;
+   MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
++#if TARGET_OS_IOS
++  madeira_pipeline_allow_warmup(descriptor, !info->logic_operation_enabled);
++#endif
+ 
+   for (unsigned i = 0; i < 8; i++) {
+     descriptor.colorAttachments[i].pixelFormat = to_metal_pixel_format(info->colors[i].pixel_format);
+@@ -4670,6 +4685,16 @@
+     [values setConstantValue:constants[i].data.ptr type:(MTLDataType)constants[i].type atIndex:constants[i].index];
+ 
+   params->ret = (obj_handle_t)[library newFunctionWithName:name constantValues:values error:&err];
++#if TARGET_OS_IOS
++  NSMutableArray *recorded = [NSMutableArray array];
++  BOOL supported = params->num_constants <= 64;
++  if (supported) for (uint64_t i = 0; i < params->num_constants; ++i) {
++    NSDictionary *value = madeira_warmup_constant(constants[i].data.ptr, (MTLDataType)constants[i].type, constants[i].index);
++    if (!value) { supported = NO; break; }
++    [recorded addObject:value];
++  }
++  if (supported) madeira_warmup_track_function(library, (id<MTLFunction>)params->ret, name, recorded, YES);
++#endif
+   params->ret_error = (obj_handle_t)err;
+   [name release];
+   [values release];

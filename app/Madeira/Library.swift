@@ -239,6 +239,8 @@ struct LibraryEntry: Codable, Identifiable {
         return nil
     }
     var cpuTranslationBudget: Int?
+    /// nil: automatic for Silksong; "on"/"off": an explicit launch choice.
+    var shaderWarmupMode: String?
     /// Direct-folder Unity smoothness profile. Nil is on for backward
     /// compatibility; false is an explicit per-game opt-out.
     var unityOptimizations: Bool?
@@ -350,6 +352,11 @@ struct LibraryEntry: Codable, Identifiable {
     /// Runs on the launch worker, before the JIT pool is taken.
     func applyEnvironment() {
         configureLaunch()
+        ShaderPreparationSettings.apply(mode: shaderWarmupMode,
+            automatic: desktop != true && unityOptimizations != false &&
+                MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS") &&
+                ControllerCompatibility.profile(for: self)?.name == "silksong",
+            relativePath: launchRelativePath, identity: id.uuidString, drive: LibraryModel.drive)
         // DXMT's 64-bit default enumerates and prints its memory census every
         // few frames. Steam/Dock must get the same 10-second reporting bound
         // as imported games. An explicit config/environment choice still wins.
@@ -3132,6 +3139,14 @@ struct LibraryDetail: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section {
+                    Picker("Prepare shaders on launch", selection: Binding(
+                        get: { entry.shaderWarmupMode ?? "auto" }, set: { entry.shaderWarmupMode = $0 == "auto" ? nil : $0 })) {
+                        Text("Automatic").tag("auto")
+                        Text("On").tag("on")
+                        Text("Off").tag("off")
+                    }
+                    Text("Automatic prepares previously seen Silksong pipelines. The first session learns; later launches prepare cached pipelines in the background. New effects can still compile during play. Restart Madeira after changing this option.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Toggle("Reduced-precision x87", isOn: $entry.reducedX87)
                     Picker("CPU code cache (experimental)", selection: Binding(
                         get: { entry.cpuCacheMode ?? "auto" }, set: { entry.cpuCacheMode = $0 == "auto" ? nil : $0 })) {

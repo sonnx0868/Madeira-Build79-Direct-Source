@@ -205,6 +205,7 @@ echo "=== winemetal unix (Objective-C) ==="
 compile_objc "$DXMT_SRC/winemetal/unix/winemetal_unix.c" winemetal_unix
 compile_objc "$DXMT_SRC/winemetal/unix/cache.c"          cache
 compile_objc "$BUILD_DIR/pipeline_cache_ios.m"          pipeline_cache_ios "-fobjc-arc"
+compile_objc "$BUILD_DIR/pipeline_warmup_ios.m"         pipeline_warmup_ios "-fobjc-arc"
 
 echo "=== airconv (C++ 20, needs LLVM headers) ==="
 for cpp in airconv_context.cpp air_type.cpp air_signature.cpp air_operations.cpp \

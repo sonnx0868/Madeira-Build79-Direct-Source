@@ -3,6 +3,7 @@
  * a separate serial writer. Rendering never waits for archive training/I/O.
  */
 #import "pipeline_cache_ios.h"
+#import "pipeline_warmup_ios.h"
 #import <Foundation/Foundation.h>
 #import <CommonCrypto/CommonDigest.h>
 #include <stdatomic.h>
@@ -26,6 +27,7 @@ static const unsigned pendingLimit = 128, learningLimit = 2048;
     atomic_uint creations;
     atomic_uint_fast64_t creationTicks, longestCreation;
     BOOL dirty, flushScheduled;
+    MadeiraPipelineWarmup *warmup;
 }
 @end
 @implementation MadeiraPipelineCache
@@ -36,8 +38,8 @@ static BOOL enabled(void) {
     return !value || strcmp(value, "0");
 }
 
-static NSURL *cacheFile(id<MTLDevice> device) {
-    const char *override = getenv("MADEIRA_PIPELINE_CACHE_DIR");
+static NSURL *cacheFile(id<MTLDevice> device, BOOL legacy) {
+    const char *override = legacy ? NULL : getenv("MADEIRA_PIPELINE_CACHE_DIR");
     NSURL *base = override && *override ? [NSURL fileURLWithPath:[NSString stringWithUTF8String:override] isDirectory:YES]
         : [[NSFileManager defaultManager] URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
     if (!base) return nil;
@@ -56,11 +58,12 @@ static NSURL *cacheFile(id<MTLDevice> device) {
 
 static MadeiraPipelineCache *cacheForDevice(id<MTLDevice> device) {
     if (!enabled() || !device) return nil;
-    static NSMutableDictionary<NSValue *, MadeiraPipelineCache *> *states;
+    static NSMutableDictionary<NSString *, MadeiraPipelineCache *> *states;
     static NSLock *lock;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ states = [NSMutableDictionary dictionary]; lock = [NSLock new]; });
-    NSValue *key = [NSValue valueWithPointer:(__bridge const void *)device];
+    const char *directory = getenv("MADEIRA_PIPELINE_CACHE_DIR");
+    NSString *key = [NSString stringWithFormat:@"%p|%s", (__bridge const void *)device, directory ?: "default"];
     [lock lock];
     MadeiraPipelineCache *state = states[key];
     if (!state) {
@@ -69,11 +72,22 @@ static MadeiraPipelineCache *cacheForDevice(id<MTLDevice> device) {
         atomic_init(&state->pending, 0); atomic_init(&state->learned, 0);
         atomic_init(&state->hits, 0); atomic_init(&state->misses, 0);
         atomic_init(&state->creations, 0); atomic_init(&state->creationTicks, 0); atomic_init(&state->longestCreation, 0);
-        state->file = cacheFile(device);
+        state->file = cacheFile(device, NO);
         MTLBinaryArchiveDescriptor *desc = [MTLBinaryArchiveDescriptor new];
         NSDictionary *attrs = state->file ? [[NSFileManager defaultManager] attributesOfItemAtPath:state->file.path error:nil] : nil;
+        BOOL legacySeed = NO;
+        NSURL *source = state->file;
+        if (!attrs && directory && *directory) {
+            // Preserve the existing shared binary archive on the first move
+            // to a game's scope. Metal verifies each requested pipeline.
+            NSURL *previous = cacheFile(device, YES);
+            NSDictionary *old = previous ? [[NSFileManager defaultManager] attributesOfItemAtPath:previous.path error:nil] : nil;
+            if (old && [old[NSFileSize] unsignedLongLongValue] <= diskLimit) {
+                attrs = old; source = previous; legacySeed = YES;
+            }
+        }
         if (attrs && [attrs[NSFileSize] unsignedLongLongValue] <= diskLimit) {
-            desc.url = state->file;
+            desc.url = source;
             state->lookup = [device newBinaryArchiveWithDescriptor:desc error:nil];
         }
         // A distinct object is only mutated from the utility queue. Seed it
@@ -86,11 +100,25 @@ static MadeiraPipelineCache *cacheForDevice(id<MTLDevice> device) {
         }
         dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_BACKGROUND, 0);
         state->queue = dispatch_queue_create("madeira.metal.pipeline-cache", attr);
+        NSURL *warmFolder = state->file ? [[state->file URLByDeletingPathExtension] URLByAppendingPathExtension:@"warmup"] : nil;
+        state->warmup = [[MadeiraPipelineWarmup alloc] initWithDevice:device folder:warmFolder archive:state->lookup];
+        if (states.count >= 8) [states removeObjectForKey:states.allKeys.firstObject];
         states[key] = state;
-        NSLog(@"[pipeline-cache] pipeline-binary-v1 lookup=%d writer=%d pending-limit=%u", state->lookup != nil, state->writer != nil, pendingLimit);
+        NSLog(@"[pipeline-cache] pipeline-binary-v1 lookup=%d writer=%d pending-limit=%u legacy-seed=%d", state->lookup != nil, state->writer != nil, pendingLimit, legacySeed);
     }
     [lock unlock];
     return state;
+}
+
+void madeira_prepare_pipeline_cache(id<MTLDevice> device) {
+    const char *mode = getenv("MADEIRA_SHADER_WARMUP");
+    if (mode && !strcmp(mode, "1")) (void)cacheForDevice(device);
+}
+MadeiraPipelineWarmup *madeira_pipeline_warmup_for_device(id<MTLDevice> device) {
+    const char *mode = getenv("MADEIRA_SHADER_WARMUP");
+    if (!mode || strcmp(mode, "1")) return nil;
+    MadeiraPipelineCache *state = cacheForDevice(device);
+    return state ? state->warmup : nil;
 }
 
 static void scheduleFlush(MadeiraPipelineCache *state) {
@@ -169,18 +197,25 @@ id<MTLRenderPipelineState> madeira_new_render_pipeline(id<MTLDevice> device,
     if (!cacheAllowed || descriptor.binaryArchives.count || (options & MTLPipelineOptionFailOnBinaryArchiveMiss))
         return [device newRenderPipelineStateWithDescriptor:descriptor options:options reflection:reflection error:error];
     MadeiraPipelineCache *state = cacheForDevice(device);
+    if (state && !options && !reflection) {
+        id<MTLRenderPipelineState> warmed = [state->warmup take:descriptor compute:NO];
+        if (warmed) { if (error) *error = nil; [state->warmup record:descriptor compute:NO]; return warmed; }
+    }
     if (state && state->lookup) {
         MTLRenderPipelineDescriptor *probe = [descriptor copy];
         probe.binaryArchives = @[state->lookup];
         id<MTLRenderPipelineState> cached = [device newRenderPipelineStateWithDescriptor:probe
             options:options | MTLPipelineOptionFailOnBinaryArchiveMiss reflection:reflection error:nil];
         noteLookup(state, cached != nil);
-        if (cached) { if (error) *error = nil; return cached; }
+        if (cached) { if (error) *error = nil; if (!options && !reflection) [state->warmup record:descriptor compute:NO]; return cached; }
     } else if (state) noteLookup(state, NO);
     uint64_t started = mach_absolute_time();
     id<MTLRenderPipelineState> pipeline = [device newRenderPipelineStateWithDescriptor:descriptor options:options reflection:reflection error:error];
     noteCreation(state, started);
-    if (pipeline && state) learn(state, descriptor, NO);
+    if (pipeline && state) {
+        learn(state, descriptor, NO);
+        if (!options && !reflection) [state->warmup record:descriptor compute:NO];
+    }
     return pipeline;
 }
 
@@ -190,17 +225,24 @@ id<MTLComputePipelineState> madeira_new_compute_pipeline(id<MTLDevice> device,
     if (!cacheAllowed || descriptor.binaryArchives.count || (options & MTLPipelineOptionFailOnBinaryArchiveMiss))
         return [device newComputePipelineStateWithDescriptor:descriptor options:options reflection:reflection error:error];
     MadeiraPipelineCache *state = cacheForDevice(device);
+    if (state && !options && !reflection) {
+        id<MTLComputePipelineState> warmed = [state->warmup take:descriptor compute:YES];
+        if (warmed) { if (error) *error = nil; [state->warmup record:descriptor compute:YES]; return warmed; }
+    }
     if (state && state->lookup) {
         MTLComputePipelineDescriptor *probe = [descriptor copy];
         probe.binaryArchives = @[state->lookup];
         id<MTLComputePipelineState> cached = [device newComputePipelineStateWithDescriptor:probe
             options:options | MTLPipelineOptionFailOnBinaryArchiveMiss reflection:reflection error:nil];
         noteLookup(state, cached != nil);
-        if (cached) { if (error) *error = nil; return cached; }
+        if (cached) { if (error) *error = nil; if (!options && !reflection) [state->warmup record:descriptor compute:YES]; return cached; }
     } else if (state) noteLookup(state, NO);
     uint64_t started = mach_absolute_time();
     id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithDescriptor:descriptor options:options reflection:reflection error:error];
     noteCreation(state, started);
-    if (pipeline && state) learn(state, descriptor, YES);
+    if (pipeline && state) {
+        learn(state, descriptor, YES);
+        if (!options && !reflection) [state->warmup record:descriptor compute:YES];
+    }
     return pipeline;
 }

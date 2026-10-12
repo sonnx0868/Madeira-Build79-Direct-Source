@@ -120,5 +120,6 @@ with tempfile.TemporaryDirectory(prefix='madeira-pipeline-cache-') as tmp:
     subprocess.run([shutil.which('clang'), '-fobjc-arc', '-fblocks', '-Wno-protocol',
                     '-fsanitize=address,undefined', '-I', str(cache.parent),
                     '-framework', 'Foundation', '-framework', 'Metal', str(cache), str(path / 'check.m'),
+                    str(cache.parent / 'pipeline_warmup_ios.m'),
                     '-o', str(path / 'check')], check=True)
     subprocess.run([str(path / 'check')], check=True, timeout=35)

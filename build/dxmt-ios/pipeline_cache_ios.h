@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #pragma once
 #import <Metal/Metal.h>
+#import "pipeline_warmup_ios.h"
 
 id<MTLRenderPipelineState> madeira_new_render_pipeline(id<MTLDevice> device,
     MTLRenderPipelineDescriptor *descriptor, MTLPipelineOption options,

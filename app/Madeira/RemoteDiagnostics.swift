@@ -320,7 +320,8 @@ enum DiagnosticEvents {
                     "env.MADEIRA_UNITY_STARTUP_SYNC", "env.DXMT_COMPILER_THREADS",
                     "env.MADEIRA_CTX_FRAME",
                     "env.MADEIRA_MULTI_GAME", "env.DXMT_IOS_CACHE_DIR",
-                    "env.DXMT_SHADER_CACHE", "env.DXMT_CACHE_STATS"] {
+                    "env.DXMT_SHADER_CACHE", "env.DXMT_CACHE_STATS",
+                    "env.MADEIRA_SHADER_WARMUP", "env.MADEIRA_PIPELINE_CACHE"] {
             settings[key] = String((MadeiraConfig.get(key) ?? "default").prefix(160))
         }
         if let data = try? JSONSerialization.data(withJSONObject: settings, options: .sortedKeys),
