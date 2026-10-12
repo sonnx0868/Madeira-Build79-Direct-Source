@@ -154,6 +154,22 @@ int main(void) { @autoreleasepool {
     FakeLibrary *repair = [FakeLibrary new]; repair.device = third; madeira_warmup_track_library(repair, data);
     for (unsigned i = 0; i < 100 && ![[NSData dataWithContentsOfURL:libraryFile] isEqual:blob]; ++i) usleep(50000);
     assert([[NSData dataWithContentsOfURL:libraryFile] isEqual:blob]);
+    // A valid library with corrupt function-stage metadata must also skip,
+    // without ever handing a nil/wrong function to Metal's asserting setters.
+    NSURL *stageFolder = [base URLByAppendingPathComponent:@"invalid-stages"];
+    [NSFileManager.defaultManager createDirectoryAtURL:stageFolder withIntermediateDirectories:YES attributes:nil error:nil];
+    [blob writeToURL:[stageFolder URLByAppendingPathComponent:libraryFile.lastPathComponent] atomically:YES];
+    NSMutableDictionary *bad = [NSJSONSerialization JSONObjectWithData:[NSJSONSerialization dataWithJSONObject:inventory options:0 error:nil]
+                                                              options:NSJSONReadingMutableContainers error:nil];
+    for (NSMutableDictionary *r in bad[@"recipes"]) {
+        if ([r[@"kind"] isEqual:@"compute"]) r[@"function"][@"name"] = @"vertex";
+        else r[@"vertex"][@"name"] = @"kernel";
+    }
+    [[NSJSONSerialization dataWithJSONObject:bad options:0 error:nil] writeToURL:[stageFolder URLByAppendingPathComponent:@"recipes.json"] atomically:YES];
+    FakeDevice *wrong = [FakeDevice new];
+    MadeiraPipelineWarmup *wrongWarmup = [[MadeiraPipelineWarmup alloc] initWithDevice:wrong folder:stageFolder archive:[FakeArchive new]];
+    assert(wrongWarmup); usleep(300000);
+    assert(!atomic_load(&wrong->probes) && !atomic_load(&wrong->normal));
     FakeDevice *miss = [FakeDevice new]; miss.rejectProbe = YES; madeira_prepare_pipeline_cache(miss);
     for (unsigned i = 0; i < 100 && atomic_load(&miss->probes) != 2; ++i) usleep(50000);
     assert(!atomic_load(&miss->normal)); // replay never falls back to a cold compile

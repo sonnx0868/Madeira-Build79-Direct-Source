@@ -238,8 +238,12 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
 - (id)descriptor:(NSDictionary *)r libraries:(NSMutableDictionary *)loaded {
     if ([r[@"kind"] isEqual:@"compute"]) {
         if (!numbers(r[@"buffers"], 31, MTLMutabilityImmutable) || !numbers(@[r[@"multiple"] ?: NSNull.null], 1, 1)) return nil;
+        id<MTLFunction> function = [self function:r[@"function"] libraries:loaded];
+        // Metal's setter asserts on nil or a wrong stage; an Objective-C
+        // exception handler cannot recover that assertion. Validate first.
+        if (!function || function.functionType != MTLFunctionTypeKernel) return nil;
         MTLComputePipelineDescriptor *d = [MTLComputePipelineDescriptor new];
-        d.computeFunction = [self function:r[@"function"] libraries:loaded]; if (!d.computeFunction) return nil;
+        d.computeFunction = function;
         d.threadGroupSizeIsMultipleOfThreadExecutionWidth = [r[@"multiple"] boolValue];
         for (unsigned i = 0; i < 31; ++i) d.buffers[i].mutability = [r[@"buffers"][i] unsignedIntegerValue];
         d.binaryArchives = @[archive]; madeira_pipeline_allow_warmup(d, YES); return d;
@@ -251,9 +255,14 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
     if ([s[2] unsignedIntegerValue] > 1 || [s[3] unsignedIntegerValue] > 1 ||
         ![@[@1, @2, @4, @8] containsObject:s[4]] || [s[5] unsignedIntegerValue] > 3 ||
         [s[6] unsignedIntegerValue] > 3 || [s[7] unsignedIntegerValue] > 4 || [s[8] unsignedIntegerValue] > 1 || [s[9] unsignedIntegerValue] > 64) return nil;
+    id<MTLFunction> vertex = [self function:r[@"vertex"] libraries:loaded], fragment = nil;
+    if (!vertex || vertex.functionType != MTLFunctionTypeVertex || vertex.patchType != MTLPatchTypeNone) return nil;
+    if (r[@"fragment"] != NSNull.null) {
+        fragment = [self function:r[@"fragment"] libraries:loaded];
+        if (!fragment || fragment.functionType != MTLFunctionTypeFragment) return nil;
+    }
     MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
-    d.vertexFunction = [self function:r[@"vertex"] libraries:loaded]; if (!d.vertexFunction || d.vertexFunction.patchType != MTLPatchTypeNone) return nil;
-    if (r[@"fragment"] != NSNull.null) { d.fragmentFunction = [self function:r[@"fragment"] libraries:loaded]; if (!d.fragmentFunction) return nil; }
+    d.vertexFunction = vertex; if (fragment) d.fragmentFunction = fragment;
     for (unsigned i = 0; i < 8; ++i) {
         NSArray *v = r[@"colors"][i]; if (!numbers(v, 9, 1024) || [v[1] unsignedIntegerValue] > 1 ||
             [v[2] unsignedIntegerValue] > 15 || [v[3] unsignedIntegerValue] > 4 || [v[4] unsignedIntegerValue] > 4) return nil;
