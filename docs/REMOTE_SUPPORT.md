@@ -111,6 +111,18 @@ https://partner.steamgames.com/doc/features/steam_controller/legacy_mode
 
 ### Ren'Py / CrossRealms: child runtime ở build 601
 
+Phần báo lỗi thoát nay giữ cả mã ứng dụng như `1`, bên cạnh NTSTATUS
+`0xC...`. Game tự đóng trước khi vẽ khung hình được báo rõ; thoát bình thường
+sau khi chơi, tiện ích không có cửa sổ và Quit do người dùng yêu cầu không
+tạo cảnh báo khung hình. Thông báo thoát gắn vào ContentView tồn tại xuyên
+suốt chuyển game → thư viện, thay vì presenter của LibraryView vừa tạo lại.
+
+Metadata phiên mới ghi đường dẫn EXE tương đối. Khi gửi log, collector chỉ
+đính kèm `traceback.txt` và `log.txt` mới cập nhật của đúng game nhận diện là
+Ren'Py; vẫn giới hạn theo thời gian phiên, đường dẫn drive_c và dung lượng.
+Không quét script hoặc save. Thay đổi này làm hiện lỗi và bổ sung bằng chứng;
+nó chưa chứng minh đã sửa nguyên nhân Ren'Py không khởi động trên iPad.
+
 Report `d8211d45-3a42-413c-9542-3bd290b61f92`, CrossRealms, build 601,
 khởi động qua native session host và x64 child. Sau đó có fault native
 `NtProtectVirtualMemory+0x71c`, địa chỉ `0x7023004000`, trước khi tải

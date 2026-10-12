@@ -15,6 +15,7 @@ if not swift:
     raise SystemExit(0)
 update = (root / "app/Madeira/AppUpdate.swift").read_text(encoding="utf-8").split("@MainActor final class AppUpdateModel", 1)[0]
 diagnostics = (root / "app/Madeira/RemoteDiagnostics.swift").read_text(encoding="utf-8")
+engines = (root / "app/Madeira/GameEngineDetection.swift").read_text(encoding="utf-8")
 error = diagnostics[diagnostics.index("enum SupportError"):diagnostics.index("enum DiagnosticContext")]
 snapshot = diagnostics[diagnostics.index("enum DiagnosticSnapshot"):diagnostics.index("@MainActor final class RemoteDiagnostics")]
 library = (root / "app/Madeira/Library.swift").read_text(encoding="utf-8")
@@ -103,6 +104,36 @@ let expectedPaths = Set([player, steam].map { $0.resolvingSymlinksInPath().path 
 assert(logs.count == 2 && capturedPaths == expectedPaths,
        "Unexpected companion logs: \(capturedPaths), expected \(expectedPaths)")
 assert(DiagnosticCompanionLogs.find(in: drive, since: since, before: Date(timeIntervalSince1970: 950)).isEmpty)
+// Include only recent log/traceback files from the selected Ren'Py installation.
+let vn = drive.appendingPathComponent("Games/VN")
+let vnLib = vn.appendingPathComponent("lib/py3-windows-x86_64")
+try FileManager.default.createDirectory(at: vnLib, withIntermediateDirectories: true)
+try Data().write(to: vnLib.appendingPathComponent("librenpython.dll"))
+let traceback = vn.appendingPathComponent("traceback.txt")
+let renpyLog = vn.appendingPathComponent("log.txt")
+for path in [traceback, renpyLog] {
+    try Data("RenPy Python startup exception\n".utf8).write(to: path)
+    try FileManager.default.setAttributes([.modificationDate: recent], ofItemAtPath: path.path)
+}
+let selected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                         executableRelativePath: "Games/VN/VN.exe")
+assert(Set(selected.map(\.name)).isSuperset(of: ["Games/VN/traceback.txt", "Games/VN/log.txt"]))
+let nestedSelected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                               executableRelativePath: "Games/VN/lib/py3-windows-x86_64/pythonw.exe")
+assert(Set(nestedSelected.map(\.name)) == Set(selected.map(\.name)))
+let outsideSelection = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                                 executableRelativePath: "../outside.exe")
+assert(Set(outsideSelection.map(\.name)) == Set(logs.map(\.name)))
+try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 800)], ofItemAtPath: traceback.path)
+let staleTraceback = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                               executableRelativePath: "Games/VN/VN.exe")
+assert(!staleTraceback.contains(where: { $0.name == "Games/VN/traceback.txt" }))
+let otherGame = drive.appendingPathComponent("Games/Other")
+try FileManager.default.createDirectory(at: otherGame, withIntermediateDirectories: true)
+try Data("unrelated log\n".utf8).write(to: otherGame.appendingPathComponent("log.txt"))
+let otherSelected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                              executableRelativePath: "Games/Other/game.exe")
+assert(Set(otherSelected.map(\.name)) == Set(logs.map(\.name)))
 let bundled = try DiagnosticSnapshot.create(from: file, companions: logs)
 let bundleData = try Data(contentsOf: bundled.url)
 let bundleText = String(decoding: bundleData, as: UTF8.self)
@@ -124,6 +155,6 @@ print("PASS: Unity arguments, update rules, bounded session and companion snapsh
 with tempfile.TemporaryDirectory() as folder:
     source = Path(folder) / "main.swift"
     binary = Path(folder) / "check"
-    source.write_text(update + error + snapshot + unity + display + checks, encoding="utf-8")
+    source.write_text(update + engines + error + snapshot + unity + display + checks, encoding="utf-8")
     subprocess.run([swift, str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

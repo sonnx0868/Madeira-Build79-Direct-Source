@@ -118,10 +118,11 @@ enum DiagnosticSnapshot {
 enum DiagnosticCompanionLogs {
     struct Source { let url: URL; let name: String }
 
-    /// Unity and Steam write important network errors to their own files,
+    /// Unity, Ren'Py and Steam write important errors to their own files,
     /// outside stderr. Include only known log names updated during this test.
     /// Previous-session reports exclude files overwritten by the current run.
-    static func find(in drive: URL, since: Date, before: Date) -> [Source] {
+    static func find(in drive: URL, since: Date, before: Date,
+                     executableRelativePath: String? = nil) -> [Source] {
         let fm = FileManager.default
         let root = drive.resolvingSymlinksInPath()
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey]
@@ -135,6 +136,25 @@ enum DiagnosticCompanionLogs {
                   modified >= since, modified <= before else { return }
             let name = String(url.path.dropFirst(root.path.count + 1))
             found.append(Source(url: url, name: name))
+        }
+        // Only the selected Ren'Py installation, known diagnostic filenames
+        // and this test's timestamps. Never enumerate scripts or game saves.
+        if let relative = executableRelativePath, !relative.isEmpty, relative.utf16.count <= 2048,
+           !relative.hasPrefix("/"), !relative.hasPrefix("\\"),
+           !relative.replacingOccurrences(of: "\\", with: "/").split(separator: "/").contains("..") {
+            let executable = root.appendingPathComponent(relative.replacingOccurrences(of: "\\", with: "/"))
+            var folder = executable.deletingLastPathComponent()
+            if inside(executable),
+               (try? folder.resourceValues(forKeys: keys).isSymbolicLink) != true,
+               GameEngineDetection.detect(executable) == "Ren'Py" {
+                if folder.lastPathComponent.lowercased().contains("windows-"),
+                   folder.deletingLastPathComponent().lastPathComponent.lowercased() == "lib" {
+                    folder = folder.deletingLastPathComponent().deletingLastPathComponent()
+                }
+                if inside(folder), (try? folder.resourceValues(forKeys: keys).isSymbolicLink) != true {
+                    for name in ["traceback.txt", "log.txt"] { add(folder.appendingPathComponent(name)) }
+                }
+            }
         }
         for name in ["connection_log.txt", "networking_sockets.txt", "steamnetworkingsockets.log"] {
             add(root.appendingPathComponent("Program Files (x86)/Steam/logs/" + name))
@@ -239,9 +259,13 @@ enum DiagnosticCompanionLogs {
                     ? LogStore.shared.metadataForUpload(previous: false)["startedAt"].flatMap { formatter.date(from: $0) }
                     : Date()
                 let drive = LibraryModel.drive
+                let executable = metadata["gameExecutable"]
                 let snapshot = try await Task.detached(priority: .utility) {
                     let logs: [DiagnosticCompanionLogs.Source]
-                    if let since, let before { logs = DiagnosticCompanionLogs.find(in: drive, since: since, before: before) }
+                    if let since, let before {
+                        logs = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                                           executableRelativePath: executable)
+                    }
                     else { logs = [] }
                     return try DiagnosticSnapshot.create(from: source, companions: logs)
                 }.value

@@ -775,6 +775,29 @@ enum ExternalGameCompatibility {
     }
 }
 
+/// Presentation policy for a game that ended without an explicit Quit request.
+/// An application exit code is different from an NTSTATUS exception.
+enum GameExitReport {
+    static func message(status: UInt32?, presented: Bool, expectsFrame: Bool,
+                        startupDialog: String? = nil) -> String? {
+        let detail = startupDialog?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let suffix = detail.isEmpty ? " Export the diagnostic log to report it." : " \(detail)"
+        if let status, status >= 0xC0000000 {
+            let kind = status == 0xC0000005 ? " (memory access violation)" : status == 0xC0000017 ? " (out of memory)" : ""
+            return "The game stopped with Windows error 0x\(String(status, radix: 16, uppercase: true))\(kind)." + suffix
+        }
+        if let status, status > 0, status < 0x40000000 {
+            return "The game exited with code \(status)." + suffix
+        }
+        // Informational/warning NTSTATUS values retain the previous behavior.
+        if let status, status != 0 { return nil }
+        if expectsFrame && !presented {
+            return "The game closed before displaying a frame." + suffix
+        }
+        return nil
+    }
+}
+
 final class LibraryModel: ObservableObject {
     static let shared = LibraryModel()
     static var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
@@ -812,6 +835,8 @@ final class LibraryModel: ObservableObject {
         didSet { if displayMode != oldValue { MetalBackedView.refreshDisplayMode(reason: "mode-toggle") } }
     }
     @Published var error: String?
+    /// Presented by the stable ContentView root across session/library changes.
+    @Published var exitNotice: String?
     @Published var sessionMessage = ""
     /// Text from a Windows error/assertion dialog that appeared before a
     /// direct game produced a frame. Shown on the native starting screen.
@@ -838,19 +863,23 @@ final class LibraryModel: ObservableObject {
     private var timer: Timer?
     private var sawProcess = false
     // Why a session ended by itself (not Quit): the program the app launched
-    // exited with a Windows error (wine_crash_exit_status, WineProcessBridge.m).
+    // exited with a Windows exception or an ordinary application error code.
     // MADEIRA_EXIT_REPORT=0 returns to the library without a message.
     private var quitRequested = false
     private func exitReport() -> String? {
         guard !quitRequested, MadeiraConfig.flag("MADEIRA_EXIT_REPORT") else { return nil }
-        var status: UInt32 = 0
+        var status: UInt32?
         if GameRuntime.shared.ownsSession {
             status = GameRuntime.shared.lastExitCode
-            guard status >= 0xC0000000 else { return nil }
-        } else { guard wine_crash_exit_status(&status) != 0 else { return nil } }
-        LogStore.shared.log("[exit-report] status=0x\(String(status, radix: 16))")
-        let kind = status == 0xC0000005 ? " (memory access violation)" : status == 0xC0000017 ? " (out of memory)" : ""
-        return "The game stopped with Windows error 0x\(String(status, radix: 16, uppercase: true))\(kind). Export the diagnostic log to report it."
+        } else {
+            var value: UInt32 = 0
+            if wine_launched_process_exit_status(&value) != 0 { status = value }
+        }
+        let presented = madeira_frame_count() > launchPresent || winios_surface_present_count() > launchSurface
+        let expectsFrame = activeEntry?.desktop != true && activeEntry?.temporarySession != true
+        LogStore.shared.log("[exit-report] status=\(status.map { "0x" + String($0, radix: 16) } ?? "unknown") presented=\(presented ? 1 : 0)")
+        return GameExitReport.message(status: status, presented: presented, expectsFrame: expectsFrame,
+                                      startupDialog: launchAttention ?? Self.windowAlert())
     }
     private var readOnly = false
     private var metadataInFlight = Set<UUID>()
@@ -1157,6 +1186,7 @@ final class LibraryModel: ObservableObject {
         winios_reset_session_close()
         winios_window_alert_reset()
         launchAttention = nil
+        exitNotice = nil
         quitRequested = false
         quitting = false
         LibraryController.shared.configure(enabled: enabled, ownsInput: false)
@@ -1371,7 +1401,7 @@ final class LibraryModel: ObservableObject {
     }
     private func finish() {
         DiagnosticEvents.phase("session-finished")
-        if sawProcess, let report = exitReport() { error = report }
+        let report = sawProcess ? exitReport() : nil
         timer?.invalidate(); timer = nil
         winios_reset_session_close()
         saveCurrentProfile()
@@ -1404,6 +1434,9 @@ final class LibraryModel: ObservableObject {
             }
         }
         fputs("[frontend] returned to library\n", stderr)
+        // The library view is recreated on return. Its own alert presenter
+        // should not own an error raised while only the session view existed.
+        if let report { exitNotice = report }
     }
 }
 

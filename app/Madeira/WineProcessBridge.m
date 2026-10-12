@@ -484,8 +484,9 @@ int wine_session_close_has_exited(void) {
     return __atomic_load_n(&g_session_close_exited, __ATOMIC_ACQUIRE);
 }
 void wine_launched_process_did_exit(int status) {
-    if ((uint32_t)status >= 0xC0000000u)
-        __atomic_store_n(&g_launch_exit, (UINT64_C(1) << 32) | (uint32_t)status, __ATOMIC_RELEASE);
+    // Python/game launchers also use ordinary nonzero exit codes. Keep the
+    // validity bit separate from the value so an observed zero is not unknown.
+    __atomic_store_n(&g_launch_exit, (UINT64_C(1) << 32) | (uint32_t)status, __ATOMIC_RELEASE);
     __atomic_store_n(&g_launch_exited, 1, __ATOMIC_RELEASE);
 }
 int wine_launched_process_has_exited(void) {
@@ -500,10 +501,16 @@ void wine_exit_status_reset(void) {
     __atomic_store_n(&g_launched_pid, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_launched_tid, 0, __ATOMIC_RELEASE);
 }
-int wine_crash_exit_status(uint32_t *status) {
+int wine_launched_process_exit_status(uint32_t *status) {
     uint64_t value = __atomic_load_n(&g_launch_exit, __ATOMIC_ACQUIRE);
     if (!(value >> 32)) return 0;
     if (status) *status = (uint32_t)value;
+    return 1;
+}
+int wine_crash_exit_status(uint32_t *status) {
+    uint32_t value = 0;
+    if (!wine_launched_process_exit_status(&value) || value < 0xC0000000u) return 0;
+    if (status) *status = value;
     return 1;
 }
 static char *g_prefix_path = NULL;

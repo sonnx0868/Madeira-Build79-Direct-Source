@@ -304,6 +304,7 @@ final class LogStore: ObservableObject {
 
     func recordTest(_ entry: LibraryEntry) {
         reportMetadata["gameTitle"] = String(decoding: entry.title.utf16.prefix(200), as: UTF16.self)
+        reportMetadata["gameExecutable"] = String(decoding: entry.launchRelativePath.utf16.prefix(2048), as: UTF16.self)
         reportMetadata["bits"] = String(entry.bits)
         reportMetadata["graphicsAPI"] = entry.graphicsAPI ?? "unknown"
         reportMetadata["testID"] = UUID().uuidString.lowercased()

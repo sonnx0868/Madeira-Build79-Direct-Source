@@ -36,6 +36,9 @@ int wine_session_close_has_exited(void);
 void wine_launched_process_started(uint32_t pid, uint32_t tid);
 int wine_force_close_game_session(int allow_initial_process);
 int wine_crash_exit_status(uint32_t *status);
+// Every observed exit code, including zero and application/Python codes such
+// as 1. Returns 0 only when the initial process's status is not available yet.
+int wine_launched_process_exit_status(uint32_t *status);
 // Forget the recorded status; called when a session begins.
 void wine_exit_status_reset(void);
 

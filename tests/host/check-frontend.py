@@ -13,8 +13,8 @@ exit report.
    control opacity and size), the layout and touch-mapping math of every
    Aspect & scaling mode, and the pad-to-command mapping.
 2. C: compiles the session exit hook from app/Madeira/WineProcessBridge.m and
-   checks that only an NTSTATUS error of the launched program is recorded and
-   that a reset clears it.
+   checks application and NTSTATUS exits of the launched program, a separate
+   unknown-status state, the legacy crash-only API and session reset.
 3. Source checks: ntdll reports only the launched (initial) process's exit
    status, with no image names; the display-rate hold is removed and the 30 FPS
    cap is detected; the app wires the library into ContentView and
@@ -105,6 +105,7 @@ enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
+swift += block(lib, 'enum GameExitReport') + '\n'
 translation = (root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8')
 swift += block(translation, 'enum TranslationTools') + '\n'
 swift += block(translation, 'enum CPUTranslationSettings') + '\n'
@@ -379,6 +380,25 @@ c.configure(enabled: false, ownsInput: true)
 c.sample(buttons: 0x1000, lx: 0, ly: 0); pump()
 expect(got.isEmpty && !c.ownsInput, "developer interface: no navigation")
 _ = sub
+expect(GameExitReport.message(status: 1, presented: true, expectsFrame: true)?.contains("code 1") == true,
+       "application/Python exit code 1 is visible even after rendering")
+expect(GameExitReport.message(status: 127, presented: false, expectsFrame: true)?.contains("code 127") == true,
+       "startup application error retains its exit code")
+expect(GameExitReport.message(status: 0xC0000005, presented: false, expectsFrame: true)?.contains("memory access violation") == true,
+       "NTSTATUS crash reporting is retained")
+expect(GameExitReport.message(status: 0, presented: false, expectsFrame: true)?.contains("before displaying") == true,
+       "a zero exit before any frame no longer silently disappears")
+expect(GameExitReport.message(status: nil, presented: false, expectsFrame: true)?.contains("before displaying") == true,
+       "unknown early shutdown does not invent a Windows status")
+expect(GameExitReport.message(status: 0, presented: true, expectsFrame: true) == nil,
+       "normal gameplay exit does not create an error")
+expect(GameExitReport.message(status: 0, presented: false, expectsFrame: false) == nil,
+       "headless utility sessions do not get a first-frame warning")
+expect(GameExitReport.message(status: 0x40010004, presented: false, expectsFrame: true) == nil,
+       "informational Windows termination is not labeled a crash")
+expect(GameExitReport.message(status: 1, presented: false, expectsFrame: true,
+                             startupDialog: "SDL initialization failed")?.contains("SDL initialization failed") == true,
+       "an observed startup dialog survives the return to the library")
 exit(failed == 0 ? 0 : 1)
 '''
 
@@ -416,6 +436,7 @@ int main(void) {
     uint32_t status = 0;
     wine_exit_status_reset();
     expect(!wine_crash_exit_status(&status), "nothing recorded at the start of a session");
+    expect(!wine_launched_process_exit_status(&status), "unknown status is distinct from a clean zero");
     expect(!wine_launched_process_has_exited() && !wine_session_close_has_exited(), "session exit flags start clear");
     expect(!wine_force_close_game_session(1), "no process is guessed before publication");
     wine_launched_process_started(24, 32);
@@ -431,15 +452,21 @@ int main(void) {
     wine_session_process_did_exit(24);
     expect(wine_session_close_has_exited(), "a Dock child exit ends an explicitly closing game session");
     wine_launched_process_did_exit(0);
+    expect(wine_launched_process_exit_status(&status) && status == 0, "successful exit remains observable by the general API");
     expect(!wine_crash_exit_status(&status), "clean exit: no report");
     expect(wine_launched_process_has_exited(), "a successful worker-thread exit is observed without waiting for wineserver");
     wine_launched_process_did_exit(0x40010004);
     expect(!wine_crash_exit_status(&status), "an informational status is not an error");
+    wine_launched_process_did_exit(1);
+    expect(wine_launched_process_exit_status(&status) && status == 1, "Python/application exit code 1 is retained");
+    expect(!wine_crash_exit_status(&status), "ordinary application failure is not mislabeled NTSTATUS");
+    expect(wine_launched_process_exit_status(NULL), "general status API accepts NULL");
     wine_launched_process_did_exit((int)0xC0000005);
     expect(wine_crash_exit_status(&status) && status == 0xC0000005u, "the launched program's error status is recorded");
     expect(wine_crash_exit_status(NULL), "a NULL status pointer is allowed");
     wine_exit_status_reset();
     expect(!wine_crash_exit_status(&status), "reset clears the status");
+    expect(!wine_launched_process_exit_status(&status), "reset clears validity of the general status too");
     expect(!wine_launched_process_has_exited() && !wine_session_close_has_exited(), "reset clears every exit flag");
     expect(wine_session_close_accept_target(28, 36), "a later session may select a different target");
     wine_exit_status_reset();

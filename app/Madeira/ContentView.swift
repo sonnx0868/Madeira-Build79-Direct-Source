@@ -1296,6 +1296,10 @@ struct ContentView: View {
             // progressive blur (as in the App Store), with no hard edge.
             .toolbarBackground(library.enabled && !Self.systemScrollEdge ? .visible : .automatic, for: .navigationBar)
             .navigationBarHidden(library.enabled ? library.current != nil : vSizeClass == .compact)
+            .alert("Game stopped", isPresented: Binding(get: { library.exitNotice != nil },
+                                                      set: { if !$0 { library.exitNotice = nil } })) {
+                Button("OK", role: .cancel) { library.exitNotice = nil }
+            } message: { Text(library.exitNotice ?? "") }
             // A second session cannot start in this process; offer to close Madeira.
             .alert("Restart Madeira", isPresented: Binding(get: { library.restartNotice != nil },
                                                             set: { if !$0 { library.restartNotice = nil } })) {
