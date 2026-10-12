@@ -127,6 +127,11 @@ int main(void) { @autoreleasepool {
     for (unsigned i = 0; i < 100 && atomic_load(&second->probes) != 2; ++i) usleep(50000);
     usleep(100000); // completed worker publishes its pipeline after the mock call
     assert(atomic_load(&second->probes) == 2 && !atomic_load(&second->normal));
+    MTLVertexDescriptor *custom = [MTLVertexDescriptor new];
+    custom.attributes[0].format = MTLVertexFormatFloat3; custom.layouts[0].stride = 12;
+    render.vertexDescriptor = custom;
+    assert([madeira_pipeline_warmup_for_device(second) take:render compute:NO] == nil);
+    render.vertexDescriptor = nil; // empty/default descriptors remain eligible
     assert(madeira_new_render_pipeline(second, render, 0, NULL, NULL, YES));
     assert(madeira_new_compute_pipeline(second, compute, 0, NULL, NULL, YES));
     assert(atomic_load(&second->probes) == 2); // both exact warm PSOs reused
@@ -177,7 +182,7 @@ def main():
         tmp = Path(scratch)
         (tmp / "check.m").write_text(fixture, encoding="utf-8")
         subprocess.run([shutil.which("clang"), "-fobjc-arc", "-fblocks", "-Wno-protocol", "-fsanitize=address,undefined",
-            "-I", str(folder), "-framework", "Foundation", "-framework", "Metal",
+            "-Wno-objc-protocol-property-synthesis", "-I", str(folder), "-framework", "Foundation", "-framework", "Metal",
             str(folder / "pipeline_cache_ios.m"), str(folder / "pipeline_warmup_ios.m"),
             str(tmp / "check.m"), "-o", str(tmp / "check")], check=True)
         subprocess.run([str(tmp / "check")], check=True, timeout=20)

@@ -84,9 +84,14 @@ static NSDictionary *recipe(id descriptor, BOOL compute) {
     if (![descriptor respondsToSelector:@selector(vertexFunction)] ||
         ![descriptor respondsToSelector:@selector(colorAttachments)]) return nil;
     MTLRenderPipelineDescriptor *d = descriptor;
-    // DXMT's vertex fetching uses Metal buffers. Reject unfamiliar layouts or
-    // patch shaders instead of reusing a pipeline with an incomplete recipe.
-    if (d.vertexDescriptor || d.vertexFunction.patchType != MTLPatchTypeNone) return nil;
+    // Metal may materialize an empty vertex descriptor even when the thunk
+    // never assigned one (observed on macOS 26). Empty is the default, not a
+    // custom input layout. Defined attributes/strides and patch shaders remain
+    // outside this ordinary DXMT recipe.
+    MTLVertexDescriptor *layout = d.vertexDescriptor;
+    for (unsigned i = 0; layout && i < 31; ++i)
+        if (layout.attributes[i].format != MTLVertexFormatInvalid || layout.layouts[i].stride) return nil;
+    if (d.vertexFunction.patchType != MTLPatchTypeNone) return nil;
     NSDictionary *vs = functionRecipe(d.vertexFunction), *ps = functionRecipe(d.fragmentFunction);
     if (!vs || (d.fragmentFunction && !ps)) return nil;
     NSMutableArray *colors = [NSMutableArray array], *vb = [NSMutableArray array], *fb = [NSMutableArray array];
