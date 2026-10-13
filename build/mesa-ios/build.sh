@@ -45,19 +45,9 @@ fi
 
 export PATH="$VENV/bin:$PATH"
 
-# Validate the patch contents on each run; a marker alone cannot detect
-# a changed patch or an interrupted previous application.
-for p in "$HERE"/patches/*.patch; do
-    [ -e "$p" ] || continue
-    if patch --batch --fuzz=0 -d "$SRC" -p1 --dry-run --reverse < "$p" >/dev/null 2>&1; then
-        continue
-    elif patch --batch --fuzz=0 -d "$SRC" -p1 --dry-run --forward < "$p" >/dev/null 2>&1; then
-        patch --batch --fuzz=0 -d "$SRC" -p1 --forward < "$p"
-    else
-        echo "Mesa source does not match $p; use a clean pinned Mesa source tree" >&2
-        exit 1
-    fi
-done
+# Test the full series in scratch space: later fixes edit earlier additions.
+# Force the requested patch direction, never rely on patch's auto-detection.
+python3 "$R/tools/apply-mesa-patches.py" --source "$SRC"
 
 mkdir -p "$B"
 sed "s|@SDK@|$SDK|g" "$HERE/ios-arm64.cross" > "$B/ios-arm64.cross"

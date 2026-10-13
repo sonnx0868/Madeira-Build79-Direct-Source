@@ -10,6 +10,11 @@ from pathlib import Path
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def verify_mesa_implementation(path):
+    data = path.read_bytes()
+    assert b'ZINK: failed to load' in data, 'OSMesa does not contain the linked Zink implementation'
+    assert b'osmesa-screen-v1' in data, 'OSMesa is missing safe screen creation'
+
 
 def load_pe(root):
     spec = importlib.util.spec_from_file_location('madeira_pe', root / 'tools/cpu-aot-survey.py')
@@ -59,6 +64,7 @@ def main():
         return
     if args.stamp_mesa:
         mesa = root / 'app/Madeira/gl/libOSMesa.dylib'
+        verify_mesa_implementation(mesa)
         patches = root / 'build/mesa-ios/patches'
         document = dict(binary_sha256=digest(mesa),
                         patches={p.name: digest(p) for p in sorted(patches.glob('*.patch'))})
@@ -78,6 +84,7 @@ def main():
     if not args.pe_only:
         assert b'teb-slots-v1' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale trampoline archive'
         mesa = root / 'app/Madeira/gl/libOSMesa.dylib'
+        verify_mesa_implementation(mesa)
         document = json.loads((mesa.parent / 'mesa-patches.json').read_text(encoding='utf-8'))
         patches = root / 'build/mesa-ios/patches'
         assert document == dict(binary_sha256=digest(mesa),
