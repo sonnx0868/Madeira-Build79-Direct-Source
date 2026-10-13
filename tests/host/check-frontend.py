@@ -171,8 +171,8 @@ expect(env("MADEIRA_EXE") == "C:\\Games\\Some Game\\bin\\game.exe", "direct exec
 expect(env("MADEIRA_ARGS") == "-windowed \"-name=a b\"", "direct arguments verbatim")
 expect(env("MADEIRA_DESKTOP") == nil, "desktop state cleared")
 // Every entry's Resolution becomes the session's virtual monitor.
-expect(game.resolution == "1408x648", "new entries default to 1408x648")
-expect(env("MADEIRA_SCREEN_W") == "1408" && env("MADEIRA_SCREEN_H") == "648" && env("MADEIRA_SCREEN_SRC") == "knob",
+expect(game.resolution == "1920x1080", "new entries default to 1920x1080")
+expect(env("MADEIRA_SCREEN_W") == "1920" && env("MADEIRA_SCREEN_H") == "1080" && env("MADEIRA_SCREEN_SRC") == "knob",
        "a direct game's resolution is exported as the session default")
 game.resolution = "1560x720"; game.configureLaunch()
 expect(env("MADEIRA_SCREEN_W") == "1560" && env("MADEIRA_SCREEN_H") == "720" && published == (1560, 720),
