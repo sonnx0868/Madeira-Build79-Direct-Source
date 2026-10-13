@@ -2,6 +2,13 @@
 set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
 missing=0
+for requirement in 'app/Madeira/libntdll_unix.a:presented-exit-v1' 'app/Madeira/libdxmt_combined.a:pipeline-flush-v1'; do
+  path="${requirement%%:*}"; marker="${requirement#*:}"
+  if ! grep -a -q "$marker" "$root/$path"; then
+    echo "INVALID: $path predates $marker; rebuild source-bootstrap"
+    missing=1
+  fi
+done
 python3 "$root/tools/check-compatibility-binaries.py" --root "$root" || missing=1
 need() { if [[ ! -s "$root/$1" ]]; then echo "MISSING: $1"; missing=1; fi; }
 

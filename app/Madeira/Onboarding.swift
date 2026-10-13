@@ -631,7 +631,7 @@ struct SteamSettingsSection: View {
                 if let status = dock.status {
                     Text(status).font(.caption).foregroundStyle(.secondary)
                 }
-                Picker("Madeira Dock DNS", selection: $steamDNS) {
+                Picker("Steam DNS", selection: $steamDNS) {
                     Text("Automatic (Cloudflare → Google)").tag("auto")
                     Text("Cloudflare DoH").tag("cloudflare")
                     Text("Google DoH").tag("google")
@@ -644,7 +644,7 @@ struct SteamSettingsSection: View {
         } header: {
             Text("Steam")
         } footer: {
-            Text("Madeira keeps a Steam sign-in token in this device's Keychain, for this device only. Signing out removes it. Dock DNS is app-local: it can bypass blocked Steam names through encrypted DNS without changing your public IP or routing game downloads through a VPN. It applies to the next Dock session.")
+            Text("Madeira keeps a Steam sign-in token in this device's Keychain. Signing out removes it. Encrypted DNS covers app downloads and the next Dock session. It can help when names are blocked, but cannot fix blocked network routes. Automatic uses Cloudflare for downloads; choose Google if needed. Your public IP and download route stay the same.")
         }
         .confirmationDialog("Sign out of Steam?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { signIn.signOut() }
@@ -652,6 +652,7 @@ struct SteamSettingsSection: View {
         .onAppear { signIn.refresh() }
         .onChange(of: steamDNS) { _, value in
             MadeiraConfig.set("env.MADEIRA_STEAM_DNS", value == "auto" ? nil : value)
+              SteamNetworkDNS.apply()
         }
         .onReceive(NotificationCenter.default.publisher(for: SteamSignIn.didChange)) { _ in signIn.refresh() }
     }

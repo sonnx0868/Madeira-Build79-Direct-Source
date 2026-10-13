@@ -52,6 +52,7 @@ int madeira_dxmt_has_display_pacing(void);
 
 /* ml526: startup phase timeline (Winios.m) */
 void winios_phase(const char *name);
+void madeira_flush_pipeline_cache(void);
 
 /* madeira-d3d12: M1 shader-converter canary, compiled into libdxmt.
  * Returns the number of failed checks; 0 means the gate passed. Output goes to

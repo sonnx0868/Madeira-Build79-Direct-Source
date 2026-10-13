@@ -87,11 +87,14 @@ int main(void) { @autoreleasepool {
     (void)contents;
     // Reuse a second device object to exercise disk lookup in a fresh state.
     // Wait for background training/serialization once, not between draw calls.
-    for (unsigned i = 0; i < 120; i++) {
+    madeira_flush_pipeline_cache();
+    BOOL savedEarly = NO;
+    for (unsigned i = 0; i < 20; i++) {
         usleep(100000);
         NSArray *files = [NSFileManager.defaultManager contentsOfDirectoryAtPath:folder.path error:nil];
-        if ([files filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF ENDSWITH '.metallib'"]].count) break;
+        if ([files filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF ENDSWITH '.metallib'"]].count) { savedEarly=YES; break; }
     }
+    assert(savedEarly); // End-of-session save must not wait for the 10s timer.
     seedFiles(base);
     TestDevice *miss = [TestDevice new]; miss.name = @"fixture-gpu";
     assert(madeira_new_compute_pipeline(miss, compute, 0, NULL, &error, YES));

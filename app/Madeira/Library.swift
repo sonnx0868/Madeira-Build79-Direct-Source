@@ -165,9 +165,9 @@ struct LibraryEntry: Codable, Identifiable {
     var arguments = ""
     /// The virtual monitor's size ("WxH"): the session default a game renders
     /// for (GuestDisplay.configureSessionDefault), and the Desktop entry's
-    /// desktop size. New entries default to 1408x648, a wide shape near the
-    /// phone's landscape aspect that most games render quickly.
-    var resolution = "1408x648"
+    /// desktop size. New games default to 1920x1080 with Fit; existing saved
+    /// profiles preserve their own resolution and display mode.
+    var resolution = "1920x1080"
     /// How the monitor is scaled to the screen (DisplayMode raw value; nil = Fit).
     var display: String?
     /// FPS limit: 1 = 60, 3 = 30, 0 = display maximum, 2 = uncapped (madeira_set_vsync_locked).
@@ -282,6 +282,8 @@ struct LibraryEntry: Codable, Identifiable {
     /// library files decode; the fork's files carry the same keys.
     var fastSync: Bool?
     var semaphoreFastPath: Bool?
+    var genreID: UUID?
+    var privateGame: Bool?
 
     var displayMode: DisplayMode { display.flatMap(DisplayMode.init(rawValue:)) ?? .fit }
     var unitySmoothnessEnabled: Bool {
@@ -385,7 +387,7 @@ struct LibraryEntry: Codable, Identifiable {
         } else if unityProfile {
             setenv("MADEIRA_CTX_FRAME", "1", 1)
         } else { unsetenv("MADEIRA_CTX_FRAME") }
-        if let glBackend, ["zink", "gles", "angle"].contains(glBackend) {
+        if let glBackend, ["zink", "gles", "angle", "software"].contains(glBackend) {
             setenv("MADEIRA_GL_BACKEND", glBackend, 1)
             setenv("_MADEIRA_GL_PROFILE", glBackend, 1)
         } else { unsetenv("MADEIRA_GL_BACKEND"); unsetenv("_MADEIRA_GL_PROFILE") }
@@ -904,10 +906,46 @@ final class LibraryModel: ObservableObject {
     @Published var entries: [LibraryEntry] = [] {
         didSet { displayedEntriesCache = nil }
     }
-    private var displayedEntriesCache: (search: String, sort: String, items: [LibraryEntry])?
-    func displayedEntries(search: String, sort: String) -> [LibraryEntry] {
-        if let hit = displayedEntriesCache, hit.search == search, hit.sort == sort { return hit.items }
+    @Published var genres: [LibraryGenre] = [] { didSet { displayedEntriesCache = nil } }
+    private var displayedEntriesCache: (search: String, sort: String, genre: UUID?, unlocked: Bool, items: [LibraryEntry])?
+    func isPrivate(_ entry: LibraryEntry) -> Bool {
+        LibraryVisibility.isPrivate(flag: entry.privateGame, genreID: entry.genreID, genres: genres)
+    }
+    func isVisible(_ entry: LibraryEntry, genre: UUID? = nil) -> Bool {
+        LibraryVisibility.allows(flag: entry.privateGame, genreID: entry.genreID, genres: genres,
+                                 unlocked: LibraryAccess.shared.unlocked) &&
+        LibraryVisibility.matches(entry.genreID, selection: genre, genres: genres)
+    }
+    func steamVisible(_ appID: Int, genre: UUID? = nil) -> Bool {
+        if let entry = entries.first(where: { $0.steamAppID == appID }) { return isVisible(entry, genre: genre) }
+        return genre == nil || genre == LibraryGenre.uncategorized
+    }
+    func browseVisible(_ url: URL) -> Bool {
+        guard !LibraryAccess.shared.unlocked else { return true }
+        let path = url.resolvingSymlinksInPath().path.lowercased()
+        return !entries.filter { isPrivate($0) }.contains { entry in
+            let file = Self.drive.appendingPathComponent(entry.relativePath).resolvingSymlinksInPath()
+            var root = entry.steamAppID != nil ? file : file.deletingLastPathComponent()
+            if entry.steamAppID == nil {
+                if root.lastPathComponent.lowercased().contains("windows-"),
+                   root.deletingLastPathComponent().lastPathComponent.lowercased() == "lib" {
+                    root = root.deletingLastPathComponent().deletingLastPathComponent()
+                }
+                for _ in 0..<3 where ["bin", "binaries", "win64", "win32", "x64", "x86", "release"].contains(root.lastPathComponent.lowercased()) {
+                    root = root.deletingLastPathComponent()
+                }
+            }
+            let folder = root.path.lowercased()
+            if folder == Self.drive.path.lowercased() { return path == file.path.lowercased() }
+            return path == folder || path.hasPrefix(folder + "/")
+        }
+    }
+    func displayedEntries(search: String, sort: String, genre: UUID? = nil) -> [LibraryEntry] {
+        let unlocked = LibraryAccess.shared.unlocked
+        if let hit = displayedEntriesCache, hit.search == search, hit.sort == sort,
+           hit.genre == genre, hit.unlocked == unlocked { return hit.items }
         let visible = entries.filter { $0.desktop != true && $0.steamAppID == nil &&
+            isVisible($0, genre: genre) &&
             (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)) }
         let items: [LibraryEntry]
         if sort == "added" { items = Array(visible.reversed()) }
@@ -918,7 +956,7 @@ final class LibraryModel: ObservableObject {
                 return $0.title.localizedStandardCompare($1.title) == .orderedAscending
             }
         }
-        displayedEntriesCache = (search, sort, items)
+        displayedEntriesCache = (search, sort, genre, unlocked, items)
         return items
     }
     @Published var current: UUID?
@@ -990,7 +1028,7 @@ final class LibraryModel: ObservableObject {
             status = GameRuntime.shared.lastExitCode
         } else {
             var value: UInt32 = 0
-            if wine_launched_process_exit_status(&value) != 0 { status = value }
+            if wine_presented_process_exit_status(&value) != 0 || wine_launched_process_exit_status(&value) != 0 { status = value }
         }
         let presented = madeira_frame_count() > launchPresent || winios_surface_present_count() > launchSurface
         let expectsFrame = activeEntry?.desktop != true && activeEntry?.temporarySession != true
@@ -1007,7 +1045,7 @@ final class LibraryModel: ObservableObject {
     private var savedSize = 1.0
     /// The session's first frame makes the drawable's shape known (Aspect).
     private var laidOutAfterFirstPresent = false
-    private struct Document: Codable { var version: Int; var entries: [LibraryEntry] }
+    private struct Document: Codable { var version: Int; var entries: [LibraryEntry]; var genres: [LibraryGenre]? }
     private var file: URL { Self.documents.appendingPathComponent("madeira-library.json") }
 
     private init() {
@@ -1017,6 +1055,7 @@ final class LibraryModel: ObservableObject {
             let doc = try JSONDecoder().decode(Document.self, from: Data(contentsOf: file))
             guard doc.version == 1 else { throw LibraryError.message("This library uses a newer format.") }
             entries = doc.entries
+            genres = doc.genres ?? []
         } catch {
             readOnly = true
             self.error = "Library could not be opened. The original file was preserved. " + error.localizedDescription
@@ -1040,6 +1079,11 @@ final class LibraryModel: ObservableObject {
         // one (refreshSteamMetadata) updates that entry.
         if let i = next.firstIndex(where: { $0.id == entry.id }) ??
             next.firstIndex(where: { entry.steamAppID != nil && $0.steamAppID == entry.steamAppID }) {
+            // A sheet or metadata job may finish after automatic relocking.
+            // It must not remove the authoritative privacy designation.
+            if !LibraryAccess.shared.unlocked && isPrivate(next[i]) {
+                entry.privateGame = next[i].privateGame; entry.genreID = next[i].genreID
+            }
             // A details sheet may predate an asynchronous metadata refresh.
             if (next[i].metadataChecked ?? .distantPast) > (entry.metadataChecked ?? .distantPast) {
                 entry.folderBytes = next[i].folderBytes; entry.graphicsAPI = next[i].graphicsAPI
@@ -1054,6 +1098,29 @@ final class LibraryModel: ObservableObject {
     }
     func remove(_ id: UUID) {
         persist(entries.filter { $0.id != id })
+    }
+    func saveGenre(_ genre: LibraryGenre) {
+        guard !readOnly else { return }
+        let name = genre.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 80, genre.id != LibraryGenre.uncategorized else { return }
+        let old = genres.first { $0.id == genre.id }
+        guard LibraryAccess.shared.unlocked || (genre.isPrivate != true && old?.isPrivate != true) else { return }
+        var next = genres; var value = genre; value.title = name
+        if let i = next.firstIndex(where: { $0.id == value.id }) { next[i] = value } else { next.append(value) }
+        persist(entries, groups: next)
+    }
+    func removeGenre(_ id: UUID) {
+        guard let group = genres.first(where: { $0.id == id }),
+              group.isPrivate != true || LibraryAccess.shared.unlocked else { return }
+        let next = entries.map { original in
+            var entry = original
+            if entry.genreID == id {
+                if isPrivate(entry) { entry.privateGame = true }
+                entry.genreID = nil
+            }
+            return entry
+        }
+        persist(next, groups: genres.filter { $0.id != id })
     }
     /// A Steam game's library entry, which holds its per-game settings
     /// (SteamGames.swift). A game without one gets a new entry made from what
@@ -1070,6 +1137,12 @@ final class LibraryModel: ObservableObject {
         entry.folderBytes = SteamInstallFiles.sizeOnDisk(appID: game.id, steamApps: Self.drive.appendingPathComponent(game.library, isDirectory: true))
         return entry
     }
+    func steamProfile(appID: Int, title: String) -> LibraryEntry {
+        if let entry = entries.first(where: { $0.steamAppID == appID }) { return entry }
+        var entry = LibraryEntry(title: title, relativePath: ".steam-profiles/\(appID)", bits: 0)
+        entry.steamAppID = appID
+        return entry
+    }
     /// A Steam download finished (SteamOwnedLibrary): the game gets its library
     /// entry, or an existing one keeps its title, artwork and settings.
     func upsertSteam(_ game: DockGame, title: String) {
@@ -1083,12 +1156,14 @@ final class LibraryModel: ObservableObject {
         guard entries.contains(where: { $0.steamAppID == appID }) else { return }
         persist(entries.filter { $0.steamAppID != appID })
     }
-    private func persist(_ next: [LibraryEntry]) {
+    private func persist(_ next: [LibraryEntry], groups: [LibraryGenre]? = nil) {
         guard !readOnly else { return }
         do {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(Document(version: 1, entries: next)).write(to: file, options: .atomic)
+            let nextGroups = groups ?? genres
+            try encoder.encode(Document(version: 1, entries: next, genres: nextGroups)).write(to: file, options: .atomic)
             entries = next
+            genres = nextGroups
         } catch { self.error = "Could not save the library: " + error.localizedDescription }
     }
 
@@ -1223,44 +1298,73 @@ final class LibraryModel: ObservableObject {
             guard offset >= 0, offset + 4 <= data.count else { return 0 }
             return (0..<4).reduce(0) { $0 | UInt32(data[offset + $1]) << ($1 * 8) }
         }
-        let dos = read(0, 64); guard dos.count == 64, dos[0] == 0x4d, dos[1] == 0x5a else { return [] }
-        let base = UInt64(u32(dos, 60)); guard base < 16 * 1024 * 1024 else { return [] }
-        let header = read(base, 264); guard header.count == 264, u32(header, 0) == 0x4550 else { return [] }
-        let sections = Int(header[6]) | Int(header[7]) << 8
-        let optSize = Int(header[20]) | Int(header[21]) << 8
-        guard sections <= 96, optSize >= 120 else { return [] }
-        let pe64 = header[24] == 0x0b && header[25] == 2
-        guard header[24] == 0x0b, header[25] == 1 || pe64 else { return [] }
-        let imports = u32(header, pe64 ? 144 : 128)
-        let delayed = optSize >= (pe64 ? 224 : 208) ? u32(header, pe64 ? 240 : 224) : 0
+        let dos = read(0, 64); guard dos.count == 64, dos.prefix(2) == Data("MZ".utf8) else { return [] }
+        let base = UInt64(u32(dos, 60)); guard base >= 64, base < 16 * 1024 * 1024 else { return [] }
+        let coff = read(base, 24); guard coff.count == 24, u32(coff, 0) == 0x4550 else { return [] }
+        let sections = Int(coff[6]) | Int(coff[7]) << 8
+        let optSize = Int(coff[20]) | Int(coff[21]) << 8
+        guard (1...96).contains(sections), (96...4096).contains(optSize) else { return [] }
+        let header = read(base + 24, optSize); guard header.count == optSize else { return [] }
+        let pe64 = header[0] == 0x0b && header[1] == 2
+        guard header[0] == 0x0b, header[1] == 1 || pe64 else { return [] }
+        let directory = pe64 ? 112 : 96
+        guard header.count >= directory else { return [] }
+        let directories = Int(u32(header, directory - 4))
+        func entry(_ index: Int) -> (UInt32, UInt32)? {
+            let offset = directory + index * 8
+            guard index < directories, offset + 8 <= header.count else { return nil }
+            let rva = u32(header, offset), size = u32(header, offset + 4)
+            return rva > 0 && size > 0 ? (rva, size) : nil
+        }
         let table = read(base + 24 + UInt64(optSize), sections * 40)
-        func fileOffset(_ rva: UInt32) -> UInt64? {
-            guard table.count == sections * 40 else { return nil }
+        guard table.count == sections * 40 else { return [] }
+        func fileOffset(_ rva: UInt32, _ length: Int) -> UInt64? {
+            let headers = u32(header, 60)
+            if rva < headers, UInt64(rva) + UInt64(length) <= UInt64(headers) { return UInt64(rva) }
             for index in 0..<sections {
-                let i = index * 40, va = u32(table, index * 40 + 12), size = u32(table, index * 40 + 16)
-                if rva >= va, rva - va < size { return UInt64(u32(table, i + 20)) + UInt64(rva - va) }
+                let i = index * 40, va = u32(table, i + 12), size = u32(table, i + 16), raw = u32(table, i + 20)
+                if raw > 0, rva >= va, UInt64(rva - va) + UInt64(length) <= UInt64(size) {
+                    return UInt64(raw) + UInt64(rva - va)
+                }
             }
             return nil
         }
-        var names: [String] = []
-        for (rva, stride, nameField) in [(imports, 20, 12), (delayed, 32, 4)] {
-            guard rva != 0, let start = fileOffset(rva) else { continue }
-            for i in 0..<256 {
-                let descriptor = read(start + UInt64(i * stride), stride)
-                guard descriptor.count == stride else { break }
-                var nameRVA = u32(descriptor, nameField); if nameRVA == 0 { break }
-                if stride == 32 && u32(descriptor, 0) & 1 == 0 {
-                    let imageBase = u32(header, 52)
-                    guard !pe64, nameRVA >= imageBase else { continue }
-                    nameRVA -= imageBase
+        func moduleName(_ rva: UInt32) -> String? {
+            guard let offset = fileOffset(rva, 1) else { return nil }
+            let data = read(offset, 128)
+            guard let end = data.firstIndex(of: 0), end > 0, fileOffset(rva, end + 1) != nil else { return nil }
+            let bytes = data.prefix(end)
+            guard bytes.allSatisfy({ $0 >= 32 && $0 < 127 }),
+                  let value = String(data: bytes, encoding: .ascii) else { return nil }
+            let name = value.lowercased()
+            guard name == name.trimmingCharacters(in: .whitespaces),
+                  !name.contains(where: { "/\\:<>\"|?*=".contains($0) }),
+                  ["dll", "exe", "drv", "ocx"].contains(URL(fileURLWithPath: name).pathExtension) else { return nil }
+            return name
+        }
+        var names = Set<String>()
+        for (index, stride, nameField) in [(1, 20, 12), (13, 32, 4)] {
+            guard let (rva, size) = entry(index), size >= UInt32(stride) else { continue }
+            for i in 0..<min(256, Int(size) / stride) {
+                let address = UInt64(rva) + UInt64(i * stride)
+                guard address <= UInt64(UInt32.max), let start = fileOffset(UInt32(address), stride) else { break }
+                let descriptor = read(start, stride); guard descriptor.count == stride else { break }
+                if descriptor.allSatisfy({ $0 == 0 }) { break }
+                var nameRVA = u32(descriptor, nameField)
+                guard nameRVA != 0 else { continue }
+                if stride == 32 {
+                    let attributes = u32(descriptor, 0)
+                    guard attributes <= 1 else { continue }
+                    if attributes == 0 {
+                        let imageBase = u32(header, 28)
+                        guard !pe64, nameRVA >= imageBase else { continue }
+                        nameRVA -= imageBase
+                    }
                 }
-                guard let offset = fileOffset(nameRVA) else { continue }
-                let data = read(offset, 128)
-                let name = String(decoding: data.prefix(while: { $0 != 0 }), as: UTF8.self).lowercased()
-                names.append(name)
+                if let name = moduleName(nameRVA) { names.insert(name) }
             }
         }
-        return names
+        return names.sorted()
     }
 
     // MARK: session
@@ -1351,6 +1455,7 @@ final class LibraryModel: ObservableObject {
         if GameRuntime.shared.ended { sawProcess = true; finish(); return }
         let directInitial = activeEntry?.steamAppID == nil || activeEntry?.startsSteamGameDirectly == true
         if current != nil, !GameRuntime.shared.ownsSession, (directInitial && wine_launched_process_has_exited() != 0) ||
+                            (activeEntry?.desktop != true && wine_presented_process_has_exited() != 0) ||
                             (quitting && wine_session_close_has_exited() != 0) {
             sawProcess = true
             finish()
@@ -1519,6 +1624,7 @@ final class LibraryModel: ObservableObject {
         }
     }
     private func finish() {
+        madeira_flush_pipeline_cache()
         DiagnosticEvents.phase("session-finished")
         let report = sawProcess ? exitReport() : nil
         timer?.invalidate(); timer = nil
@@ -1707,6 +1813,8 @@ struct LibraryTitleText: View {
         .fixedSize()
         .offset(x: alignment.shift)
         .background(LibraryTitleAnchor())   // after the offset: marks where the text is laid out
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: 2) { LibraryAccess.shared.toggle() }
     }
 }
 
@@ -2664,6 +2772,9 @@ struct LibraryView: View {
     }
     @State private var browser = false
     @State private var selected: LibraryEntry?
+    @ObservedObject private var access = LibraryAccess.shared
+    @State private var genre: UUID?
+    @State private var manageGenres = false
     @State private var search = ""
     @State private var libraryScrolling = false
     /// The Settings tab's own search text, kept apart from the library's.
@@ -2685,7 +2796,7 @@ struct LibraryView: View {
     @ObservedObject private var steamGames = SteamGamesModel.shared
     @ObservedObject private var steamLibrary = SteamOwnedLibrary.shared
     private var entries: [LibraryEntry] {
-        model.displayedEntries(search: search, sort: sort)
+        model.displayedEntries(search: search, sort: sort, genre: genre)
     }
     var body: some View {
         // The system tab bar: on iOS 26 it is the floating Liquid Glass bar whose
@@ -2748,6 +2859,15 @@ struct LibraryView: View {
     @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
+                Picker("Genre", selection: $genre) {
+                    Text("All games").tag(Optional<UUID>.none)
+                    Text("Uncategorized").tag(Optional(LibraryGenre.uncategorized))
+                    ForEach(LibraryVisibility.shownGenres(model.genres, unlocked: access.unlocked)) { group in
+                        Text(group.title).tag(Optional(group.id))
+                    }
+                }
+                Button("Manage genres") { manageGenres = true }
+                if access.unlocked { Button("Lock now") { access.lock() } }
                 Picker("Library layout", selection: $layout) {
                     Label("Cards", systemImage: "square.grid.2x2").tag("cards")
                     Label("Compact cards", systemImage: "square.grid.3x3").tag("compact")
@@ -2762,7 +2882,12 @@ struct LibraryView: View {
                 }
             } label: { Label("Library options", systemImage: "line.3.horizontal.decrease") }
         }
-        ToolbarItem(placement: .topBarTrailing) { Button { browser = true } label: { Label("Add executable", systemImage: "plus") } }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                if access.guarded && !access.unlocked { access.request { browser = true } }
+                else { browser = true }
+            } label: { Label("Add executable", systemImage: "plus") }
+        }
     }
     @ToolbarContentBuilder private var settingsToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -2797,7 +2922,10 @@ struct LibraryView: View {
             if settingsShow("diagnostics", "extended logging", "logging", "log") {
                 Section {
                     Toggle("Extended logging", isOn: $input.diagnostics)
-                    Button { settingsSheet = .diagnostics } label: {
+                    Button {
+                        if access.guarded && !access.unlocked { access.request { settingsSheet = .diagnostics } }
+                        else { settingsSheet = .diagnostics }
+                    } label: {
                         Label("Send diagnostic log", systemImage: "square.and.arrow.up")
                     }
                 } header: { Text("Diagnostics") }
@@ -2808,7 +2936,10 @@ struct LibraryView: View {
             }
             if MadeiraConfig.flag("MADEIRA_RUNTIME_SETTINGS") {
                 if settingsShow("memory", "JIT pool", "pool", "video memory", "VRAM", "swap", "coverage", "madsync", "sync", "eco", "all settings") {
-                    RuntimeMemorySyncSettings(open: { settingsSheet = $0 }, refresh: settingsRefresh)
+                    RuntimeMemorySyncSettings(open: { sheet in
+                        if access.guarded && !access.unlocked { access.request { settingsSheet = sheet } }
+                        else { settingsSheet = sheet }
+                    }, refresh: settingsRefresh)
                 }
             }
             if SteamSettingsSection.shown, settingsShow("Steam", "Dock", "sign in", "account", "setup") {
@@ -2824,6 +2955,9 @@ struct LibraryView: View {
             if settingsShow("interface", "developer") {
                 Section {
                     Toggle("Use developer interface", isOn: Binding(get: { developerUI }, set: { on in
+                        if on && access.guarded && !access.unlocked {
+                            access.request { developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true }; return
+                        }
                         developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true
                     }))
                 } header: { Text("Interface") } footer: {
@@ -2832,7 +2966,11 @@ struct LibraryView: View {
             }
             // Search: the matching options of All settings, editable here.
             if !settingsSearch.trimmingCharacters(in: .whitespaces).isEmpty {
-                SettingsSearchResults(query: settingsSearch.trimmingCharacters(in: .whitespaces), refresh: settingsRefresh)
+                if access.guarded && !access.unlocked {
+                    Button("Continue") { access.request() }
+                } else {
+                    SettingsSearchResults(query: settingsSearch.trimmingCharacters(in: .whitespaces), refresh: settingsRefresh)
+                }
             }
             // Credits, last on the Settings page.
             if settingsShow("credits", "thanks", "Will Faust", "Nick", "125hz", "Jfishin", "Jesse", "JesseLovelace", "Dan Perks", "danperks") {
@@ -2903,7 +3041,7 @@ struct LibraryView: View {
                 let steamFirst = MadeiraDock.enabled && SteamGamesSection.hasInstalled
                 if steamFirst {
                     SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
-                                      part: .installed, open: { selected = $0 })
+                        part: .installed, genre: genre, open: { selected = $0 })
                 }
                 if SteamGamesSection.shown {
                     VStack(alignment: .leading, spacing: 14) {
@@ -2923,9 +3061,9 @@ struct LibraryView: View {
                     }
                     if MadeiraDock.enabled {
                         SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
-                                          part: steamFirst ? .notInstalled : .all, open: { selected = $0 })
+                                          part: steamFirst ? .notInstalled : .all, genre: genre, open: { selected = $0 })
                     }
-                } else if model.entries.filter({ $0.desktop != true && $0.steamAppID == nil }).isEmpty {
+                } else if model.displayedEntries(search: "", sort: sort, genre: genre).isEmpty {
                     ContentUnavailableView("Make yourself at home", systemImage: "gamecontroller", description: Text("Copy a game's folder into Madeira › wine › drive_c with the Files app, then tap + and choose its .exe."))
                 } else {
                     cells(entries, width: viewport.size.width)
@@ -2943,7 +3081,10 @@ struct LibraryView: View {
             let items = entries
             let ids = [LibraryEntry.desktopID] + items.map(\.id)
             let index = ids.firstIndex(where: { $0 == focused }) ?? 0
-            if command == "add" { browser = true }
+            if command == "add" {
+                if access.guarded && !access.unlocked { access.request { browser = true } }
+                else { browser = true }
+            }
             else if command == "accept" {
                 if index == 0 { selected = model.entries.first(where: { $0.desktop == true }) ?? .desktopEntry }
                 else { selected = items[index - 1] }
@@ -2957,6 +3098,15 @@ struct LibraryView: View {
             NavigationStack { ExecutableBrowser(folder: LibraryModel.drive) { entry in
                 model.save(entry); browser = false; selected = entry
             } }
+        }
+        .sheet(isPresented: $manageGenres) { LibraryGenresView() }
+        .onChange(of: access.unlocked) { _, unlocked in
+            if !unlocked {
+                selected = nil; browser = false; manageGenres = false; settingsSheet = nil
+                search = ""; settingsSearch = ""; focused = nil
+                if let genre, genre != LibraryGenre.uncategorized,
+                   !model.genres.contains(where: { $0.id == genre && $0.isPrivate != true }) { self.genre = nil }
+            }
         }
         .sheet(item: $selected) { entry in
             // The details page stays up until the session's starting screen takes
@@ -2980,7 +3130,7 @@ struct LibraryView: View {
         .onChange(of: model.showDetail) { _, id in
             guard let id else { return }
             model.showDetail = nil
-            selected = model.entries.first { $0.id == id }
+            selected = model.entries.first { $0.id == id && model.isVisible($0) }
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active { model.refreshFlag() } }
         .onAppear {
@@ -3049,10 +3199,11 @@ struct ExecutableBrowser: View {
     @Environment(\.dismiss) private var dismiss
     @State private var files: [URL] = []
     @State private var error: String?
+    @ObservedObject private var access = LibraryAccess.shared
     var body: some View {
         List {
             if let error { Text(error).foregroundStyle(.red) }
-            ForEach(files, id: \.path) { file in
+            ForEach(files.filter { LibraryModel.shared.browseVisible($0) }, id: \.path) { file in
                 if file.hasDirectoryPath {
                     NavigationLink { ExecutableBrowser(folder: file, select: select) } label: { Label(file.lastPathComponent, systemImage: "folder") }
                 } else {
@@ -3071,6 +3222,7 @@ struct ExecutableBrowser: View {
                     .sorted { if $0.hasDirectoryPath != $1.hasDirectoryPath { return $0.hasDirectoryPath }; return $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
             } catch { self.error = error.localizedDescription }
         }
+        .onChange(of: access.unlocked) { _, unlocked in if !unlocked && !LibraryModel.shared.browseVisible(folder) { dismiss() } }
     }
 }
 
@@ -3262,6 +3414,7 @@ struct LibraryDetail: View {
                     Button("Choose cover image", systemImage: "photo") { importCover = true }
                     if entry.coverFile != nil { Button((entry.steamAppID ?? entry.steamID) != nil ? "Use Steam artwork" : "Remove cover image") { entry.coverFile = nil } }
                 } }
+                if entry.desktop != true { LibraryGenrePicker(entry: $entry) }
                 // A Steam game's cloud saves, then how it starts, under its library
                 // details (SteamGames.swift).
                 if let appID = entry.steamAppID {
@@ -3349,6 +3502,7 @@ struct LibraryDetail: View {
                     Picker("OpenGL renderer", selection: Binding(get: { entry.glBackend ?? "auto" }, set: { entry.glBackend = $0 == "auto" ? nil : $0 })) {
                         Text("Automatic").tag("auto")
                         Text("Desktop OpenGL (Zink)").tag("zink")
+                        Text("Software OpenGL (CPU)").tag("software")
                         Text("Native OpenGL ES").tag("gles")
                         Text("ANGLE (OpenGL ES)").tag("angle")
                     }

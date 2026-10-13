@@ -76,6 +76,7 @@ int main(void) {
     setup("auto","renpy","angle2",1); expect(2,0,1);
     assert(!strcmp(getenv("MADEIRA_GL_BACKEND"),"auto"));
     assert(!strcmp(getenv("RENPY_RENDERER"),"angle2"));
+    setup("software","renpy","angle2",0); expect(1,1,0);
     setup(NULL,"renpy","angle2",1); expect(2,0,1);
     setup("auto","renpy","angle",1); expect(2,0,1);
     setup("angle","renpy","angle2",1); expect(2,0,1);

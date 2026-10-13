@@ -56,12 +56,15 @@ static NSURL *cacheFile(id<MTLDevice> device, BOOL legacy) {
     return [folder URLByAppendingPathComponent:[name stringByAppendingString:@".metallib"]];
 }
 
-static MadeiraPipelineCache *cacheForDevice(id<MTLDevice> device) {
-    if (!enabled() || !device) return nil;
-    static NSMutableDictionary<NSString *, MadeiraPipelineCache *> *states;
-    static NSLock *lock;
+static NSMutableDictionary<NSString *, MadeiraPipelineCache *> *states;
+static NSLock *lock;
+static void initializeRegistry(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ states = [NSMutableDictionary dictionary]; lock = [NSLock new]; });
+}
+static MadeiraPipelineCache *cacheForDevice(id<MTLDevice> device) {
+    if (!enabled() || !device) return nil;
+    initializeRegistry();
     const char *directory = getenv("MADEIRA_PIPELINE_CACHE_DIR");
     NSString *key = [NSString stringWithFormat:@"%p|%s", (__bridge const void *)device, directory ?: "default"];
     [lock lock];
@@ -121,23 +124,38 @@ MadeiraPipelineWarmup *madeira_pipeline_warmup_for_device(id<MTLDevice> device) 
     return state ? state->warmup : nil;
 }
 
+static void flushCache(MadeiraPipelineCache *state) {
+    if (!state->dirty) return;
+    NSURL *temporary = [NSURL fileURLWithPath:[state->file.path stringByAppendingString:@".tmp"]];
+    NSError *error = nil;
+    BOOL serialized = [state->writer serializeToURL:temporary error:&error];
+    NSDictionary *attrs = serialized ? [[NSFileManager defaultManager] attributesOfItemAtPath:temporary.path error:nil] : nil;
+    BOOL bounded = attrs && [attrs[NSFileSize] unsignedLongLongValue] <= diskLimit;
+    BOOL saved = bounded && rename(temporary.fileSystemRepresentation, state->file.fileSystemRepresentation) == 0;
+    if (!saved) [[NSFileManager defaultManager] removeItemAtURL:temporary error:nil];
+    state->dirty = !saved;
+    NSLog(@"[pipeline-cache] saved=%d entries=%u bytes=%llu", saved,
+        atomic_load_explicit(&state->learned, memory_order_relaxed), [attrs[NSFileSize] unsignedLongLongValue]);
+}
+
+void madeira_flush_pipeline_cache(void) {
+    initializeRegistry();
+    [lock lock]; NSArray *snapshot = states.allValues; [lock unlock];
+    // Queue behind learned descriptors, preserving ownership and ordering.
+    // Neither the main thread nor the renderer waits for serialization.
+    for (MadeiraPipelineCache *state in snapshot) {
+        dispatch_async(state->queue, ^{ @autoreleasepool { flushCache(state); } });
+    }
+    if (snapshot.count) NSLog(@"[pipeline-cache] pipeline-flush-v1 scopes=%lu", (unsigned long)snapshot.count);
+}
+
 static void scheduleFlush(MadeiraPipelineCache *state) {
     if (state->flushScheduled) return;
     state->flushScheduled = YES;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), state->queue, ^{
         @autoreleasepool {
             state->flushScheduled = NO;
-            if (!state->dirty) return;
-            NSURL *temporary = [NSURL fileURLWithPath:[state->file.path stringByAppendingString:@".tmp"]];
-            NSError *error = nil;
-            BOOL serialized = [state->writer serializeToURL:temporary error:&error];
-            NSDictionary *attrs = serialized ? [[NSFileManager defaultManager] attributesOfItemAtPath:temporary.path error:nil] : nil;
-            BOOL bounded = attrs && [attrs[NSFileSize] unsignedLongLongValue] <= diskLimit;
-            BOOL saved = bounded && rename(temporary.fileSystemRepresentation, state->file.fileSystemRepresentation) == 0;
-            if (!saved) [[NSFileManager defaultManager] removeItemAtURL:temporary error:nil];
-            state->dirty = NO;
-            NSLog(@"[pipeline-cache] saved=%d entries=%u bytes=%llu", saved,
-                atomic_load_explicit(&state->learned, memory_order_relaxed), [attrs[NSFileSize] unsignedLongLongValue]);
+            flushCache(state);
         }
     });
 }

@@ -147,6 +147,7 @@ void winios_drv_post_mouse(int x, int y, unsigned int flags, unsigned int mouse_
 
 extern void madeira_input_surface_update(unsigned long long hwnd, int x, int y, int width, int height);
 extern int madeira_input_surface_tracks(unsigned long long hwnd);
+extern void wine_presented_process_track(unsigned int pid);
 
 /* Wine thread only. Publish the real presented client's screen rectangle;
  * a direct/windowed game's Metal surface can be larger than this client. */
@@ -156,6 +157,11 @@ void winios_drv_publish_input_rect(HWND hwnd)
     if (!madeira_input_surface_tracks((unsigned long long)(ULONG_PTR)hwnd)) return;
     if (get_window_rects(hwnd, COORDS_SCREEN, &rects, get_thread_dpi()))
     {
+        // Track the owner of the selected rendering surface, including a
+        // Steam child. The launcher can remain alive after that child crashes.
+        const char *desktop = getenv("MADEIRA_DESKTOP");
+        if (!(desktop && *desktop == '1'))
+            wine_presented_process_track((unsigned int)NtUserQueryWindow(hwnd, WindowProcess));
         static unsigned reported;
         if (reported++ < 8) dprintf(2, "[presented-input-v1] Wine client query hwnd=%p coordinates=screen\n", hwnd);
         madeira_input_surface_update((unsigned long long)(ULONG_PTR)hwnd,

@@ -1,0 +1,37 @@
+--- a/src/gallium/frontends/osmesa/osmesa.c
++++ b/src/gallium/frontends/osmesa/osmesa.c
+@@ -161,6 +161,20 @@
+    global_fscreen = CALLOC_STRUCT(pipe_frontend_screen);
+    if (global_fscreen) {
+       global_fscreen->screen = osmesa_create_screen();
++      /* Madeira: a failed Zink screen used to reach st_api_create_context
++       * with a NULL pipe_screen. On iOS that fault escapes call_once and
++       * poisons later initialization. Retry a fresh software screen only
++       * when the caller explicitly permits the compatibility fallback. */
++      const char *fallback = getenv("MADEIRA_GL_SOFTWARE_FALLBACK");
++      const char *driver = getenv("GALLIUM_DRIVER");
++      if (!global_fscreen->screen && fallback && !strcmp(fallback, "1") &&
++          driver && !strcmp(driver, "zink")) {
++         fprintf(stderr, "[osmesa-screen-v1] Zink screen failed; trying softpipe\n");
++         setenv("GALLIUM_DRIVER", "softpipe", 1);
++         global_fscreen->screen = osmesa_create_screen();
++      }
++      if (!global_fscreen->screen)
++         fprintf(stderr, "[osmesa-screen-v1] no screen; context creation will fail safely\n");
+       global_fscreen->get_param = osmesa_st_get_param;
+       global_fscreen->get_egl_image = NULL;
+    }
+@@ -677,7 +691,12 @@
+                          osmesa->depth_stencil_format,
+                          osmesa->accum_format);
+ 
+-   osmesa->st = st_api_create_context(get_st_manager(),
++   struct pipe_frontend_screen *manager = get_st_manager();
++   if (!manager || !manager->screen) {
++      FREE(osmesa);
++      return NULL;
++   }
++   osmesa->st = st_api_create_context(manager,
+                                          &attribs, &st_error, st_shared);
+    if (!osmesa->st) {
+       FREE(osmesa);

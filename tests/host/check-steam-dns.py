@@ -56,7 +56,7 @@ require('compile_one "$BUILD_DIR/steam_dns_ios.c"' in build and '"$OBJ_DIR/steam
         "the resolver is not in libntdll_unix.a")
 require("madeira_steam_dns_getaddrinfo" in preflight,
         "native dependency preflight accepts an old resolver-free archive")
-require('Picker("Madeira Dock DNS"' in ui and all(tag in ui for tag in ('.tag("auto")', '.tag("cloudflare")',
+require('Picker("Steam DNS"' in ui and all(tag in ui for tag in ('.tag("auto")', '.tag("cloudflare")',
                                                                         '.tag("google")', '.tag("system")')),
         "Steam settings do not expose provider selection")
 require("public IP does not change" in docs and "not a packet tunnel" in docs and "A and AAAA" in docs,

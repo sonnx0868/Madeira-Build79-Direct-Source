@@ -417,11 +417,13 @@ struct SteamGamesSection: View {
     var sort = "played"
     var width: CGFloat = 390
     var part: Part = .all
+    var genre: UUID?
     /// Opens a game's Game details page (LibraryView's details sheet).
     let open: (LibraryEntry) -> Void
     @ObservedObject private var model = SteamGamesModel.shared
     @ObservedObject private var steam = SteamOwnedLibrary.shared
     @ObservedObject private var library = LibraryModel.shared
+    @ObservedObject private var access = LibraryAccess.shared
     @Environment(\.scenePhase) private var scenePhase
     // Collapsed state of the installed games (the Steam title) and of Not installed.
     @AppStorage("madeiraLibraryHideInstalled") private var hideInstalled = false
@@ -442,6 +444,7 @@ struct SteamGamesSection: View {
         let library = SteamOwnedLibrary.enabled, account = SteamOwnedLibrary.shared
         let owned = library ? account.owned : []
         let items = SteamGamesRules.items(installed: SteamGamesModel.shared.games, owned: owned, search: "")
+            .filter { LibraryModel.shared.steamVisible($0.id) }
         let groups = SteamGamesRules.groups(items, downloading: Set(account.downloads.keys))
         return !groups.installed.isEmpty || !groups.downloading.isEmpty
     }
@@ -449,7 +452,8 @@ struct SteamGamesSection: View {
     @MainActor static var shown: Bool {
         let library = SteamOwnedLibrary.enabled, account = SteamOwnedLibrary.shared
         let owned = library ? account.owned : []
-        let total = SteamGamesRules.items(installed: SteamGamesModel.shared.games, owned: owned, search: "").count
+        let total = SteamGamesRules.items(installed: SteamGamesModel.shared.games, owned: owned, search: "")
+            .filter { LibraryModel.shared.steamVisible($0.id) }.count
         return SteamGamesRules.showsSection(dock: MadeiraDock.enabled, library: library,
                                             signedIn: library && account.signedIn, count: total)
     }
@@ -478,6 +482,7 @@ struct SteamGamesSection: View {
         let owned = libraryEnabled ? steam.owned : []
         let signedIn = libraryEnabled && steam.signedIn
         let items = SteamGamesRules.items(installed: model.games, owned: owned, search: search)
+            .filter { library.steamVisible($0.id, genre: genre) }
         let groups = SteamGamesRules.groups(items, downloading: Set(steam.downloads.keys))
         let installed = SteamGamesRules.sorted(groups.installed, by: sort, recorded: recorded)
         let collapsible = Self.collapsible
@@ -559,9 +564,10 @@ struct SteamGamesSection: View {
             }
         }
         .sheet(isPresented: $showSignIn) { SteamSignInView() }
+        .onChange(of: access.unlocked) { _, unlocked in if !unlocked { selected = nil; showSignIn = false } }
         .alert("Steam", isPresented: Binding(get: { steam.error != nil }, set: { if !$0 { steam.error = nil } })) {
             Button("OK", role: .cancel) { steam.error = nil }
-        } message: { Text(steam.error ?? "") }
+        } message: { Text(access.guarded && !access.unlocked ? "Steam needs attention. Verify access to view details." : (steam.error ?? "")) }
     }
 
     private func cell(_ item: SteamGamesRules.Item, list: Bool, dense: Bool) -> some View {
@@ -859,6 +865,8 @@ struct SteamGameSheet: View {
     var open: (LibraryEntry) -> Void
     @ObservedObject private var steam = SteamOwnedLibrary.shared
     @ObservedObject private var games = SteamGamesModel.shared
+    @ObservedObject private var library = LibraryModel.shared
+    @ObservedObject private var access = LibraryAccess.shared
     @Environment(\.dismiss) private var dismiss
     @State private var freeSpace: Int64?
     @State private var partial = false
@@ -870,6 +878,8 @@ struct SteamGameSheet: View {
         NavigationStack {
             Form {
                 if let item {
+                    LibraryGenrePicker(entry: Binding(get: { library.steamProfile(appID: appID, title: item.name) },
+                                                     set: { library.save($0) }))
                     Section {
                         HStack(spacing: 20) {
                             SteamGameArtwork(appID: appID).frame(width: 120, height: 180)

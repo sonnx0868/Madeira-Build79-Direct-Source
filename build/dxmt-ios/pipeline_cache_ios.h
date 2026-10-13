@@ -2,6 +2,7 @@
 #pragma once
 #import <Metal/Metal.h>
 #import "pipeline_warmup_ios.h"
+void madeira_flush_pipeline_cache(void);
 
 id<MTLRenderPipelineState> madeira_new_render_pipeline(id<MTLDevice> device,
     MTLRenderPipelineDescriptor *descriptor, MTLPipelineOption options,

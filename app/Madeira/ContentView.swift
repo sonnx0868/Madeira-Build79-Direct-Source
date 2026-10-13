@@ -1259,6 +1259,7 @@ struct ContentView: View {
     /// replaces both bodies below, and a running library session gets the
     /// full-screen `sessionBody`.
     @ObservedObject private var library = LibraryModel.shared
+    @ObservedObject private var libraryAccess = LibraryAccess.shared
     /// "Use New Interface" (actionButtons) applies at the next start.
     @State private var showFrontendRestart = false
 
@@ -1280,7 +1281,9 @@ struct ContentView: View {
          * two-column selection behaviour. */
         NavigationStack {
             Group {
-                if library.enabled && library.current != nil {
+                if libraryAccess.protectedSurface {
+                    LibraryNeutralAccess(showsAccess: false)
+                } else if library.enabled && library.current != nil {
                     sessionBody
                 } else if library.enabled {
                     LibraryView(play: launchLibraryEntry, enableJIT: enableJIT,
@@ -2470,6 +2473,7 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        guard library.isVisible(entry) else { libraryAccess.request(); return }
         guard !dockLaunchPreparing else { return }
         if GameRuntime.shared.hasEngine {
             guard library.current == nil else { library.error = "A game is already running."; return }
@@ -2514,6 +2518,12 @@ struct ContentView: View {
 
     /// The rest of Play, with JIT on: checks the entry's launch profile and starts it.
     private func startLibraryEntry(_ entry: LibraryEntry) {
+        guard library.isVisible(entry) else {
+            libraryAccess.request(); return
+        }
+        if entry.desktop == true, libraryAccess.hasPrivateGames, !libraryAccess.unlocked {
+            libraryAccess.request { startLibraryEntry(entry) }; return
+        }
         do { if entry.desktop != true { _ = try LibraryModel.executable(entry.launchRelativePath) }; try entry.validate() }
         catch {
             library.error = error.localizedDescription

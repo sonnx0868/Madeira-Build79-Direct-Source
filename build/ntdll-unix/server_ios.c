@@ -3658,8 +3658,9 @@ void process_exit_wrapper( int status )
      * its Windows identity at the common exit boundary; do not confuse a
      * helper's exit or a still-live launcher/server with the game being done. */
     {
-        extern void wine_session_process_did_exit( unsigned int pid ) __attribute__((weak));
-        if (wine_session_process_did_exit) wine_session_process_did_exit( session_pid );
+        extern void wine_session_process_did_exit( unsigned int pid, int status ) __attribute__((weak));
+        if (wine_session_process_did_exit) wine_session_process_did_exit( session_pid, status );
+        wine_log_write("[presented-exit-v1] pid=%04x status=%08x", session_pid, (unsigned int)status);
         extern void wine_runtime_process_retired( unsigned int pid, void *peb, int safe ) __attribute__((weak));
         if (wine_runtime_process_retired) wine_runtime_process_retired( session_pid, runtime_peb, runtime_safe );
         if (!runtime_safe) wine_log_write("[runtime-retire] live peer / missing evidence: code retained, restart required");

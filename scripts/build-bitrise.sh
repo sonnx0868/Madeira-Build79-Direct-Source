@@ -62,6 +62,11 @@ git rev-parse HEAD
 sysctl -n hw.memsize hw.ncpu
 
 if [[ "$mode" = bootstrap ]]; then
+  # Validate Foundation-only policies before the expensive native compilation.
+  timed library-privacy python3 tests/host/check-library-privacy.py --require-swift
+  timed pe-imports python3 tests/host/check-pe-imports.py --require-swift
+  timed cdn-policy python3 tests/host/check-cdn-routing.py --require-swift
+  timed diagnostics-policy python3 tests/host/check-remote-support.py --require-swift
   timed native-bootstrap bash scripts/bootstrap-native-deps.sh
   timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
   shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
@@ -115,6 +120,9 @@ checks() {
   python3 tests/host/check-profile-display.py --require-objc
   python3 tests/host/check-engine-detection.py --require-swift
   python3 tests/host/check-session-polling.py --require-swift
+  python3 tests/host/check-library-privacy.py --require-swift
+  python3 tests/host/check-pe-imports.py --require-swift
+  python3 tests/host/check-cdn-routing.py --require-swift
   python3 tests/host/check-controller-refresh.py --require-swift
   python3 tests/host/check-touch-gamepad.py
   python3 tests/host/check-gameplay-performance.py --require-tools --require-objc

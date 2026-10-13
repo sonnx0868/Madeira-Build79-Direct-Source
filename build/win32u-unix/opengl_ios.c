@@ -779,7 +779,10 @@ static BOOL zink_init(void)
     }
     snprintf( path, sizeof(path), "%s/libMoltenVK.dylib", dir );
     setenv( "ZINK_VULKAN_LIBRARY", path, 1 );
-    setenv( "GALLIUM_DRIVER", "zink", 1 );
+    const char *choice = getenv( "MADEIRA_GL_BACKEND" );
+    BOOL software = choice && !strcmp( choice, "software" );
+    setenv( "GALLIUM_DRIVER", software ? "softpipe" : "zink", 1 );
+    setenv( "MADEIRA_GL_SOFTWARE_FALLBACK", !choice || !strcmp(choice, "auto") ? "1" : "0", 1 );
     setenv( "MVK_CONFIG_LOG_LEVEL", "1", 0 );   /* MoltenVK: errors only */
     /* Metal has no geometry shaders, so Zink on MoltenVK honestly reports at
      * most OpenGL 3.1 -- 3.2 core requires them -- and every 3.3 core request
@@ -838,13 +841,15 @@ static BOOL zink_init(void)
     version = (const char *)pz_glGetString( GL_VERSION );
     ERR( "[winios-gl] zink: test context says %s | %s\n", renderer ? renderer : "(null)", version ? version : "(null)" );
     /* glGetString storage belongs to the current context. */
-    is_zink = renderer && strstr( renderer, "zink" );
+    is_zink = renderer && (strstr( renderer, "zink" ) || strstr( renderer, "softpipe" ));
+    if (renderer && strstr(renderer, "softpipe"))
+        ERR( "[opengl-software-v1] desktop OpenGL uses CPU rendering; compatibility fallback\n" );
     pOSMesaMakeCurrent( NULL, NULL, 0, 0, 0 );
     pOSMesaDestroyContext( ctx );
 
     if (!is_zink)
     {
-        ERR( "[winios-gl] zink: renderer is not Zink (MoltenVK did not start?)\n" );
+        ERR( "[winios-gl] zink: renderer is neither Zink nor softpipe\n" );
         return FALSE;
     }
     return TRUE;
@@ -867,7 +872,7 @@ UINT winios_OpenGLInit( UINT version, const struct opengl_funcs *opengl_funcs,
         backend = "gles";
     }
 
-    if (!backend || !strcmp( backend, "zink" ) || !strcmp( backend, "auto" ))
+    if (!backend || !strcmp( backend, "zink" ) || !strcmp( backend, "auto" ) || !strcmp( backend, "software" ))
     {
         if (zink_init())
         {

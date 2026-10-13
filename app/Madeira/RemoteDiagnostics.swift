@@ -104,7 +104,7 @@ enum DiagnosticSnapshot {
             if size <= UInt64(sessionBudget) { try copy(0, Int(size)) }
             else {
                 let marker = Data("\n[report] Middle of log omitted; keeping startup and final output. Original bytes=\(size)\n".utf8)
-                let head = 64 * 1024
+                let head = 4 * 1024 * 1024
                 let tail = sessionBudget - head - marker.count
                 try copy(0, head); try output.write(contentsOf: marker)
                 try copy(size - UInt64(tail), tail)
@@ -169,6 +169,16 @@ enum DiagnosticCompanionLogs {
             }.sorted { $0.path < $1.path }
         }
         for profile in folders(at: users).prefix(32) {
+            // Klei records assertions and startup failures separately from
+            // Wine stderr. Visit only known client logs, never save payloads.
+            let klei = profile.appendingPathComponent("Documents/Klei", isDirectory: true)
+            for product in ["DoNotStarveTogether", "DoNotStarve"] {
+                let folder = klei.appendingPathComponent(product, isDirectory: true)
+                add(folder.appendingPathComponent("client_log.txt"))
+                for account in folders(at: folder).prefix(32) {
+                    add(account.appendingPathComponent("client_log.txt"))
+                }
+            }
             let localLow = profile.appendingPathComponent("AppData/LocalLow", isDirectory: true)
             // Visit the known Unity company/product layout explicitly. Avoid
             // recursive enumeration and skipDescendants semantics for links.

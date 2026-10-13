@@ -481,6 +481,16 @@ int main(void) {
     expect(!wine_launched_process_exit_status(&status), "unknown status is distinct from a clean zero");
     expect(!wine_launched_process_has_exited() && !wine_session_close_has_exited(), "session exit flags start clear");
     expect(!wine_force_close_game_session(1), "no process is guessed before publication");
+    wine_presented_process_track(180);
+    wine_session_process_did_exit(28, 1);
+    expect(!wine_presented_process_has_exited(), "helper exit does not end the rendered game");
+    wine_session_process_did_exit(180, (int)0x80000003);
+    expect(wine_presented_process_has_exited() && wine_presented_process_exit_status(&status) && status==0x80000003u,
+           "a rendered Steam child's breakpoint exit is observable while its launcher stays alive");
+    wine_presented_process_track(28);
+    expect(wine_presented_process_exit_status(&status) && status==0x80000003u, "later surfaces do not erase a completed game's status");
+    wine_exit_status_reset();
+    expect(!wine_presented_process_has_exited() && !wine_presented_process_exit_status(&status), "next session clears rendered PID and exit status");
     wine_launched_process_started(24, 32);
     expect(!wine_force_close_game_session(0), "a Dock host is never used as a guessed close target");
     expect(wine_force_close_game_session(1) && requested_stop == 24, "direct game force-close is queued independently of its event pump");
@@ -489,9 +499,9 @@ int main(void) {
     expect(!wine_session_close_accept_target(28, 36), "a helper cannot replace the close target");
     expect(!wine_session_close_accept_target(24, 36), "a renderer/worker cannot replace the GUI thread");
     expect(wine_session_close_targets_process(24) && !wine_session_close_targets_process(28), "force is scoped to the selected Windows PID");
-    wine_session_process_did_exit(28);
+    wine_session_process_did_exit(28, 0);
     expect(!wine_session_close_has_exited(), "helper exit cannot return to the home page");
-    wine_session_process_did_exit(24);
+    wine_session_process_did_exit(24, 0);
     expect(wine_session_close_has_exited(), "a Dock child exit ends an explicitly closing game session");
     wine_launched_process_did_exit(0);
     expect(wine_launched_process_exit_status(&status) && status == 0, "successful exit remains observable by the general API");

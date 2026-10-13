@@ -26,6 +26,7 @@ c=r'''
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include "InputSurfaceState.h"
 typedef void *HWND;
 typedef uintptr_t ULONG_PTR;
@@ -37,6 +38,10 @@ static struct madeira_input_surface state;
 static struct window_rects current={.client={640,360,1920,1080}};
 static int calls,available=1;
 static unsigned get_thread_dpi(void) { return 96; }
+static unsigned tracked_pid;
+enum { WindowProcess=1 };
+static unsigned NtUserQueryWindow(HWND hwnd,int query) { assert(hwnd && query==WindowProcess); return 180; }
+static void wine_presented_process_track(unsigned pid) { tracked_pid=pid; }
 static int madeira_input_surface_tracks(unsigned long long hwnd) { return hwnd && state.window==hwnd; }
 static int get_window_rects(HWND hwnd,int coords,struct window_rects *out,unsigned dpi) {
     assert((uintptr_t)hwnd==state.window && coords==COORDS_SCREEN && dpi==96);
@@ -51,6 +56,7 @@ int main(void) {
     winios_drv_publish_input_rect((HWND)0x30026); assert(calls==0 && !state.valid);
     winios_drv_publish_input_rect((HWND)0x40026);
     assert(calls==1 && state.valid && state.x==640 && state.y==360 && state.width==1280 && state.height==720);
+    assert(tracked_pid==180);
     current.client=(struct rect){100,80,900,680};
     winios_drv_publish_input_rect((HWND)0x40026);
     assert(state.x==100 && state.y==80 && state.width==800 && state.height==600);

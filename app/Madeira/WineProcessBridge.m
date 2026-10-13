@@ -544,6 +544,21 @@ static uint32_t g_session_close_pid = 0;
 static uint32_t g_session_close_tid = 0;
 static int g_session_close_exited = 0;
 static uint32_t g_launched_pid, g_launched_tid;
+static uint32_t g_presented_pid;
+static uint64_t g_presented_exit;
+void wine_presented_process_track(uint32_t pid) {
+    if (!pid || __atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE)) return;
+    __atomic_store_n(&g_presented_pid, pid, __ATOMIC_RELEASE);
+}
+int wine_presented_process_has_exited(void) {
+    return (__atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE) >> 32) != 0;
+}
+int wine_presented_process_exit_status(uint32_t *status) {
+    uint64_t value = __atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE);
+    if (!(value >> 32)) return 0;
+    if (status) *status = (uint32_t)value;
+    return 1;
+}
 void wine_launched_process_started(uint32_t pid, uint32_t tid) {
     __atomic_store_n(&g_launched_tid, tid, __ATOMIC_RELEASE);
     __atomic_store_n(&g_launched_pid, pid, __ATOMIC_RELEASE);
@@ -577,7 +592,9 @@ int wine_session_close_targets_thread(uint32_t pid, uint32_t tid) {
     return wine_session_close_targets_process(pid) && tid &&
            __atomic_load_n(&g_session_close_tid, __ATOMIC_ACQUIRE) == tid;
 }
-void wine_session_process_did_exit(uint32_t pid) {
+void wine_session_process_did_exit(uint32_t pid, int status) {
+    if (pid && __atomic_load_n(&g_presented_pid, __ATOMIC_ACQUIRE) == pid)
+        __atomic_store_n(&g_presented_exit, (UINT64_C(1) << 32) | (uint32_t)status, __ATOMIC_RELEASE);
     if (wine_session_close_targets_process(pid))
         __atomic_store_n(&g_session_close_exited, 1, __ATOMIC_RELEASE);
 }
@@ -601,6 +618,8 @@ void wine_exit_status_reset(void) {
     __atomic_store_n(&g_session_close_exited, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_launched_pid, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_launched_tid, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_presented_pid, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_presented_exit, 0, __ATOMIC_RELEASE);
 }
 int wine_launched_process_exit_status(uint32_t *status) {
     uint64_t value = __atomic_load_n(&g_launch_exit, __ATOMIC_ACQUIRE);
@@ -673,7 +692,7 @@ static void madeira_prepare_renpy_renderer(void) {
     if (getenv("RENPY_RENDERER")) return;
     const char *backend = getenv("MADEIRA_GL_BACKEND");
     const char *renderer;
-    if (backend && !strcmp(backend, "zink")) renderer = "gl2";
+    if (backend && (!strcmp(backend, "zink") || !strcmp(backend, "software"))) renderer = "gl2";
     else if (backend && !strcmp(backend, "gles")) renderer = "gles2";
     else if (getenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV")) renderer = "angle2";
     else {

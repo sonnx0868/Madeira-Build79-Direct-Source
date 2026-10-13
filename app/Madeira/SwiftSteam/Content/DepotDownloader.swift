@@ -50,7 +50,7 @@ final class DepotDownloader {
     private var depotKeys: [UInt32: Data] = [:]
     private var cdnAuthTokens: [String: String] = [:]  // "depot|host" -> "?auth=…" fragment
     private let maxConcurrentChunks = 8
-    private let attemptsPerChunk = 5
+    private let attemptsPerChunk = 6
     private let hostPoolSize = 6
 
     private nonisolated static let http: URLSession = {
@@ -102,7 +102,7 @@ final class DepotDownloader {
 
         // 1. Keys, manifests and per-host authorization for every depot.
         let health = ContentHostHealth()
-        let pool = Array(hosts.prefix(hostPoolSize))
+        let pool = Self.contentPool(hosts, limit: hostPoolSize)
         var plans: [DepotPlan] = []
         var licenseSkipped: [UInt32] = []
         // The logged-on account, for the install record. Read while the session
@@ -388,11 +388,13 @@ final class DepotDownloader {
     private nonisolated static func fetchChunk(_ chunk: DepotManifest.ChunkEntry, plan: DepotPlan,
                                                path: String, attempts: Int, seed: Int) async throws {
         var lastError: Error = SteamError.chunkDownloadFailed("No content server responded.")
+        var tried = Set<String>()
         for attempt in 0..<max(1, attempts) {
             try Task.checkCancellation()
             // Healthy servers first, starting from a per-chunk offset.
             let order = plan.health.order(plan.hosts, seed: seed)
-            let host = order[attempt % order.count]
+            let host = order.first { !tried.contains($0) } ?? order[attempt % order.count]
+            tried.insert(host)
             let url = "\(host)/depot/\(plan.depotID)/chunk/\(chunk.shaHex)\(plan.auth[host] ?? "")"
             do {
                 let encrypted = try await download(url)
@@ -667,6 +669,15 @@ final class DepotDownloader {
         let fallback = "https://steampipe.akamaized.net"
         if !hosts.contains(fallback) { hosts.append(fallback) }
         return hosts
+    }
+
+    nonisolated static func contentPool(_ hosts: [String], limit: Int) -> [String] {
+        guard limit > 0 else { return [] }
+        let fallback = "https://steampipe.akamaized.net"
+        var result = Array(hosts.filter { $0 != fallback }.prefix(max(0, limit - 1)))
+        if hosts.contains(fallback) { result.append(fallback) }
+        else { result = Array(hosts.prefix(limit)) }
+        return result
     }
 
     nonisolated static func usableContentHost(_ host: String) -> Bool {
