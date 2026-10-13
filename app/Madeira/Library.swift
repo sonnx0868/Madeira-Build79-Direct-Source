@@ -2943,7 +2943,10 @@ struct LibraryView: View {
                 }
             }
             if SteamSettingsSection.shown, settingsShow("Steam", "Dock", "sign in", "account", "setup") {
-                SteamSettingsSection(open: { settingsSheet = $0 })
+                SteamSettingsSection(open: { sheet in
+                    if access.guarded && !access.unlocked { access.request { settingsSheet = sheet } }
+                    else { settingsSheet = sheet }
+                })
             }
             if settingsShow("appearance", "liquid metal", "metal", "glass") {
                 Section {

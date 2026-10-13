@@ -612,6 +612,7 @@ struct SteamSettingsSection: View {
     @ObservedObject private var signIn = SteamSignInModel.shared
     @ObservedObject private var dock = MadeiraDockModel.shared
     @ObservedObject private var onboarding = OnboardingModel.shared
+    @ObservedObject private var access = LibraryAccess.shared
     @State private var confirmSignOut = false
     @State private var steamDNS = MadeiraConfig.get("env.MADEIRA_STEAM_DNS") ?? "auto"
 
@@ -629,10 +630,10 @@ struct SteamSettingsSection: View {
             if MadeiraDock.enabled {
                 Button { open(.dock) } label: { Label("Madeira Dock", systemImage: "shippingbox") }
                 if let status = dock.status {
-                    Text(status).font(.caption).foregroundStyle(.secondary)
+                    Text(access.guarded && !access.unlocked ? "Steam ready" : status).font(.caption).foregroundStyle(.secondary)
                 }
                 Picker("Steam DNS", selection: $steamDNS) {
-                    Text("Automatic (Cloudflare → Google)").tag("auto")
+                    Text("Automatic").tag("auto")
                     Text("Cloudflare DoH").tag("cloudflare")
                     Text("Google DoH").tag("google")
                     Text("System DNS").tag("system")

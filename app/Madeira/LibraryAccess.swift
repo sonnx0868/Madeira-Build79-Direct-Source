@@ -57,7 +57,7 @@ final class LibraryAccess: ObservableObject {
         }
         return try JSONDecoder().decode(LibraryPIN.Record.self, from: data)
     }
-    func submit(_ pin: String, confirmation: String) async -> String? {
+    @MainActor func submit(_ pin: String, confirmation: String) async -> String? {
         guard LibraryPIN.valid(pin) else { return "Enter a 6-digit PIN." }
         let defaults = UserDefaults.standard
         let until = defaults.double(forKey: "madeiraLibraryAccessRetryAt")
