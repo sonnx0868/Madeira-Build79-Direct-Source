@@ -438,6 +438,8 @@ expect(GameExitReport.message(status: 0, presented: false, expectsFrame: false) 
        "headless utility sessions do not get a first-frame warning")
 expect(GameExitReport.message(status: 0x40010004, presented: false, expectsFrame: true) == nil,
        "informational Windows termination is not labeled a crash")
+expect(GameExitReport.message(status: 0x80000003, presented: true, expectsFrame: true)?.contains("breakpoint") == true,
+       "an unhandled assertion breakpoint is reported after a rendered game exits")
 expect(GameExitReport.message(status: 1, presented: false, expectsFrame: true,
                              startupDialog: "SDL initialization failed")?.contains("SDL initialization failed") == true,
        "an observed startup dialog survives the return to the library")

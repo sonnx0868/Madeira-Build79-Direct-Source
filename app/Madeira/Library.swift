@@ -882,6 +882,9 @@ enum GameExitReport {
                         startupDialog: String? = nil) -> String? {
         let detail = startupDialog?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let suffix = detail.isEmpty ? " Export the diagnostic log to report it." : " \(detail)"
+        if status == 0x80000003 {
+            return "The game stopped at a Windows breakpoint (0x80000003), often raised by an internal assertion." + suffix
+        }
         if let status, status >= 0xC0000000 {
             let kind = status == 0xC0000005 ? " (memory access violation)" : status == 0xC0000017 ? " (out of memory)" : ""
             return "The game stopped with Windows error 0x\(String(status, radix: 16, uppercase: true))\(kind)." + suffix
