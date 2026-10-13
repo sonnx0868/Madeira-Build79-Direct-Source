@@ -114,6 +114,7 @@ checks() {
   python3 tests/host/check-runtime-profilers.py
   python3 tests/host/check-profile-display.py --require-objc
   python3 tests/host/check-engine-detection.py --require-swift
+  python3 tests/host/check-session-polling.py --require-swift
   python3 tests/host/check-controller-refresh.py --require-swift
   python3 tests/host/check-touch-gamepad.py
   python3 tests/host/check-gameplay-performance.py --require-tools --require-objc

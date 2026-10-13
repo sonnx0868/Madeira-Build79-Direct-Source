@@ -15,6 +15,9 @@ enum GameEngineDetection {
         }
         let top = names(root)
         if top["unityplayer.dll"] != nil { return "Unity" }
+        if top.keys.contains(where: { $0.hasPrefix("libgodotsteam.windows.") && $0.hasSuffix(".dll") }) {
+            return "Godot"
+        }
         if top["librenpython.dll"] != nil { return "Ren'Py" }
         if let lib = top["lib"] {
             for (name, folder) in names(lib).sorted(by: { $0.key < $1.key }).prefix(64)
@@ -58,6 +61,11 @@ enum GameEngineDetection {
             if resource.range(of: Data(marker.utf8)) != nil ||
                 resource.range(of: Data(marker.utf16.flatMap { [UInt8($0 & 255), UInt8($0 >> 8)] })) != nil { return label }
         }
+        // Renaming an exported Godot game and replacing its version resource
+        // can hide the engine from the checks above. Its PE export directory
+        // still names the template (as in the Primal Planet build633 log).
+        if let name = peExportName(executable)?.lowercased(),
+           name.hasPrefix("godot.windows."), name.hasSuffix(".exe") { return "Godot" }
         if top["nw.dll"] != nil, top["package.json"] != nil { return "NW.js" }
         if top["chrome_elf.dll"] != nil, let resources = top["resources"], names(resources)["app.asar"] != nil { return "Electron" }
         return nil
@@ -67,6 +75,59 @@ enum GameEngineDetection {
         guard let file = try? FileHandle(forReadingFrom: url) else { return Data() }
         defer { try? file.close() }
         return (try? file.read(upToCount: count)) ?? Data()
+    }
+
+    private static func peExportName(_ url: URL) -> String? {
+        guard let file = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? file.close() }
+        func read(_ offset: UInt64, _ count: Int) -> Data {
+            guard (try? file.seek(toOffset: offset)) != nil else { return Data() }
+            return (try? file.read(upToCount: count)) ?? Data()
+        }
+        func number(_ bytes: Data, _ offset: Int, _ count: Int) -> UInt64 {
+            guard offset >= 0, offset + count <= bytes.count else { return 0 }
+            return (0..<count).reduce(0) { $0 | UInt64(bytes[offset + $1]) << ($1 * 8) }
+        }
+        let dos = read(0, 64)
+        guard dos.count == 64, dos.prefix(2) == Data("MZ".utf8) else { return nil }
+        let pe = number(dos, 60, 4)
+        guard pe >= 64, pe <= 16 * 1024 * 1024 else { return nil }
+        let header = read(pe, 24)
+        guard header.count == 24, header.prefix(4) == Data([0x50,0x45,0,0]) else { return nil }
+        let count = Int(number(header, 6, 2)), optionalSize = Int(number(header, 20, 2))
+        guard count > 0, count <= 96, optionalSize >= 96, optionalSize <= 4096 else { return nil }
+        let optional = read(pe + 24, optionalSize)
+        guard optional.count == optionalSize else { return nil }
+        let directory: Int
+        switch number(optional, 0, 2) {
+        case 0x10b: directory = 96
+        case 0x20b: directory = 112
+        default: return nil
+        }
+        guard optional.count >= directory + 8, number(optional, directory - 4, 4) > 0,
+              number(optional, directory + 4, 4) >= 40 else { return nil }
+        let sections = read(pe + 24 + UInt64(optionalSize), count * 40)
+        guard sections.count == count * 40 else { return nil }
+        func rawOffset(_ rva: UInt64, size: UInt64) -> UInt64? {
+            for i in 0..<count {
+                let at = i * 40, start = number(sections, at + 12, 4)
+                let length = number(sections, at + 16, 4), raw = number(sections, at + 20, 4)
+                if rva >= start, rva - start <= length, size <= length - (rva - start), raw > 0 {
+                    return raw + rva - start
+                }
+            }
+            return nil
+        }
+        guard let exported = rawOffset(number(optional, directory, 4), size: 40) else { return nil }
+        let table = read(exported, 40)
+        guard table.count == 40, number(table, 12, 4) > 0,
+              let named = rawOffset(number(table, 12, 4), size: 1) else { return nil }
+        // A template name is short. Bound both the read and its terminator,
+        // and reject a string that runs off its backed section.
+        let bytes = read(named, 256)
+        guard let end = bytes.firstIndex(of: 0), end > 0,
+              rawOffset(number(table, 12, 4), size: UInt64(end + 1)) != nil else { return nil }
+        return String(data: bytes.prefix(end), encoding: .ascii)
     }
 
     private static func peResources(_ url: URL) -> Data {

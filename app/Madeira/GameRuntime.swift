@@ -147,6 +147,12 @@ final class GameRuntime: ObservableObject {
         // spawning cmd helpers. Keep Ren'Py on the isolated launch route until
         // its mixed-architecture child transitions are validated on device.
         switch GameEngineDetection.detect(executable) {
+        case "Godot":
+            // Primal Planet build633: the supervised child failed window
+            // creation (error5), exited1 before WGL initialization, and the
+            // parent remained alive. Use the isolated route until Godot's
+            // child window/dispatcher path is validated on the device.
+            return true
         case "Ren'Py", "TyranoScript", "RPG Maker MV", "RPG Maker MZ", "NW.js", "Electron":
             // Python/browser runtimes spawn helpers and carry unvalidated child
             // lifetimes; identify them without selecting a different renderer.

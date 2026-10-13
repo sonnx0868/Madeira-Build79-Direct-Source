@@ -1339,7 +1339,9 @@ final class LibraryModel: ObservableObject {
         DockStartScreen.shared.begin(dock, at: launchStarted)
         sawProcess = false
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
+        let value = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
+        RunLoop.main.add(value, forMode: .common)
+        timer = value
     }
     private func poll() {
         if GameRuntime.shared.ended { sawProcess = true; finish(); return }

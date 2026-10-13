@@ -150,6 +150,13 @@ let plain = routeDrive.appendingPathComponent("PlainGame/lib/windows-x86_64")
 try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
 try Data().write(to: plain.appendingPathComponent("unrelated.dll"))
 assert(!RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
+let godot = routeDrive.appendingPathComponent("GodotGame")
+try FileManager.default.createDirectory(at: godot, withIntermediateDirectories: true)
+try Data("GDPC".utf8).write(to: godot.appendingPathComponent("game.pck"))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "GodotGame/renamed.exe")))
+try FileManager.default.removeItem(at: godot.appendingPathComponent("game.pck"))
+try Data().write(to: godot.appendingPathComponent("libgodotsteam.windows.template_release.x86_64.dll"))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "GodotGame/renamed.exe")))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", swapMB: 0)))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", swapMB: 4096)))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", realSuspend: false)))
@@ -157,7 +164,7 @@ assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "Plain
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", cpuTranslationBudget: 512)))
 try Data().write(to: routeDrive.appendingPathComponent("PlainGame/UnityPlayer.dll"))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
-print("PASS: production launch policy isolates Ren'Py root/nested launchers; ordinary native games retain reuse; Unity and CPU isolation retained")
+print("PASS: production launch policy isolates Ren'Py and Godot; ordinary native games retain reuse; Unity and CPU isolation retained")
 '''
     checks = r'''
 enum SupportError: Error { case message(String) }

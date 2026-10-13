@@ -46,6 +46,7 @@ try fixture("rgss", files:["Game.ini":empty,"RGSS301.dll":empty], expected:"RPG 
 try fixture("ons", files:["nscript.dat":empty,"arc.nsa":empty], expected:"NScripter/ONScripter")
 try fixture("kirikiri", files:["data.xp3":Data([0x58,0x50,0x33,0x0d,0x0a,0x20,0x0a,0x1a,0x8b,0x67,0x01])], expected:"Kirikiri/KAG")
 try fixture("godot", files:["data.pck":Data("GDPC".utf8)], expected:"Godot")
+try fixture("godot-steam", files:["libgodotsteam.windows.template_release.x86_64.dll":empty], expected:"Godot")
 try fixture("nw", files:["nw.dll":empty,"package.json":empty], expected:"NW.js")
 try fixture("electron", files:["chrome_elf.dll":empty,"resources/app.asar":empty], expected:"Electron")
 try fixture("false-markers", files:["data.xp3":empty,"fake.pck":empty,"nscript.dat":empty,"js/rpg_core.js":empty], expected:nil)
@@ -64,7 +65,40 @@ try pe.write(to:resource)
 assert(GameEngineDetection.detect(resource)=="LiveMaker")
 pe[134]=255; try pe.write(to:resource)
 assert(GameEngineDetection.detect(resource)==nil) // malformed section count
-print("PASS: renamed executables, case folding, 12 runtime families, false markers, bounded PE resources and unchanged files")
+// Primal Planet replaces the version resource but retains the template's
+// name in the PE export directory. Exercise RVA translation, PE32/PE32+,
+// renamed files, truncated tables and section boundaries using real headers.
+func templatePE(_ name: String, wide: Bool = true) -> Data {
+    var data=Data(repeating:0,count:1024)
+    func u16(_ at:Int,_ value:UInt16) { for n in 0..<2 { data[at+n]=UInt8(truncatingIfNeeded:value >> (n*8)) } }
+    func u32(_ at:Int,_ value:UInt32) { for n in 0..<4 { data[at+n]=UInt8(truncatingIfNeeded:value >> (n*8)) } }
+    data[0]=0x4d; data[1]=0x5a; u32(60,128)
+    data[128]=0x50;data[129]=0x45;u16(134,1)
+    let optional=wide ? 240 : 224, directory=wide ? 112 : 96
+    u16(148,UInt16(optional));u16(152,wide ? 0x20b : 0x10b)
+    u32(152+directory-4,1);u32(152+directory,0x1000);u32(152+directory+4,128)
+    let section=152+optional
+    data.replaceSubrange(section..<section+6,with:Data(".edata".utf8))
+    u32(section+12,0x1000);u32(section+16,512);u32(section+20,512)
+    u32(524,0x1040)
+    data.replaceSubrange(576..<576+name.utf8.count,with:Data(name.utf8))
+    return data
+}
+let template=base.appendingPathComponent("renamed-template.exe")
+for wide in [false,true] {
+    try templatePE("Godot.Windows.template_release.x86_64.exe",wide:wide).write(to:template)
+    assert(GameEngineDetection.detect(template)=="Godot")
+}
+for name in ["another.engine.exe","godot.windows.template_release.x86_64.dll","godot.fake.exe"] {
+    try templatePE(name).write(to:template); assert(GameEngineDetection.detect(template)==nil)
+}
+var broken=templatePE("godot.windows.template_release.x86_64.exe")
+broken[268]=39;try broken.write(to:template);assert(GameEngineDetection.detect(template)==nil)
+broken=templatePE("godot.windows.template_release.x86_64.exe");broken[134]=255
+try broken.write(to:template);assert(GameEngineDetection.detect(template)==nil)
+broken=templatePE("godot.windows.template_release.x86_64.exe");broken[524]=255;broken[525]=17;broken[1023]=103
+try broken.write(to:template);assert(GameEngineDetection.detect(template)==nil) // unterminated section-end name
+print("PASS: renamed executables, case folding, 12 runtime families, false markers, bounded PE resources/exports and unchanged files")
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-engine-check-') as temp:
     folder = Path(temp)
