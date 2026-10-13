@@ -26,6 +26,31 @@ while depth:
     depth += (library[end] == "{") - (library[end] == "}")
     end += 1
 unity = library[start:end] + "\n"
+start = library.index('    var launchArguments: String {')
+end = library.index('{', start) + 1
+depth = 1
+while depth:
+    depth += (library[end] == '{') - (library[end] == '}')
+    end += 1
+arguments = library[start:end]
+assert library.count('MadeiraConfig.flag("MADEIRA_UNITY_D3D11", fallback: false)') == 2
+renderer_profile = r'''
+enum MadeiraConfig {
+    static var rendererChoice: String?
+    static func flag(_ name: String, fallback: Bool = true) -> Bool {
+        rendererChoice.map { $0 != "0" } ?? fallback
+    }
+}
+enum ExternalGameCompatibility { static func isUnity(_ entry: RendererEntry) -> Bool { entry.unity } }
+struct RendererEntry {
+    var desktop: Bool? = nil
+    var desktopCommand: String? = nil
+    var startsSteamGameDirectly = false
+    var steamProgramArguments: String? = nil
+    var arguments = ""
+    var resolution = "1408x648"
+    var unity = true
+''' + arguments + '\n}\n'
 fps = (root / "app/Madeira/FPSOverlay.swift").read_text(encoding="utf-8")
 rate_policy = fps[fps.index("    static func maxHz(for mode:"):fps.index("    /// Arms or releases the link")]
 display = "enum TestDisplayPolicy { static var panelMaxFPS = 120\n" + rate_policy + "}\n"
@@ -44,6 +69,20 @@ assert(UnityLaunch.arguments("-screen-width=1280", resolution: "2560x1440", matc
 let quoted = "-profile=\"data x-force-vulkan\"\t-screen-height 720"
 assert(UnityLaunch.arguments(quoted, resolution: "2560x1440", matchResolution: true, forceD3D11: true) == quoted + " -force-d3d11 -screen-width 2560")
 assert(UnityLaunch.arguments("-custom", resolution: "2560x1440", matchResolution: false, forceD3D11: false) == "-custom")
+// Compatibility default: no implicit graphics API, while existing resolution
+// arguments and deliberate renderer overrides remain supported.
+assert(UnityLaunch.arguments("", resolution: "1408x648", matchResolution: true, forceD3D11: false) == "-screen-width 1408 -screen-height 648")
+assert(UnityLaunch.arguments("-force-d3d12", resolution: "1408x648", matchResolution: true, forceD3D11: false) == "-force-d3d12 -screen-width 1408 -screen-height 648")
+MadeiraConfig.rendererChoice=nil
+assert(RendererEntry().launchArguments == "-screen-width 1408 -screen-height 648")
+MadeiraConfig.rendererChoice="1"
+assert(RendererEntry().launchArguments == "-force-d3d11 -screen-width 1408 -screen-height 648")
+assert(RendererEntry(arguments:"-force-d3d12").launchArguments == "-force-d3d12 -screen-width 1408 -screen-height 648")
+MadeiraConfig.rendererChoice="0"
+assert(!RendererEntry().launchArguments.contains("-force-d3d11"))
+assert(RendererEntry(unity:false).launchArguments.isEmpty)
+assert(RendererEntry(startsSteamGameDirectly:true,steamProgramArguments:"-force-d3d12").launchArguments == "-force-d3d12")
+print("PASS: production Unity launch preserves the game's renderer by default and explicit DX11/DX12 choices")
 for bad in ["2560x1440 -other", "99999x1440", "0x0", "2560", "2560x1440x1", "badx2560x1440", "2560xx1440", "2560x1440x"] {
     assert(UnityLaunch.arguments("", resolution: bad, matchResolution: true, forceD3D11: false).isEmpty)
 }
@@ -161,6 +200,6 @@ print("PASS: Unity arguments, update rules, bounded session and companion snapsh
 with tempfile.TemporaryDirectory() as folder:
     source = Path(folder) / "main.swift"
     binary = Path(folder) / "check"
-    source.write_text(update + engines + error + snapshot + unity + display + checks, encoding="utf-8")
+    source.write_text(update + engines + error + snapshot + unity + renderer_profile + display + checks, encoding="utf-8")
     subprocess.run([swift, str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

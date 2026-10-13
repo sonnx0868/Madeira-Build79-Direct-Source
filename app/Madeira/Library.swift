@@ -300,7 +300,7 @@ struct LibraryEntry: Codable, Identifiable {
         if ExternalGameCompatibility.isUnity(self) {
             return UnityLaunch.arguments(arguments, resolution: resolution,
                 matchResolution: MadeiraConfig.flag("MADEIRA_UNITY_RESOLUTION"),
-                forceD3D11: MadeiraConfig.flag("MADEIRA_UNITY_D3D11"))
+                forceD3D11: MadeiraConfig.flag("MADEIRA_UNITY_D3D11", fallback: false))
         }
         return arguments
     }
@@ -816,7 +816,11 @@ enum ExternalGameCompatibility {
                 applied.append("unity-census-throttled")
             }
         }
-        if unity, MadeiraConfig.flag("MADEIRA_UNITY_D3D11") {
+        // The player may contain only the author's chosen graphics API.
+        // Silver Pines/Unity6000.3 rejected our automatic DX11 selection
+        // because no DX11 shader variants were built. Preserve the player's
+        // graphics defaults; forcing DX11 now requires an explicit opt-in.
+        if unity, MadeiraConfig.flag("MADEIRA_UNITY_D3D11", fallback: false) {
             // Command-line arguments passed to Wine for this session.
             var args = getenv("MADEIRA_ARGS").map { String(cString: $0) } ?? ""
             let lower = args.lowercased()
