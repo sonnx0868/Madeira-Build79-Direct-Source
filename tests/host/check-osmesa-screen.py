@@ -5,6 +5,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 
 root=Path(__file__).resolve().parents[2]
@@ -63,10 +64,15 @@ int main(void) {
     puts("PASS: patched Mesa keeps GPU success, retries fresh software only when permitted, rejects NULL screens and OOM safely");
 }
 '''
-compiler=os.environ.get('CC') or shutil.which('clang') or shutil.which('cc')
-if not compiler: raise SystemExit('C compiler required')
+if sys.platform == 'darwin':
+    sdk=subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],text=True).strip()
+    compiler=['xcrun','--sdk','macosx','clang','-isysroot',sdk]
+else:
+    executable=os.environ.get('CC') or shutil.which('clang') or shutil.which('cc')
+    if not executable: raise SystemExit('C compiler required')
+    compiler=[executable]
 with tempfile.TemporaryDirectory(prefix='madeira-osmesa-') as scratch:
     folder=Path(scratch);path=folder/'fixture.c';exe=folder/('fixture.exe' if os.name=='nt' else 'fixture')
     path.write_text(fixture,encoding='utf-8')
-    subprocess.run([compiler,'-std=gnu11','-Wall','-Werror',str(path),'-o',str(exe)],check=True)
+    subprocess.run(compiler+['-std=gnu11','-Wall','-Werror',str(path),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)

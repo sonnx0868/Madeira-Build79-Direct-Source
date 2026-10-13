@@ -67,6 +67,8 @@ if [[ "$mode" = bootstrap ]]; then
   timed pe-imports python3 tests/host/check-pe-imports.py --require-swift
   timed cdn-policy python3 tests/host/check-cdn-routing.py --require-swift
   timed diagnostics-policy python3 tests/host/check-remote-support.py --require-swift
+  timed frontend-policy python3 tests/host/check-frontend.py
+  timed shader-inventory python3 tests/host/check-translation-tools.py
   timed native-bootstrap bash scripts/bootstrap-native-deps.sh
   timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
   shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
