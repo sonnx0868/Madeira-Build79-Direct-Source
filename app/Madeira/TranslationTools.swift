@@ -134,8 +134,12 @@ enum ShaderPreparationSettings {
         // starts a new recipe inventory; shader blobs also have content hashes.
         let file = try? TranslationTools.checkedPath(relativePath, drive: drive)
         let attrs = file.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path) }
-        let size = (attrs?[.size] as? NSNumber)?.stringValue ?? "unknown"
-        let modified = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let regular = (attrs?[.type] as? FileAttributeType) == .typeRegular
+        // Steam profiles can identify an installation directory. Writing a
+        // log/cache inside it changes its mtime, without changing any shader.
+        // Only executable metadata may invalidate this inventory's namespace.
+        let size = regular ? ((attrs?[.size] as? NSNumber)?.stringValue ?? "unknown") : "installation"
+        let modified = regular ? ((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0) : 0
         let stamp = "graphics-v1\0\(identity)\0\(relativePath)\0\(size)\0\(modified)"
         let key = SHA256.hash(data: Data(stamp.utf8)).map { String(format: "%02x", $0) }.joined()
         if let configured = MadeiraConfig.get("env.MADEIRA_PIPELINE_CACHE_DIR"), !configured.isEmpty {
