@@ -127,6 +127,9 @@ for dll in d3dcompiler_47.dll wined3d.dll; do
 done
 
 if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
+  grep -a -q 'renpy-wgl-probe-v1' "$root/app/Madeira/libwin32u_unix.a" || {
+    echo "INVALID: libwin32u_unix.a lacks the RenPy ANGLE WGL probe route; run the RenPy GL refresh or source-bootstrap"; missing=1;
+  }
   grep -a -q 'user-object-generation-v1' "$root/app/Madeira/libwin32u_unix.a" || {
     echo "INVALID: libwin32u_unix.a lacks client handle generation tracking; run the window refresh or source-bootstrap"; missing=1;
   }

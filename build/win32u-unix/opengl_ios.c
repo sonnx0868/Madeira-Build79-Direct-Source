@@ -46,6 +46,7 @@
 #include "win32u_private.h"
 #include "wine/opengl_driver.h"
 #include "wine/debug.h"
+#include "ios_gl_route.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wgl);
 
@@ -858,6 +859,12 @@ UINT winios_OpenGLInit( UINT version, const struct opengl_funcs *opengl_funcs,
     {
         ERR( "[winios-gl] version mismatch, win32u wants %u but driver has %u\n", version, WINE_OPENGL_DRIVER_VERSION );
         return STATUS_INVALID_PARAMETER;
+    }
+
+    if (ios_gl_renpy_angle_probe( backend, getenv( "_MADEIRA_OPENGL_ANGLE_MODE" ), getenv( "RENPY_RENDERER" ) ))
+    {
+        ERR( "[renpy-wgl-probe-v1] ANGLE renderer: native WGL pixel-format probe uses GLES; skipping Mesa/Zink\n" );
+        backend = "gles";
     }
 
     if (!backend || !strcmp( backend, "zink" ) || !strcmp( backend, "auto" ))

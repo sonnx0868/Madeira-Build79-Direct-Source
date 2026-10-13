@@ -7,7 +7,8 @@ case "$mode" in
   cached) ipa=Madeira-v0.1.6-source.ipa ;;
   bootstrap) ipa=Madeira-v0.1.6-source-bootstrap.ipa ;;
   window-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
-  *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh' >&2; exit 2 ;;
+  renpy-gl-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh' >&2; exit 2 ;;
 esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -71,8 +72,10 @@ else
   timed wine-patches bash scripts/apply-wine-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh ]]; then
-    timed native-restore bash scripts/restore-native-deps.sh --refresh-window
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh ]]; then
+    refresh=--refresh-window
+    [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
+    timed native-restore bash scripts/restore-native-deps.sh "$refresh"
     timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
     shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
   else
@@ -84,6 +87,7 @@ checks() {
   python3 tests/host/check-version.py
   python3 tests/host/check-native-wrapper.py
   python3 tests/host/check-renpy-renderer.py
+  python3 tests/host/check-renpy-wgl-probe.py
   python3 tests/host/check-native-dll-fallback.py
   python3 tests/host/check-window-proc.py
   python3 tests/host/check-user-object-generation.py

@@ -29,7 +29,9 @@ bash "$root/build/stage-licenses.sh"
 python3 "$root/tools/patch-dxmt-query-log.py"
 if [[ "${1:-}" = --refresh-window ]]; then
   bash "$root/build/win32u-unix/build.sh" window-only
+elif [[ "${1:-}" = --refresh-renpy-gl ]]; then
+  bash "$root/build/win32u-unix/build.sh" renpy-gl-only
 elif [[ -n "${1:-}" ]]; then
-  echo 'Usage: restore-native-deps.sh [--refresh-window]' >&2; exit 2
+  echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl]' >&2; exit 2
 fi
 bash "$root/scripts/check-ios-build.sh"

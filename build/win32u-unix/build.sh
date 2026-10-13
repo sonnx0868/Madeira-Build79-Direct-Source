@@ -66,21 +66,29 @@ compile_one() {
 
 # Refresh one native object against the restored bundle's generated headers.
 # Preserve every other member, including the merged FreeType implementation.
-if [[ "${1:-all}" = window-only ]]; then
+if [[ "${1:-all}" = window-only || "${1:-all}" = renpy-gl-only ]]; then
     test -s "$APP_LIB"
     test -s "$WINE_BUILD/include/config.h"
-    compile_one "$WINE_SRC/dlls/win32u/window.c" window
-    candidate="$OBJ_DIR/libwin32u_window_refresh.a"
+    if [[ "$1" = window-only ]]; then
+        name=window
+        marker=user-object-generation-v1
+        compile_one "$WINE_SRC/dlls/win32u/window.c" "$name"
+    else
+        name=opengl_ios
+        marker=renpy-wgl-probe-v1
+        compile_one "$BUILD_DIR/opengl_ios.c" "$name"
+    fi
+    candidate="$OBJ_DIR/libwin32u_refresh.a"
     cp "$APP_LIB" "$candidate"
-    ar d "$candidate" window.o
-    ar r "$candidate" "$OBJ_DIR/window.o"
-    test "$(ar t "$candidate" | awk '$0 == "window.o" {n++} END {print n+0}')" = 1
-    grep -a -q 'user-object-generation-v1' "$candidate"
+    ar d "$candidate" "$name.o"
+    ar r "$candidate" "$OBJ_DIR/$name.o"
+    test "$(ar t "$candidate" | awk -v member="$name.o" '$0 == member {n++} END {print n+0}')" = 1
+    grep -a -q "$marker" "$candidate"
     cp "$candidate" "$APP_LIB"
-    echo "Refreshed window.o; preserved other native archive members"
+    echo "Refreshed $name.o; preserved other native archive members"
     exit 0
 fi
-[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|window-only' >&2; exit 2; }
+[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|window-only|renpy-gl-only' >&2; exit 2; }
 
 echo "=== Building win32u unix (iOS) ==="
 
