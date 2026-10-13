@@ -99,6 +99,63 @@ int main(void) {
 }
 '''
 virtual = (root / 'build/ntdll-unix/virtual_ios.c').read_text(encoding='utf-8')
+# The corrected callback must not expose the old FEX interval-lock reentry
+# during loader-boundary image notifications. Execute Wine's existing guard
+# with an emulator hook that allocates while handling the image notification.
+image = fixture[:fixture.index('int main(void) {')]
+image += r'''
+#include <stdlib.h>
+#include <string.h>
+static const char *environment;
+static char *test_getenv(const char *key) { assert(!strcmp(key,"MADEIRA_IMAGE_MAP_GUARD")); return (char *)environment; }
+static int test_setenv(const char *key,const char *value,int overwrite) {
+    assert(!strcmp(key,"MADEIRA_IMAGE_MAP_GUARD"));
+    if(overwrite || !environment) environment=value;
+    return 0;
+}
+#define getenv(k) test_getenv(k)
+#define setenv(k,v,o) test_setenv(k,v,o)
+#include "MemoryCallbackPolicy.h"
+typedef int LONG;
+typedef unsigned short WCHAR;
+typedef struct { unsigned short Length,MaximumLength; WCHAR *Buffer; } UNICODE_STRING;
+static void RtlInitUnicodeString(UNICODE_STRING *s,const void *value) { (void)s; (void)value; }
+static int RtlQueryEnvironmentVariable_U(void *p,UNICODE_STRING *name,UNICODE_STRING *value) {
+    (void)p; (void)name;
+    if(!environment) return -1;
+    value->Length=*environment ? sizeof(WCHAR) : 0;
+    value->Buffer[0]=(WCHAR)*environment; return 0;
+}
+static unsigned image_calls, observed_guard;
+static void image_hook(void *base) {
+    assert(base==(void *)0x10000); ++image_calls;
+    observed_guard=entered;
+    void *p=(void *)0x20000; SIZE_T n=4096; ULONG old;
+    /* FEX's own heap commit must bypass notifications under the guard. */
+    assert(!NtProtectVirtualMemory((HANDLE)1,&p,&n,4,&old));
+}
+static void (*pNotifyImageMap)(void *)=image_hook;
+'''
+image += function(source, 'void arm64ec_notify_image_map(')
+image += r'''
+int main(int argc,char **argv) {
+    assert(argc==3);
+    environment=!strcmp(argv[1],"unset") ? NULL : argv[1];
+    const char *original=environment;
+    madeira_prepare_memory_callbacks();
+    assert(environment && !strcmp(environment,original ? original : "1"));
+    unsigned guarded=environment[0]=='1';
+    unsigned outer=!strcmp(argv[2],"nested");
+    entered=outer;
+    arm64ec_notify_image_map((void *)0x10000);
+    assert(image_calls==1 && observed_guard==(guarded || outer));
+    assert(entered==outer); /* preserve the outer callback's ownership */
+    assert(pre==(!(guarded || outer)) && post==pre && syscalls==1);
+    arm64ec_notify_image_map(NULL); assert(image_calls==1);
+    pNotifyImageMap=NULL; arm64ec_notify_image_map((void *)0x10000); assert(image_calls==1 && entered==outer);
+    return 0;
+}
+'''
 constants = virtual[virtual.index('#define IOS_JIT_TRAMPOLINE_SIZE'):virtual.index('/* Allocate a per-thread trampoline slot.')]
 tramp = r'''
 #include <assert.h>
@@ -143,10 +200,18 @@ int main(void) {
 }
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-compatibility-') as directory:
-    for name, code in (('protect', fixture), ('trampoline', tramp)):
+    for name, code in (('protect', fixture), ('trampoline', tramp), ('image-map', image)):
         src = Path(directory) / (name + '.c')
         binary = Path(directory) / (name + ('.exe' if os.name == 'nt' else ''))
         src.write_text(code, encoding='utf-8')
-        subprocess.run([compiler, '-std=c11', '-O2', '-Wall', '-Wextra', str(src), '-o', str(binary)], check=True)
-        subprocess.run([str(binary)], check=True)
+        subprocess.run([compiler, '-std=c11', '-O2', '-Wall', '-Wextra', '-I', str(root / 'app/Madeira'), str(src), '-o', str(binary)], check=True)
+        if name == 'image-map':
+            for setting in ('unset', '0', '1', '', 'other'):
+                for mode in ('normal', 'nested'):
+                    subprocess.run([str(binary), setting, mode], check=True)
+        else:
+            subprocess.run([str(binary)], check=True)
+bridge = (root / 'app/Madeira/WineProcessBridge.m').read_text(encoding='utf-8')
+assert bridge.index('madeira_prepare_memory_callbacks();') > bridge.index('setenv(k.UTF8String, v.UTF8String, 1);')
 print('PASS: production callback exits preserve notifications, recursion and errors; 1024 distinct TEB slots remain within the reserved page')
+print('PASS: production loader guard blocks emulator heap reentry, preserves outer ownership and explicit opt-outs')

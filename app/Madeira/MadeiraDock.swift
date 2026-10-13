@@ -419,12 +419,12 @@ enum MadeiraDock {
         // While the loader loads Valve's client and its many imports, the emulator's
         // image-map handler can commit a page of its own heap under its interval lock; the
         // commit's notification then waits for that same lock and the host parks for good
-        // (no report after load-client-begin). Wine's opt-in MADEIRA_IMAGE_MAP_GUARD (off for
-        // every other session) keeps the emulator's own memory calls un-notified there, as
-        // on the syscall path. Dock sessions turn it on; ntdll without the switch ignores it.
-        // env.MADEIRA_DOCK_IMAGE_MAP_GUARD = 0 leaves it off.
+        // (no report after load-client-begin). Wine's MADEIRA_IMAGE_MAP_GUARD keeps the
+        // emulator's own memory calls un-notified there, as on the syscall path.
+        // All sessions now default to this guard. Preserve an explicit Dock opt-out;
+        // madeira.cfg's later env.MADEIRA_IMAGE_MAP_GUARD still wins.
         let guardMap = SteamSignIn.flag("MADEIRA_DOCK_IMAGE_MAP_GUARD", default: true)
-        if guardMap { setenv("MADEIRA_IMAGE_MAP_GUARD", "1", 1) }
+        setenv("MADEIRA_IMAGE_MAP_GUARD", guardMap ? "1" : "0", 1)
         SteamLog.event("[dock-launch] image-map-guard=\(guardMap ? 1 : 0)")
     }
 

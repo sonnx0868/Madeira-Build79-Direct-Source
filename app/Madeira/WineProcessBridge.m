@@ -22,6 +22,7 @@
 #include "../../build/madeira_cfg.h"   /* ml1095: one config file */
 #include "../../build/ntdll-unix/ios_swap_pressure.h"
 #include "GameMemoryProfile.h"
+#include "MemoryCallbackPolicy.h"
 #include <os/proc.h>
 #include <sys/stat.h>
 #include <limits.h>
@@ -1614,6 +1615,10 @@ static void *wine_process_thread(void *arg) {
             // Publish launch headroom before the first guest allocations. The
             // native footprint monitor refreshes it outside the allocator lock.
             ios_swap_pressure_update((uint64_t)os_proc_available_memory());
+
+            madeira_prepare_memory_callbacks();
+            fprintf(stderr, "[memory-callback-v1] image-map-guard=%s default=1\n",
+                    getenv("MADEIRA_IMAGE_MAP_GUARD"));
 
             madeira_prepare_opengl_backend();
             if (!strcmp(getenv("MADEIRA_GL_BACKEND"), "gles")) setenv("LOVE_GRAPHICS_USE_OPENGLES", "1", 1);

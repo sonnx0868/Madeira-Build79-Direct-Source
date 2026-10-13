@@ -10,6 +10,12 @@ Base: Madeira build 630, Wine 4f5b197, FEX 26859e1. Compared BCD stable
   Subsequent protect, allocate and free notifications must reach the emulator.
   Stored as an idempotent parent patch; rebuild ARM64EC ntdll, not only native
   Unix ntdll. This preserves syscall status and the existing notification order.
+- Enable Wine's existing image-map callback guard before all game launches.
+  Clearing the stuck callback flag must not expose the old FEX interval lock
+  to reentrant emulator heap commits during loader notifications. This uses
+  existing Wine behavior without generating or modifying FEX core code. Global
+  cfg values and the explicit Dock opt-out still win. A production loader
+  fixture exercises nested heap allocation and outer callback ownership.
 - BCD 22e2b23's 1024 trampoline slots in the already reserved 16 KB page.
   No page budget increase, slot recycling or JIT allocator change. The existing
   fallback beyond 1024 lifetime allocations remains; a bounded diagnostic exposes
