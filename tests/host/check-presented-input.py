@@ -66,7 +66,7 @@ int main(void) {
 '''
 geometry=(root/'app/Madeira/GuestDisplay.swift').read_text(encoding='utf-8')
 geometry=geometry[geometry.index('enum DisplayMode:'):geometry.index('/// The session default')]
-swift='import Foundation\n'+geometry+r'''
+swift='import Foundation\n#if canImport(CoreGraphics)\nimport CoreGraphics\n#endif\n'+geometry+r'''
 let monitor=CGSize(width:2560,height:1440), drawable=CGSize(width:1280,height:720)
 let client=CGRect(x:640,y:360,width:1280,height:720)
 for mode in DisplayMode.allCases {

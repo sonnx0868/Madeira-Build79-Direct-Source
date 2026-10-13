@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 // The guest's virtual monitor and how it is laid out on the device's screen.
 //
