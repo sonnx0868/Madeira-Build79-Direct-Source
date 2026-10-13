@@ -114,7 +114,9 @@ final class LibraryAccess: ObservableObject {
 struct LibraryAccessView: View {
     @ObservedObject private var access = LibraryAccess.shared
     @Environment(\.dismiss) private var dismiss
-    @State private var pin = "", confirmation = "", error: String?
+    @State private var pin = ""
+    @State private var confirmation = ""
+    @State private var error: String?
     @State private var busy = false
     var body: some View {
         NavigationStack {
