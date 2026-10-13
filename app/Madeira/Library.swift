@@ -246,6 +246,10 @@ struct LibraryEntry: Codable, Identifiable {
     var unityOptimizations: Bool?
     /// Native WGL backend changes require restarting Madeira.
     var glBackend: String?
+    /// Nil inherits the shared configuration; zero explicitly disables swap.
+    var swapMB: Int?
+    /// Nil inherits the shared configuration and existing compatibility defaults.
+    var realSuspend: Bool?
     /// Optional experimental compact reservations for this game session.
     var thinReserve: Bool?
     /// D3D9 anisotropic filtering limit (DXMT_D9_ANISO_LIMIT: 1, 2, 4 or 8);
@@ -330,6 +334,9 @@ struct LibraryEntry: Codable, Identifiable {
     var effectiveFPSMode: Int32 { fpsMode == 3 && !ProMotionIntent.has30Cap ? 1 : Int32(fpsMode) }
 
     func validate() throws {
+        if let swapMB, !GameMemorySettings.swapChoices.contains(swapMB) {
+            throw LibraryError.message("Choose a supported swap capacity or inherit the global setting.")
+        }
         let size = resolution.split(separator: "x").compactMap { Int($0) }
         guard size.count == 2, (320...4096).contains(size[0]), (240...4096).contains(size[1]),
               (0...3).contains(fpsMode), !arguments.contains("\0"), !windowsPath.contains("\0"),
@@ -351,6 +358,7 @@ struct LibraryEntry: Codable, Identifiable {
 
     /// Runs on the launch worker, before the JIT pool is taken.
     func applyEnvironment() {
+        GameMemorySettings.clearPrevious()
         configureLaunch()
         ShaderPreparationSettings.apply(mode: shaderWarmupMode,
             automatic: desktop != true && unityOptimizations != false &&
@@ -395,6 +403,7 @@ struct LibraryEntry: Codable, Identifiable {
         else { setenv("MADEIRA_DINPUT_PAD", "0", 1) }
         let controllerPrefs = ControllerCompatibility.prepare(self)
         let externalCompatibility = ExternalGameCompatibility.prepare(self)
+        GameMemorySettings.apply(swapMB: swapMB, realSuspend: realSuspend)
 
         // Madeira has its own controller, keyboard/mouse and session UI. Valve's
         // injected overlay adds a large x64 DLL, hooks XInput and cannot present
@@ -599,6 +608,43 @@ enum UnityLaunch {
 /// Steam DLLs, patches executables or bypasses licensing; it only chooses a
 /// renderer Madeira implements and reports third-party launch layers that may
 /// behave differently from the original game.
+enum GameMemorySettings {
+    static let swapChoices = [0, 1024, 2048, 3072, 4096]
+    private static var previousSuspend: String?
+    private static var appliedSuspend: String?
+
+    static func clearPrevious() {
+        if let appliedSuspend, getenv("MADEIRA_REAL_SUSPEND").map({ String(cString: $0) }) == appliedSuspend {
+            if let previousSuspend { setenv("MADEIRA_REAL_SUSPEND", previousSuspend, 1) }
+            else { unsetenv("MADEIRA_REAL_SUSPEND") }
+        }
+        previousSuspend = nil; appliedSuspend = nil
+        unsetenv("_MADEIRA_GAME_SWAP_MB")
+        unsetenv("_MADEIRA_GAME_REAL_SUSPEND")
+    }
+
+    static func apply(swapMB: Int?, realSuspend: Bool?) {
+        // Read the shared preference after automatic compatibility has run.
+        // An explicit global Off must also override REPLACED's automatic On.
+        if let shared = MadeiraConfig.get("real-suspend") ?? MadeiraConfig.get("env.MADEIRA_REAL_SUSPEND") {
+            let value = shared.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { setenv("MADEIRA_REAL_SUSPEND", value, 1) }
+        }
+        if let swapMB, swapChoices.contains(swapMB) {
+            setenv("_MADEIRA_GAME_SWAP_MB", String(swapMB), 1)
+        }
+        if let realSuspend {
+            previousSuspend = getenv("MADEIRA_REAL_SUSPEND").map { String(cString: $0) }
+            let value = realSuspend ? "1" : "0"
+            setenv("_MADEIRA_GAME_REAL_SUSPEND", value, 1)
+            setenv("MADEIRA_REAL_SUSPEND", value, 1)
+            appliedSuspend = value
+        }
+        fputs("[game-memory] game-memory-v1 swap=\(swapMB.map(String.init) ?? "inherit") " +
+              "real-suspend=\(realSuspend.map { $0 ? "1" : "0" } ?? "inherit")\n", stderr)
+    }
+}
+
 enum ExternalGameCompatibility {
     private static let strictMemory = [("FEX_TSOENABLED", "1"), ("FEX_VECTORTSOENABLED", "1"),
         ("FEX_MEMCPYSETTSOENABLED", "1"), ("FEX_HALFBARRIERTSOENABLED", "0"),
@@ -3381,6 +3427,25 @@ struct LibraryDetail: View {
                 } header: { Text("Compatibility & performance") } footer: {
                     Text("Reduced-precision x87 is off by default. The Unity profile reports four CPU cores unless you choose a count, enables pressure-aware texture and swap policies, and selects Fastsync when the global engine is Wine standard. Turn off Fast synchronization to keep standard sync for this game, or turn off the Unity profile to retain the global engine. Madsync and explicit low-level sync settings take priority. Fast semaphore waits remain experimental and off by default. Settings apply to the next launch.")
                 }
+                Section("Memory & thread suspension") {
+                    Picker("Swap capacity", selection: Binding(
+                        get: { entry.swapMB ?? -1 }, set: { entry.swapMB = $0 == -1 ? nil : $0 })) {
+                        Text("Inherit global setting").tag(-1)
+                        Text("Off").tag(0)
+                        ForEach(GameMemorySettings.swapChoices.filter { $0 > 0 }, id: \.self) { mb in
+                            Text("\(mb / 1024) GB").tag(mb)
+                        }
+                    }
+                    Picker("Real thread suspension", selection: Binding(
+                        get: { entry.realSuspend.map { $0 ? "on" : "off" } ?? "inherit" },
+                        set: { entry.realSuspend = $0 == "inherit" ? nil : $0 == "on" })) {
+                        Text("Inherit global setting").tag("inherit")
+                        Text("On").tag("on")
+                        Text("Off").tag("off")
+                    }
+                    Text("Inherit uses Settings. Swap uses storage when eligible memory is backed; a larger capacity does not guarantee smoother play. Real thread suspension can help some games and cause others to hang. Restart Madeira after changing either option.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("On screen") {
                     Toggle("Performance overlay", isOn: $entry.performance)
                     Toggle("Live logs", isOn: $entry.liveLogs)
@@ -3804,7 +3869,7 @@ struct RuntimeMemorySyncSettings: View {
                                             "env.MADEIRA_FASTSYNC", "eco", "env.MADEIRA_MULTI_GAME"]
     static let poolChoices = [0, 512, 640, 768, 1024, 1152]          // 0 = the standard 896 MB
     static let vramChoices = [0, 1536, 2048, 3072, 4096, 4352, 4608, 5120, 6144]   // 0 = automatic
-    static let swapChoices = [0, 1024, 2048, 3072, 4096]
+    static let swapChoices = GameMemorySettings.swapChoices
     /// The stored value "" (no key) and "classic" are the same rules.
     static let coverageChoices: [(String, String)] = [
         ("", "Large allocations (8 MB+)"), ("blocks", "All allocations of 1 MB+"), ("wide", "1 MB+ and overflow"),

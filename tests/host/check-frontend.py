@@ -106,6 +106,7 @@ enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
+swift += block(lib, 'enum GameMemorySettings') + '\n'
 swift += block(lib, 'enum GameExitReport') + '\n'
 translation = (root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8')
 swift += block(translation, 'enum TranslationTools') + '\n'
@@ -299,6 +300,12 @@ let compatReplaced = LibraryEntry(title: "REPLACED", relativePath: compatRelativ
 expect(ExternalGameCompatibility.prepare(compatReplaced).contains("il2cpp-strict-memory"), "REPLACED IL2CPP strict memory policy")
 expect(env("FEX_VECTORTSOENABLED") == "1" && env("FEX_MEMCPYSETTSOENABLED") == "1" && env("FEX_HALFBARRIERTSOENABLED") == "0", "vector/REP ordering and safe unaligned path")
 expect(env("MADEIRA_REAL_SUSPEND") == "1", "REPLACED keeps native suspend holds instead of snapshot-only suspend")
+var replacedMemory = compatReplaced
+replacedMemory.realSuspend = false; replacedMemory.swapMB = 0
+replacedMemory.applyEnvironment()
+expect(env("MADEIRA_REAL_SUSPEND") == "0" && env("_MADEIRA_GAME_SWAP_MB") == "0", "explicit per-game Off overrides REPLACED automatic suspension and shared swap")
+game.applyEnvironment()
+expect(env("_MADEIRA_GAME_REAL_SUSPEND") == nil && env("_MADEIRA_GAME_SWAP_MB") == nil && env("MADEIRA_REAL_SUSPEND") == nil, "next game does not inherit another game's overrides")
 MadeiraConfig.values = ["env.FEX_VECTORTSOENABLED": "0"]
 _ = ExternalGameCompatibility.prepare(compatReplaced)
 expect(env("FEX_VECTORTSOENABLED") == nil, "explicit CPU config overrides strict profile")
@@ -341,6 +348,13 @@ let decoded = try? JSONDecoder().decode(LibraryEntry.self, from: Data(json.utf8)
 expect(decoded?.fpsMode == 3 && decoded?.reducedX87 == true && decoded?.touchControls == true,
        "decodes a file with unknown keys (including the fork's cpuCount and fastSync)")
 expect(decoded?.displayMode == .fit && decoded?.controlOpacity == nil, "older files: Fit, default controls")
+expect(decoded?.swapMB == nil && decoded?.realSuspend == nil, "older files inherit shared memory and suspension settings")
+var memoryGame = game
+memoryGame.swapMB = 4096; memoryGame.realSuspend = false
+let memoryBack = (try? JSONEncoder().encode(memoryGame)).flatMap { try? JSONDecoder().decode(LibraryEntry.self, from: $0) }
+expect(memoryBack?.swapMB == 4096 && memoryBack?.realSuspend == false, "per-game memory choices persist without changing library format")
+memoryGame.swapMB = 513
+expect((try? memoryGame.validate()) == nil, "invalid per-game swap capacity refused before launch")
 // Written by the fork's app: display mode, control opacity/size (anisotropy is ignored).
 let fork = """
 {"id":"AF046C35-C32A-497B-92BC-0BBD14F8CB63","title":"T","relativePath":"a/b.exe","bits":32,"arguments":"",

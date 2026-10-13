@@ -21,6 +21,7 @@
 #include <dirent.h>
 #include "../../build/madeira_cfg.h"   /* ml1095: one config file */
 #include "../../build/ntdll-unix/ios_swap_pressure.h"
+#include "GameMemoryProfile.h"
 #include <os/proc.h>
 #include <sys/stat.h>
 #include <limits.h>
@@ -1540,7 +1541,10 @@ static void *wine_process_thread(void *arg) {
              * in MB; the sparse backing file lives in tmp with NO file protection so
              * the mapping survives the screen locking. See virtual_ios.c ml1077. */
             {
-                long capMB = (long)madeira_cfg_int("swap-mb", 0);   /* ml1095: madeira.cfg swap-mb = N */
+                long capMB = madeira_game_swap_capacity((long)madeira_cfg_int("swap-mb", 0));
+                madeira_apply_game_memory_overrides();
+                fprintf(stderr, "[game-memory] swap capacity=%ld MB source=%s\n", capMB,
+                        getenv("_MADEIRA_GAME_SWAP_MB") ? "game" : "global");
                 if (capMB >= 64) {
                     NSString *swapPath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"madeira-swap.bin"];
                     [[NSFileManager defaultManager] removeItemAtPath:swapPath error:nil];
@@ -1606,6 +1610,7 @@ static void *wine_process_thread(void *arg) {
                     fprintf(stderr, "[madeira-env] sync engine: fastsync (default), MADEIRA_FASTSYNC=auto\n");
                 }
             }
+            madeira_apply_game_memory_overrides();
             // Publish launch headroom before the first guest allocations. The
             // native footprint monitor refreshes it outside the allocator lock.
             ios_swap_pressure_update((uint64_t)os_proc_available_memory());

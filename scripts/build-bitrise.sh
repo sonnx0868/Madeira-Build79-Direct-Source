@@ -103,6 +103,7 @@ checks() {
   python3 tests/host/check-translation-tools.py
   python3 tests/host/check-remote-support.py --require-swift
   python3 tests/host/check-frontend.py
+  python3 tests/host/check-game-memory.py --require-swift
   python3 tests/host/check-game-pointer.py --require-swift
   python3 tests/host/check-thermal-pacing.py --require-swift
   python3 tests/host/check-runtime-profilers.py

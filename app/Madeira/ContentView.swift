@@ -2598,7 +2598,7 @@ struct ContentView: View {
                 runtimeLaunch?.restoreEnvironment()
                 profile.applyEnvironment()
                 logStore.log("[launch-route] library profile applied")
-            }
+            } else { GameMemorySettings.clearPrevious() }
             if let runtimeLaunch {
                 do { try runtimeLaunch.publish() }
                 catch {
@@ -2839,7 +2839,7 @@ struct ContentView: View {
             // freezing a thread that holds the malloc lock or FEX's CodeInvalidationMutex
             // can deadlock whoever suspended it. Windows apps tolerate preemptive suspend
             // because the suspender does not share their heap; here it does.
-            if let txt = MadeiraConfig.get("real-suspend") {
+            if getenv("_MADEIRA_GAME_REAL_SUSPEND") == nil, let txt = MadeiraConfig.get("real-suspend") {
                 let v = txt.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !v.isEmpty {
                     setenv("MADEIRA_REAL_SUSPEND", v, 1)

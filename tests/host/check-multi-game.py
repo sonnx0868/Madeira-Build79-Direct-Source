@@ -129,6 +129,8 @@ struct LibraryEntry {
     var launchRelativePath: String
     var cpuTranslationBudget: Int? = nil
     var cpuCacheMode: String? = nil
+    var swapMB: Int? = nil
+    var realSuspend: Bool? = nil
 }
 enum MadeiraConfig { static func get(_ key: String) -> String? { nil } }
 enum LibraryModel { static var drive = URL(fileURLWithPath: "/") }
@@ -148,6 +150,10 @@ let plain = routeDrive.appendingPathComponent("PlainGame/lib/windows-x86_64")
 try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
 try Data().write(to: plain.appendingPathComponent("unrelated.dll"))
 assert(!RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", swapMB: 0)))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", swapMB: 4096)))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", realSuspend: false)))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", realSuspend: true)))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", cpuTranslationBudget: 512)))
 try Data().write(to: routeDrive.appendingPathComponent("PlainGame/UnityPlayer.dll"))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
