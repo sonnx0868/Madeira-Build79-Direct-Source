@@ -30,7 +30,11 @@ final class SessionPollFixture {
 }
 let tracking = "madeira-fixture-tracking"
 let mode = CFStringCreateWithCString(nil, tracking, CFStringBuiltInEncodings.UTF8.rawValue)!
+#if canImport(Darwin)
+CFRunLoopAddCommonMode(CFRunLoopGetMain(), CFRunLoopMode(rawValue: mode))
+#else
 CFRunLoopAddCommonMode(CFRunLoopGetMain(), mode)
+#endif
 let session = SessionPollFixture()
 session.begin()
 let limit = Date().addingTimeInterval(2)
