@@ -143,8 +143,10 @@ struct LibraryAccessView: View {
 final class LibraryPrivacyShield {
     static let shared = LibraryPrivacyShield()
     private var windows: [UIWindow] = []
+    private var revision = 0
     func cover() {
         guard LibraryAccess.shared.guarded else { return }
+        revision += 1
         if windows.isEmpty {
             for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
                 let window = UIWindow(windowScene: scene)
@@ -158,7 +160,22 @@ final class LibraryPrivacyShield {
     }
     func refresh() {
         if LibraryAccess.shared.protectedSurface { cover() }
-        else { for window in windows { window.isHidden = true } }
+        else {
+            revision += 1
+            let token = revision
+            if LibraryAccess.shared.unlocked {
+                for window in windows { window.isHidden = true }
+            } else {
+                // Let SwiftUI finish dismissing details sheets before exposing
+                // the public library after an automatic lock/foreground return.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, self.revision == token,
+                          UIApplication.shared.applicationState == .active,
+                          !LibraryAccess.shared.protectedSurface else { return }
+                    for window in self.windows { window.isHidden = true }
+                }
+            }
+        }
     }
 }
 
