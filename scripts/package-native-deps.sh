@@ -47,6 +47,7 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/xtajit64.dll \
   app/Madeira/translation-lab \
   app/Madeira/aarch64-windows/madeira-session-host.exe \
+  app/Madeira/aarch64-windows/ntdll.dll \
   app/Madeira/arm64ec-windows/dock-notices.txt \
   app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html \
   app/Madeira/licenses/Mesa-license.rst \
