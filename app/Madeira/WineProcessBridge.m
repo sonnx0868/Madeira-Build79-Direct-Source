@@ -554,6 +554,40 @@ static int madeira_angle_route_allowed(void) {
     return !backend || !strcmp(backend, "auto") || !strcmp(backend, "angle");
 }
 
+static void madeira_prepare_renpy_renderer(void) {
+    // Renderer preferences override Ren'Py's persistent selection without
+    // editing scripts, environment.txt or save data. Clear only our previous
+    // automatic value when another game starts; explicit choices win.
+    const char *automatic = getenv("_MADEIRA_RENPY_AUTO_RENDERER");
+    const char *current = getenv("RENPY_RENDERER");
+    if (automatic && current && !strcmp(automatic, current)) unsetenv("RENPY_RENDERER");
+    unsetenv("_MADEIRA_RENPY_AUTO_RENDERER");
+    char configured[64];
+    if (madeira_cfg_get("env.RENPY_RENDERER", configured, sizeof(configured))) {
+        setenv("RENPY_RENDERER", configured, 1);
+        return;
+    }
+    const char *mode = getenv("_MADEIRA_OPENGL_ANGLE_MODE");
+    if (!mode || strcmp(mode, "renpy") || !madeira_cfg_bool("env.MADEIRA_RENPY_RENDERER", 1)) return;
+    if (getenv("RENPY_RENDERER")) return;
+    const char *backend = getenv("MADEIRA_GL_BACKEND");
+    const char *renderer;
+    if (backend && !strcmp(backend, "zink")) renderer = "gl2";
+    else if (backend && !strcmp(backend, "gles")) renderer = "gles2";
+    else if (getenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV")) renderer = "angle2";
+    else {
+        // ANGLE is absent or explicitly disabled. Ren'Py supports native
+        // GLES as well; do not retry the faulting desktop OSMesa probe.
+        setenv("MADEIRA_GL_BACKEND", "gles", 1);
+        setenv("SDL_OPENGL_ES_DRIVER", "0", 1);
+        renderer = "gles2";
+    }
+    setenv("RENPY_RENDERER", renderer, 1);
+    setenv("_MADEIRA_RENPY_AUTO_RENDERER", renderer, 1);
+    fprintf(stderr, "[renpy-renderer] renpy-renderer-v1 renderer=%s backend=%s\n", renderer,
+            getenv("MADEIRA_GL_BACKEND") ?: "auto");
+}
+
 /* Re-applied between child games without rewriting live registry/DLL farms. */
 void wine_prepare_game_compatibility(void) {
     madeira_prepare_opengl_backend();
@@ -576,6 +610,7 @@ void wine_prepare_game_compatibility(void) {
             setenv("_MADEIRA_OPENGL_ANGLE_AUTO_ENV", "1", 1);
         }
     }
+    madeira_prepare_renpy_renderer();
     NSString *gc64 = [bundle stringByAppendingPathComponent:@"arm64ec-windows/lua51-gc64.dll"];
     if (getenv("_MADEIRA_LUA51_GC64") && [[NSFileManager defaultManager] fileExistsAtPath:gc64])
         setenv("_MADEIRA_LUA51_GC64_PATH", gc64.UTF8String, 1);
@@ -1507,6 +1542,8 @@ static void *wine_process_thread(void *arg) {
                     }
                 }
             }
+
+            madeira_prepare_renpy_renderer();
 
             /* Madeira Dock has its own session UI and controller transport. Its
              * launch profile marks the injected Valve overlay off by default;

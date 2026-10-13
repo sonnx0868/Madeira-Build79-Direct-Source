@@ -600,6 +600,39 @@ enum UnityLaunch {
 /// renderer Madeira implements and reports third-party launch layers that may
 /// behave differently from the original game.
 enum ExternalGameCompatibility {
+    private static let strictMemory = [("FEX_TSOENABLED", "1"), ("FEX_VECTORTSOENABLED", "1"),
+        ("FEX_MEMCPYSETTSOENABLED", "1"), ("FEX_HALFBARRIERTSOENABLED", "0"),
+        ("FEX_STRICTINPROCESSSPLITLOCKS", "1"), ("MADEIRA_REAL_SUSPEND", "1")]
+
+    private static func clearStrictMemory() {
+        for (key, _) in strictMemory {
+            let marker = "_MADEIRA_IL2CPP_AUTO_" + key
+            if let automatic = getenv(marker), let current = getenv(key),
+               strcmp(automatic, current) == 0 { unsetenv(key) }
+            unsetenv(marker)
+        }
+    }
+
+    private static func prepareStrictMemory(_ directory: URL, identity: String) -> Bool {
+        guard identity.contains("replaced"),
+              FileManager.default.fileExists(atPath: directory.appendingPathComponent("GameAssembly.dll").path),
+              MadeiraConfig.flag("MADEIRA_IL2CPP_STRICT_MEMORY") else { return false }
+        // Replaced 619 loads an odd klass pointer, so its vtable read starts
+        // one byte late. Both IL2CPP workers run while SuspendThread only
+        // snapshots/resumes them. Keep real suspend holds across GC work and
+        // preserve x64 ordering for vector/REP pointer copies. The pointer
+        // writer and real-device behavior still need validation.
+        for (key, value) in strictMemory {
+            if MadeiraConfig.get("env." + key) == nil, getenv(key) == nil {
+                setenv(key, value, 1)
+                setenv("_MADEIRA_IL2CPP_AUTO_" + key, value, 1)
+            }
+        }
+        fputs("[il2cpp-memory] strict-memory-v1 " + strictMemory.map {
+            "\($0.0)=\(MadeiraConfig.get("env." + $0.0) ?? getenv($0.0).map { String(cString: $0) } ?? "default")"
+        }.joined(separator: " ") + "\n", stderr)
+        return true
+    }
     private struct WindowsRuntime {
         var hasSDL = false
         var hasLove = false
@@ -657,6 +690,7 @@ enum ExternalGameCompatibility {
     }
 
     static func prepare(_ entry: LibraryEntry) -> [String] {
+        clearStrictMemory()
         unsetenv("_MADEIRA_OPENGL_ANGLE_MODE")
         unsetenv("_MADEIRA_LUA51_GC64")
         guard entry.desktop != true else { return [] }
@@ -667,11 +701,17 @@ enum ExternalGameCompatibility {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let drive = docs.appendingPathComponent("wine/drive_c", isDirectory: true)
         let runtime = windowsRuntime(entry, drive: drive)
-        if let engine = GameEngineDetection.detect(drive.appendingPathComponent(entry.launchRelativePath)) {
+        let detectedEngine = GameEngineDetection.detect(drive.appendingPathComponent(entry.launchRelativePath))
+        if let engine = detectedEngine {
             fputs("[game-engine] detected=\(engine)\n", stderr)
         }
         let loveRuntime = runtime.hasLove || balatro
-        if (runtime.hasSDL || loveRuntime) && MadeiraConfig.flag("MADEIRA_OPENGL_ANGLE") {
+        if detectedEngine == "Ren'Py", MadeiraConfig.flag("MADEIRA_RENPY_RENDERER") {
+            // Ren'Py's DLLs live two levels below the launcher. Its desktop
+            // gl2 default never requests SDL's GLES/ANGLE route on its own.
+            setenv("_MADEIRA_OPENGL_ANGLE_MODE", "renpy", 1)
+            applied.append("renpy-renderer")
+        } else if (runtime.hasSDL || loveRuntime) && MadeiraConfig.flag("MADEIRA_OPENGL_ANGLE") {
             setenv("_MADEIRA_OPENGL_ANGLE_MODE", loveRuntime ? "love" : "sdl", 1)
             applied.append(loveRuntime ? "angle-gles-love" : "angle-gles-sdl")
             fputs("[opengl-angle] detected mode=\(loveRuntime ? "love" : "sdl") route=GLES->ANGLE-D3D11->DXMT-Metal\n", stderr)
@@ -690,6 +730,7 @@ enum ExternalGameCompatibility {
 
         let unityPlayer = directory.appendingPathComponent("UnityPlayer.dll")
         let unity = FileManager.default.fileExists(atPath: unityPlayer.path)
+        if unity, prepareStrictMemory(directory, identity: identity) { applied.append("il2cpp-strict-memory") }
         if unity, entry.steamAppID == nil, MadeiraConfig.flag("MADEIRA_UNITY_RESOLUTION") {
             // Unity builds its in-game resolution picker through DXGI, not
             // QueryDisplayConfig alone. The 64-bit DXMT default only exposes
@@ -810,7 +851,26 @@ final class LibraryModel: ObservableObject {
     static var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
     static var drive: URL { documents.appendingPathComponent("wine/drive_c", isDirectory: true).resolvingSymlinksInPath() }
     @Published var enabled = false
-    @Published var entries: [LibraryEntry] = []
+    @Published var entries: [LibraryEntry] = [] {
+        didSet { displayedEntriesCache = nil }
+    }
+    private var displayedEntriesCache: (search: String, sort: String, items: [LibraryEntry])?
+    func displayedEntries(search: String, sort: String) -> [LibraryEntry] {
+        if let hit = displayedEntriesCache, hit.search == search, hit.sort == sort { return hit.items }
+        let visible = entries.filter { $0.desktop != true && $0.steamAppID == nil &&
+            (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)) }
+        let items: [LibraryEntry]
+        if sort == "added" { items = Array(visible.reversed()) }
+        else {
+            items = visible.sorted {
+                if sort == "played", $0.lastPlayed != $1.lastPlayed { return ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+                if sort == "size", $0.folderBytes != $1.folderBytes { return ($0.folderBytes ?? -1) > ($1.folderBytes ?? -1) }
+                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
+        }
+        displayedEntriesCache = (search, sort, items)
+        return items
+    }
     @Published var current: UUID?
     @Published var activeEntry: LibraryEntry?
     @Published var menu = false {
@@ -1862,23 +1922,105 @@ enum SteamCatalog {
     static func hero(_ id: Int) -> URL? { URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(id)/library_hero.jpg") }
 }
 
+/// Shared by imported covers, Steam cards and ambient light. Disk reads and
+/// ImageIO decoding run on this actor, never in a SwiftUI body. Bound both
+/// decoded bitmap memory and encoded data, and coalesce concurrent requests.
+actor LibraryArtworkStore {
+    static let shared = LibraryArtworkStore()
+    private let images = NSCache<NSString, UIImage>()
+    private let dataCache = NSCache<NSURL, NSData>()
+    private var imageTasks: [String: Task<UIImage?, Never>] = [:]
+    private var dataTasks: [URL: Task<Data?, Never>] = [:]
+    private var failures: [URL: Date] = [:]
+    init() {
+        images.totalCostLimit = 64 * 1024 * 1024; images.countLimit = 128
+        dataCache.totalCostLimit = 16 * 1024 * 1024; dataCache.countLimit = 64
+    }
+    func image(_ url: URL, pixels: Int = 480) async -> UIImage? {
+        let pixels = min(1600, max(32, pixels))
+        let key = url.absoluteString + "#" + String(pixels)
+        if let hit = images.object(forKey: key as NSString) { return hit }
+        if let pending = imageTasks[key] { return await pending.value }
+        let task = Task { () -> UIImage? in
+            guard let data = await encoded(url),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let bitmap = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: pixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else { return nil }
+            return UIImage(cgImage: bitmap)
+        }
+        imageTasks[key] = task
+        let image = await task.value
+        imageTasks.removeValue(forKey: key)
+        if let image, let bitmap = image.cgImage {
+            images.setObject(image, forKey: key as NSString, cost: bitmap.bytesPerRow * bitmap.height)
+        }
+        return image
+    }
+    private func encoded(_ url: URL) async -> Data? {
+        if let hit = dataCache.object(forKey: url as NSURL) { return hit as Data }
+        if let expiry = failures[url], expiry > Date() { return nil }
+        if let pending = dataTasks[url] { return await pending.value }
+        let task = Task { () -> Data? in
+            let limit = 8 * 1024 * 1024
+            if url.isFileURL {
+                guard let stream = try? FileHandle(forReadingFrom: url) else { return nil }
+                defer { try? stream.close() }
+                guard let data = try? stream.read(upToCount: limit + 1), data.count <= limit else { return nil }
+                return data
+            }
+            guard url.scheme == "https" else { return nil }
+            var request = URLRequest(url: url); request.timeoutInterval = 20
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200, data.count <= limit else { return nil }
+            return data
+        }
+        dataTasks[url] = task
+        let data = await task.value
+        dataTasks.removeValue(forKey: url)
+        if let data { dataCache.setObject(data as NSData, forKey: url as NSURL, cost: data.count) }
+        else {
+            if failures.count >= 256 { failures = failures.filter { $0.value > Date() }; if failures.count >= 256 { failures.removeAll() } }
+            failures[url] = Date().addingTimeInterval(30)
+        }
+        return data
+    }
+}
+
 struct LibraryArtwork: View {
     let entry: LibraryEntry
     var backdrop = false
+    @State private var loaded: UIImage?
+    private var sources: [URL] {
+        var urls: [URL] = []
+        if let name = entry.coverFile {
+            urls.append(LibraryModel.documents.appendingPathComponent("madeira-art/" + URL(fileURLWithPath: name).lastPathComponent))
+        }
+        if let id = entry.steamID ?? entry.steamAppID,
+           let url = backdrop ? SteamCatalog.hero(id) : SteamCatalog.cover(id) { urls.append(url) }
+        return urls
+    }
     var body: some View {
         GeometryReader { geometry in
         ZStack {
             Color(uiColor: .secondarySystemFill)
             Image(systemName: entry.desktop == true ? "desktopcomputer" : "gamecontroller.fill").font(.largeTitle).foregroundStyle(.secondary)
-            if let name = entry.coverFile,
-               let image = UIImage(contentsOfFile: LibraryModel.documents.appendingPathComponent("madeira-art/" + URL(fileURLWithPath: name).lastPathComponent).path) {
+            if let image = loaded {
                 Image(uiImage: image).resizable().scaledToFill()
                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center).clipped()
-            } else if let id = entry.steamID ?? entry.steamAppID {   // a store match, else the Steam game itself
-                AsyncImage(url: backdrop ? SteamCatalog.hero(id) : SteamCatalog.cover(id)) { image in
-                    image.resizable().scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center).clipped()
-                } placeholder: { Color.clear }
+            }
+        }
+        .task(id: sources) {
+            loaded = nil
+            for source in sources {
+                guard !Task.isCancelled else { return }
+                let image = await LibraryArtworkStore.shared.image(source, pixels: backdrop ? 1600 : 480)
+                if let image {
+                    if !Task.isCancelled { loaded = image }
+                    return
+                }
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -1889,6 +2031,22 @@ struct LibraryArtwork: View {
 
 /// A pseudo-random sequence from a seed (SplitMix64), so each card's "movie" is its own
 /// but stays the same for the whole run.
+private struct LibraryScrollingKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var libraryScrolling: Bool {
+        get { self[LibraryScrollingKey.self] }
+        set { self[LibraryScrollingKey.self] = newValue }
+    }
+}
+private struct LibraryScrollActivity: ViewModifier {
+    @Binding var active: Bool
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, phase in active = phase.isScrolling }
+        } else { content }
+    }
+}
+
 struct AmbientRandom {
     private var state: UInt64
     init(seed: Int) { state = UInt64(bitPattern: Int64(seed)) &+ 0x9E37_79B9_7F4A_7C15 }
@@ -2058,6 +2216,8 @@ struct AmbientGlow: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @Environment(\.libraryScrolling) private var libraryScrolling
+
     private func layer(_ angle: Double, _ mirror: Bool, frame: CGSize) -> some View {
         func art() -> some View {
             image.resizable().scaledToFill()
@@ -2088,7 +2248,7 @@ struct AmbientGlow: View {
         // A game that is not installed throws a fainter, less vivid light.
         let strength = (dark ? 0.92 : 0.8) * (dimmed ? 0.3 : 1)
         let plain = layer(0, false, frame: frame), turned = layer(180, false, frame: frame), mirrored = layer(0, true, frame: frame)
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || libraryScrolling)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let f = movie.frame(at: reduceMotion ? 0 : t)
             ZStack {
@@ -2172,14 +2332,18 @@ private struct AmbientGlowCard: View {
     @State private var image: UIImage?
     var body: some View {
         ZStack {
-            if let image = image ?? AmbientArtwork.cached(item.id) {
+            if let image = image ?? AmbientArtwork.cached(AmbientArtwork.key(item)) {
                 AmbientGlow(image: Image(uiImage: image), size: frame.size, seed: item.seed, dimmed: item.dimmed, pressed: item.pressed)
             } else {
                 Color.clear.frame(width: 1, height: 1)
             }
         }
         .position(x: frame.midX, y: frame.midY)
-        .task(id: item.id) { if image == nil { image = await AmbientArtwork.load(item) } }
+        .task(id: AmbientArtwork.key(item)) {
+            image = nil
+            let loaded = await AmbientArtwork.load(item)
+            if !Task.isCancelled { image = loaded }
+        }
     }
 }
 
@@ -2188,39 +2352,41 @@ private struct AmbientGlowCard: View {
 /// the full artwork.
 @MainActor
 enum AmbientArtwork {
-    private static let cache = NSCache<NSString, UIImage>()
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 8 * 1024 * 1024; cache.countLimit = 256
+        return cache
+    }()
+
+    static func key(_ item: AmbientGlowItem) -> String {
+        switch item.art {
+        case .steam: return item.id
+        case .library(let entry): return item.id + "#" + (entry.coverFile ?? "steam-\(entry.steamID ?? entry.steamAppID ?? 0)")
+        }
+    }
 
     static func cached(_ id: String) -> UIImage? { cache.object(forKey: id as NSString) }
 
     static func load(_ item: AmbientGlowItem) async -> UIImage? {
-        if let hit = cached(item.id) { return hit }
+        let key = key(item)
+        if let hit = cached(key) { return hit }
         var image: UIImage?
         switch item.art {
         case .steam(let appID):
             for url in SteamGamesRules.artwork(appID: appID, owned: { SteamOwnedLibrary.shared.game($0) }) {
-                if let found = await fetch(url) { image = found; break }
+                if let found = await LibraryArtworkStore.shared.image(url, pixels: 96) { image = found; break }
             }
         case .library(let entry):
             if let name = entry.coverFile {
-                image = UIImage(contentsOfFile: LibraryModel.documents
-                    .appendingPathComponent("madeira-art/" + URL(fileURLWithPath: name).lastPathComponent).path)
+                image = await LibraryArtworkStore.shared.image(LibraryModel.documents
+                    .appendingPathComponent("madeira-art/" + URL(fileURLWithPath: name).lastPathComponent), pixels: 96)
             } else if let id = entry.steamID ?? entry.steamAppID, let url = SteamCatalog.cover(id) {
-                image = await fetch(url)
+                image = await LibraryArtworkStore.shared.image(url, pixels: 96)
             }
         }
         guard let image, image.size.width > 0 else { return nil }
-        let size = CGSize(width: 96, height: (96 * image.size.height / image.size.width).rounded())
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let small = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        cache.setObject(small, forKey: item.id as NSString)
-        return small
-    }
-
-    private static func fetch(_ url: URL) async -> UIImage? {
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return UIImage(data: data)
+        if let bitmap = image.cgImage { cache.setObject(image, forKey: key as NSString, cost: bitmap.bytesPerRow * bitmap.height) }
+        return image
     }
 }
 
@@ -2447,6 +2613,7 @@ struct LibraryView: View {
     @State private var browser = false
     @State private var selected: LibraryEntry?
     @State private var search = ""
+    @State private var libraryScrolling = false
     /// The Settings tab's own search text, kept apart from the library's.
     @State private var settingsSearch = ""
     @State private var focused: UUID?
@@ -2466,14 +2633,7 @@ struct LibraryView: View {
     @ObservedObject private var steamGames = SteamGamesModel.shared
     @ObservedObject private var steamLibrary = SteamOwnedLibrary.shared
     private var entries: [LibraryEntry] {
-        // Steam games are listed in their own section (SteamGames.swift).
-        let visible = model.entries.filter { $0.desktop != true && $0.steamAppID == nil && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)) }
-        if sort == "added" { return visible.reversed() }
-        return visible.sorted {
-            if sort == "played", $0.lastPlayed != $1.lastPlayed { return ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
-            if sort == "size", $0.folderBytes != $1.folderBytes { return ($0.folderBytes ?? -1) > ($1.folderBytes ?? -1) }
-            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-        }
+        model.displayedEntries(search: search, sort: sort)
     }
     var body: some View {
         // The system tab bar: on iOS 26 it is the floating Liquid Glass bar whose
@@ -2724,6 +2884,8 @@ struct LibraryView: View {
             .padding(16).frame(maxWidth: 1100).frame(maxWidth: .infinity)
         }
         .refreshable { await SteamGamesSection.refresh() }
+        .modifier(LibraryScrollActivity(active: $libraryScrolling))
+        .environment(\.libraryScrolling, libraryScrolling)
         .onReceive(controller.commands) { command in
             guard tab == 0, selected == nil, !browser, !onboarding.presented else { return }
             let items = entries
@@ -2819,7 +2981,13 @@ struct LibraryView: View {
         }.libraryCardButtonStyle(grid: !list)
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(focused == entry.id && controller.connected ? Color.accentColor : .clear, lineWidth: 2))
             .id(entry.id)
-            .task(id: entry.id, priority: .utility) { await model.refreshMetadata(entry.id) }
+            .task(id: entry.id, priority: .utility) {
+                // Fast scrolling recycles cells before this delay expires.
+                // Do not start a directory walk for a card merely passed by.
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                guard !Task.isCancelled else { return }
+                await model.refreshMetadata(entry.id)
+            }
     }
 }
 
@@ -3277,7 +3445,10 @@ struct LibraryDetail: View {
                           let jpeg = UIImage(cgImage: thumbnail).jpegData(compressionQuality: 0.85) else { throw LibraryError.message("This image could not be opened.") }
                     let dir = LibraryModel.documents.appendingPathComponent("madeira-art", isDirectory: true)
                     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                    let name = entry.id.uuidString + ".jpg"; try jpeg.write(to: dir.appendingPathComponent(name), options: .atomic); entry.coverFile = name
+                    // A changed cover gets a new cache identity, including for
+                    // tasks belonging to cells that were recycled while scrolling.
+                    let name = entry.id.uuidString + "-" + UUID().uuidString + ".jpg"
+                    try jpeg.write(to: dir.appendingPathComponent(name), options: .atomic); entry.coverFile = name
                 } catch { self.error = error.localizedDescription }
             }
             .fileImporter(isPresented: $importInstaller,

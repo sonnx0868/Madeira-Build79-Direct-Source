@@ -76,6 +76,8 @@ fi
 checks() {
   python3 tests/host/check-version.py
   python3 tests/host/check-native-wrapper.py
+  python3 tests/host/check-renpy-renderer.py
+  python3 tests/host/check-native-dll-fallback.py
   python3 tests/host/check-bootstrap-resources.py
   python3 tests/host/check-cpu-cache.py
   python3 tests/host/check-cpu-aot-survey.py

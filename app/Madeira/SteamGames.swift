@@ -610,7 +610,7 @@ struct SteamGameArtwork: View {
     /// of the art for that glyph to sit on.
     var notDownloaded = false
     @ObservedObject private var steam = SteamOwnedLibrary.shared
-    @State private var index = 0
+    @State private var artwork: UIImage?
 
     var body: some View {
         let urls = SteamGamesRules.artwork(appID: appID) { steam.game($0) }
@@ -620,23 +620,26 @@ struct SteamGameArtwork: View {
                 if !notDownloaded {
                     Image(systemName: "gamecontroller.fill").font(.largeTitle).foregroundStyle(.secondary)
                 }
-                AsyncImage(url: index < urls.count ? urls[index] : nil) { phase in
-                    switch phase {
-                    case .success(let image):
+                if let artwork {
+                        let image = Image(uiImage: artwork)
                         image.resizable().scaledToFill()
                             .frame(width: geometry.size.width, height: geometry.size.height).clipped()
                             .overlay { if notDownloaded { SteamArtworkBlurSpot(image: image, size: geometry.size) } }
-                    case .failure:
-                        Color.clear.onAppear { if index + 1 < urls.count { index += 1 } }
-                    default:
-                        Color.clear
-                    }
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height).clipped()
         }
         .accessibilityHidden(true)
-        .task(id: appID) { index = 0 }
+        .task(id: urls) {
+            artwork = nil
+            for url in urls {
+                guard !Task.isCancelled else { return }
+                if let image = await LibraryArtworkStore.shared.image(url) {
+                    if !Task.isCancelled { artwork = image }
+                    return
+                }
+            }
+        }
     }
 }
 

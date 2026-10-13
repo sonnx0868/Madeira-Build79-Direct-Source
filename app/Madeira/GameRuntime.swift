@@ -7,10 +7,12 @@ enum RuntimeWire {
     static let keys = ["MADEIRA_EXE", "MADEIRA_ARGS", "MADEIRA_CPU_COUNT", "MADEIRA_SCREEN_W", "MADEIRA_SCREEN_H",
                        "MADEIRA_FOLDER_COMPAT", "MADEIRA_DINPUT_PAD", "MADEIRA_WORKDIR", "MADEIRA_DESKTOP",
                        "MADEIRA_FASTSYNC", "MADEIRA_FASTSYNC_SEM", "FEX_X87REDUCEDPRECISION", "DXMT_D9_ANISO_LIMIT",
+                       "FEX_TSOENABLED", "FEX_VECTORTSOENABLED", "FEX_MEMCPYSETTSOENABLED",
+                       "FEX_HALFBARRIERTSOENABLED", "FEX_STRICTINPROCESSSPLITLOCKS", "MADEIRA_REAL_SUSPEND",
                        "DXMT_WSI_MODE_TABLE", "DXMT_WSI_MONITOR_IDENTITY", "DXMT_CENSUS_THROTTLE",
                        "MADEIRA_SWAP_PRESSURE",
                        "MADEIRA_MIP_CLAMP_AUTO", "SDL_OPENGL_ES_DRIVER", "LOVE_GRAPHICS_USE_OPENGLES",
-                       "ANGLE_DEFAULT_PLATFORM", "WINEDLLOVERRIDES", "_MADEIRA_LUA51_GC64_PATH"]
+                       "ANGLE_DEFAULT_PLATFORM", "RENPY_RENDERER", "WINEDLLOVERRIDES", "_MADEIRA_LUA51_GC64_PATH"]
     struct Status {
         let generation: UInt64
         let state, rootPID, gamePID, exitCode, error, active: UInt32
@@ -69,7 +71,7 @@ struct RuntimeLaunch {
     let baseline: [String: String]
 
     func restoreEnvironment() {
-        for key in RuntimeWire.keys + ["_MADEIRA_OPENGL_ANGLE_MODE", "_MADEIRA_LUA51_GC64", "_MADEIRA_OPENGL_ANGLE_AUTO_ENV"] {
+        for key in RuntimeWire.keys + ["_MADEIRA_OPENGL_ANGLE_MODE", "_MADEIRA_LUA51_GC64", "_MADEIRA_OPENGL_ANGLE_AUTO_ENV", "_MADEIRA_RENPY_AUTO_RENDERER"] {
             if let value = baseline[key] { setenv(key, value, 1) } else { unsetenv(key) }
         }
     }
@@ -179,7 +181,7 @@ final class GameRuntime: ObservableObject {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
                 attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
             directory = folder
-            for key in RuntimeWire.keys + ["_MADEIRA_OPENGL_ANGLE_MODE", "_MADEIRA_LUA51_GC64", "_MADEIRA_OPENGL_ANGLE_AUTO_ENV"] {
+            for key in RuntimeWire.keys + ["_MADEIRA_OPENGL_ANGLE_MODE", "_MADEIRA_LUA51_GC64", "_MADEIRA_OPENGL_ANGLE_AUTO_ENV", "_MADEIRA_RENPY_AUTO_RENDERER"] {
                 if let value = getenv(key) { baseline[key] = String(cString: value) }
             }
             signature = backendSignature(entry)

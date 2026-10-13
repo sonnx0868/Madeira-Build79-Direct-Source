@@ -281,6 +281,32 @@ expect(env("_MADEIRA_LUA51_GC64") == "1", "Balatro selects the GC64 LuaJIT compa
 MadeiraConfig.values = ["env.MADEIRA_LUAJIT_GC64": "0"]; balatro.applyEnvironment()
 expect(env("_MADEIRA_LUA51_GC64") == nil, "Balatro GC64 compatibility has a kill switch")
 MadeiraConfig.values = [:]
+let compatDrive = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("wine/drive_c")
+let compatRelative = "Games/madeira-compat-" + UUID().uuidString
+let compatFolder = compatDrive.appendingPathComponent(compatRelative)
+try FileManager.default.createDirectory(at: compatFolder.appendingPathComponent("lib/py3-windows-x86_64"), withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: compatFolder) }
+try Data().write(to: compatFolder.appendingPathComponent("CrossRealms.exe"))
+try Data().write(to: compatFolder.appendingPathComponent("lib/py3-windows-x86_64/librenpython.dll"))
+let compatRenpy = LibraryEntry(title: "CrossRealms", relativePath: compatRelative + "/CrossRealms.exe", bits: 64)
+expect(ExternalGameCompatibility.prepare(compatRenpy).contains("renpy-renderer") && env("_MADEIRA_OPENGL_ANGLE_MODE") == "renpy", "nested RenPy DLLs select renderer route")
+MadeiraConfig.values = ["env.MADEIRA_RENPY_RENDERER": "0"]
+expect(!ExternalGameCompatibility.prepare(compatRenpy).contains("renpy-renderer"), "RenPy renderer policy opt-out")
+MadeiraConfig.values = [:]
+for file in ["UnityPlayer.dll", "GameAssembly.dll", "Replaced.exe"] { try Data().write(to: compatFolder.appendingPathComponent(file)) }
+let compatReplaced = LibraryEntry(title: "REPLACED", relativePath: compatRelative + "/Replaced.exe", bits: 64)
+expect(ExternalGameCompatibility.prepare(compatReplaced).contains("il2cpp-strict-memory"), "REPLACED IL2CPP strict memory policy")
+expect(env("FEX_VECTORTSOENABLED") == "1" && env("FEX_MEMCPYSETTSOENABLED") == "1" && env("FEX_HALFBARRIERTSOENABLED") == "0", "vector/REP ordering and safe unaligned path")
+expect(env("MADEIRA_REAL_SUSPEND") == "1", "REPLACED keeps native suspend holds instead of snapshot-only suspend")
+MadeiraConfig.values = ["env.FEX_VECTORTSOENABLED": "0"]
+_ = ExternalGameCompatibility.prepare(compatReplaced)
+expect(env("FEX_VECTORTSOENABLED") == nil, "explicit CPU config overrides strict profile")
+MadeiraConfig.values = ["env.MADEIRA_IL2CPP_STRICT_MEMORY": "0"]
+expect(!ExternalGameCompatibility.prepare(compatReplaced).contains("il2cpp-strict-memory") && env("FEX_MEMCPYSETTSOENABLED") == nil, "strict profile opt-out clears automatic values")
+MadeiraConfig.values = [:]
+_ = ExternalGameCompatibility.prepare(game)
+expect(env("FEX_STRICTINPROCESSSPLITLOCKS") == nil && env("MADEIRA_REAL_SUSPEND") == nil && env("_MADEIRA_OPENGL_ANGLE_MODE") == nil, "next game clears compatibility policies")
+
 // FPS limit: 30 needs DXMT's 30 FPS cap; without it a saved 30 runs as 60.
 game.fpsMode = 3; game.applyEnvironment()
 expect(vsync == 3, "30 FPS applied when DXMT has the cap")

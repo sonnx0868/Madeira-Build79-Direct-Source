@@ -49,6 +49,8 @@ done
 python3 "$root/tests/host/check-udp-control.py" --require-tools
 
 bash "$root/scripts/apply-wine-patches.sh"
+python3 "$root/tests/host/check-native-dll-fallback.py"
+python3 "$root/tests/host/check-renpy-renderer.py"
 
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tools/shader-compiler-identity.py" --root "$root" --check-source-inputs
@@ -102,6 +104,7 @@ fi
 make -C "$wine_ec" -j"$jobs" include/all tools/widl/all tools/winebuild/all
 
 log "Rebuild Wine controller PE bridge"
+WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-ntdll.sh"
 bash "$root/build/wine-pe/build-controller.sh"
 bash "$root/build/wine-pe/build-wintypes.sh"
 bash "$root/build/wine-pe/build-d3dcompiler.sh"

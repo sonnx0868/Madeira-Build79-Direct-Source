@@ -1,0 +1,45 @@
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -3942,20 +3942,21 @@
+     else if (!(status = RtlDosPathNameToNtPathName_U_WithStatus( libname, nt_name, NULL, NULL )))
+         status = open_dll_file( nt_name, pwm, mapping, image_info, id );
+ 
+     if (status == STATUS_NOT_SUPPORTED) status = STATUS_INVALID_IMAGE_FORMAT;
+ 
++#if defined(__arm64ec__) || defined(__aarch64__) || defined(_M_ARM64)
++    /* Each private PE loader retries its own architecture farm when the
++     * session system32 serves the other architecture. Ordinary successful
++     * searches and their application/PATH directory order are unchanged. */
++    if (status == STATUS_INVALID_IMAGE_FORMAT || status == STATUS_DLL_NOT_FOUND)
++    {
+ #ifdef __arm64ec__
+-    /* iOS-Madeira mixed-arch pseudo-processes: in a native-ARM64 session the
+-     * shared system32 farm serves ARM64 binaries for colliding names, which
+-     * an AMD64 child (running this EC ntdll privately) cannot load. Fall
+-     * back to C:\windows\sysx64, a farm of the full ARM64EC DLL set —
+-     * Windows' own SysWOW64 pattern. EC sessions' system32 already serves
+-     * EC binaries, so the retry only ever fires in mixed mode. */
+-    if (status == STATUS_INVALID_IMAGE_FORMAT || status == STATUS_DLL_NOT_FOUND)
+-    {
+         static const WCHAR sysx64W[] = L"\\??\\C:\\windows\\sysx64\\";
++#else
++        static const WCHAR sysx64W[] = L"\\??\\C:\\windows\\sysaa64\\";
++#endif
+         WCHAR buf[MAX_PATH];
+         UNICODE_STRING alt;
+         const WCHAR *base = libname, *p;
+         for (p = libname; *p; p++) if (*p == '\\' || *p == '/') base = p + 1;
+         if (wcslen( base ) + ARRAY_SIZE( sysx64W ) + 4 < MAX_PATH)
+@@ -3967,11 +3968,11 @@
+             if (!open_dll_file( &alt, pwm, mapping, image_info, id ))
+             {
+                 if (nt_name->Buffer) RtlFreeUnicodeString( nt_name );
+                 if (RtlCreateUnicodeString( nt_name, buf ))
+                 {
+-                    ERR( "mixed-arch fallback: %s -> %s\n", debugstr_w(libname), debugstr_w(buf) );
++                    ERR( "native-child-dll-fallback-v1: %s -> %s\n", debugstr_w(libname), debugstr_w(buf) );
+                     status = STATUS_SUCCESS;
+                 }
+                 else status = STATUS_NO_MEMORY;
+             }
+         }

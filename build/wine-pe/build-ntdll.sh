@@ -13,14 +13,19 @@ set -eu
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TC="$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin"
 export PATH="$TC:$PATH"
-B="$R/wine/build-arm64ec"
+ARCH="${WINE_PE_ARCH:-arm64ec}"
+case "$ARCH" in
+    arm64ec) B="$R/wine/build-arm64ec" ;;
+    aarch64) B="$R/wine/build-macos" ;;
+    *) echo "Unsupported ntdll architecture: $ARCH" >&2; exit 1 ;;
+esac
 if [ ! -f "$B/config.status" ]; then
-    mkdir -p "$B" && cd "$B" && ../configure --enable-archs=arm64ec --without-x --disable-tests --enable-winegstreamer
+    mkdir -p "$B" && cd "$B" && ../configure --enable-archs="$ARCH" --without-x --disable-tests --enable-winegstreamer
 fi
-cd "$B" && make -C dlls/ntdll
-SRC="$B/dlls/ntdll/arm64ec-windows/ntdll.dll"; OUT="$R/app/Madeira/arm64ec-windows/ntdll.dll"
+make -C "$B" -j"${JOBS:-4}" "dlls/ntdll/$ARCH-windows/ntdll.dll"
+SRC="$B/dlls/ntdll/$ARCH-windows/ntdll.dll"; OUT="$R/app/Madeira/$ARCH-windows/ntdll.dll"
 cp "$SRC" "$OUT.tmp"
-"$TC/arm64ec-w64-mingw32-strip" "$OUT.tmp"
+"$TC/$ARCH-w64-mingw32-strip" --strip-debug "$OUT.tmp"
 python3 - "$OUT.tmp" <<'PY'
 import struct, sys
 p = sys.argv[1]; d = open(p, 'rb').read()
