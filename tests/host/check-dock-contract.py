@@ -39,8 +39,10 @@ for name, text in [('MadeiraDock.swift', dock), ('MadeiraDockView.swift', view),
     literals = set(re.findall(r'"([^"\n]*?\.exe)\\?"', text)) | set(re.findall(r'\\"([^"\n]*?\.exe)\\"', text))
     names = {l.replace('/', '\\').split('\\')[-1].lower() for l in literals}
     # DockInstallers.swift checks the ".exe" suffix of install-script programs and whether the
-    # bundle has Windows Installer (msiexec.exe); it keys nothing on a program's name.
-    require(names <= {'dockhost.exe', 'explorer.exe', 'steam.exe', '.exe', 'msiexec.exe'}, f'{name}: no program-name list ({sorted(names)})')
+    # bundle has Windows Installer (msiexec.exe), starts Wine's services and opens
+    # winecfg for container setup; it keys nothing on a game's executable name.
+    require(names <= {'dockhost.exe', 'explorer.exe', 'steam.exe', '.exe', 'msiexec.exe',
+                      'services.exe', 'winecfg.exe'}, f'{name}: only generic Wine/Steam program names ({sorted(names)})')
     for line in text.splitlines():
         if re.search(r'SteamLog\.(event|trace)|LogStore|print\(|NSLog', line):
             require(re.search(r'\\\((account|token|signIn|secret|data|url|name)\b', line) is None,
@@ -83,7 +85,7 @@ if git.returncode == 0:
                               'app/Madeira/arm64ec-windows/dock-notices.txt'], capture_output=True, text=True).stdout.strip()
     require(tracked == '', 'no built Dock executable or notices are tracked')
     gitlink = subprocess.run(['git', '-C', str(root), 'ls-files', '-s', 'madeira-dock'], capture_output=True, text=True).stdout
-    require(gitlink.startswith('160000 0c5bbd1a854c4c63c47e074b72954aba5b36919d'), 'madeira-dock is pinned at 0c5bbd1')
+    require(gitlink.startswith('160000 3cadfbea700e4da4b04e331dd7ef1ba633dfacef'), 'madeira-dock is pinned at 3cadfbe')
 else:
     print('SKIP: not a usable git checkout here; tracked-binary and submodule-pin checks not run')
 
