@@ -456,6 +456,7 @@ static BOOL init_window_call_params( struct win_proc_params *params, HWND hwnd, 
                                      LPARAM lParam, BOOL ansi, enum wm_char_mapping mapping )
 {
     BOOL is_dialog;
+    WNDPROC class_proc;
     WND *win;
 
     user_check_not_lock();
@@ -464,6 +465,7 @@ static BOOL init_window_call_params( struct win_proc_params *params, HWND hwnd, 
     if (!(win = get_win_ptr( hwnd ))) return FALSE;
     if (win == WND_OTHER_PROCESS || win == WND_DESKTOP) return FALSE;
     params->func = win->winproc;
+    class_proc = get_class_winproc( win->class );
     params->ansi_dst = !(win->flags & WIN_ISUNICODE);
     is_dialog = win->dlgInfo != NULL;
     release_win_ptr( win );
@@ -490,6 +492,22 @@ static BOOL init_window_call_params( struct win_proc_params *params, HWND hwnd, 
     params->mapping = mapping;
     params->dpi_context = get_window_dpi_awareness_context( params->hwnd );
     get_winproc_params( params, !is_dialog );
+    {
+        WNDPROC selected = params->ansi_dst ? params->procA : params->procW;
+        const char *mode = getenv( "_MADEIRA_OPENGL_ANGLE_MODE" );
+        BOOL invalid = selected != (WNDPROC)1 &&
+                       ((ULONG_PTR)selected < 0x10000 || (ULONG_PTR)selected >> 16 == 0xffff);
+        static unsigned int bad_reported, renpy_reported;
+        BOOL report = invalid ? __atomic_fetch_add( &bad_reported, 1, __ATOMIC_RELAXED ) < 16 :
+                      mode && !strcmp( mode, "renpy" ) &&
+                      __atomic_fetch_add( &renpy_reported, 1, __ATOMIC_RELAXED ) < 16;
+        if (report)
+            fprintf( stderr, "[winproc-route-v1] pid=%04x tid=%04x peb=%p hwnd=%p msg=%04x "
+                     "func=%p class_proc=%p procA=%p procW=%p ansi=%d dst=%d dialog=%d invalid=%d\n",
+                     GetCurrentProcessId(), GetCurrentThreadId(), NtCurrentTeb()->Peb,
+                     params->hwnd, msg, params->func, class_proc, params->procA, params->procW,
+                     params->ansi, params->ansi_dst, is_dialog, invalid );
+    }
     return TRUE;
 }
 

@@ -127,8 +127,16 @@ for dll in d3dcompiler_47.dll wined3d.dll; do
 done
 
 if [[ -s "$root/app/Madeira/libwin32u_unix.a" ]]; then
+  grep -a -q 'winproc-route-v1' "$root/app/Madeira/libwin32u_unix.a" || {
+    echo "INVALID: libwin32u_unix.a lacks window procedure ownership diagnostics; rebuild source-bootstrap"; missing=1;
+  }
   nm -g "$root/app/Madeira/libwin32u_unix.a" 2>/dev/null | grep -q 'winios_drv_post_key_scan' || {
     echo "INVALID: libwin32u_unix.a predates the physical keyboard scan-code bridge"; missing=1;
+  }
+fi
+if [[ -s "$root/app/Madeira/arm64ec-windows/user32.dll" ]]; then
+  grep -a -q 'window-proc-validation-v1' "$root/app/Madeira/arm64ec-windows/user32.dll" || {
+    echo "INVALID: user32.dll lacks window procedure validation; rebuild source-bootstrap"; missing=1;
   }
 fi
 if [[ -s "$root/app/Madeira/libntdll_unix.a" ]]; then

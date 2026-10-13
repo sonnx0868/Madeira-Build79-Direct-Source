@@ -1,0 +1,25 @@
+diff --git a/dlls/user32/winproc.c b/dlls/user32/winproc.c
+--- a/dlls/user32/winproc.c
++++ b/dlls/user32/winproc.c
+@@ -103,6 +103,21 @@ static LRESULT call_window_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT
+ {
+     WNDPROC proc = arg;
+ 
++    /* A winproc handle must have been resolved before reaching this call.
++     * CrossRealms 621 reached the ARM64EC call checker with proc=0x3a.
++     * Reject invalid callbacks before the checker dereferences them; the
++     * diagnostic records the offending message without replacing its proc. */
++    if ((ULONG_PTR)proc < 0x10000 || (ULONG_PTR)proc >> 16 == 0xffff)
++    {
++        static LONG reported;
++        *result = 0;
++        SetLastError( ERROR_INVALID_FUNCTION );
++        if (InterlockedIncrement( &reported ) <= 16)
++            ERR( "window-proc-validation-v1 hwnd=%p msg=%04x proc=%p wp=%Ix lp=%Ix\n",
++                 hwnd, msg, proc, wp, lp );
++        return 0;
++    }
++
+     TRACE_(relay)( "\1Call window proc %p (hwnd=%p,msg=%s,wp=%08Ix,lp=%08Ix)\n",
+                    proc, hwnd, SPY_GetMsgName(msg, hwnd), wp, lp );
+ 
