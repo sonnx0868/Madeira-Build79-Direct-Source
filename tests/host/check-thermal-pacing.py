@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run production thermal hysteresis with changing temperature and user intent."""
+"""Run production thermal caps and immediate restoration at nominal."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -27,23 +27,26 @@ func mode(_ requested:Int32=1,_ thermal:Int=0,_ now:Double=0,
 assert(mode(0)==0 && mode(1)==1 && mode(2)==2 && mode(3)==3)
 assert(mode(0,1)==1 && mode(2,1)==1 && mode(3,1)==3)
 assert(mode(1,2,10)==3)
-assert(mode(2,0,11)==3) // cooling begins; RAW intent remains deferred
-assert(mode(2,0,70)==3)
+assert(mode(2,0,11)==2) // nominal restores RAW immediately
+assert(mode(2,0,70)==2)
 assert(mode(2,0,71)==2)
 assert(mode(0,3,100)==3)
-assert(mode(0,0,101)==3)
-assert(mode(0,1,140)==3) // reheating restarts the cooling interval
-assert(mode(0,0,141)==3 && mode(0,0,200)==3)
+assert(mode(0,0,101)==0)
+assert(mode(0,1,140)==1) // fair caps MAX at 60, not the previous hot 30
+assert(mode(0,0,141)==0 && mode(0,0,200)==0)
 assert(mode(0,0,201)==0)
 assert(mode(3,2,220)==3 && mode(3,0,230)==3 && mode(3,0,290)==3)
 assert(mode(2,2,300,enabled:false)==2) // opt-out is immediate
 assert(mode(2,0,301)==2)
-assert(mode(0,0,310,lowPower:true)==3)
+assert(mode(0,0,310,lowPower:true)==1)
+assert(mode(1,0,310,lowPower:true)==1)
+assert(mode(3,0,310,lowPower:true)==3) // explicit user 30 is preserved
 assert(mode(0,0,311)==0)
 policy=ThermalPacingPolicy()
 assert(mode(0,2,0,supported:false)==1) // mode 3 must never become an uncapped fallback
 assert(mode(3,0,60,enabled:false,supported:false)==1)
-print("PASS: thermal FPS caps, user intent, low power, 60 s cooling hysteresis, reheating, opt-out and unsupported backend")
+assert(mode(1,2,400)==3 && mode(1,0,401)==1)
+print("PASS: thermal FPS caps, immediate nominal restoration, low power preserves 60 FPS, explicit user 30, opt-out and unsupported backend")
 '''
 compiler=shutil.which('swiftc')
 if not compiler:

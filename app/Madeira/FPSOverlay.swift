@@ -2,29 +2,16 @@ import SwiftUI
 import UIKit
 import QuartzCore
 
-/// Hysteresis keeps a cooling cap from oscillating as iPadOS changes state.
-/// Mode 3 is 30 FPS; never raise a player's existing 30 FPS limit.
+/// Apply the current temperature without carrying a hot cap into nominal.
+/// Mode 3 is 30 FPS; preserve a player's explicit 30 FPS limit.
 struct ThermalPacingPolicy {
-    static let coolingSeconds = 60.0
-    private var hot = false
-    private var nominalSince: Double?
-
     mutating func mode(requested: Int32, thermal: Int, lowPower: Bool, enabled: Bool,
                        has30Cap: Bool, now: Double) -> Int32 {
         let requested = (0...3).contains(requested) ? requested : 1
         let base: Int32 = requested == 3 && !has30Cap ? 1 : requested
-        guard enabled else { hot = false; nominalSince = nil; return base }
-        if thermal >= 2 { hot = true; nominalSince = nil }
-        else if hot {
-            if thermal == 0 {
-                if nominalSince == nil { nominalSince = now }
-                if let since = nominalSince, now - since >= Self.coolingSeconds {
-                    hot = false; nominalSince = nil
-                }
-            } else { nominalSince = nil }
-        }
-        if hot || lowPower { return has30Cap ? 3 : 1 }
-        if thermal == 1 && (base == 0 || base == 2) { return 1 }
+        guard enabled else { return base }
+        if thermal >= 2 { return has30Cap ? 3 : 1 }
+        if (thermal == 1 || lowPower) && (base == 0 || base == 2) { return 1 }
         return base
     }
 }
@@ -88,7 +75,7 @@ final class ThermalPacingController {
             madeira_set_display_max_fps(Int32(ProMotionIntent.panelMaxFPS), 0)
         }
         GamepadInput.shared.setThermalPressure(enabled && running ? state : 0)
-        let report = "adaptive-cooling-v1 requested=\(requested) applied=\(applied) thermal=\(state) low-power=\(process.isLowPowerModeEnabled ? 1 : 0) enabled=\(enabled ? 1 : 0)"
+        let report = "adaptive-cooling-v1 nominal-restore-v2 requested=\(requested) applied=\(applied) thermal=\(state) low-power=\(process.isLowPowerModeEnabled ? 1 : 0) enabled=\(enabled ? 1 : 0)"
         if report != lastReport {
             lastReport = report
             LogStore.shared.log("[thermal-pacing] \(report)")

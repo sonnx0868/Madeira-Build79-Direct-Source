@@ -19,7 +19,13 @@ engines = (root / "app/Madeira/GameEngineDetection.swift").read_text(encoding="u
 error = diagnostics[diagnostics.index("enum SupportError"):diagnostics.index("enum DiagnosticContext")]
 snapshot = diagnostics[diagnostics.index("enum DiagnosticSnapshot"):diagnostics.index("@MainActor final class RemoteDiagnostics")]
 library = (root / "app/Madeira/Library.swift").read_text(encoding="utf-8")
-unity = library[library.index("enum UnityLaunch {"):library.index("enum ExternalGameCompatibility {")]
+start = library.index("enum UnityLaunch {")
+end = library.index("{", start) + 1
+depth = 1
+while depth:
+    depth += (library[end] == "{") - (library[end] == "}")
+    end += 1
+unity = library[start:end]
 fps = (root / "app/Madeira/FPSOverlay.swift").read_text(encoding="utf-8")
 rate_policy = fps[fps.index("    static func maxHz(for mode:"):fps.index("    /// Arms or releases the link")]
 display = "enum TestDisplayPolicy { static var panelMaxFPS = 120\n" + rate_policy + "}\n"
