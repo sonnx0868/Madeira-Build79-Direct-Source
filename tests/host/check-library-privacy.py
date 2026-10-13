@@ -52,8 +52,9 @@ final class Model {
     var entries: [LibraryEntry] = [] { didSet { displayedEntriesCache = nil } }
     var genres: [LibraryGenre] = [] { didSet { displayedEntriesCache = nil } }
     private var displayedEntriesCache: (search: String, sort: String, genre: UUID?, unlocked: Bool, items: [LibraryEntry])?
+    func persist(_ next: [LibraryEntry]) { entries = next }
 '''
-for signature in ('func isPrivate(', 'func isVisible(', 'func steamVisible(', 'func displayedEntries('):
+for signature in ('func isPrivate(', 'func isVisible(', 'func steamVisible(', 'func displayedEntries(', 'func removeSteam('):
     fixture += function(signature) + '\n'
 fixture += r'''
 }
@@ -86,6 +87,11 @@ let encoded=try JSONEncoder().encode(Document(version:1,entries:model.entries,ge
 let restored=try JSONDecoder().decode(Document.self,from:encoded)
 assert(restored.genres==model.genres && restored.entries[1].privateGame==true)
 assert(restored.entries[2].genreID==privateGroup.id)
+model.removeSteam(appID:123)
+assert(!model.steamVisible(123) && model.entries.first { $0.steamAppID==123 }?.relativePath==".steam-profiles/123")
+LibraryAccess.shared.unlocked=true
+assert(model.steamVisible(123))
+LibraryAccess.shared.unlocked=false
 assert(LibraryPIN.valid("123456") && !LibraryPIN.valid("12345") && !LibraryPIN.valid("１２３４５６"))
 let vector=try LibraryPIN.derive("password",salt:Data("salt".utf8),rounds:1)
 assert(vector.map { String(format:"%02x",$0) }.joined()=="120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b")

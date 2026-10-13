@@ -1157,7 +1157,19 @@ final class LibraryModel: ObservableObject {
     /// A Steam game was uninstalled: its entry goes with its files.
     func removeSteam(appID: Int) {
         guard entries.contains(where: { $0.steamAppID == appID }) else { return }
-        persist(entries.filter { $0.steamAppID != appID })
+        var next: [LibraryEntry] = []
+        for original in entries {
+            guard original.steamAppID == appID else { next.append(original); continue }
+            // Owned-but-uninstalled Steam cards remain in the catalog. Keep
+            // their visibility and genre so uninstall cannot reveal a title.
+            if isPrivate(original) || original.genreID != nil {
+                var profile = original
+                profile.relativePath = ".steam-profiles/\(appID)"
+                profile.folderBytes = nil
+                next.append(profile)
+            }
+        }
+        persist(next)
     }
     private func persist(_ next: [LibraryEntry], groups: [LibraryGenre]? = nil) {
         guard !readOnly else { return }
