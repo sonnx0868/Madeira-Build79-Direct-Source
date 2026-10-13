@@ -336,7 +336,10 @@ final class DockStartScreen: ObservableObject {
         case .none:
             break
         case .showGame:
-            if let window = decision.window { winios_set_game_window(window.hwnd) }
+            if let window = decision.window {
+                wine_presented_process_track(window.pid)
+                winios_set_game_window(window.hwnd)
+            }
             endHold(reason: "game-window")
             if model.launching { model.showGameView(reason: "game-window") }
             return
