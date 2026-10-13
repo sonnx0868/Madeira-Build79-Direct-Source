@@ -59,3 +59,6 @@ print("ntdll.dll: stripped %d + pad %d = %d bytes (SizeOfImage %d + 0x50000)"
       % (len(d), pad, final, soi))
 PY
 mv "$OUT.tmp" "$OUT"; ls -l "$OUT"
+if [ "$ARCH" = arm64ec ]; then
+    python3 "$R/tools/check-compatibility-binaries.py" --root "$R" --stamp-ntdll
+fi

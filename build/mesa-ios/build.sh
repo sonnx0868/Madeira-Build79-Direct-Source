@@ -85,5 +85,6 @@ install_name_tool -id @rpath/libOSMesa.dylib "$OUT/libOSMesa.dylib"
 xcrun -sdk iphoneos strip -x "$OUT/libOSMesa.dylib"
 cp "$SRC/docs/license.rst" "$R/app/Madeira/licenses/Mesa-license.rst"
 echo "$(basename "$SRC")" > "$OUT/libOSMesa.version"
+python3 "$R/tools/check-compatibility-binaries.py" --root "$R" --stamp-mesa
 shasum -a 256 "$OUT/libOSMesa.dylib" "$OUT/libMoltenVK.dylib" | shasum -a 256 | awk '{print $1}' > "$OUT/backend.version"
 ls -l "$OUT"

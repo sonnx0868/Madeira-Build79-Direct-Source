@@ -86,6 +86,7 @@ else
 fi
 
 checks() {
+  python3 tests/host/check-bcd-compatibility.py
   python3 tests/host/check-version.py
   python3 tests/host/check-native-wrapper.py
   python3 tests/host/check-renpy-renderer.py

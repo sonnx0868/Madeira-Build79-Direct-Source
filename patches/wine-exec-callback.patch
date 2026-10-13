@@ -1,0 +1,16 @@
+diff --git a/dlls/ntdll/signal_arm64ec.c b/dlls/ntdll/signal_arm64ec.c
+index 39425a5c9ab..4149cce4961 100644
+--- a/dlls/ntdll/signal_arm64ec.c
++++ b/dlls/ntdll/signal_arm64ec.c
+@@ -2224,6 +2224,11 @@ NTSTATUS SYSCALL_API NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SI
+             else if (pNotifyMemoryProtect
+                      && !ios_bulk_protect_suppressed( "cur-post", *addr_ptr, *size_ptr, new_prot ))
+                 pNotifyMemoryProtect( *addr_ptr, *size_ptr, new_prot, TRUE, st );
++            /* This early return must leave the callback too: InSyscallCallback
++             * left set makes every later memory call on the thread take the
++             * enter_syscall_callback() bypass, so the emulator is never told
++             * about its protections, allocations or frees again. */
++            leave_syscall_callback();
+             return st;
+         }
+     }

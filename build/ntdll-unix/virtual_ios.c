@@ -2905,21 +2905,31 @@ int ios_fast_footprint = 0;                    /* ml670: set when d3d11 loads */
  *
  * Each Wine "process" thread gets its own slot with its own TEB address.
  * Slot 0 is the default (backward compatible with ios_jit_teb_trampoline).
- * Max 256 slots in one 16KB page (256 * 16 = 4096, well within 0x4000).
+ * Use all 1024 slots in the reserved 16KB page (1024 * 16 = 0x4000).
  *
  * Usage: SEGV/Mach handler sets x17 = target_PC, PC = thread's trampoline.
  * Trampoline runs: loads x18 = thread's TEB, jumps to x17 = target PC.
  */
 void *ios_jit_teb_trampoline = NULL;  /* RX address of slot 0 trampoline (offset 8) */
 #define IOS_JIT_TRAMPOLINE_SIZE 16    /* Bytes per trampoline slot */
-#define IOS_JIT_MAX_SLOTS 256         /* Max threads with trampolines */
+/* From BCD 22e2b23: use the already reserved page without new memory.
+ * Allocation remains monotonic: a retired thread's trampoline may still be
+ * referenced, so reclaiming/reusing its slot would be unsafe. */
+#define IOS_JIT_MAX_SLOTS (0x4000 / IOS_JIT_TRAMPOLINE_SIZE)
 static volatile int32_t ios_jit_next_slot = 0;  /* Next slot to allocate */
 
 /* Allocate a per-thread trampoline slot. Returns slot index (0-based). */
 int ios_jit_alloc_trampoline_slot(void)
 {
     int slot = __sync_fetch_and_add(&ios_jit_next_slot, 1);
-    if (slot >= IOS_JIT_MAX_SLOTS) return 0;  /* fallback to slot 0 */
+    if (slot == 0)
+        dprintf(2, "[teb-slots-v1] slots=%d reserved=0x4000 lifetime-monotonic\n", IOS_JIT_MAX_SLOTS);
+    if (slot >= IOS_JIT_MAX_SLOTS)
+    {
+        if (slot == IOS_JIT_MAX_SLOTS)
+            dprintf(2, "[teb-slots-v1] exhausted; legacy slot-0 fallback risks TEB aliasing\n");
+        return 0;  /* Preserve the existing fallback; never recycle live slots. */
+    }
 
     /* Write trampoline code to this slot's RW view */
     if (ios_jit_rw_base_global)

@@ -16,6 +16,18 @@ else
     exit 1
 fi
 
+# Upstream ARM64EC execute-protect notifications must leave the callback on
+# the early return, including failed and cross-process requests.
+patch="$root/patches/wine-exec-callback.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine execute callback exit already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the execute callback exit patch" >&2
+    exit 1
+fi
+
 # Native ARM64 children of an ARM64EC session need the inverse DLL-farm
 # fallback in their own PE loader (before is_valid_binary rejects system32).
 patch="$root/patches/wine-native-child-dlls.patch"
