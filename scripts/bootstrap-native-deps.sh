@@ -52,6 +52,7 @@ bash "$root/scripts/apply-wine-patches.sh"
 python3 "$root/tests/host/check-native-dll-fallback.py"
 python3 "$root/tests/host/check-renpy-renderer.py"
 python3 "$root/tests/host/check-window-proc.py"
+python3 "$root/tests/host/check-user-object-generation.py"
 
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tools/shader-compiler-identity.py" --root "$root" --check-source-inputs

@@ -38,6 +38,16 @@ else
     exit 1
 fi
 
+patch="$root/patches/wine-user-object-generation.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine client user object generation tracking already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the user object generation patch" >&2
+    exit 1
+fi
+
 patch="$root/patches/wine-opengl-winios.patch"
 if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
     echo "Wine winios OpenGL patch already applied"

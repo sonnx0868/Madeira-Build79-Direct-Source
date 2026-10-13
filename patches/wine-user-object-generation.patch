@@ -1,0 +1,107 @@
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -37,7 +37,43 @@
+ #define USER_HANDLE_TO_INDEX(hwnd) ((LOWORD(hwnd) - FIRST_USER_HANDLE) >> 1)
+ #define USER_HANDLE_FROM_INDEX(index, generation) UlongToHandle( (index << 1) + FIRST_USER_HANDLE + (generation << 16) )
+ 
+-static void *client_objects[MAX_USER_HANDLES];
++/* iOS shares this Unix library across Wine pseudo-processes. The server can
++ * recycle a slot after an owner exits while a client pointer remains here.
++ * Never pair a new server generation with that old pointer. All accesses to
++ * these records are protected by user_lock, including allocation publication. */
++struct client_user_object
++{
++    void *ptr;
++    HANDLE handle;
++    DWORD pid;
++    unsigned short type;
++};
++static struct client_user_object client_objects[MAX_USER_HANDLES];
++
++static void publish_client_user_object( UINT index, HANDLE handle, unsigned short type, void *ptr )
++{
++    client_objects[index].ptr = ptr;
++    client_objects[index].handle = ptr ? handle : NULL;
++    client_objects[index].pid = ptr ? GetCurrentProcessId() : 0;
++    client_objects[index].type = ptr ? type : 0;
++}
++
++static void *find_client_user_object( UINT index, HANDLE handle, unsigned short type )
++{
++    const struct client_user_object *object = &client_objects[index];
++    static unsigned int reported;
++
++    if (!object->ptr) return NULL;
++    if (object->handle == handle && object->pid == GetCurrentProcessId() && object->type == type)
++        return object->ptr;
++
++    if (reported++ < 32)
++        ERR( "user-object-generation-v1 slot=%u requested=%p stored=%p type=%u/%u pid=%04x/%04x stale pointer rejected\n",
++             index, handle, object->handle, type, object->type, GetCurrentProcessId(), object->pid );
++    /* A server-owned window can still be queried via the existing remote /
++     * desktop paths; it must not be painted or destroyed through this slot. */
++    return type == NTUSER_OBJ_WINDOW ? OBJ_OTHER_PROCESS : NULL;
++}
+ 
+ #define SWP_AGG_NOGEOMETRYCHANGE \
+     (SWP_NOSIZE | SWP_NOCLIENTSIZE | SWP_NOZORDER)
+@@ -94,7 +130,9 @@
+         UINT index = USER_HANDLE_TO_INDEX( handle );
+ 
+         assert( index < MAX_USER_HANDLES );
+-        InterlockedExchangePointer( &client_objects[index], ptr );
++        user_lock();
++        publish_client_user_object( index, handle, type, ptr );
++        user_unlock();
+     }
+     return handle;
+ }
+@@ -207,7 +245,7 @@
+ 
+     if (!get_user_entry( handle, type, &entry, &handle )) ptr = NULL;
+     else if (entry.pid != GetCurrentProcessId()) ptr = OBJ_OTHER_PROCESS;
+-    else ptr = client_objects[index];
++    else ptr = find_client_user_object( index, handle, type );
+ 
+     if (!ptr || ptr == OBJ_OTHER_PROCESS) user_unlock();
+     return ptr;
+@@ -229,7 +267,8 @@
+         if (!get_user_entry_at( i, type, &entry, handle )) continue;
+         if (entry.pid != GetCurrentProcessId()) continue;
+         if (tid != -1 && entry.tid != tid) continue;
+-        return client_objects[i];
++        void *ptr = find_client_user_object( i, *handle, type );
++        if (ptr && ptr != OBJ_OTHER_PROCESS) return ptr;
+     }
+ 
+     return NULL;
+@@ -242,7 +281,8 @@
+ {
+     WORD index = USER_HANDLE_TO_INDEX(handle);
+     assert( index < MAX_USER_HANDLES );
+-    InterlockedExchangePointer( &client_objects[index], ptr );
++    if (!ptr && client_objects[index].handle != handle) return;
++    publish_client_user_object( index, handle, NTUSER_OBJ_WINDOW, ptr );
+ }
+ 
+ /***********************************************************************
+@@ -269,7 +309,8 @@
+             req->type = type;
+             req->handle = wine_server_user_handle( handle );
+             if (wine_server_call( req )) ptr = NULL;
+-            else InterlockedCompareExchangePointer( &client_objects[index], NULL, ptr );
++            else if (client_objects[index].ptr == ptr && client_objects[index].handle == handle)
++                publish_client_user_object( index, handle, type, NULL );
+         }
+         SERVER_END_REQ;
+         user_unlock();
+@@ -5221,7 +5262,7 @@
+         {
+             req->handle = wine_server_user_handle( hwnd );
+             wine_server_call( req );
+-            set_user_handle_ptr( hwnd, NULL );
++            set_user_handle_ptr( win->handle, NULL );
+         }
+         SERVER_END_REQ;
+         user_unlock();

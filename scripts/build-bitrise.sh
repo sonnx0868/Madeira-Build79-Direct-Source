@@ -6,7 +6,8 @@ mode="${1:-cached}"
 case "$mode" in
   cached) ipa=Madeira-v0.1.6-source.ipa ;;
   bootstrap) ipa=Madeira-v0.1.6-source-bootstrap.ipa ;;
-  *) echo 'Usage: build-bitrise.sh cached|bootstrap' >&2; exit 2 ;;
+  window-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh' >&2; exit 2 ;;
 esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +16,7 @@ if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
   echo 'Madeira requires an Apple Silicon macOS runner with Xcode.' >&2
   exit 1
 fi
-if [[ "$mode" = cached ]]; then
+if [[ "$mode" != bootstrap ]]; then
   : "${MADEIRA_NATIVE_DEPS_URL:?Set MADEIRA_NATIVE_DEPS_URL or run madeira-v016-bootstrap}"
   : "${MADEIRA_NATIVE_DEPS_SHA256:?Set MADEIRA_NATIVE_DEPS_SHA256}"
 fi
@@ -70,7 +71,13 @@ else
   timed wine-patches bash scripts/apply-wine-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  timed native-restore bash scripts/restore-native-deps.sh
+  if [[ "$mode" = window-refresh ]]; then
+    timed native-restore bash scripts/restore-native-deps.sh --refresh-window
+    timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
+    shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
+  else
+    timed native-restore bash scripts/restore-native-deps.sh
+  fi
 fi
 
 checks() {
@@ -79,11 +86,12 @@ checks() {
   python3 tests/host/check-renpy-renderer.py
   python3 tests/host/check-native-dll-fallback.py
   python3 tests/host/check-window-proc.py
+  python3 tests/host/check-user-object-generation.py
   python3 tests/host/check-bootstrap-resources.py
   python3 tests/host/check-cpu-cache.py
   python3 tests/host/check-cpu-aot-survey.py
   # Bootstrap runs these native fixtures before expensive dependency builds.
-  if [[ "$mode" = cached ]]; then
+  if [[ "$mode" != bootstrap ]]; then
     python3 tests/host/check-pipeline-cache.py
     python3 tests/host/check-shader-warmup.py
     python3 tests/host/check-renpy-startup.py
