@@ -420,7 +420,7 @@ struct LibraryEntry: Codable, Identifiable {
             setenv("MADEIRA_FASTSYNC_SEM", semaphoreFastPath == true ? "1" : "0", 1)
             fputs("[startup-sync] requested=\(mode) unity=\(unityProfile ? 1 : 0) configured=\(SyncEngine.current.rawValue)\n", stderr)
         }
-        madeira_set_vsync_locked(effectiveFPSMode)
+        ThermalPacingController.request(effectiveFPSMode)
         fputs("[frontend] launch profile applied\n", stderr)
         LogStore.shared.log("[display-shape] resolution=\(resolution) mode=\(displayMode.rawValue)")
     }
@@ -1286,7 +1286,7 @@ final class LibraryModel: ObservableObject {
         stickDirectionMode = entry.stickDirectionMode
         applyControllerMode()
         MetalHostView.shared.isHidden = false
-        ProMotionIntent.apply(mode: entry.effectiveFPSMode)
+        ThermalPacingController.request(entry.effectiveFPSMode)
         if remember { var played = entry; played.lastPlayed = Date(); save(played) }
         launchDismissLogged = false
         DockStartScreen.shared.begin(dock, at: launchStarted)
@@ -1398,8 +1398,7 @@ final class LibraryModel: ObservableObject {
     func setFPS(_ mode: Int) {
         fpsMode = mode
         let applied: Int32 = mode == 3 && !ProMotionIntent.has30Cap ? 1 : Int32(mode)
-        madeira_set_vsync_locked(applied)
-        ProMotionIntent.apply(mode: applied)
+        ThermalPacingController.request(applied)
         saveCurrentProfile()
     }
     func showMenu() {
@@ -3713,12 +3712,19 @@ struct StickDirectionChoice: View {
 
 struct FPSChoice: View {
     @Binding var mode: Int
+    @AppStorage("madeiraAdaptiveCooling") private var adaptiveCooling = true
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
         HStack { Text("FPS limit"); Spacer(); Picker("FPS limit", selection: $mode) {
             // 30 needs DXMT's 30 FPS cap (ProMotionIntent.has30Cap); a saved 30 stays selectable.
             if ProMotionIntent.has30Cap || mode == 3 { Text("30 FPS").tag(3) }
             Text("60 FPS").tag(1); Text("Display maximum").tag(0); Text("Uncapped").tag(2)
         }.labelsHidden().pickerStyle(.menu) }
+            Toggle("Reduce heat automatically", isOn: $adaptiveCooling)
+                .onChange(of: adaptiveCooling) { _, _ in ThermalPacingController.refresh() }
+            Text("Caps FPS while the device is hot, then restores your FPS limit after cooling.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 

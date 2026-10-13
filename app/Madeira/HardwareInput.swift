@@ -332,6 +332,38 @@ enum HardwareKeyMap {
     }
 }
 
+/// Globe is an action key: UIKit may omit its release, and a very short tap
+/// can fall between the game's keyboard polls. Keep one Escape edge alive
+/// for at least 80 ms and two presented frames, with a bounded fallback.
+struct GlobeEscapePulse {
+    static let duplicateWindow = 0.040
+    static let minimumHold = 0.080
+    static let maximumHold = 2.0
+    private(set) var active = false
+    private var lastPress = -Double.infinity
+    private var startedFrame: UInt64 = 0
+
+    mutating func press(at now: Double, frame: UInt64, focused: Bool) -> Bool {
+        guard focused, now.isFinite else { return false }
+        guard now < lastPress || now - lastPress >= Self.duplicateWindow else { return false }
+        lastPress = now
+        startedFrame = frame
+        active = true
+        return true
+    }
+
+    mutating func releaseIfReady(at now: Double, frame: UInt64, focused: Bool) -> Bool {
+        guard active else { return false }
+        let elapsed = now - lastPress
+        guard !focused || elapsed >= Self.maximumHold ||
+                (elapsed >= Self.minimumHold && frame >= startedFrame && frame - startedFrame >= 2) else { return false }
+        active = false
+        return true
+    }
+
+    mutating func cancel() { active = false }
+}
+
 /// The five buttons a mouse has, and their MOUSEEVENTF_* edges. X1 and X2 share
 /// one flag pair; mouseData (XBUTTON1/XBUTTON2) tells them apart.
 enum MouseButton: Int, CaseIterable, Comparable {
@@ -772,6 +804,8 @@ final class HardwareInput: ObservableObject {
 
     private var keys = FocusGate<HardwareKeyMap.Stroke>()
     private var keysPosted = HeldEdges<HardwareKeyMap.Stroke>()
+    private var globePulse = GlobeEscapePulse()
+    private var globeReleaseTimer: Timer?
     /// GCKeyboard and UIKit can report the same physical transition. Both run
     /// on main; suppress the second edge while retaining UIKit as a fallback
     /// on OS/device combinations whose GCKeyboard stream is empty.
@@ -987,6 +1021,7 @@ final class HardwareInput: ObservableObject {
     private func releaseAll(_ why: String) {
         let had = keysPosted.down.count + buttonsPosted.down.count
         keys.focusLost()
+        cancelGlobePulse()
         pendingButtons.removeAll()
         gameButtons.removeAll()
         buttonStreams.releaseHeld()
@@ -1025,7 +1060,7 @@ final class HardwareInput: ObservableObject {
         if !base && pointerLocked { setPointerLocked(false, byUs: false, why: "focus lost") }
         if keyboard != keyboardFocused {
             keyboardFocused = keyboard
-            if !keyboard { keys.focusLost() }
+            if !keyboard { keys.focusLost(); cancelGlobePulse() }
             syncKeys()
             log("keyboard focus: \(keyboard ? "program" : "elsewhere") (\(why))")
         }
@@ -1124,7 +1159,10 @@ final class HardwareInput: ObservableObject {
         }
         kb.handlerQueue = .main
         input.keyChangedHandler = { [weak self] _, _, code, pressed in
-            if code.rawValue == 669, pressed { self?.log("Globe -> Escape via=GCKeyboard") }
+            if code.rawValue == 669 {
+                self?.globeKey(pressed, source: "GCKeyboard")
+                return
+            }
             let usage = HardwareKeyMap.canonicalPressUsage(code.rawValue)
             self?.keyUsage(usage, pressed, source: "GCKeyboard")
         }
@@ -1138,6 +1176,7 @@ final class HardwareInput: ObservableObject {
     private func detachKeyboard() {
         // A key held while the keyboard's battery dies never sends its up.
         keys.reset()
+        cancelGlobePulse()
         lastKeyTransition.removeAll()
         syncKeys()
         keyboardConnected = GCKeyboard.coalesced != nil
@@ -1148,21 +1187,63 @@ final class HardwareInput: ObservableObject {
     /// UIKit physical-key fallback. MetalBackedView forwards presses here;
     /// callers use the return value to keep unknown keys in UIKit's pipeline.
     @discardableResult
-    func uikitKey(_ key: UIKey, _ pressed: Bool) -> Bool {
-        if key.keyCode.rawValue == 669, pressed { log("Globe -> Escape via=UIKit") }
+    func uikitKey(_ key: UIKey, _ pressed: Bool, repeated: Bool = false) -> Bool {
+        if key.keyCode.rawValue == 669 {
+            return globeKey(pressed, source: "UIKit", repeated: repeated)
+        }
         let usage = HardwareKeyMap.canonicalPressUsage(Int(key.keyCode.rawValue), characters: key.characters)
         return keyUsage(usage, pressed, source: "UIKit")
     }
 
     @discardableResult
     func uikitPressWithoutKey(type: Int, down: Bool) -> Bool {
-        // UIKit can deliver a cancel/menu press without a UIKey. It used to
-        // be logged and passed on without ever sending Escape to the game.
+        // Controller B can arrive as a UIKit menu/cancel press with no UIKey.
+        // Its Windows button is already delivered by XInput/DirectInput.
+        // Without a physical keyboard usage this is not an Escape key.
         if type == UIPress.PressType.menu.rawValue {
-            return keyUsage(0x29, down, source: "UIKit menu")
+            refreshFocus("UIKit menu press")
+            traceInputEdge("ignored ambiguous UIKit menu press down=\(down ? 1 : 0)")
+            return Self.enabled && baseFocused
         }
         traceInputEdge("UIKit press without key type=\(type) \(down ? "down" : "up")")
         return false
+    }
+
+    @discardableResult
+    private func globeKey(_ pressed: Bool, source: String, repeated: Bool = false) -> Bool {
+        guard Self.enabled else { return false }
+        guard pressed, !repeated else { return true }
+        if !keyboardConnected { keyboardConnected = true }
+        refreshFocus("Globe")
+        let wasActive = globePulse.active
+        guard globePulse.press(at: CACurrentMediaTime(), frame: madeira_frame_count(), focused: keyboardFocused) else {
+            return true
+        }
+        // A second genuine tap must produce a new edge even if the previous
+        // pulse is still waiting for a slow game frame. Keep physical Esc held.
+        if wasActive { syncKeys(includeGlobe: false) }
+        syncKeys()
+        log("Globe -> Escape action-pulse-v1 via=\(source) focus=1")
+        if globeReleaseTimer == nil {
+            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+                guard let self else { timer.invalidate(); return }
+                if self.globePulse.releaseIfReady(at: CACurrentMediaTime(), frame: madeira_frame_count(),
+                                                 focused: self.keyboardFocused) {
+                    timer.invalidate()
+                    self.globeReleaseTimer = nil
+                    self.syncKeys()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            globeReleaseTimer = timer
+        }
+        return true
+    }
+
+    private func cancelGlobePulse() {
+        globePulse.cancel()
+        globeReleaseTimer?.invalidate()
+        globeReleaseTimer = nil
     }
 
     @discardableResult
@@ -1201,8 +1282,11 @@ final class HardwareInput: ObservableObject {
         return true
     }
 
-    private func syncKeys() {
-        let edges = keysPosted.update(keys.wanted(focused: keyboardFocused))
+    private func syncKeys(includeGlobe: Bool = true) {
+        var wanted = keys.wanted(focused: keyboardFocused)
+        if includeGlobe, globePulse.active, keyboardFocused,
+           let escape = HardwareKeyMap.stroke(forHIDUsage: 0x29) { wanted.insert(escape) }
+        let edges = keysPosted.update(wanted)
         for key in edges.up { postKey(key, down: false) }
         for key in edges.down { postKey(key, down: true) }
     }

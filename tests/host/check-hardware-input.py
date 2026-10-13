@@ -569,7 +569,7 @@ check(cv.count('PointerFallback.install(on: self)') == 2, 'both MetalBackedView 
 check(cv.count('if HardwareInput.shared.handlesTyping { return }') == 2, 'text bridge stands aside for a hardware keyboard')
 check('override func pressesBegan(' in cv and 'override func pressesChanged(' in cv and
       'override func pressesEnded(' in cv and 'override func pressesCancelled(' in cv and
-      'HardwareInput.shared.uikitKey(key, down)' in cv,
+      'HardwareInput.shared.uikitKey(key, down, repeated: repeated)' in cv,
       'MetalBackedView supplies a UIKit physical-key fallback')
 check('HardwareInputSettings(open: pointerPanel)' in cv, 'settings row in the pointer panel')
 for key, default in (('sensMouse', '1.0'), ('ignoreTouchesWithMouse', 'true'), ('padRightStickMouse', 'false')):

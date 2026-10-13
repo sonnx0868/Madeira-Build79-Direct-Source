@@ -45,6 +45,10 @@ assert "guard !rawMotionLive else" in hardware
 assert "gcLive" not in hardware
 assert "characters: key.characters" in hardware
 assert "return HardwareInput.shared.uikitPressWithoutKey" in view
+menu_fallback = hardware.split("func uikitPressWithoutKey(", 1)[1].split("private func globeKey(", 1)[0]
+assert "keyUsage(0x29" not in menu_fallback  # Controller B/menu is not a keyboard Escape.
+assert "down: true, repeated: true" in view
+assert "globePulse.active" in hardware and "wanted.insert(escape)" in hardware
 assert "UIPress.PressType.menu.rawValue" in hardware
 assert 'why: "pointer-capture"' in hardware
 lock = hardware.split("enum PointerLock {", 1)[1].split("final class PointerHider", 1)[0]
@@ -195,7 +199,25 @@ assert(HardwareKeyMap.canonicalPressUsage(0, characters: "\u{1b}") == 0x29)
 assert(HardwareKeyMap.canonicalPressUsage(0, characters: "a") == 0)
 let escape = HardwareKeyMap.stroke(forHIDUsage: HardwareKeyMap.canonicalPressUsage(669))!
 assert(escape.vk == 0x1b && escape.scan == 0x01 && !escape.extended)
-print("PASS: production pointer geometry, single click edges, hit focus, capture/release and Globe mapping")
+var globe = GlobeEscapePulse()
+assert(!globe.press(at: 0, frame: 10, focused: false))
+assert(globe.press(at: 0, frame: 10, focused: true))
+assert(!globe.press(at: 0.010, frame: 10, focused: true)) // GC/UIKit duplicate
+assert(!globe.releaseIfReady(at: 0.020, frame: 12, focused: true)) // rapid tap still reaches polling
+assert(globe.releaseIfReady(at: 0.081, frame: 12, focused: true))
+assert(!globe.active)
+assert(globe.press(at: 1, frame: 20, focused: true))
+assert(!globe.releaseIfReady(at: 2.5, frame: 20, focused: true)) // retain during a 1.5 s save stall
+assert(globe.releaseIfReady(at: 2.6, frame: 22, focused: true))
+assert(globe.press(at: 3, frame: 30, focused: true))
+assert(globe.releaseIfReady(at: 5.001, frame: 30, focused: true)) // missing up/frames cannot stick
+assert(globe.press(at: 6, frame: 40, focused: true))
+assert(globe.releaseIfReady(at: 6.010, frame: 40, focused: false)) // sheet/text-field focus wins
+assert(globe.press(at: 7, frame: 50, focused: true))
+assert(globe.press(at: 7.050, frame: 50, focused: true)) // a new real tap can re-trigger
+globe.cancel()
+assert(!globe.active)
+print("PASS: production pointer geometry, capture/release, Globe duplicate/rapid/lost-up/save-stall handling and controller menu isolation")
 '''
 with tempfile.TemporaryDirectory(prefix="madeira-game-pointer-") as folder:
     source = Path(folder) / "main.swift"

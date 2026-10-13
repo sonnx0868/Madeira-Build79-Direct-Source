@@ -119,12 +119,12 @@ final class MetalBackedView: UIView {
     /// and de-duplicates this with GCKeyboard by HID usage, so forwarding both
     /// paths cannot type a key twice. Unknown keys stay in UIKit's responder
     /// chain (important for IME/text services).
-    private func hardwarePresses(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
+    private func hardwarePresses(_ presses: Set<UIPress>, down: Bool, repeated: Bool = false) -> Set<UIPress> {
         Set(presses.filter { press in
             guard let key = press.key else {
                 return HardwareInput.shared.uikitPressWithoutKey(type: press.type.rawValue, down: down)
             }
-            return HardwareInput.shared.uikitKey(key, down)
+            return HardwareInput.shared.uikitKey(key, down, repeated: repeated)
         })
     }
 
@@ -139,7 +139,7 @@ final class MetalBackedView: UIView {
     }
 
     override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        let remaining = presses.subtracting(hardwarePresses(presses, down: true))
+        let remaining = presses.subtracting(hardwarePresses(presses, down: true, repeated: true))
         if !remaining.isEmpty { super.pressesChanged(remaining, with: event) }
     }
 

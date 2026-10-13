@@ -29,6 +29,11 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <sys/sysctl.h>
+#include <sys/resource.h>
+#include <mach/mach.h>
+#include <mach/arm/thread_status.h>
+#include <mach/mach_time.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include "WineProcessBridge.h"
 #include "WineServerBridge.h"
@@ -41,6 +46,100 @@ _Thread_local jmp_buf wine_ios_exit_jmpbuf;
 _Thread_local volatile int wine_ios_exit_code = 0;
 _Thread_local pthread_t wine_ios_main_thread;
 _Thread_local int wine_ios_exit_initialized = 0;
+
+/* Passive app counters and live thread states. No thread_suspend, VM-map
+ * walk, code dump, guest pointer dereference or changes to save-file I/O. */
+extern int proc_pid_rusage(int pid, int flavor, void *buffer);
+extern uint64_t madeira_frame_count(void);
+static dispatch_queue_t stall_queue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("madeira.passive-stalls", DISPATCH_QUEUE_SERIAL); });
+    return queue;
+}
+static dispatch_source_t stall_timer;
+static unsigned stall_generation;
+
+static void stall_snapshot(double gap, const struct rusage_info_v4 *baseline, BOOL baselineValid) {
+    struct rusage_info_v4 usage = {0};
+    mach_timebase_info_data_t timebase;
+    mach_timebase_info(&timebase);
+    int status = baselineValid ? proc_pid_rusage(getpid(), 4, &usage) : -1;
+    double cpu = status ? -1 : (double)((usage.ri_user_time + usage.ri_system_time) -
+                         (baseline->ri_user_time + baseline->ri_system_time)) * timebase.numer / timebase.denom / 1e6;
+    fprintf(stderr, "[stall-sample-v1] scope=app no_present_ms=%.0f cpu_ms=%.1f read_KiB=%llu write_KiB=%llu pageins=%llu usage_rc=%d thermal=%ld\n",
+            gap * 1000, cpu,
+            (unsigned long long)(status ? 0 : (usage.ri_diskio_bytesread - baseline->ri_diskio_bytesread) / 1024),
+            (unsigned long long)(status ? 0 : (usage.ri_diskio_byteswritten - baseline->ri_diskio_byteswritten) / 1024),
+            (unsigned long long)(status ? 0 : usage.ri_pageins - baseline->ri_pageins), status,
+            (long)NSProcessInfo.processInfo.thermalState);
+    thread_act_array_t threads;
+    mach_msg_type_number_t count;
+    if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS) return;
+    struct { thread_t port; thread_basic_info_data_t basic; } top[3] = {{0}};
+    thread_t self = mach_thread_self();
+    for (unsigned i = 0; i < count; ++i) {
+        thread_basic_info_data_t info;
+        mach_msg_type_number_t size = THREAD_BASIC_INFO_COUNT;
+        if (threads[i] == self || thread_info(threads[i], THREAD_BASIC_INFO, (thread_info_t)&info, &size) != KERN_SUCCESS) continue;
+        for (unsigned j = 0; j < 3; ++j) {
+            if (top[j].port && info.cpu_usage <= top[j].basic.cpu_usage) continue;
+            for (unsigned k = 2; k > j; --k) top[k] = top[k - 1];
+            top[j].port = threads[i]; top[j].basic = info;
+            break;
+        }
+    }
+    for (unsigned i = 0; i < 3 && top[i].port; ++i) {
+        thread_extended_info_data_t ext = {0};
+        mach_msg_type_number_t size = THREAD_EXTENDED_INFO_COUNT;
+        thread_info(top[i].port, THREAD_EXTENDED_INFO, (thread_info_t)&ext, &size);
+        arm_thread_state64_t state = {0};
+        size = ARM_THREAD_STATE64_COUNT;
+        kern_return_t rc = thread_get_state(top[i].port, ARM_THREAD_STATE64, (thread_state_t)&state, &size);
+        fprintf(stderr, "[stall-thread-v1] name=%.48s cpu=%d state=%d holds=%d native_pc=%#llx state_rc=%d\n",
+                ext.pth_name, top[i].basic.cpu_usage, top[i].basic.run_state, top[i].basic.suspend_count,
+                (unsigned long long)(rc == KERN_SUCCESS ? arm_thread_state64_get_pc(state) : 0), rc);
+    }
+    for (unsigned i = 0; i < count; ++i) mach_port_deallocate(mach_task_self(), threads[i]);
+    mach_port_deallocate(mach_task_self(), self);
+    vm_deallocate(mach_task_self(), (vm_address_t)threads, count * sizeof(*threads));
+}
+
+void madeira_stall_monitor_end(void) {
+    dispatch_async(stall_queue(), ^{
+        ++stall_generation;
+        if (stall_timer) { dispatch_source_cancel(stall_timer); stall_timer = nil; }
+    });
+}
+
+void madeira_stall_monitor_begin(void) {
+    dispatch_async(stall_queue(), ^{
+        if (stall_timer) dispatch_source_cancel(stall_timer);
+        unsigned generation = ++stall_generation;
+        __block uint64_t frames = madeira_frame_count();
+        __block BOOL hasFrame = NO;
+        __block double changed = CACurrentMediaTime(), sampled = 0;
+        __block unsigned total = 0, inGap = 0;
+        __block struct rusage_info_v4 baseline = {0};
+        __block BOOL baselineValid = proc_pid_rusage(getpid(), 4, &baseline) == 0;
+        stall_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, stall_queue());
+        dispatch_source_set_timer(stall_timer, DISPATCH_TIME_NOW, NSEC_PER_SEC / 4, NSEC_PER_MSEC * 50);
+        dispatch_source_set_event_handler(stall_timer, ^{
+            if (generation != stall_generation || total >= 24) return;
+            uint64_t current = madeira_frame_count();
+            double now = CACurrentMediaTime();
+            if (current != frames) {
+                frames = current; changed = now; hasFrame = YES; inGap = 0;
+                baselineValid = proc_pid_rusage(getpid(), 4, &baseline) == 0;
+            } else if (hasFrame && now - changed >= 0.5 && now - sampled >= 0.5 && inGap < 2) {
+                sampled = now; ++total; ++inGap;
+                stall_snapshot(now - changed, &baseline, baselineValid);
+                if (total == 24) { dispatch_source_cancel(stall_timer); stall_timer = nil; }
+            }
+        });
+        dispatch_resume(stall_timer);
+    });
+}
 
 
 static os_log_t wine_proc_log(void) {

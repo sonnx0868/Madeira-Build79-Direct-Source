@@ -97,6 +97,7 @@ func winios_display_mode_changed(_ w: Int32, _ h: Int32) { published = (w, h) }
 var vsync: Int32 = -1
 func madeira_set_vsync_locked(_ mode: Int32) { vsync = mode }
 enum ProMotionIntent { static var has30Cap = true }
+enum ThermalPacingController { static func request(_ mode: Int32) { madeira_set_vsync_locked(mode) } }
 struct TouchControl: Codable, Equatable { var nx = 0.5 }
 enum ControlAction: Codable, Equatable, Hashable { case none }   // LibraryEntry.controllerBinds
 enum GamepadInput { static let keyboardMouseAvailable = true }   // LibraryEntry's per-game DirectInput choice

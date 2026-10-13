@@ -14,6 +14,9 @@ int wine_process_start(const char *prefix_path);
 
 // Check if Wine process is running
 int wine_process_is_running(void);
+// Bounded, passive snapshots during >=500 ms gaps after a game's first frame.
+void madeira_stall_monitor_begin(void);
+void madeira_stall_monitor_end(void);
 // Reject cached x64 session hosts before creating a persistent Wine engine.
 int wine_runtime_native_host_available(void);
 

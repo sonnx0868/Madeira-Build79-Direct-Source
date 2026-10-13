@@ -118,6 +118,21 @@ final class GamepadInput: @unchecked Sendable {
     private var controllers = [GCController?](repeating: nil, count: 4)
     private var profiles = [GCExtendedGamepad?](repeating: nil, count: 4)
     private var timer: DispatchSourceTimer?
+    private var pollingMilliseconds = 4
+    private var specialButtons = [UInt16](repeating: 0, count: 4)
+    private var specialButtonReports = 0
+    /// Event callbacks remain immediate; only redundant reconciliation polls
+    /// slow down under thermal pressure.
+    func setThermalPressure(_ level: Int) {
+        let period = level >= 2 ? 16 : level == 1 ? 8 : 4
+        queue.async { [self] in
+            guard pollingMilliseconds != period else { return }
+            pollingMilliseconds = period
+            timer?.cancel(); timer = nil
+            updateTimer()
+            sample()
+        }
+    }
     private var active = false
     private var touchState = TouchGamepadState()
     // A physical reservation must not impersonate touch input: keyboard/mouse
@@ -241,7 +256,7 @@ final class GamepadInput: @unchecked Sendable {
         if !needed { timer?.cancel(); timer = nil; return }
         guard timer == nil else { return }
         let source = DispatchSource.makeTimerSource(queue: queue)
-        source.schedule(deadline: .now(), repeating: .milliseconds(4), leeway: .milliseconds(1))
+        source.schedule(deadline: .now(), repeating: .milliseconds(pollingMilliseconds), leeway: .milliseconds(1))
         source.setEventHandler { [weak self] in self?.sample() }
         timer = source
         source.resume()
@@ -288,6 +303,14 @@ final class GamepadInput: @unchecked Sendable {
                     (pad.buttonB, 0x2000), (pad.buttonX, 0x4000), (pad.buttonY, 0x8000)
                 ]
                 for (button, mask) in buttons where button?.isPressed == true { state.buttons |= mask }
+                let special = state.buttons & 0x2010 // B and Start/Menu; no keyboard synthesis here.
+                if special != specialButtons[i] {
+                    specialButtons[i] = special
+                    if specialButtonReports < 64 {
+                        specialButtonReports += 1
+                        fputs("[controller-action] slot=\(i) B=\(special & 0x2000 != 0 ? 1 : 0) start=\(special & 0x10 != 0 ? 1 : 0) kbm=\(keyboardMouse != nil ? 1 : 0)\n", stderr)
+                    }
+                }
                 state.left_trigger = Self.trigger(pad.leftTrigger.value)
                 state.right_trigger = Self.trigger(pad.rightTrigger.value)
                 state.lx = Self.axis(pad.leftThumbstick.xAxis.value)

@@ -92,6 +92,7 @@ checks() {
   python3 tests/host/check-remote-support.py --require-swift
   python3 tests/host/check-frontend.py
   python3 tests/host/check-game-pointer.py --require-swift
+  python3 tests/host/check-thermal-pacing.py --require-swift
   python3 tests/host/check-runtime-profilers.py
   python3 tests/host/check-profile-display.py --require-objc
   python3 tests/host/check-engine-detection.py --require-swift

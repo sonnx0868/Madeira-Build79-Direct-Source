@@ -2,6 +2,101 @@ import SwiftUI
 import UIKit
 import QuartzCore
 
+/// Hysteresis keeps a cooling cap from oscillating as iPadOS changes state.
+/// Mode 3 is 30 FPS; never raise a player's existing 30 FPS limit.
+struct ThermalPacingPolicy {
+    static let coolingSeconds = 60.0
+    private var hot = false
+    private var nominalSince: Double?
+
+    mutating func mode(requested: Int32, thermal: Int, lowPower: Bool, enabled: Bool,
+                       has30Cap: Bool, now: Double) -> Int32 {
+        let requested = (0...3).contains(requested) ? requested : 1
+        let base: Int32 = requested == 3 && !has30Cap ? 1 : requested
+        guard enabled else { hot = false; nominalSince = nil; return base }
+        if thermal >= 2 { hot = true; nominalSince = nil }
+        else if hot {
+            if thermal == 0 {
+                if nominalSince == nil { nominalSince = now }
+                if let since = nominalSince, now - since >= Self.coolingSeconds {
+                    hot = false; nominalSince = nil
+                }
+            } else { nominalSince = nil }
+        }
+        if hot || lowPower { return has30Cap ? 3 : 1 }
+        if thermal == 1 && (base == 0 || base == 2) { return 1 }
+        return base
+    }
+}
+
+/// Receives user intent separately from the applied cap, so a cooling limit
+/// is never saved into the game's profile. All UIKit/display work is on main.
+final class ThermalPacingController {
+    static let shared = ThermalPacingController()
+    static let preferenceKey = "madeiraAdaptiveCooling"
+    private var policy = ThermalPacingPolicy()
+    private(set) var requested: Int32 = 1
+    private var hasRequest = false
+    private var timer: Timer?
+    private var observers: [NSObjectProtocol] = []
+    private var lastReport = ""
+
+    static func request(_ mode: Int32) {
+        if !Thread.isMainThread { DispatchQueue.main.async { request(mode) }; return }
+        shared.requested = mode
+        shared.hasRequest = true
+        shared.start()
+        shared.update()
+    }
+
+    static func refresh() {
+        if !Thread.isMainThread { DispatchQueue.main.async { refresh() }; return }
+        if !shared.hasRequest { shared.requested = madeira_get_vsync_locked(); shared.hasRequest = true }
+        shared.start()
+        shared.update()
+    }
+
+    private func start() {
+        if observers.isEmpty {
+            _ = ProcessInfo.processInfo.thermalState // Required before observing changes.
+            observers.append(NotificationCenter.default.addObserver(
+                forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.update() })
+            observers.append(NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.update() })
+        }
+        guard timer == nil else { return }
+        let value = Timer(timeInterval: 5, repeats: true) { [weak self] _ in self?.update() }
+        RunLoop.main.add(value, forMode: .common)
+        timer = value
+    }
+
+    private func update() {
+        let running = LibraryModel.shared.current != nil || wine_process_is_running() != 0
+        let enabled = (UserDefaults.standard.object(forKey: Self.preferenceKey) as? Bool) ?? true
+        let process = ProcessInfo.processInfo
+        let state = process.thermalState.rawValue
+        let applied = policy.mode(requested: requested, thermal: running ? state : 0,
+                                  lowPower: running && process.isLowPowerModeEnabled,
+                                  enabled: enabled && running, has30Cap: ProMotionIntent.has30Cap,
+                                  now: CACurrentMediaTime())
+        if madeira_get_vsync_locked() != applied { madeira_set_vsync_locked(applied) }
+        if running { ProMotionIntent.apply(mode: applied) }
+        else {
+            ProMotionIntent.shared.setActive(false)
+            madeira_set_display_max_fps(Int32(ProMotionIntent.panelMaxFPS), 0)
+        }
+        GamepadInput.shared.setThermalPressure(enabled && running ? state : 0)
+        let report = "adaptive-cooling-v1 requested=\(requested) applied=\(applied) thermal=\(state) low-power=\(process.isLowPowerModeEnabled ? 1 : 0) enabled=\(enabled ? 1 : 0)"
+        if report != lastReport {
+            lastReport = report
+            LogStore.shared.log("[thermal-pacing] \(report)")
+        }
+        if !running { timer?.invalidate(); timer = nil }
+    }
+}
+
 /// Frame-rate intent for the ProMotion panel. CAMetalLayer presents alone
 /// don't express one: iOS parks the display at 60Hz and only promotes on
 /// touch (observed 2026-07-05: MAX mode ran 60 except ~119 bursts while
@@ -207,10 +302,10 @@ struct FPSOverlay: View {
             .overlay(RoundedRectangle(cornerRadius: 4)
                 .stroke(pillColor, lineWidth: 1))
             .onTapGesture {
-                vsyncMode = Self.nextVsyncMode(vsyncMode)
+                let requested = Self.nextVsyncMode(ThermalPacingController.shared.requested)
+                ThermalPacingController.request(requested)
+                vsyncMode = madeira_get_vsync_locked()
                 fputs("[hud] tap fps-cap -> \(pillLabel(for: vsyncMode))\n", stderr)
-                madeira_set_vsync_locked(vsyncMode)
-                ProMotionIntent.apply(mode: vsyncMode)
             }
     }
 
@@ -286,7 +381,7 @@ struct FPSOverlay: View {
     private func pillLabel(for mode: Int32) -> String {
         switch mode {
         case 1: return "60"
-        case 3: return "30"
+        case 3: return ThermalPacingController.shared.requested == 3 ? "30" : "30 COOL"
         case 0: return "MAX(\(UIScreen.main.maximumFramesPerSecond))"
         default: return "RAW"
         }
@@ -318,7 +413,7 @@ struct FPSOverlay: View {
         samples = [(now, c)]
         presentCount = c
         vsyncMode = madeira_get_vsync_locked()
-        ProMotionIntent.apply(mode: vsyncMode)
+        ThermalPacingController.refresh()
 
         // 100ms sampling — keeps the buffer fresh
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in

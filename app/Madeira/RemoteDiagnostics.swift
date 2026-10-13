@@ -302,9 +302,15 @@ enum DiagnosticEvents {
     private static var lastFrames: UInt64 = 0
     private static var sessionStartFrames: UInt64 = 0
     static func phase(_ phase: String) {
+        if ["launch-failed", "quit-requested", "session-finished"].contains(phase) { madeira_stall_monitor_end() }
         LogStore.shared.log("[diagnostics] phase=\(phase) uptime=\(String(format: "%.3f", ProcessInfo.processInfo.systemUptime)) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
     }
     static func begin(_ entry: LibraryEntry) {
+        // Target the requested REPLACED load/save investigation. Ordinary
+        // game sessions keep their existing quiet diagnostics.
+        if entry.title.lowercased().contains("replaced") || entry.relativePath.lowercased().contains("replaced") {
+            madeira_stall_monitor_begin()
+        } else { madeira_stall_monitor_end() }
         LogStore.shared.recordTest(entry)
         sampledAt = Date(); lastFrames = madeira_frame_count()
         sessionStartFrames = lastFrames
