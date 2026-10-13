@@ -28,4 +28,12 @@ CAMetalLayer *madeira_display_layer_for_hwnd(void *hwnd);
 void winios_screen_size(int *w, int *h);
 void winios_display_mode_changed(int w, int h);
 
+// The client that is actually expanded into the direct game's Metal layer.
+// Snapshot only: UIKit never calls Wine window APIs. Coordinates are screen pixels.
+void madeira_input_surface_reset(void);
+int madeira_input_surface_rect(int *x, int *y, int *width, int *height);
+void madeira_input_surface_window_destroyed(unsigned long long hwnd);
+void madeira_input_surface_update(unsigned long long hwnd, int x, int y, int width, int height);
+int madeira_input_surface_tracks(unsigned long long hwnd);
+
 #endif

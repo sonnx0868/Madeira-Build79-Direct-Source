@@ -79,13 +79,16 @@ enum GameSurfaceLayout {
     /// A point in `bounds`'s coordinate space (a touch) in guest pixels for
     /// `mode`, clamped to the guest surface; a touch in Fill's cropped margin
     /// clamps to the nearest edge.
-    static func map(point: CGPoint, guest: CGSize, aspect: CGSize = .zero, bounds: CGRect, mode: DisplayMode) -> CGPoint {
+    static func map(point: CGPoint, guest: CGSize, aspect: CGSize = .zero, bounds: CGRect, mode: DisplayMode,
+                    client: CGRect? = nil) -> CGPoint {
         let r = rect(guest: guest, aspect: aspect, bounds: bounds, mode: mode)
         guard r.width > 0, r.height > 0 else { return .zero }
-        let x = (point.x - r.minX) * guest.width / r.width
-        let y = (point.y - r.minY) * guest.height / r.height
-        return CGPoint(x: min(max(x, 0), guest.width - 1),
-                       y: min(max(y, 0), guest.height - 1))
+        let target = client ?? CGRect(origin: .zero, size: guest)
+        guard target.width > 0, target.height > 0 else { return .zero }
+        let x = (point.x - r.minX) * target.width / r.width
+        let y = (point.y - r.minY) * target.height / r.height
+        return CGPoint(x: target.minX + min(max(x, 0), target.width - 1),
+                       y: target.minY + min(max(y, 0), target.height - 1))
     }
 }
 

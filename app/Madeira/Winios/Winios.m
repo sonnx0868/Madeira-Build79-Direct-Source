@@ -36,6 +36,7 @@
 /* The window census struct is shared with Swift through this header;
  * including it here keeps both sides' definitions the same. */
 #include "Winios.h"
+#include "../IOSDisplayShim.h"
 
 /* csops syscall — CS_DEBUGGED is the flag StikDebug JIT rides on. Declared by
  * hand for the same reason JITAllocator.c does: <sys/codesign.h> is not in the
@@ -592,6 +593,7 @@ int winios_window_alert_copy(char *out, int size) {
 }
 
 void winios_pDestroyWindow(HWND hwnd) {
+    madeira_input_surface_window_destroyed((unsigned long long)(uintptr_t)hwnd);
     WLOG("pDestroyWindow hwnd=%p", hwnd);
     uintptr_t pending = (uintptr_t)hwnd;
     atomic_compare_exchange_strong(&g_restore_foreground, &pending, 0);

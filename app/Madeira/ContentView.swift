@@ -338,8 +338,16 @@ final class MetalBackedView: UIView {
             return (px, py)
         }
         let g = GameSurfaceLayout.map(point: p, guest: guestSize(), aspect: drawableAspect(),
-                                      bounds: bounds, mode: effectiveDisplayMode())
+                                      bounds: bounds, mode: effectiveDisplayMode(), client: Self.presentedClientRect())
         return (Int32(g.x), Int32(g.y))
+    }
+
+    /// UIKit reads a snapshot published on the owning Wine thread. The
+    /// direct layer expands the client; mouse messages need its screen origin.
+    static func presentedClientRect() -> CGRect? {
+        var x: Int32=0, y: Int32=0, w: Int32=0, h: Int32=0
+        guard madeira_input_surface_rect(&x, &y, &w, &h) != 0, w > 0, h > 0 else { return nil }
+        return CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(w), height: CGFloat(h))
     }
 
     // ==================================================================
@@ -2559,6 +2567,7 @@ struct ContentView: View {
         // Steam downloads wait for the session, and the app's own Steam connection closes
         // before Valve's client signs in with the same account (SteamOwnedLibrary).
         SteamOwnedLibrary.shared.sessionChanged(active: true)
+        if profile == nil { madeira_input_surface_reset() }
         /* ml1095: one config file. Written once from any legacy madeira-*.txt. */
         MadeiraConfig.migrateLegacy { self.logStore.log($0) }
         MadeiraConfig.deleteLegacyFiles { self.logStore.log($0) }   /* ml1096: the old files go once the cfg exists */

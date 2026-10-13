@@ -12,6 +12,45 @@
 #import <pthread.h>
 
 #include "IOSDisplayShim.h"
+#include "InputSurfaceState.h"
+#include <stdio.h>
+
+static pthread_mutex_t g_input_surface_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct madeira_input_surface g_input_surface;
+extern void winios_drv_publish_input_rect(void *hwnd);
+
+void madeira_input_surface_reset(void) {
+    pthread_mutex_lock(&g_input_surface_lock);
+    g_input_surface = (struct madeira_input_surface){0};
+    pthread_mutex_unlock(&g_input_surface_lock);
+}
+void madeira_input_surface_window_destroyed(unsigned long long hwnd) {
+    pthread_mutex_lock(&g_input_surface_lock);
+    if (g_input_surface.window == (uintptr_t)hwnd) g_input_surface = (struct madeira_input_surface){0};
+    pthread_mutex_unlock(&g_input_surface_lock);
+}
+int madeira_input_surface_tracks(unsigned long long hwnd) {
+    pthread_mutex_lock(&g_input_surface_lock);
+    int matches = hwnd && g_input_surface.window == (uintptr_t)hwnd;
+    pthread_mutex_unlock(&g_input_surface_lock);
+    return matches;
+}
+int madeira_input_surface_rect(int *x, int *y, int *width, int *height) {
+    pthread_mutex_lock(&g_input_surface_lock);
+    struct madeira_input_surface s = g_input_surface;
+    pthread_mutex_unlock(&g_input_surface_lock);
+    if (!s.valid) return 0;
+    if (x) *x=s.x; if (y) *y=s.y; if (width) *width=s.width; if (height) *height=s.height;
+    return 1;
+}
+void madeira_input_surface_update(unsigned long long hwnd, int x, int y, int width, int height) {
+    static unsigned reported;
+    pthread_mutex_lock(&g_input_surface_lock);
+    int changed = madeira_input_surface_store(&g_input_surface, (uintptr_t)hwnd, x, y, width, height);
+    int report = changed && reported++ < 24;
+    pthread_mutex_unlock(&g_input_surface_lock);
+    if (report) fprintf(stderr, "[presented-input-v1] hwnd=0x%llx client={%d,%d %dx%d} coordinates=screen\n", hwnd,x,y,width,height);
+}
 
 // --- Types mirroring DXMT's expectations (see winemetal_unix.c lines ~1524) ---
 
@@ -132,6 +171,15 @@ static struct macdrv_win_data g_fake_win_data = {
 };
 
 static struct macdrv_win_data *my_get_win_data(HWND hwnd) {
+    // Called from DXMT's Wine thread, which owns a valid TEB. Query here,
+    // never on UIKit's main thread. Desktop input keeps the compositor path.
+    const char *desk = getenv("MADEIRA_DESKTOP");
+    if (!(desk && *desk == '1')) {
+        pthread_mutex_lock(&g_input_surface_lock);
+        madeira_input_surface_select(&g_input_surface, (uintptr_t)hwnd);
+        pthread_mutex_unlock(&g_input_surface_lock);
+        winios_drv_publish_input_rect(hwnd);
+    }
     g_fake_win_data.hwnd = hwnd;
     g_fake_win_data.client_cocoa_view = (macdrv_view)hwnd;
     return &g_fake_win_data;

@@ -8,7 +8,8 @@ case "$mode" in
   bootstrap) ipa=Madeira-v0.1.6-source-bootstrap.ipa ;;
   window-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   renpy-gl-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
-  *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh' >&2; exit 2 ;;
+  input-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh|input-refresh' >&2; exit 2 ;;
 esac
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -72,9 +73,10 @@ else
   timed wine-patches bash scripts/apply-wine-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh ]]; then
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
+    [[ "$mode" != input-refresh ]] || refresh=--refresh-input
     timed native-restore bash scripts/restore-native-deps.sh "$refresh"
     timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
     shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
@@ -105,6 +107,7 @@ checks() {
   python3 tests/host/check-frontend.py
   python3 tests/host/check-game-memory.py --require-swift
   python3 tests/host/check-game-pointer.py --require-swift
+  python3 tests/host/check-presented-input.py --require-swift
   python3 tests/host/check-thermal-pacing.py --require-swift
   python3 tests/host/check-runtime-profilers.py
   python3 tests/host/check-profile-display.py --require-objc

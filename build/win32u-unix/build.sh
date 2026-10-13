@@ -66,13 +66,17 @@ compile_one() {
 
 # Refresh one native object against the restored bundle's generated headers.
 # Preserve every other member, including the merged FreeType implementation.
-if [[ "${1:-all}" = window-only || "${1:-all}" = renpy-gl-only ]]; then
+if [[ "${1:-all}" = window-only || "${1:-all}" = renpy-gl-only || "${1:-all}" = input-only ]]; then
     test -s "$APP_LIB"
     test -s "$WINE_BUILD/include/config.h"
     if [[ "$1" = window-only ]]; then
         name=window
         marker=user-object-generation-v1
         compile_one "$WINE_SRC/dlls/win32u/window.c" "$name"
+    elif [[ "$1" = input-only ]]; then
+        name=driver
+        marker=presented-input-v1
+        compile_one "$BUILD_DIR/driver_ios.c" "$name"
     else
         name=opengl_ios
         marker=renpy-wgl-probe-v1
@@ -88,7 +92,7 @@ if [[ "${1:-all}" = window-only || "${1:-all}" = renpy-gl-only ]]; then
     echo "Refreshed $name.o; preserved other native archive members"
     exit 0
 fi
-[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|window-only|renpy-gl-only' >&2; exit 2; }
+[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|window-only|renpy-gl-only|input-only' >&2; exit 2; }
 
 echo "=== Building win32u unix (iOS) ==="
 

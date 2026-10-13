@@ -145,6 +145,26 @@ void winios_drv_post_mouse(int x, int y, unsigned int flags, unsigned int mouse_
     if ((flags & MOUSEEVENTF_MOVE) && winios_direct_cursor_on()) winios_report_cursor_pos();
 }
 
+extern void madeira_input_surface_update(unsigned long long hwnd, int x, int y, int width, int height);
+extern int madeira_input_surface_tracks(unsigned long long hwnd);
+
+/* Wine thread only. Publish the real presented client's screen rectangle;
+ * a direct/windowed game's Metal surface can be larger than this client. */
+void winios_drv_publish_input_rect(HWND hwnd)
+{
+    struct window_rects rects;
+    if (!madeira_input_surface_tracks((unsigned long long)(ULONG_PTR)hwnd)) return;
+    if (get_window_rects(hwnd, COORDS_SCREEN, &rects, get_thread_dpi()))
+    {
+        static unsigned reported;
+        if (reported++ < 8) dprintf(2, "[presented-input-v1] Wine client query hwnd=%p coordinates=screen\n", hwnd);
+        madeira_input_surface_update((unsigned long long)(ULONG_PTR)hwnd,
+            rects.client.left, rects.client.top,
+            rects.client.right - rects.client.left, rects.client.bottom - rects.client.top);
+    }
+    else madeira_input_surface_update((unsigned long long)(ULONG_PTR)hwnd, 0, 0, 0, 0);
+}
+
 /* The dedicated navigation keys (arrows, Insert/Delete, Home/End, Page
  * Up/Down) share their scan codes with the numpad, and Wine's US table lists
  * the numpad position first, so MAPVK_VK_TO_VSC_EX answers 0x48 for VK_UP,
@@ -706,6 +726,7 @@ static BOOL winios_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *sur
 static void winios_drv_window_pos_changed( HWND hwnd, HWND insert_after, HWND owner_hint, UINT swp_flags,
                                            const struct window_rects *new_rects, struct window_surface *surface )
 {
+    if (!winios_desktop_mode()) winios_drv_publish_input_rect(hwnd);
     /* desktop mode only — game windows must never wake the compositor
      * (it would draw its backdrop OVER the DXMT Metal layer) */
     if (winios_window_frame && winios_desktop_mode())

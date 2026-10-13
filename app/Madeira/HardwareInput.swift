@@ -2404,14 +2404,16 @@ final class DirectCursorOverlay {
         if visible {
             var sw: Int32 = 0, sh: Int32 = 0
             winios_screen_size(&sw, &sh)
-            let kx = MetalHostView.shared.bounds.width / CGFloat(max(sw, 1))
-            let ky = MetalHostView.shared.bounds.height / CGFloat(max(sh, 1))
+            let client = MetalBackedView.presentedClientRect() ?? CGRect(x: 0, y: 0, width: CGFloat(max(sw, 1)), height: CGFloat(max(sh, 1)))
+            let kx = MetalHostView.shared.bounds.width / client.width
+            let ky = MetalHostView.shared.bounds.height / client.height
             let w = serial != 0 ? Int(image.w) : Self.arrowSize.w
             let h = serial != 0 ? Int(image.h) : Self.arrowSize.h
             let hx = serial != 0 ? Int(image.hot_x) : 0
             let hy = serial != 0 ? Int(image.hot_y) : 0
             l.bounds = CGRect(x: 0, y: 0, width: CGFloat(w) * kx, height: CGFloat(h) * ky)
-            l.position = CGPoint(x: CGFloat(Int(x) - hx) * kx, y: CGFloat(Int(y) - hy) * ky)
+            l.position = CGPoint(x: (CGFloat(Int(x) - hx) - client.minX) * kx,
+                                 y: (CGFloat(Int(y) - hy) - client.minY) * ky)
         }
         CATransaction.commit()
     }
