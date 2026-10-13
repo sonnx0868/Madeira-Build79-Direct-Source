@@ -25,7 +25,7 @@ depth = 1
 while depth:
     depth += (library[end] == "{") - (library[end] == "}")
     end += 1
-unity = library[start:end]
+unity = library[start:end] + "\n"
 fps = (root / "app/Madeira/FPSOverlay.swift").read_text(encoding="utf-8")
 rate_policy = fps[fps.index("    static func maxHz(for mode:"):fps.index("    /// Arms or releases the link")]
 display = "enum TestDisplayPolicy { static var panelMaxFPS = 120\n" + rate_policy + "}\n"
