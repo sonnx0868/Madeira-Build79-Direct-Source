@@ -52,6 +52,7 @@ struct LibraryEntry: Identifiable, Hashable {
     var gogArtworkURL: URL?
     var gogID:Int?
     var gogWorkingDir:String?
+    var gogLaunchCommand:String?
     var arguments=""
     var temporarySession:Bool?
     static let desktopID = UUID()
@@ -110,7 +111,7 @@ struct EpicGamesSection: View {
     var body:some View { EmptyView() }
 }
 
-enum SettingsSheet {case gogSignIn}
+enum SettingsSheet {case gogSignIn, epicSignIn}
 struct PreviewController { var connected = false }
 struct AmbientArt { static func library(_ e:LibraryEntry)->Self { Self() } }
 struct AmbientGlowItem { var id:String;var seed:Int;var art:AmbientArt;var pressed:Bool;var bounds:Anchor<CGRect> }
@@ -170,6 +171,10 @@ body = block(shelf, 'private var library: some View')
 body = body[:body.index('        .onReceive(controller.commands)')] + '\n        }\n        }\n    }\n'
 sources += body + '\n}\n'
 sources += (root / 'app/Madeira/GOG/GOGStore.swift').read_text(encoding='utf-8')
+sources += "\nenum EpicContentError: Error { case invalid(String) }\nfinal class LogStore { static let shared = LogStore(); enum Level { case error }; func log(_ value:String, level:Level) {} }\n"
+for file in ('EpicAuth.swift','EpicAPI.swift','EpicSignInView.swift'):
+    sources += (root / 'app/Madeira/Epic' / file).read_text(encoding='utf-8')
+
 
 sources += r'''
 @main struct MadeiraPreviewApp:App {
