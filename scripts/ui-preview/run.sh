@@ -21,7 +21,8 @@ for id in 367520 1663850 1030300 3097560 2350270 2333000; do
 done
 
 sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
-xcrun --sdk iphonesimulator metal -c "$root/app/Madeira/LiquidMetalSkin.metal" -o "$work/LiquidMetalSkin.air"
+xcrun --sdk iphonesimulator metal -target air64-apple-ios17.0-simulator -isysroot "$sdk" \
+  -c "$root/app/Madeira/LiquidMetalSkin.metal" -o "$work/LiquidMetalSkin.air"
 xcrun --sdk iphonesimulator metallib "$work/LiquidMetalSkin.air" -o "$app/default.metallib"
 xcrun --sdk iphonesimulator swiftc -parse-as-library -swift-version 5 \
   -target arm64-apple-ios17.0-simulator -sdk "$sdk" \
