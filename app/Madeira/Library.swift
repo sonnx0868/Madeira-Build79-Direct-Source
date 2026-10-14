@@ -306,8 +306,12 @@ struct LibraryEntry: Codable, Identifiable {
 
     var launchArguments: String {
         if desktop == true { return desktopCommand ?? "/desktop=shell,\(resolution) C:\\windows\\system32\\services.exe" }
-        if startsSteamGameDirectly { return steamProgramArguments ?? "" }
-        if gogID != nil { return [gogLaunchCommand ?? "", arguments].filter { !$0.isEmpty }.joined(separator: " ") }
+        let original = startsSteamGameDirectly ? (steamProgramArguments ?? "") :
+            gogID != nil ? [gogLaunchCommand ?? "", arguments].filter { !$0.isEmpty }.joined(separator: " ") : arguments
+        if glBackend == "angle", GameEngineDetection.detect(LibraryModel.drive.appendingPathComponent(launchRelativePath)) == "Godot" {
+            return GodotLaunch.angleArguments(original)
+        }
+        if startsSteamGameDirectly || gogID != nil { return original }
         if ExternalGameCompatibility.isUnity(self) {
             return UnityLaunch.arguments(arguments, resolution: resolution,
                 matchResolution: MadeiraConfig.flag("MADEIRA_UNITY_RESOLUTION"),
@@ -590,6 +594,27 @@ enum UnityStartupSync {
             return "auto"
         }
         return nil
+    }
+}
+
+/// Explicit renderer comparison for Godot 4 Windows exports. Its ANGLE
+/// backend loads libEGL/libGLESv2 directly; SDL's ES hint cannot select it.
+/// Leave automatic mode on the existing backend and preserve user arguments.
+enum GodotLaunch {
+    static func angleArguments(_ original: String) -> String {
+        var tokens: [String] = [], token = "", quoted = false
+        for character in original {
+            if character == "\"" { quoted.toggle() }
+            else if character.isWhitespace && !quoted {
+                if !token.isEmpty { tokens.append(token.lowercased()); token = "" }
+            } else { token.append(character) }
+        }
+        if !token.isEmpty { tokens.append(token.lowercased()) }
+        let options = tokens.map { String($0.split(separator: "=", maxSplits: 1).first ?? "") }
+        // An explicit backend is authoritative, including one configured by a store.
+        guard !options.contains("--rendering-driver"), !options.contains("--rendering-method") else { return original }
+        return [original, "--rendering-method gl_compatibility --rendering-driver opengl3_angle"]
+            .filter { !$0.isEmpty }.joined(separator: " ")
     }
 }
 
@@ -3001,13 +3026,16 @@ struct LibraryView: View {
         }
         .onAppear {
             privatePlaylist = access.unlocked
+            access.privateLibraryVisible = privatePlaylist && tab == 0
             GlassSkin.shared.start()
             // An ended desktop session's surface never stays over the library.
             EndedSessionSurface.install(); EndedSessionSurface.hide(reason: "library-appeared")
             // First-run setup opens once on a new install.
             onboarding.presentIfNeeded()
         }
-        .onDisappear { GlassSkin.shared.stop() }
+        .onChange(of: privatePlaylist) { _, value in access.privateLibraryVisible = value && tab == 0 && access.unlocked }
+        .onChange(of: tab) { _, value in access.privateLibraryVisible = privatePlaylist && value == 0 && access.unlocked }
+        .onDisappear { access.privateLibraryVisible = false; GlassSkin.shared.stop() }
         .onAppear {
             LogStore.shared.log("[library-sections] native-steam=\(SteamOwnedLibrary.enabled ? 1 : 0) sections=\(SteamGamesSection.shown ? 1 : 0) collapse=\(SteamGamesSection.collapsible ? 1 : 0)")
         }

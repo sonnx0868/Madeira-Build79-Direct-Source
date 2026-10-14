@@ -75,6 +75,7 @@ def main():
     for arch in ('arm64ec-windows', 'aarch64-windows'):
         assert b'tick-direct-v1' in (root / 'app/Madeira' / arch / 'kernelbase.dll').read_bytes(), 'stale native tick clock: ' + arch
     farm = root / 'app/Madeira/arm64ec-windows'
+    assert b'commitBeforePresent=' in (farm / 'd3d11.dll').read_bytes(), 'stale DXMT present ordering'
     for name in ('xaudio2_8.dll', 'xaudio2_9.dll'):
         data = (farm / name).read_bytes()
         pe = pe_class(data)
@@ -85,6 +86,7 @@ def main():
             assert (farm / imported).is_file(), (name, 'missing dependency', imported)
     if not args.pe_only:
         assert b'madeira_gpu_submit_begin' in (root / 'app/Madeira/libdxmt_combined.a').read_bytes(), 'stale DXMT foreground gate'
+        assert b'cache-mappings-v1' in (root / 'app/Madeira/libdxmt_combined.a').read_bytes(), 'stale DXMT CPU mappings'
         assert b'WINE_IOS_JIT_HOLE' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale split-pool archive'
         assert b'teb-slots-v1' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale trampoline archive'
         mesa = root / 'app/Madeira/gl/libOSMesa.dylib'

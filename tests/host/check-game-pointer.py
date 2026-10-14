@@ -217,6 +217,15 @@ assert(globe.releaseIfReady(at: 6.010, frame: 40, focused: false)) // sheet/text
 assert(globe.press(at: 7, frame: 50, focused: true))
 assert(!globe.press(at: 7.050, frame: 50, focused: true)) // delayed GC/UIKit duplicate
 assert(globe.press(at: 7.150, frame: 50, focused: true)) // a new real tap can re-trigger
+assert(globe.queued == 1 && globe.active)
+assert(globe.releaseIfReady(at: 7.181, frame: 52, focused: true))
+assert(!globe.active && globe.pending)
+assert(!globe.advanceIfReady(at: 7.200, frame: 53, focused: true)) // real key-up gap
+assert(!globe.advanceIfReady(at: 7.250, frame: 52, focused: true)) // polling needs a frame
+assert(globe.advanceIfReady(at: 7.250, frame: 53, focused: true))
+assert(globe.active && globe.queued == 0)
+assert(globe.releaseIfReady(at: 7.431, frame: 55, focused: true))
+assert(!globe.pending)
 globe.cancel()
 assert(!globe.active)
 print("PASS: production pointer geometry, capture/release, Globe duplicate/rapid/lost-up/save-stall handling and controller menu isolation")

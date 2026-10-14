@@ -8,6 +8,7 @@ final class LibraryAccess: ObservableObject {
     @Published private(set) var configured = UserDefaults.standard.bool(forKey: "madeiraLibraryAccessConfigured")
     private var epoch = 0
     private var afterAccess: (() -> Void)?
+    var privateLibraryVisible = false
     private let service = "madeira.library.access.v1"
     private init() {
         if !configured, (try? record()) != nil {
@@ -30,6 +31,7 @@ final class LibraryAccess: ObservableObject {
     }
     func lock() {
         epoch += 1; unlocked = false; requested = false; afterAccess = nil
+        privateLibraryVisible = false
         let model = LibraryModel.shared
         model.menu = false; model.showDetail = nil
         if guarded {
@@ -239,7 +241,9 @@ final class LibraryPrivacyShield {
     private var windows: [UIWindow] = []
     private var revision = 0
     func cover() {
-        guard LibraryAccess.shared.guarded else { return }
+        let access = LibraryAccess.shared
+        // A configured PIN alone does not make a public screen private.
+        guard access.guarded && (access.privateSession || access.privateLibraryVisible) else { return }
         revision += 1
         if windows.isEmpty {
             for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
@@ -253,16 +257,18 @@ final class LibraryPrivacyShield {
         for window in windows { window.isHidden = false }
     }
     func refresh() {
+        guard UIApplication.shared.applicationState == .active else { return }
         if LibraryAccess.shared.protectedSurface { cover() }
         else {
             revision += 1
             let token = revision
-            if LibraryAccess.shared.unlocked || LibraryModel.shared.current != nil {
+            if LibraryAccess.shared.unlocked || LibraryModel.shared.current != nil ||
+                LibraryModel.shared.startingJIT != nil || windows.allSatisfy({ $0.isHidden }) {
                 for window in windows { window.isHidden = true }
             } else {
                 // Let SwiftUI finish dismissing details sheets before exposing
                 // the public library after an automatic lock/foreground return.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                DispatchQueue.main.async { [weak self] in
                     guard let self, self.revision == token,
                           UIApplication.shared.applicationState == .active,
                           !LibraryAccess.shared.protectedSurface else { return }

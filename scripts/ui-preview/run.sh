@@ -7,6 +7,10 @@ mkdir -p "$work" "$out"
 exec > >(tee "$out/ui-preview.log") 2>&1
 python3 "$root/tests/host/check-game-log-archive.py"
 python3 "$root/tests/host/check-gpu-lifecycle.py"
+python3 "$root/tests/host/check-game-pointer.py" --require-swift
+python3 "$root/tests/host/check-thermal-pacing.py" --require-swift
+python3 "$root/tests/host/check-library-privacy.py" --require-swift
+python3 "$root/tests/host/check-engine-detection.py" --require-swift
 python3 "$root/tests/host/check-gog-rules.py"
 python3 "$root/tests/host/check-epic-manifest.py"
 python3 "$root/scripts/ui-preview/generate.py" "$work"

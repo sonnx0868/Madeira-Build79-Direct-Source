@@ -334,19 +334,34 @@ enum HardwareKeyMap {
 
 /// Globe is an action key: UIKit may omit its release, and a very short tap
 /// can fall between the game's keyboard polls. Keep one Escape edge alive
-/// for at least 80 ms and two presented frames, with a bounded fallback.
+/// for at least 180 ms and two presented frames, with a bounded fallback.
+/// Separate taps have an observable key-up interval instead of up/down in
+/// the same main-thread turn, which a polling game may never observe.
 struct GlobeEscapePulse {
     static let duplicateWindow = 0.100
     static let minimumHold = 0.180
     static let maximumHold = 2.0
+    static let minimumGap = 0.060
     private(set) var active = false
+    private(set) var queued = 0
+    var pending: Bool { active || queued > 0 }
     private var lastPress = -Double.infinity
+    private var startedAt = -Double.infinity
+    private var releasedAt = -Double.infinity
+    private var releasedFrame: UInt64 = 0
     private var startedFrame: UInt64 = 0
 
     mutating func press(at now: Double, frame: UInt64, focused: Bool) -> Bool {
         guard focused, now.isFinite else { return false }
         guard now < lastPress || now - lastPress >= Self.duplicateWindow else { return false }
         lastPress = now
+        let elapsed = now - releasedAt
+        if active || queued > 0 || (releasedAt.isFinite &&
+            (elapsed < Self.minimumGap || (frame <= releasedFrame && elapsed < Self.maximumHold))) {
+            queued = min(queued + 1, 2)
+            return true
+        }
+        startedAt = now
         startedFrame = frame
         active = true
         return true
@@ -354,14 +369,26 @@ struct GlobeEscapePulse {
 
     mutating func releaseIfReady(at now: Double, frame: UInt64, focused: Bool) -> Bool {
         guard active else { return false }
-        let elapsed = now - lastPress
+        let elapsed = now - startedAt
         guard !focused || elapsed >= Self.maximumHold ||
                 (elapsed >= Self.minimumHold && frame >= startedFrame && frame - startedFrame >= 2) else { return false }
         active = false
+        releasedAt = now; releasedFrame = frame
+        if !focused { queued = 0 }
         return true
     }
 
-    mutating func cancel() { active = false }
+    mutating func advanceIfReady(at now: Double, frame: UInt64, focused: Bool) -> Bool {
+        guard focused else { cancel(); return false }
+        guard !active, queued > 0, now.isFinite else { return false }
+        let elapsed = now - releasedAt
+        guard elapsed >= Self.minimumGap,
+              (frame > releasedFrame || elapsed >= Self.maximumHold) else { return false }
+        queued -= 1; active = true; startedAt = now; startedFrame = frame
+        return true
+    }
+
+    mutating func cancel() { active = false; queued = 0 }
 }
 
 /// The five buttons a mouse has, and their MOUSEEVENTF_* edges. X1 and X2 share
@@ -1215,23 +1242,24 @@ final class HardwareInput: ObservableObject {
         guard pressed, !repeated else { return true }
         if !keyboardConnected { keyboardConnected = true }
         refreshFocus("Globe")
-        let wasActive = globePulse.active
         guard globePulse.press(at: CACurrentMediaTime(), frame: madeira_frame_count(), focused: keyboardFocused) else {
             return true
         }
-        // A second genuine tap must produce a new edge even if the previous
-        // pulse is still waiting for a slow game frame. Keep physical Esc held.
-        if wasActive { syncKeys(includeGlobe: false) }
         syncKeys()
-        log("Globe -> Escape action-pulse-v1 via=\(source) focus=1")
+        log("Globe -> Escape action-pulse-v2 via=\(source) focus=1 queued=\(globePulse.queued) frame=\(madeira_frame_count())")
         if globeReleaseTimer == nil {
             let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
                 guard let self else { timer.invalidate(); return }
                 if self.globePulse.releaseIfReady(at: CACurrentMediaTime(), frame: madeira_frame_count(),
                                                  focused: self.keyboardFocused) {
+                    self.syncKeys()
+                } else if self.globePulse.advanceIfReady(at: CACurrentMediaTime(), frame: madeira_frame_count(),
+                                                       focused: self.keyboardFocused) {
+                    self.syncKeys()
+                }
+                if !self.globePulse.pending {
                     timer.invalidate()
                     self.globeReleaseTimer = nil
-                    self.syncKeys()
                 }
             }
             RunLoop.main.add(timer, forMode: .common)

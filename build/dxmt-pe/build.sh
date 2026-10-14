@@ -34,4 +34,5 @@ for item in d3d11/d3d11 dxgi/dxgi d3d9/d3d9 winemetal/winemetal; do
     "$tc/arm64ec-w64-mingw32-strip" --strip-debug "$root/app/Madeira/arm64ec-windows/$dll"
 done
 grep -a -q 'compiler-workers=v1' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
+grep -a -q 'commitBeforePresent=' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
 python3 "$root/tools/patch-dxmt-query-log.py" --check

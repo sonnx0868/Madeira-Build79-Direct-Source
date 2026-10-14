@@ -18,6 +18,9 @@ assert 'willResignActiveNotification' in access and 'window.windowLevel = .alert
 assert 'LibraryPrivacyShield.shared.cover(); access.background()' in access
 assert 'LibraryModel.shared.current != nil || (unlocked && LibraryModel.shared.startingJIT != nil)' in access
 assert 'LibraryAccess.shared.unlocked || LibraryModel.shared.current != nil' in access
+assert 'access.guarded && (access.privateSession || access.privateLibraryVisible)' in access
+assert 'asyncAfter(deadline: .now() + 0.5)' not in access
+assert 'access.privateLibraryVisible = privatePlaylist && tab == 0' in library
 assert 'reportsHeaderAlignment = false' in library
 assert 'LibraryScenicBackground(sidebar: true)' in library and 'LibraryScenicBackground().ignoresSafeArea()' in access
 assert 'LibraryInlineSearch(text:' in library and 'sidebar.frame(width: 224)' in library

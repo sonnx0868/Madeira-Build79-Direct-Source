@@ -1,0 +1,86 @@
+Adapted from upstream willfaust/dxmt 4f025e0afa25a8845b2db16276db3305d4c86088 (spitefulowl).
+Cached CPU mappings for local iOS Metal allocations; remote and macOS paths retain their policy.
+
+diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -617,6 +617,39 @@
+   }
+   [(id<MTLCommandBuffer>)params->handle encodeSignalEvent:(id<MTLSharedEvent>)params->arg0 value:params->arg1];
+   return STATUS_SUCCESS;
++}
++
++/* ml1178: no write-combined CPU mappings. DXMT asks for
++ * MTLCPUCacheModeWriteCombined on what the CPU only writes (dynamic buffers
++ * and textures, upload staging). Under FEX's TSO emulation every x86 integer
++ * store is an STLR, and a store-release to a write-combined page waits for the
++ * previous store to reach memory: Metro 2033 Redux's intro converts YUV to RGBA with one
++ * 32-bit mov per pixel into a mapped dynamic texture and ran at 3 FPS (the
++ * JIT loop was LDAPRB x3 + STLR per pixel). Shared memory on Apple GPUs is
++ * coherent, so the default cache mode only costs cache footprint.
++ * env.MADEIRA_WRITE_COMBINED = 1 keeps DXMT's flag. Applied wherever resource
++ * options reach Metal, so a buffer and a texture view over it still agree. */
++static MTLResourceOptions
++madeira_cpu_cache_mode(MTLResourceOptions options) {
++#if TARGET_OS_IOS
++  /* The upstream cache policy applies to iOS only here. Atomic publication
++   * avoids a C data race when several device/loader threads allocate at once. */
++  static _Atomic int keep = -1;
++  int choice = atomic_load_explicit(&keep, memory_order_relaxed);
++  if (choice < 0) {
++    const char *e = getenv("MADEIRA_WRITE_COMBINED");
++    choice = (e && e[0] == '1') ? 1 : 0;
++    int expected = -1;
++    if (atomic_compare_exchange_strong_explicit(&keep, &expected, choice,
++          memory_order_relaxed, memory_order_relaxed))
++      dprintf(STDERR_FILENO, "[iOS DXMT] cache-mappings-v1 write-combined %s (MADEIRA_WRITE_COMBINED)\n",
++              choice ? "kept" : "off");
++    else choice = expected;
++  }
++  return choice ? options : (options & ~(MTLResourceOptions)MTLResourceCPUCacheModeMask);
++#else
++  return options;
++#endif
+ }
+ 
+ static NTSTATUS
+@@ -733,10 +766,10 @@
+   if (info->memory.ptr) {
+     buffer = [device newBufferWithBytesNoCopy:info->memory.ptr
+                                        length:info->length
+-                                      options:(enum MTLResourceOptions)info->options
++                                      options:madeira_cpu_cache_mode((MTLResourceOptions)info->options)
+                                   deallocator:NULL];
+   } else {
+-    buffer = [device newBufferWithLength:info->length options:(enum MTLResourceOptions)info->options];
++    buffer = [device newBufferWithLength:info->length options:madeira_cpu_cache_mode((MTLResourceOptions)info->options)];
+     info->memory.ptr = [buffer storageMode] == MTLStorageModePrivate ? NULL : [buffer contents];
+   }
+   params->ret = (obj_handle_t)buffer;
+@@ -1031,7 +1064,7 @@
+   desc.mipmapLevelCount = info->mipmap_level_count;
+   desc.sampleCount = info->sample_count;
+   desc.usage = (MTLTextureUsage)info->usage;
+-  desc.resourceOptions = (MTLResourceOptions)info->options;
++  desc.resourceOptions = madeira_cpu_cache_mode((MTLResourceOptions)info->options);
+ };
+ 
+ void
+@@ -6543,7 +6576,7 @@
+   if (wmtr_enabled()) return STATUS_SUCCESS;
+   {
+     MTLSizeAndAlign sa = [(id<MTLDevice>)params->device heapBufferSizeAndAlignWithLength:params->length
+-                                                                                  options:(MTLResourceOptions)params->options];
++                                                                                  options:madeira_cpu_cache_mode((MTLResourceOptions)params->options)];
+     params->ret_size = sa.size; params->ret_align = sa.align;
+   }
+   return STATUS_SUCCESS;
+@@ -6556,7 +6589,7 @@
+   if (wmtr_enabled()) return STATUS_SUCCESS;
+   {
+     id<MTLBuffer> b = [(id<MTLHeap>)params->heap newBufferWithLength:info->length
+-                                                             options:(MTLResourceOptions)info->options
++                                                             options:madeira_cpu_cache_mode((MTLResourceOptions)info->options)
+                                                               offset:params->offset];
+     params->ret = (obj_handle_t)b;
+     if (wmt_stale_probe_on()) wmt_freed_set((uintptr_t)b, 0);   /* ml1156 */

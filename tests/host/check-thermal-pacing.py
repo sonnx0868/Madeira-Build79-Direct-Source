@@ -26,11 +26,11 @@ func mode(_ requested:Int32=1,_ thermal:Int=0,_ now:Double=0,
 }
 assert(mode(0)==0 && mode(1)==1 && mode(2)==2 && mode(3)==3)
 assert(mode(0,1)==1 && mode(2,1)==1 && mode(3,1)==3)
-assert(mode(1,2,10)==3)
+assert(mode(1,2,10)==1) // cooling preserves the chosen 60 FPS cap
 assert(mode(2,0,11)==2) // nominal restores RAW immediately
 assert(mode(2,0,70)==2)
 assert(mode(2,0,71)==2)
-assert(mode(0,3,100)==3)
+assert(mode(0,3,100)==1)
 assert(mode(0,0,101)==0)
 assert(mode(0,1,140)==1) // fair caps MAX at 60, not the previous hot 30
 assert(mode(0,0,141)==0 && mode(0,0,200)==0)
@@ -45,7 +45,7 @@ assert(mode(0,0,311)==0)
 policy=ThermalPacingPolicy()
 assert(mode(0,2,0,supported:false)==1) // mode 3 must never become an uncapped fallback
 assert(mode(3,0,60,enabled:false,supported:false)==1)
-assert(mode(1,2,400)==3 && mode(1,0,401)==1)
+assert(mode(1,2,400)==1 && mode(1,0,401)==1)
 print("PASS: thermal FPS caps, immediate nominal restoration, low power preserves 60 FPS, explicit user 30, opt-out and unsupported backend")
 '''
 compiler=shutil.which('swiftc')

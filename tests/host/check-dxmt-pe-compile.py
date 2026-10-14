@@ -27,11 +27,15 @@ def sources(relative, variable):
 
 
 def main():
+    global dxmt
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler")
     parser.add_argument("--require-tools", action="store_true")
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--source-root", type=Path, help="Compile an isolated, patched DXMT checkout")
+    parser.add_argument("--only", action="append", default=[], help="Specific source path relative to DXMT")
     args = parser.parse_args()
+    if args.source_root: dxmt = args.source_root.resolve()
     compiler = args.compiler or os.environ.get("MD_RUNTIME_ARM64EC_CXX") or shutil.which("arm64ec-w64-mingw32-clang++")
     if not compiler:
         candidate = root / "toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin/arm64ec-w64-mingw32-clang++"
@@ -47,6 +51,10 @@ def main():
     files = sorted(set(path for relative, variable in lists for path in sources(relative, variable)))
     files += [dxmt / "src/util" / name for name in
               ("wsi_monitor_headless.cpp", "wsi_window_headless.cpp", "wsi_platform_win32.cpp")]
+    if args.only:
+        wanted = {name.replace('\\', '/') for name in args.only}
+        files = [path for path in files if path.relative_to(dxmt).as_posix() in wanted]
+        if len(files) != len(wanted): raise SystemExit("Unknown frontend source in --only")
     with tempfile.TemporaryDirectory(prefix="madeira-arm64ec-check-") as scratch:
         generated = Path(scratch)
         (generated / "dxmt_command.h").write_text("unsigned char dxmt_command[] = {0};\nunsigned int dxmt_command_len = 1;\n")

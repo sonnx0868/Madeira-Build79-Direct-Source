@@ -8,6 +8,8 @@ import tempfile
 
 root = Path(__file__).resolve().parents[2]
 source = (root / 'app/Madeira/GameEngineDetection.swift').read_text(encoding='utf-8')
+library = (root / 'app/Madeira/Library.swift').read_text(encoding='utf-8')
+source += '\n' + library[library.index('enum GodotLaunch {'):library.index('enum UnityLaunch {')]
 project = (root / 'app/Madeira.xcodeproj/project.pbxproj').read_text(encoding='utf-8')
 assert 'GameEngineDetection.swift in Sources' in project
 assert 'GameEngineDetection.detect' in (root / 'app/Madeira/Library.swift').read_text(encoding='utf-8')
@@ -18,6 +20,12 @@ if not swift:
     print('SKIP: runtime layout behavior tests require Swift; macOS CI requires them')
     raise SystemExit(0)
 checks = r'''
+assert(GodotLaunch.angleArguments("") == "--rendering-method gl_compatibility --rendering-driver opengl3_angle")
+assert(GodotLaunch.angleArguments("--fullscreen").hasPrefix("--fullscreen --rendering-method"))
+for args in ["--rendering-driver opengl3", "--rendering-driver=vulkan", "--rendering-method gl_compatibility"] {
+    assert(GodotLaunch.angleArguments(args) == args)
+}
+assert(GodotLaunch.angleArguments("--path \"C:\\some game\\\"").hasPrefix("--path \"C:\\some game\\\" --rendering-method"))
 let fm = FileManager.default
 let base = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try fm.createDirectory(at: base, withIntermediateDirectories: true)
