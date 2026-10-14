@@ -2362,9 +2362,10 @@ struct ContentView: View {
         jitStatus = .testing
         logStore.log("Requesting JIT with \(jitCoordinator.resolvedMethod.title)...")
 
-        jitCoordinator.enable { result in
+        jitCoordinator.enable(force: LibraryJITState.shared.needsRenewal) { result in
             switch result {
             case .success:
+                LibraryJITState.shared.authorized()
                 jitStatus = .available
                 logStore.log("JIT enabled! Debugger attached.", level: .success)
                 launchAfterJITEnded(started: true)
@@ -2389,7 +2390,8 @@ struct ContentView: View {
         guard let launch = launchAfterJIT else { return }
         launchAfterJIT = nil
         library.startingJIT = nil
-        guard started, StikJITHelper.ready, library.current == nil, wine_process_is_running() == 0 else {
+        guard started, StikJITHelper.ready, library.current == nil,
+              wine_process_is_running() == 0 || GameRuntime.shared.state == .ready else {
             logStore.log("[jit-on-play] JIT did not come on: the game was not started")
             // A failure has its own error; this one closes the details page as well.
             if started, library.current == nil { library.error = "JIT is on, but the game could not start. Tap Play again." }
@@ -2406,7 +2408,7 @@ struct ContentView: View {
     /// own list, which attaches and leaves). Without `then`, the library offers
     /// Madeira's Enable JIT instead of starting a launch that cannot get its pool.
     private func jitReadyForLaunch(inLibrary: Bool, entry: UUID? = nil, then launch: (() -> Void)? = nil) -> Bool {
-        if StikJITHelper.ready { return true }
+        if StikJITHelper.ready && !LibraryJITState.shared.needsRenewal { return true }
         if inLibrary, let launch {
             logStore.log("[jit-on-play] JIT is not on: enabling it, then starting the game")
             launchAfterJIT = launch
@@ -2500,7 +2502,10 @@ struct ContentView: View {
             LogStore.shared.log("[steam-start] app=\(appID) direct source=\(entry.steamProgramSource ?? "-") " +
                                 "args=\(entry.launchArguments.isEmpty ? 0 : 1) folder=\(entry.steamWorkingWindowsPath == nil ? "program" : "steam")")
         }
-        if GameRuntime.shared.hasEngine { startLibraryEntry(entry); return }
+        if GameRuntime.shared.hasEngine {
+            guard jitReadyForLaunch(inLibrary: true, entry: entry.id, then: { startLibraryEntry(entry) }) else { return }
+            startLibraryEntry(entry); return
+        }
         guard wine_process_is_running() == 0, wineserver_is_running() == 0, library.current == nil else {
             library.error = "A session is already running."; return
         }
@@ -2520,9 +2525,6 @@ struct ContentView: View {
     private func startLibraryEntry(_ entry: LibraryEntry) {
         guard library.isVisible(entry) else {
             libraryAccess.request(); return
-        }
-        if entry.desktop == true, libraryAccess.hasPrivateGames, !libraryAccess.unlocked {
-            libraryAccess.request { startLibraryEntry(entry) }; return
         }
         do { if entry.desktop != true { _ = try LibraryModel.executable(entry.launchRelativePath) }; try entry.validate() }
         catch {

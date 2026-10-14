@@ -204,7 +204,8 @@ assert(!globe.press(at: 0, frame: 10, focused: false))
 assert(globe.press(at: 0, frame: 10, focused: true))
 assert(!globe.press(at: 0.010, frame: 10, focused: true)) // GC/UIKit duplicate
 assert(!globe.releaseIfReady(at: 0.020, frame: 12, focused: true)) // rapid tap still reaches polling
-assert(globe.releaseIfReady(at: 0.081, frame: 12, focused: true))
+assert(!globe.releaseIfReady(at: 0.081, frame: 12, focused: true))
+assert(globe.releaseIfReady(at: 0.181, frame: 12, focused: true))
 assert(!globe.active)
 assert(globe.press(at: 1, frame: 20, focused: true))
 assert(!globe.releaseIfReady(at: 2.5, frame: 20, focused: true)) // retain during a 1.5 s save stall
@@ -214,7 +215,8 @@ assert(globe.releaseIfReady(at: 5.001, frame: 30, focused: true)) // missing up/
 assert(globe.press(at: 6, frame: 40, focused: true))
 assert(globe.releaseIfReady(at: 6.010, frame: 40, focused: false)) // sheet/text-field focus wins
 assert(globe.press(at: 7, frame: 50, focused: true))
-assert(globe.press(at: 7.050, frame: 50, focused: true)) // a new real tap can re-trigger
+assert(!globe.press(at: 7.050, frame: 50, focused: true)) // delayed GC/UIKit duplicate
+assert(globe.press(at: 7.150, frame: 50, focused: true)) // a new real tap can re-trigger
 globe.cancel()
 assert(!globe.active)
 print("PASS: production pointer geometry, capture/release, Globe duplicate/rapid/lost-up/save-stall handling and controller menu isolation")

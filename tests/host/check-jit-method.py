@@ -59,7 +59,7 @@ require("jit_check_debugged()" in ready and "isDebuggerAttached()" in ready,
 resolved = function(setup, "var resolvedMethod: JITMethod")
 require("StikJITHelper.isAvailable ? .stikDebug : .builtIn" in resolved,
         "Automatic prefers installed StikDebug, then Built-in StikJIT")
-coordinator_enable = function(setup, "func enable(completion:")
+coordinator_enable = function(setup, "func enable(force:")
 coordinator_route = function(setup, "private func enableResolved(")
 require("ensureLoopback" in coordinator_enable and "self?.enableResolved" in coordinator_enable
         and "switch resolvedMethod" in coordinator_route
@@ -160,14 +160,15 @@ require('URL(string: "localdevvpn://enable?scheme=madeira")' in setup
 # Play without JIT runs Enable JIT, then starts the game, once: only with the debugger
 # attached (so the start cannot ask again), and never after a failure.
 gate = function(content, "private func jitReadyForLaunch(")
-require(gate.index("if StikJITHelper.ready { return true }") < gate.index("if inLibrary, let launch {")
+require(gate.index("if StikJITHelper.ready && !LibraryJITState.shared.needsRenewal { return true }") < gate.index("if inLibrary, let launch {")
         < gate.index("if StikJITHelper.flaggedWithoutDebugger {")
         and "launchAfterJIT = launch" in gate and "library.startingJIT = entry" in gate
         and "if jitStatus != .testing { enableJIT() }" in gate,
         "Play without JIT enables it (a second Play while it runs only replaces the game)")
 ended = function(content, "private func launchAfterJITEnded(")
 require("launchAfterJIT = nil" in ended
-        and "guard started, StikJITHelper.ready, library.current == nil, wine_process_is_running() == 0 else {" in ended
+        and "guard started, StikJITHelper.ready, library.current == nil," in ended
+        and "wine_process_is_running() == 0 || GameRuntime.shared.state == .ready" in ended
         and ended.index("launchAfterJIT = nil") < ended.index("library.startingJIT = nil") < ended.index("launch()"),
         "the waiting game starts once, only when JIT came on and nothing else started")
 require('if model.startingJIT == entry.id {' in library and 'Text("Starting JIT")' in library and 'ProgressView()' in library

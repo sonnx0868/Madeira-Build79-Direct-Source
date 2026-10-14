@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        D1100705 /* GameMakerCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100705 /* GameMakerCompatibility.swift */; };
         D1100704 /* LibraryGenreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100704 /* LibraryGenreViews.swift */; };
         D1100703 /* LibraryAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100703 /* LibraryAccess.swift */; };
         D1100702 /* LibraryPIN.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100702 /* LibraryPIN.swift */; };
@@ -186,6 +187,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        D2100705 /* GameMakerCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameMakerCompatibility.swift; sourceTree = "<group>"; };
         D2100704 /* LibraryGenreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryGenreViews.swift; sourceTree = "<group>"; };
         D2100703 /* LibraryAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryAccess.swift; sourceTree = "<group>"; };
         D2100702 /* LibraryPIN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPIN.swift; sourceTree = "<group>"; };
@@ -507,6 +509,7 @@
 				A20000F1 /* legal */,
 				A2000080 /* arm64ec-windows */,
                 D2000605 /* GameEngineDetection.swift */,
+                D2100705 /* GameMakerCompatibility.swift */,
                 D2100704 /* LibraryGenreViews.swift */,
                 D2100703 /* LibraryAccess.swift */,
                 D2100702 /* LibraryPIN.swift */,
@@ -742,6 +745,7 @@
 			files = (
 				A1000520 /* MadeiraDock.swift in Sources */,
                 D1000605 /* GameEngineDetection.swift in Sources */,
+                D1100705 /* GameMakerCompatibility.swift in Sources */,
                 D1100704 /* LibraryGenreViews.swift in Sources */,
                 D1100703 /* LibraryAccess.swift in Sources */,
                 D1100702 /* LibraryPIN.swift in Sources */,

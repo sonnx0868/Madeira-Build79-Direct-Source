@@ -18,6 +18,10 @@ assert 'willResignActiveNotification' in access and 'window.windowLevel = .alert
 assert '.onLongPressGesture(minimumDuration: 2)' in library
 assert 'onTapGesture(count: 3)' not in access
 assert 'var genreID: UUID?' in library and 'var privateGame: Bool?' in library
+assert 'access.request { browser = true }' not in library
+assert 'access.request { settingsSheet' not in library
+assert 'privatePlaylist = true; recentOnly = false' in library
+assert 'SecureField("6-digit PIN"' not in access and 'ForEach(0..<6' in access
 assert 'var resolution = "1920x1080"' in library and 'display.flatMap(DisplayMode.init(rawValue:)) ?? .fit' in library
 if not swift:
     if '--require-swift' in sys.argv: raise SystemExit('swiftc required for privacy behavior')
@@ -77,7 +81,8 @@ assert(model.displayedEntries(search:"private",sort:"played").isEmpty)
 assert(!model.steamVisible(123) && model.steamVisible(999))
 assert(LibraryVisibility.shownGenres(model.genres,unlocked:false)==[publicGroup])
 LibraryAccess.shared.unlocked=true
-assert(model.displayedEntries(search:"private",sort:"played").count==2 && model.steamVisible(123))
+assert(model.displayedEntries(search:"private",sort:"played").count==2 && !model.steamVisible(123))
+assert(model.steamVisible(123,privatePlaylist:true))
 LibraryAccess.shared.unlocked=false // same cache key must not retain private results
 assert(model.displayedEntries(search:"private",sort:"played").isEmpty && !model.steamVisible(123))
 assert(model.displayedEntries(search:"",sort:"added",genre:publicGroup.id).count==1)
@@ -87,10 +92,14 @@ let encoded=try JSONEncoder().encode(Document(version:1,entries:model.entries,ge
 let restored=try JSONDecoder().decode(Document.self,from:encoded)
 assert(restored.genres==model.genres && restored.entries[1].privateGame==true)
 assert(restored.entries[2].genreID==privateGroup.id)
+assert(!LibraryVisibility.shelfAllows(isPrivate:true,unlocked:true,privatePlaylist:false))
+assert(LibraryVisibility.shelfAllows(isPrivate:true,unlocked:true,privatePlaylist:true))
+assert(!LibraryVisibility.shelfAllows(isPrivate:true,unlocked:false,privatePlaylist:true))
+assert(LibraryVisibility.shelfAllows(isPrivate:false,unlocked:false,privatePlaylist:false))
 model.removeSteam(appID:123)
 assert(!model.steamVisible(123) && model.entries.first { $0.steamAppID==123 }?.relativePath==".steam-profiles/123")
 LibraryAccess.shared.unlocked=true
-assert(model.steamVisible(123))
+assert(model.steamVisible(123,privatePlaylist:true))
 LibraryAccess.shared.unlocked=false
 assert(LibraryPIN.valid("123456") && !LibraryPIN.valid("12345") && !LibraryPIN.valid("１２３４５６"))
 let vector=try LibraryPIN.derive("password",salt:Data("salt".utf8),rounds:1)

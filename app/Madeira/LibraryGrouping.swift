@@ -8,6 +8,9 @@ struct LibraryGenre: Codable, Identifiable, Equatable {
 }
 
 enum LibraryVisibility {
+    static func shelfAllows(isPrivate: Bool, unlocked: Bool, privatePlaylist: Bool) -> Bool {
+        privatePlaylist ? unlocked && isPrivate : !isPrivate
+    }
     static func isPrivate(flag: Bool?, genreID: UUID?, genres: [LibraryGenre]) -> Bool {
         if flag == true { return true }
         guard let genreID else { return false }

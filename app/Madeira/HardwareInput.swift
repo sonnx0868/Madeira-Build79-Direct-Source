@@ -336,8 +336,8 @@ enum HardwareKeyMap {
 /// can fall between the game's keyboard polls. Keep one Escape edge alive
 /// for at least 80 ms and two presented frames, with a bounded fallback.
 struct GlobeEscapePulse {
-    static let duplicateWindow = 0.040
-    static let minimumHold = 0.080
+    static let duplicateWindow = 0.100
+    static let minimumHold = 0.180
     static let maximumHold = 2.0
     private(set) var active = false
     private var lastPress = -Double.infinity
@@ -1092,7 +1092,7 @@ final class HardwareInput: ObservableObject {
               !v.isHidden, !w.isHidden, v.alpha > 0.01 else { return false }
         if let scene = w.windowScene {
             if scene.activationState != .foregroundActive { return false }
-            if scene.windows.contains(where: { $0.rootViewController?.presentedViewController != nil }) {
+            if scene.windows.contains(where: { !$0.isHidden && $0.alpha > 0.01 && $0.rootViewController?.presentedViewController != nil }) {
                 return false
             }
         }
@@ -1159,7 +1159,7 @@ final class HardwareInput: ObservableObject {
         }
         kb.handlerQueue = .main
         input.keyChangedHandler = { [weak self] _, _, code, pressed in
-            if code.rawValue == 669 {
+            if code.rawValue == 669 || code.rawValue == 0x29 {
                 self?.globeKey(pressed, source: "GCKeyboard")
                 return
             }
@@ -1188,7 +1188,7 @@ final class HardwareInput: ObservableObject {
     /// callers use the return value to keep unknown keys in UIKit's pipeline.
     @discardableResult
     func uikitKey(_ key: UIKey, _ pressed: Bool, repeated: Bool = false) -> Bool {
-        if key.keyCode.rawValue == 669 {
+        if key.keyCode.rawValue == 669 || key.keyCode.rawValue == 0x29 || key.characters == "\u{1b}" {
             return globeKey(pressed, source: "UIKit", repeated: repeated)
         }
         let usage = HardwareKeyMap.canonicalPressUsage(Int(key.keyCode.rawValue), characters: key.characters)

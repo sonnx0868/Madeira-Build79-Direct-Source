@@ -418,6 +418,7 @@ struct SteamGamesSection: View {
     var width: CGFloat = 390
     var part: Part = .all
     var genre: UUID?
+    var recentOnly = false
     /// Opens a game's Game details page (LibraryView's details sheet).
     let open: (LibraryEntry) -> Void
     @ObservedObject private var model = SteamGamesModel.shared
@@ -483,6 +484,8 @@ struct SteamGamesSection: View {
         let signedIn = libraryEnabled && steam.signedIn
         let items = SteamGamesRules.items(installed: model.games, owned: owned, search: search)
             .filter { library.steamVisible($0.id, genre: genre) }
+            .filter { id in !library.entries.contains { $0.steamAppID == id.id && library.isPrivate($0) } }
+            .filter { item in !recentOnly || library.entries.contains { $0.steamAppID == item.id && $0.lastPlayed != nil } }
         let groups = SteamGamesRules.groups(items, downloading: Set(steam.downloads.keys))
         let installed = SteamGamesRules.sorted(groups.installed, by: sort, recorded: recorded)
         let collapsible = Self.collapsible

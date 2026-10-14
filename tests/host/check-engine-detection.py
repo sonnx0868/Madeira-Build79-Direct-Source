@@ -37,6 +37,8 @@ func fixture(_ name: String, files: [String: Data], expected: String?) throws {
     assert(try! Data(contentsOf: exe) == original)
 }
 let empty = Data()
+try fixture("gamemaker", files:["data.win":Data("FORM1234GEN8".utf8)], expected:"GameMaker")
+try fixture("false-gamemaker", files:["data.win":Data("FORM1234OTHER".utf8)], expected:nil)
 try fixture("renpy", files:["LIB/PY3-WINDOWS-X86_64/LibRenPython.DLL":empty], expected:"Ren'Py")
 try fixture("unity", files:["UnityPlayer.dll":empty], expected:"Unity")
 try fixture("tyrano", files:["resources/app/tyrano/tyrano.js":empty], expected:"TyranoScript")

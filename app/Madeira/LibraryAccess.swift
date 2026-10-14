@@ -19,7 +19,7 @@ final class LibraryAccess: ObservableObject {
     var hasPrivateGames: Bool { LibraryModel.shared.entries.contains { LibraryModel.shared.isPrivate($0) } }
     var guarded: Bool { configured || hasPrivateGames }
     var privateSession: Bool { LibraryModel.shared.activeEntry.map { LibraryModel.shared.isPrivate($0) } ?? false }
-    var protectedSurface: Bool { guarded && (!FrontendChoice.startup.useNew || privateSession) && !unlocked }
+    var protectedSurface: Bool { privateSession && !unlocked }
 
     func toggle() {
         if unlocked { lock() } else { request() }
@@ -118,25 +118,86 @@ struct LibraryAccessView: View {
     @State private var confirmation = ""
     @State private var error: String?
     @State private var busy = false
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    SecureField("6-digit PIN", text: $pin).keyboardType(.numberPad)
-                    if !access.guarded { SecureField("Confirm PIN", text: $confirmation).keyboardType(.numberPad) }
-                    Button(busy ? "Verifying…" : (access.guarded ? "Continue" : "Set PIN")) {
-                        busy = true; error = nil
-                        Task { error = await access.submit(pin, confirmation: confirmation); busy = false; pin = ""; confirmation = "" }
-                    }.disabled(busy)
-                } footer: {
-                    if !access.guarded {
-                        Text("Hold the Madeira logo for two seconds to show or hide selected games. Access locks when you leave the app. Game files remain accessible in Files; this does not encrypt them.")
-                    }
-                }
-                if let error { Section { Text(error).foregroundStyle(.red) } }
-            }.navigationTitle("Access").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { access.requested = false; dismiss() } } }
+    private var enteringConfirmation: Bool { !access.guarded && !confirmation.isEmpty }
+    private var heading: String {
+        access.guarded ? "Enter Passcode" : enteringConfirmation ? "Confirm Passcode" : "Create Passcode"
+    }
+    private func digit(_ value: Int) {
+        guard !busy, pin.count < 6 else { return }
+        error = nil; pin += String(value)
+        if pin.count == 6 {
+            if !access.guarded && confirmation.isEmpty { confirmation = pin; pin = ""; return }
+            let candidate = access.guarded ? pin : confirmation
+            let repeated = pin
+            busy = true
+            Task { @MainActor in
+                error = await access.submit(candidate, confirmation: repeated)
+                busy = false; pin = ""
+                if error != nil && !access.guarded { confirmation = "" }
+            }
         }
+    }
+    private func key(_ value: Int) -> some View {
+        let letters = ["", "", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ"]
+        return Button { digit(value) } label: {
+            VStack(spacing: 2) {
+                Text(String(value)).font(.system(size: 30, weight: .regular, design: .rounded))
+                if !letters[value].isEmpty { Text(letters[value]).font(.system(size: 9, weight: .medium)).tracking(2) }
+            }.frame(width: 76, height: 76)
+                .background(.white.opacity(0.09), in: Circle()).contentShape(Circle())
+        }.buttonStyle(.plain).disabled(busy)
+            .keyboardShortcut(KeyEquivalent(Character(String(value))), modifiers: [])
+            .accessibilityLabel(String(value))
+    }
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.08, green: 0.12, blue: 0.18), .black],
+                           startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+            ViewThatFits(in: .vertical) {
+                keypad.padding(.vertical, 40)
+                ScrollView { keypad.padding(.vertical, 20) }
+            }
+        }.foregroundStyle(.white).preferredColorScheme(.dark)
+            .interactiveDismissDisabled(busy).presentationDragIndicator(.hidden)
+    }
+    private var keypad: some View {
+        VStack(spacing: 22) {
+            Image(systemName: "lock.fill").font(.title2).foregroundStyle(.cyan)
+                .frame(width: 58, height: 58).background(.white.opacity(0.06), in: Circle())
+            VStack(spacing: 8) {
+                Text(heading).font(.title2.weight(.semibold))
+                Text("Open your private playlist").font(.subheadline).foregroundStyle(.white.opacity(0.6))
+            }
+            HStack(spacing: 15) {
+                ForEach(0..<6, id: \.self) { index in
+                    Circle().fill(index < pin.count ? Color.cyan : .clear)
+                        .overlay(Circle().stroke(.white.opacity(0.55), lineWidth: 1))
+                        .frame(width: 13, height: 13)
+                }
+            }.accessibilityElement(children: .ignore).accessibilityLabel("\(pin.count) of 6 digits entered")
+            ZStack {
+                if busy { ProgressView().tint(.white) }
+                else if let error { Text(error).font(.caption).foregroundStyle(.red).multilineTextAlignment(.center) }
+            }.frame(height: 30)
+            VStack(spacing: 15) {
+                ForEach(0..<3, id: \.self) { row in
+                    HStack(spacing: 25) { ForEach(1..<4, id: \.self) { column in key(row * 3 + column) } }
+                }
+                HStack(spacing: 25) {
+                    Button("Cancel") { access.requested = false; dismiss() }
+                        .font(.caption).frame(width: 76, height: 76).keyboardShortcut(.cancelAction)
+                    key(0)
+                    Button { if !pin.isEmpty { pin.removeLast(); error = nil } }
+                        label: { Image(systemName: "delete.left").frame(width: 76, height: 76) }
+                        .keyboardShortcut(.delete, modifiers: []).accessibilityLabel("Delete digit")
+                }.buttonStyle(.plain).disabled(busy)
+            }
+            if !access.guarded {
+                Text("Hold the Madeira logo for two seconds to open or hide your private playlist. Game files remain accessible in Files.")
+                    .font(.caption2).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+            }
+        }.padding(.horizontal, 24).frame(maxWidth: .infinity)
     }
 }
 

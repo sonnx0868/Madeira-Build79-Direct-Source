@@ -753,6 +753,11 @@ enum ExternalGameCompatibility {
         if let engine = detectedEngine {
             fputs("[game-engine] detected=\(engine)\n", stderr)
         }
+        if detectedEngine == "GameMaker",
+           GameMakerCompatibility.prepare(drive.appendingPathComponent(entry.launchRelativePath), drive: drive) {
+            applied.append("gamemaker-null-stats")
+            fputs("[gamemaker-stats-v1] unavailable user stats return the existing false result; original extension preserved\n", stderr)
+        }
         let loveRuntime = runtime.hasLove || balatro
         if detectedEngine == "Ren'Py", MadeiraConfig.flag("MADEIRA_RENPY_RENDERER") {
             // Ren'Py's DLLs live two levels below the launcher. Its desktop
@@ -919,8 +924,12 @@ final class LibraryModel: ObservableObject {
                                  unlocked: LibraryAccess.shared.unlocked) &&
         LibraryVisibility.matches(entry.genreID, selection: genre, genres: genres)
     }
-    func steamVisible(_ appID: Int, genre: UUID? = nil) -> Bool {
-        if let entry = entries.first(where: { $0.steamAppID == appID }) { return isVisible(entry, genre: genre) }
+    func steamVisible(_ appID: Int, genre: UUID? = nil, privatePlaylist: Bool = false) -> Bool {
+        if let entry = entries.first(where: { $0.steamAppID == appID }) {
+            return isVisible(entry, genre: genre) && LibraryVisibility.shelfAllows(isPrivate: isPrivate(entry),
+                unlocked: LibraryAccess.shared.unlocked, privatePlaylist: privatePlaylist)
+        }
+        if privatePlaylist { return false }
         return genre == nil || genre == LibraryGenre.uncategorized
     }
     func browseVisible(_ url: URL) -> Bool {
@@ -1654,6 +1663,8 @@ final class LibraryModel: ObservableObject {
         controls.controls = savedControls; controls.visible = savedVisible; controls.sizeScale = savedSize
         if ControlPresetsModel.enabled { controls.layoutID = savedLayout }
         current = nil; activeEntry = nil; menu = false; sessionMessage = ""; launchAttention = nil
+        LibraryAccess.shared.lock()
+        LibraryJITState.shared.sessionEnded()
         winios_window_alert_reset()
         displayMode = .fit
         LogStore.shared.setDisplayActive(true)
@@ -1839,6 +1850,9 @@ struct LibraryTitleText: View {
 final class LibraryJITState: ObservableObject {
     static let shared = LibraryJITState()
     @Published private(set) var enabled = StikJITHelper.ready
+    @Published private(set) var needsRenewal = false
+    func sessionEnded() { needsRenewal = true; refresh() }
+    func authorized() { needsRenewal = false; refresh() }
     private var timer: Timer?
     private init() {
         let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
@@ -1846,7 +1860,7 @@ final class LibraryJITState: ObservableObject {
         self.timer = timer
     }
     func refresh() {
-        let now = StikJITHelper.ready
+        let now = StikJITHelper.ready && !needsRenewal
         guard now != enabled else { return }
         withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : .default) { enabled = now }
     }
@@ -2790,6 +2804,9 @@ struct LibraryView: View {
     @ObservedObject private var access = LibraryAccess.shared
     @State private var genre: UUID?
     @State private var manageGenres = false
+    @State private var privatePlaylist = false
+    @State private var recentOnly = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var search = ""
     @State private var libraryScrolling = false
     /// The Settings tab's own search text, kept apart from the library's.
@@ -2811,12 +2828,32 @@ struct LibraryView: View {
     @ObservedObject private var steamGames = SteamGamesModel.shared
     @ObservedObject private var steamLibrary = SteamOwnedLibrary.shared
     private var entries: [LibraryEntry] {
-        model.displayedEntries(search: search, sort: sort, genre: genre)
+        let source = privatePlaylist ? model.entries : model.displayedEntries(search: search, sort: sort, genre: genre)
+        let visible = source.filter {
+            $0.desktop != true && LibraryVisibility.shelfAllows(isPrivate: model.isPrivate($0),
+                unlocked: access.unlocked, privatePlaylist: privatePlaylist) &&
+            LibraryVisibility.matches($0.genreID, selection: genre, genres: model.genres) &&
+            (!recentOnly || $0.lastPlayed != nil) && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search))
+        }
+        if sort == "added" { return Array(visible.reversed()) }
+        return visible.sorted {
+            if sort == "played", $0.lastPlayed != $1.lastPlayed { return ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+            if sort == "size", $0.folderBytes != $1.folderBytes { return ($0.folderBytes ?? -1) > ($1.folderBytes ?? -1) }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
     }
     var body: some View {
         // The system tab bar: on iOS 26 it is the floating Liquid Glass bar whose
         // glass selection slides between the tabs and follows a drag. Icons only; the
         // names stay for VoiceOver.
+        Group {
+        if horizontalSizeClass == .regular {
+            HStack(spacing: 0) {
+                sidebar.frame(width: 180)
+                Divider()
+                if tab == 0 { library } else { settings }
+            }
+        } else {
         TabView(selection: Binding(get: { tab }, set: { switchTab(to: $0) })) {
             library
                 .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
@@ -2825,6 +2862,8 @@ struct LibraryView: View {
             settings
                 .tabItem { Image(systemName: "gearshape.fill").accessibilityLabel("Settings") }
                 .tag(1)
+        }
+        }
         }
         .safeAreaInset(edge: .bottom) {
             if runtime.hasEngine && !runtime.message.isEmpty {
@@ -2846,7 +2885,7 @@ struct LibraryView: View {
         // which iOS 26 draws as a Liquid Glass morph between the two.
         .navigationTitle("")
         .toolbar {
-            LibraryLargeTitle()
+            if horizontalSizeClass != .regular { LibraryLargeTitle() }
             if tab == 0 { libraryToolbar } else { settingsToolbar }
         }
         // On the tab view, not inside one tab's page: an alert attached to the Library
@@ -2859,6 +2898,7 @@ struct LibraryView: View {
         } message: { Text(model.error ?? "") }
         .fullScreenCover(isPresented: $onboarding.presented) { OnboardingView() }
         .onAppear {
+            privatePlaylist = access.unlocked
             // An ended desktop session's surface never stays over the library.
             EndedSessionSurface.install(); EndedSessionSurface.hide(reason: "library-appeared")
             // First-run setup opens once on a new install.
@@ -2882,6 +2922,9 @@ struct LibraryView: View {
                     }
                 }
                 Button("Manage genres") { manageGenres = true }
+                if access.unlocked {
+                    Button(privatePlaylist ? "Public library" : "Private playlist") { privatePlaylist.toggle(); recentOnly = false; genre = nil }
+                }
                 if access.unlocked { Button("Lock now") { access.lock() } }
                 Picker("Library layout", selection: $layout) {
                     Label("Cards", systemImage: "square.grid.2x2").tag("cards")
@@ -2899,10 +2942,86 @@ struct LibraryView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
-                if access.guarded && !access.unlocked { access.request { browser = true } }
-                else { browser = true }
+                browser = true
             } label: { Label("Add executable", systemImage: "plus") }
         }
+    }
+    private func navigationRow(_ title: String, _ icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).padding(.vertical, 13)
+                .foregroundStyle(selected ? Color.cyan : Color.primary.opacity(0.7))
+                .background(selected ? Color.cyan.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 12))
+        }.buttonStyle(.plain)
+    }
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LibraryTitleText().padding(.horizontal, 12).padding(.top, 20).padding(.bottom, 36)
+            navigationRow("Library", "square.grid.2x2.fill", selected: tab == 0 && !privatePlaylist && !recentOnly) {
+                tab = 0; privatePlaylist = false; recentOnly = false; genre = nil
+            }
+            navigationRow("Recently played", "clock", selected: tab == 0 && recentOnly) {
+                tab = 0; privatePlaylist = false; recentOnly = true; genre = nil; sort = "played"
+            }
+            navigationRow("Collections", "folder", selected: manageGenres) { manageGenres = true }
+            navigationRow("Settings", "gearshape", selected: tab == 1) { switchTab(to: 1) }
+            if access.unlocked {
+                Divider().padding(.vertical, 12)
+                navigationRow("Private playlist", "lock", selected: privatePlaylist && tab == 0) {
+                    tab = 0; privatePlaylist = true; recentOnly = false; genre = nil
+                }
+            }
+            Spacer(minLength: 20)
+            VStack(alignment: .leading, spacing: 12) {
+                Image(systemName: "mountain.2.fill").font(.system(size: 50)).foregroundStyle(.cyan.opacity(0.18))
+                Text("Your games.\nYour collection.").font(.caption).foregroundStyle(.secondary)
+                Capsule().fill(.cyan).frame(width: 32, height: 2)
+            }.padding(12).padding(.bottom, 20)
+        }.padding(.horizontal, 12).background(Color(uiColor: .secondarySystemGroupedBackground))
+    }
+    private var recentGames: [LibraryEntry] {
+        let installed = Set(steamGames.games.map(\.id))
+        return Array(model.entries.filter {
+            $0.desktop != true && !model.isPrivate($0) && $0.lastPlayed != nil &&
+            ($0.steamAppID == nil || installed.contains($0.steamAppID!))
+        }.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }.prefix(3))
+    }
+    private var continuePlaying: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Continue playing").font(.title3.weight(.semibold))
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 16) {
+                    ForEach(recentGames) { entry in
+                        Button { selected = entry } label: {
+                            ZStack(alignment: .bottomLeading) {
+                                LibraryArtwork(entry: entry, backdrop: true).frame(width: 260, height: 148).clipped()
+                                LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .center, endPoint: .bottom)
+                                HStack(alignment: .bottom) {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text(entry.title).font(.headline).lineLimit(1)
+                                        Text("Last played " + (entry.lastPlayed?.formatted(date: .abbreviated, time: .omitted) ?? ""))
+                                            .font(.caption2).foregroundStyle(.white.opacity(0.65))
+                                    }
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "play.fill").font(.caption).padding(12).background(.cyan, in: Capsule())
+                                }.padding(14).foregroundStyle(.white)
+                            }.frame(width: 260, height: 148).clipShape(RoundedRectangle(cornerRadius: 15))
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }.scrollIndicators(.hidden)
+        }
+    }
+    private var genreChips: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 10) {
+                Button("All") { genre = nil }.buttonStyle(.bordered).tint(genre == nil ? .cyan : .gray)
+                ForEach(LibraryVisibility.shownGenres(model.genres, unlocked: privatePlaylist && access.unlocked)) { group in
+                    Button(group.title) { genre = group.id }.buttonStyle(.bordered).tint(genre == group.id ? .cyan : .gray)
+                }
+                Button { manageGenres = true } label: { Image(systemName: "plus") }.buttonStyle(.bordered).tint(.gray)
+            }.buttonBorderShape(.capsule)
+        }.scrollIndicators(.hidden)
     }
     @ToolbarContentBuilder private var settingsToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -2938,8 +3057,7 @@ struct LibraryView: View {
                 Section {
                     Toggle("Extended logging", isOn: $input.diagnostics)
                     Button {
-                        if access.guarded && !access.unlocked { access.request { settingsSheet = .diagnostics } }
-                        else { settingsSheet = .diagnostics }
+                        settingsSheet = .diagnostics
                     } label: {
                         Label("Send diagnostic log", systemImage: "square.and.arrow.up")
                     }
@@ -2952,15 +3070,13 @@ struct LibraryView: View {
             if MadeiraConfig.flag("MADEIRA_RUNTIME_SETTINGS") {
                 if settingsShow("memory", "JIT pool", "pool", "video memory", "VRAM", "swap", "coverage", "madsync", "sync", "eco", "all settings") {
                     RuntimeMemorySyncSettings(open: { sheet in
-                        if access.guarded && !access.unlocked { access.request { settingsSheet = sheet } }
-                        else { settingsSheet = sheet }
+                        settingsSheet = sheet
                     }, refresh: settingsRefresh)
                 }
             }
             if SteamSettingsSection.shown, settingsShow("Steam", "Dock", "sign in", "account", "setup") {
                 SteamSettingsSection(open: { sheet in
-                    if access.guarded && !access.unlocked { access.request { settingsSheet = sheet } }
-                    else { settingsSheet = sheet }
+                    settingsSheet = sheet
                 })
             }
             if settingsShow("appearance", "liquid metal", "metal", "glass") {
@@ -2973,9 +3089,6 @@ struct LibraryView: View {
             if settingsShow("interface", "developer") {
                 Section {
                     Toggle("Use developer interface", isOn: Binding(get: { developerUI }, set: { on in
-                        if on && access.guarded && !access.unlocked {
-                            access.request { developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true }; return
-                        }
                         developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true
                     }))
                 } header: { Text("Interface") } footer: {
@@ -2984,11 +3097,7 @@ struct LibraryView: View {
             }
             // Search: the matching options of All settings, editable here.
             if !settingsSearch.trimmingCharacters(in: .whitespaces).isEmpty {
-                if access.guarded && !access.unlocked {
-                    Button("Continue") { access.request() }
-                } else {
-                    SettingsSearchResults(query: settingsSearch.trimmingCharacters(in: .whitespaces), refresh: settingsRefresh)
-                }
+                SettingsSearchResults(query: settingsSearch.trimmingCharacters(in: .whitespaces), refresh: settingsRefresh)
             }
             // Credits, last on the Settings page.
             if settingsShow("credits", "thanks", "Will Faust", "Nick", "125hz", "Jfishin", "Jesse", "JesseLovelace", "Dan Perks", "danperks") {
@@ -3025,7 +3134,25 @@ struct LibraryView: View {
         GeometryReader { viewport in
         ScrollViewReader { reader in
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 28) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(privatePlaylist ? "Private playlist" : recentOnly ? "Recently played" : "Your library")
+                            .font(.system(size: 32, weight: .bold))
+                        if privatePlaylist { Text("Your selected hidden games").font(.subheadline).foregroundStyle(.secondary) }
+                    }
+                    Spacer()
+                    if privatePlaylist {
+                        Button("Hide", systemImage: "eye.slash") { access.lock() }.buttonStyle(.bordered)
+                    }
+                }
+                if !privatePlaylist && !recentOnly && !recentGames.isEmpty { continuePlaying }
+                genreChips
+                if privatePlaylist {
+                    if entries.isEmpty {
+                        ContentUnavailableView("Your private playlist", systemImage: "lock", description: Text("Choose games or genres to keep private in Game details."))
+                    } else { cells(entries, width: viewport.size.width) }
+                } else {
                 HStack {
                     Button { selected = model.entries.first(where: { $0.desktop == true }) ?? .desktopEntry } label: {
                         if liquidMetal.on {
@@ -3059,7 +3186,7 @@ struct LibraryView: View {
                 let steamFirst = MadeiraDock.enabled && SteamGamesSection.hasInstalled
                 if steamFirst {
                     SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
-                        part: .installed, genre: genre, open: { selected = $0 })
+                        part: .installed, genre: genre, recentOnly: recentOnly, open: { selected = $0 })
                 }
                 if SteamGamesSection.shown {
                     VStack(alignment: .leading, spacing: 14) {
@@ -3079,16 +3206,16 @@ struct LibraryView: View {
                     }
                     if MadeiraDock.enabled {
                         SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
-                                          part: steamFirst ? .notInstalled : .all, genre: genre, open: { selected = $0 })
+                                          part: steamFirst ? .notInstalled : .all, genre: genre, recentOnly: recentOnly, open: { selected = $0 })
                     }
                 } else if model.displayedEntries(search: "", sort: sort, genre: genre).isEmpty {
                     ContentUnavailableView("Make yourself at home", systemImage: "gamecontroller", description: Text("Copy a game's folder into Madeira › wine › drive_c with the Files app, then tap + and choose its .exe."))
                 } else {
                     cells(entries, width: viewport.size.width)
                 }
+                }
             }
             // Ambient light behind the grid cards, in the content's own space so it scrolls with them.
-            .backgroundPreferenceValue(AmbientGlowKey.self) { AmbientGlowLayer(items: $0) }
             .padding(16).frame(maxWidth: 1100).frame(maxWidth: .infinity)
         }
         .refreshable { await SteamGamesSection.refresh() }
@@ -3100,8 +3227,7 @@ struct LibraryView: View {
             let ids = [LibraryEntry.desktopID] + items.map(\.id)
             let index = ids.firstIndex(where: { $0 == focused }) ?? 0
             if command == "add" {
-                if access.guarded && !access.unlocked { access.request { browser = true } }
-                else { browser = true }
+                browser = true
             }
             else if command == "accept" {
                 if index == 0 { selected = model.entries.first(where: { $0.desktop == true }) ?? .desktopEntry }
@@ -3119,9 +3245,12 @@ struct LibraryView: View {
         }
         .sheet(isPresented: $manageGenres) { LibraryGenresView() }
         .onChange(of: access.unlocked) { _, unlocked in
-            if !unlocked {
-                selected = nil; browser = false; manageGenres = false; settingsSheet = nil
-                search = ""; settingsSearch = ""; focused = nil
+            if unlocked {
+                privatePlaylist = true; recentOnly = false; genre = nil; search = ""; tab = 0; focused = nil
+            } else {
+                if let value = selected, model.isPrivate(value) { selected = nil }
+                if privatePlaylist { search = ""; focused = nil }
+                privatePlaylist = false
                 if let genre, genre != LibraryGenre.uncategorized,
                    !model.genres.contains(where: { $0.id == genre && $0.isPrivate != true }) { self.genre = nil }
             }
@@ -3194,7 +3323,8 @@ struct LibraryView: View {
                                 AmbientGlowItem(id: "entry-\(entry.id)", seed: entry.id.hashValue, art: .library(entry), pressed: pressed, bounds: bounds)
                             })
                         Text(entry.title).font(.subheadline.weight(.semibold)).lineLimit(2)
-                        LibraryBadges(entry: entry).foregroundStyle(.secondary)
+                        Text(entry.lastPlayed.map { "Last played " + $0.formatted(date: .abbreviated, time: .omitted) } ?? "In your collection")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }.padding(4)
                 }
             }.foregroundStyle(.primary)

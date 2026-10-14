@@ -121,6 +121,7 @@ checks() {
   python3 tests/host/check-runtime-profilers.py
   python3 tests/host/check-profile-display.py --require-objc
   python3 tests/host/check-engine-detection.py --require-swift
+  python3 tests/host/check-gamemaker-stats.py
   python3 tests/host/check-session-polling.py --require-swift
   python3 tests/host/check-library-privacy.py --require-swift
   python3 tests/host/check-pe-imports.py --require-swift

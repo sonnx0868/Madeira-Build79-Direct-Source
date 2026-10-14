@@ -147,6 +147,12 @@ final class GameRuntime: ObservableObject {
         // spawning cmd helpers. Keep Ren'Py on the isolated launch route until
         // its mixed-architecture child transitions are validated on device.
         switch GameEngineDetection.detect(executable) {
+        case "GameMaker":
+            // Fading Afternoon build647: supervised launch returned
+            // DXGI_ERROR_INVALID_CALL creating its swapchain, then the runner
+            // dereferenced the NULL swapchain in GetBuffer. The same device
+            // enters gameplay through a fresh direct launch.
+            return true
         case "Godot":
             // Primal Planet build633: the supervised child failed window
             // creation (error5), exited1 before WGL initialization, and the

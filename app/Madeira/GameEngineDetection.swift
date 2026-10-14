@@ -14,6 +14,11 @@ enum GameEngineDetection {
             }
         }
         let top = names(root)
+        if let data = top["data.win"] {
+            let header = prefix(data, count: 12)
+            if header.count == 12, header.prefix(4) == Data("FORM".utf8),
+               header.suffix(4) == Data("GEN8".utf8) { return "GameMaker" }
+        }
         if top["unityplayer.dll"] != nil { return "Unity" }
         if top.keys.contains(where: { $0.hasPrefix("libgodotsteam.windows.") && $0.hasSuffix(".dll") }) {
             return "Godot"

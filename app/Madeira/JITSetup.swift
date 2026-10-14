@@ -210,14 +210,14 @@ final class JITCoordinator: ObservableObject {
         pairingSource = JITPairingFileStore.source
     }
 
-    func enable(completion: @escaping (Result<Void, Error>) -> Void) {
+    func enable(force: Bool = false, completion: @escaping (Result<Void, Error>) -> Void) {
         guard SigningStatus.current.debuggable else {
             completion(.failure(NSError(
                 domain: "MadeiraJIT", code: 11,
                 userInfo: [NSLocalizedDescriptionKey: SigningStatus.notDebuggableMessage])))
             return
         }
-        if StikJITHelper.ready {
+        if StikJITHelper.ready && !force {
             completion(.success(()))
             return
         }
