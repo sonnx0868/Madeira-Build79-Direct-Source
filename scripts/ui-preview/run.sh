@@ -5,10 +5,13 @@ work="$root/build/ui-preview"
 out="${BITRISE_DEPLOY_DIR:-$work/artifacts}"
 mkdir -p "$work" "$out"
 exec > >(tee "$out/ui-preview.log") 2>&1
+python3 "$root/tests/host/check-game-log-archive.py"
+python3 "$root/tests/host/check-gog-rules.py"
+python3 "$root/tests/host/check-epic-manifest.py"
 python3 "$root/scripts/ui-preview/generate.py" "$work"
 app="$work/MadeiraPreview.app"
 mkdir -p "$app/madeira-art"
-for id in 367520 1663850 1030300 3097560; do
+for id in 367520 1663850 1030300 3097560 2350270 2333000; do
   for kind in cover hero; do
     [[ "$kind" = cover ]] && name=library_600x900.jpg || name=library_hero.jpg
     curl --fail --location --retry 2 --max-time 30 \
@@ -16,8 +19,7 @@ for id in 367520 1663850 1030300 3097560; do
       -o "$app/madeira-art/${kind}_${id}.jpg" || true
   done
 done
-# Fixture-only fallbacks for two games whose exact owned-store IDs vary.
-cp "$app/madeira-art/cover_367520.jpg" "$app/madeira-art/cover_0.jpg"
+
 sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 xcrun --sdk iphonesimulator swiftc -parse-as-library -swift-version 5 \
   -target arm64-apple-ios17.0-simulator -sdk "$sdk" \

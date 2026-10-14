@@ -125,6 +125,7 @@ final class GameRuntime: ObservableObject {
         !MadeiraConfig.bool("d3d12", default: false)
     }
     static func requiresDirectLaunch(_ entry: LibraryEntry) -> Bool {
+        if entry.epicAppName != nil { return true }
         // Both native settings are latched at engine creation, including Off.
         if entry.swapMB != nil || entry.realSuspend != nil { return true }
         // The cache file and instruction budget are latched at FEX creation.

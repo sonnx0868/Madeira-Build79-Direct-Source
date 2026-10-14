@@ -71,3 +71,22 @@ syntax errors in Library, LibraryAccess or SteamGames; existing grammar gaps
 in baseline files are unchanged. The C frontend exit/close regression passes.
 The PNG asset is 1536x1024, 1,871,718 bytes, with a valid asset-catalog entry.
 These checks do not type-check UIKit/SwiftUI or render the real iPad screen.
+
+## Latest Party Animals and account/log work
+
+Party Animals log 7cb9519e, build649, uploaded 11:19 Oct14: same native MSVCP140
+header jump after game-local x64 VCRUNTIME140 load, then phonon.dll pool failure.
+Pool is592MB instead of560MB but available head room still does not fit the51MB
+image while48MB tail is live. Later output is800x600, frame rate collapses and
+stops. These observations predate the unshipped native CRT/split-pool changes.
+
+Epic files are imported from PR207 with scoped launch/auth/privacy integration.
+GOG account/library and original offline-installer support is documented in GOG.md.
+Per-game raw archives are written under Documents/Logs on a utility queue, with
+Unicode/path-safe title_date_time filenames and a journal recovered before the
+previous session log rotates. No UI log parser is needed for Wine/FEX capture.
+
+Bitrise#36 is a separate simulator rendering workflow, explicitly requested by
+the user for screenshots. It succeeded in1m15s. It does not build or publish an
+IPA update or run Wine. Account/game fixture data are labelled as such; view and
+search/PIN sources are extracted from production with SHA256 receipts.

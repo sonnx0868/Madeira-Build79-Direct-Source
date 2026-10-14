@@ -215,7 +215,8 @@ struct LibraryAccessView: View {
                 }
                 HStack(spacing: 25) {
                     Button("Cancel") { access.requested = false; dismiss() }
-                        .font(.caption).frame(width: 76, height: 76).keyboardShortcut(.cancelAction)
+                        .font(.caption).frame(width: 76, height: 76)
+                        .background(.white.opacity(0.09), in: Circle()).keyboardShortcut(.cancelAction)
                     key(0)
                     Button { if !pin.isEmpty { pin.removeLast(); error = nil } }
                         label: { Image(systemName: "delete.left").frame(width: 76, height: 76) }

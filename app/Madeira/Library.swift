@@ -259,6 +259,14 @@ struct LibraryEntry: Codable, Identifiable {
     /// through Valve's client, with Steam's default launch option.
     /// `relativePath` is then its install folder, relative to drive_c.
     var steamAppID: Int?
+    var epicAppName: String?
+    var epicLaunchCommand: String?
+    var epicArtworkURL: URL?
+    var epicHeroURL: URL?
+    var gogID: Int?
+    var gogArtworkURL: URL?
+    var gogWorkingDir: String?
+    var gogLaunchCommand: String?
     /// How a Steam game starts (Game details › Steam › Start with): nil is Madeira
     /// Dock, the default; "game" is the game's own program in Wine, without Steam
     /// (SteamDirectStart).
@@ -299,6 +307,7 @@ struct LibraryEntry: Codable, Identifiable {
     var launchArguments: String {
         if desktop == true { return desktopCommand ?? "/desktop=shell,\(resolution) C:\\windows\\system32\\services.exe" }
         if startsSteamGameDirectly { return steamProgramArguments ?? "" }
+        if gogID != nil { return [gogLaunchCommand ?? "", arguments].filter { !$0.isEmpty }.joined(separator: " ") }
         if ExternalGameCompatibility.isUnity(self) {
             return UnityLaunch.arguments(arguments, resolution: resolution,
                 matchResolution: MadeiraConfig.flag("MADEIRA_UNITY_RESOLUTION"),
@@ -362,6 +371,8 @@ struct LibraryEntry: Codable, Identifiable {
     func applyEnvironment() {
         GameMemorySettings.clearPrevious()
         configureLaunch()
+        if epicAppName != nil { setenv("_MADEIRA_PRIVATE_ARGS", "1", 1) }
+        else { unsetenv("_MADEIRA_PRIVATE_ARGS") }
         ShaderPreparationSettings.apply(mode: shaderWarmupMode,
             automatic: desktop != true && unityOptimizations != false &&
                 MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS") &&
@@ -470,6 +481,7 @@ struct LibraryEntry: Codable, Identifiable {
             setenv("MADEIRA_STEAM_APPPATH", windowsPath, 1)
             if let folder = steamWorkingWindowsPath { setenv("MADEIRA_WORKDIR", folder, 1) }
         }
+        if let gogWorkingDir, gogID != nil { setenv("MADEIRA_WORKDIR", "C:\\" + gogWorkingDir.replacingOccurrences(of: "/", with: "\\"), 1) }
         // Every session's virtual monitor takes this entry's Resolution
         // (MADEIRA_SCREEN_W/H, source "knob"); for the Desktop entry it is the
         // same size as its /desktop= argument.
@@ -1107,7 +1119,9 @@ final class LibraryModel: ObservableObject {
         // A Steam game has one entry: a details page opened before its card first saved
         // one (refreshSteamMetadata) updates that entry.
         if let i = next.firstIndex(where: { $0.id == entry.id }) ??
-            next.firstIndex(where: { entry.steamAppID != nil && $0.steamAppID == entry.steamAppID }) {
+            next.firstIndex(where: { entry.steamAppID != nil && $0.steamAppID == entry.steamAppID }) ??
+            next.firstIndex(where: { entry.epicAppName != nil && $0.epicAppName == entry.epicAppName }) ??
+            next.firstIndex(where: { entry.gogID != nil && $0.gogID == entry.gogID }) {
             // A sheet or metadata job may finish after automatic relocking.
             // It must not remove the authoritative privacy designation.
             if !LibraryAccess.shared.unlocked && isPrivate(next[i]) {
@@ -1444,6 +1458,7 @@ final class LibraryModel: ObservableObject {
     /// `dock`: the game a Madeira Dock start launches (DockStartScreen).
     func begin(_ entry: LibraryEntry, remember: Bool = true, dock: DockGame? = nil) {
         DiagnosticEvents.begin(entry)
+        LogStore.shared.startGameLog(entry)
         wine_exit_status_reset()
         winios_reset_session_close()
         winios_window_alert_reset()
@@ -1667,6 +1682,7 @@ final class LibraryModel: ObservableObject {
     private func finish() {
         madeira_flush_pipeline_cache()
         DiagnosticEvents.phase("session-finished")
+        GameLogArchive.shared.finish()
         let report = sawProcess ? exitReport() : nil
         timer?.invalidate(); timer = nil
         winios_reset_session_close()
@@ -1991,6 +2007,8 @@ struct LibraryInlineSearch: UIViewRepresentable {
     func makeUIView(context: Context) -> UISearchBar {
         let bar = context.coordinator.bar
         (bar as? ReportingSearchBar)?.reportsHeaderAlignment = false
+        bar.backgroundImage = UIImage()
+        bar.backgroundColor = .clear
         return bar
     }
     func updateUIView(_ bar: UISearchBar, context: Context) {
@@ -2235,6 +2253,7 @@ struct LibraryArtwork: View {
         if let name = entry.coverFile {
             urls.append(LibraryModel.documents.appendingPathComponent("madeira-art/" + URL(fileURLWithPath: name).lastPathComponent))
         }
+        if let url = backdrop ? (entry.epicHeroURL ?? entry.epicArtworkURL ?? entry.gogArtworkURL) : (entry.epicArtworkURL ?? entry.gogArtworkURL), url.scheme == "https" { urls.append(url) }
         if let id = entry.steamID ?? entry.steamAppID,
            let url = backdrop ? SteamCatalog.hero(id) : SteamCatalog.cover(id) { urls.append(url) }
         return urls
@@ -3207,6 +3226,8 @@ struct LibraryView: View {
                     settingsSheet = sheet
                 })
             }
+            if settingsShow("Epic", "Epic Games", "sign in", "account") { EpicSettingsSection(open: { settingsSheet = $0 }) }
+            if settingsShow("GOG", "sign in", "account") { GOGSettingsSection(open: { settingsSheet = $0 }) }
             if settingsShow("appearance", "liquid metal", "metal", "glass") {
                 Section {
                     Toggle("Liquid metal", isOn: $liquidMetal.on)
@@ -3254,6 +3275,8 @@ struct LibraryView: View {
             case .diagnostics: DiagnosticUploadView()
             case .updates: AppUpdateView()
             case .steamSignIn: SteamSignInView()
+            case .epicSignIn: EpicSignInView()
+            case .gogSignIn: GOGSignInView()
             case .dock: MadeiraDockView(start: startDock)
             }
         }
@@ -3298,12 +3321,16 @@ struct LibraryView: View {
                     SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
                         part: .management, genre: genre, recentOnly: recentOnly, open: { selected = $0 })
                 }
+                EpicGamesSection(search: search, layout: layout, width: viewport.size.width, genre: genre,
+                    managementOnly: true, open: { selected = $0 })
+                GOGGamesSection(search: search, genre: genre, open: { selected = $0 })
+
                 }
             }
             // Ambient light behind the grid cards, in the content's own space so it scrolls with them.
             .padding(16).frame(maxWidth: 1100).frame(maxWidth: .infinity)
         }
-        .refreshable { await SteamGamesSection.refresh() }
+        .refreshable { await SteamGamesSection.refresh(); await EpicGamesSection.refresh(); await GOGLibrary.shared.refresh() }
         .modifier(LibraryScrollActivity(active: $libraryScrolling))
         .environment(\.libraryScrolling, libraryScrolling)
         .onReceive(controller.commands) { command in
@@ -3653,6 +3680,10 @@ struct LibraryDetail: View {
                 if let appID = entry.steamAppID {
                     SteamCloudSection(appID: appID)
                     SteamEntrySection(entry: $entry) { leaving = true; dismiss() }
+                }
+                if let epic = entry.epicAppName {
+                    EpicEntrySection(appName: epic, run: { prerequisite in leaving = true; play(prerequisite) },
+                        leave: { leaving = true; dismiss() })
                 }
                 if entry.desktop != true && entry.steamAppID == nil {
                     Section {
@@ -4216,7 +4247,7 @@ struct MadeiraCredit: View {
 /// MADEIRA_RUNTIME_SETTINGS=0 hides this section.
 /// A sheet opened from Settings; LibraryView presents it from the Form itself.
 enum SettingsSheet: String, Identifiable {
-    case allSettings, steamSignIn, dock, diagnostics, updates
+    case allSettings, steamSignIn, epicSignIn, gogSignIn, dock, diagnostics, updates
     var id: String { rawValue }
 }
 

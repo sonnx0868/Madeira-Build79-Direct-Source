@@ -132,6 +132,7 @@ struct LibraryEntry {
     var cpuCacheMode: String? = nil
     var swapMB: Int? = nil
     var realSuspend: Bool? = nil
+    var epicAppName: String? = nil
 }
 enum MadeiraConfig { static func get(_ key: String) -> String? { nil } }
 enum LibraryModel { static var drive = URL(fileURLWithPath: "/") }

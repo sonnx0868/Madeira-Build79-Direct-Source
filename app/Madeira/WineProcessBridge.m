@@ -1300,7 +1300,8 @@ static void *wine_process_thread(void *arg) {
          * restore the full trace channel set. */
         {
             const char *verbose = getenv("MADEIRA_DEBUG_VERBOSE");
-            if (verbose && *verbose && *verbose != '0') {
+            if (getenv("_MADEIRA_PRIVATE_ARGS")) { setenv("WINEDEBUG", "-all", 1); }
+            else if (verbose && *verbose && *verbose != '0') {
                 setenv("WINEDEBUG", "err+all,fixme+all,warn+module,warn+file,trace+process,trace+module,trace+loaddll,trace+loadorder,trace+win,trace+user32,trace+syscall,trace+file", 1);
                 LOG("WINEDEBUG = verbose (MADEIRA_DEBUG_VERBOSE set)");
             } else {
@@ -1702,6 +1703,11 @@ static void *wine_process_thread(void *arg) {
                 setenv("WINEDLLOVERRIDES", joined.UTF8String, 1);
                 fprintf(stderr, "[steam-modules] overlay/video disabled for this Dock session overrides=%s\n", joined.UTF8String);
             }
+            if (getenv("_MADEIRA_PRIVATE_ARGS")) {
+                // Command-line exchange codes must not appear in Wine TRACE/ERR.
+                // Fatal native diagnostics still write directly to the session log.
+                setenv("WINEDEBUG", "-all", 1);
+            }
             if (getenv("_MADEIRA_PARTY_COMPAT")) {
                 NSString *raw = getenv("WINEDLLOVERRIDES") ? [NSString stringWithUTF8String:getenv("WINEDLLOVERRIDES")] : @"";
                 // Append exact builtin choices so explicit local x64 DLL paths
@@ -2055,7 +2061,8 @@ static void *wine_process_thread(void *arg) {
         argv[argc] = NULL;
         dprintf(STDERR_FILENO, "[WineProc] argv[1] = %s\n", exe_path);
         for (int i = 0; i < extra_argc; i++) {
-            dprintf(STDERR_FILENO, "[WineProc] argv[%d] = %s\n", 2 + i, extra_argv[i]);
+            dprintf(STDERR_FILENO, "[WineProc] argv[%d] = %s\n", 2 + i,
+                    getenv("_MADEIRA_PRIVATE_ARGS") ? "<private store argument>" : extra_argv[i]);
         }
 
         /* iOS-Madeira: chdir to the unix path that maps to the exe's Wine

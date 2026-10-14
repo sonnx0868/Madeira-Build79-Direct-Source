@@ -2139,6 +2139,8 @@ struct ContentView: View {
         .sheet(item: $devSheet) { sheet in
             switch sheet {
             case .steamSignIn: SteamSignInView()
+            case .epicSignIn: EpicSignInView()
+            case .gogSignIn: GOGSignInView()
             case .dock: MadeiraDockView { startDock($0, compactPool: $1) }
             case .allSettings: AllSettingsView()
             case .diagnostics: DiagnosticUploadView()
@@ -2525,7 +2527,24 @@ struct ContentView: View {
     }
 
     /// The rest of Play, with JIT on: checks the entry's launch profile and starts it.
-    private func startLibraryEntry(_ entry: LibraryEntry) {
+    private func startLibraryEntry(_ entry: LibraryEntry, epicArguments: String? = nil) {
+        if let appName = entry.epicAppName, epicArguments == nil {
+            Task { @MainActor in
+                do {
+                    let arguments = try await EpicAuth.shared.gameArguments(appName: appName)
+                    guard library.current == nil, library.isVisible(entry) else { return }
+                    startLibraryEntry(entry, epicArguments: arguments)
+                } catch { library.error = (error as? EpicAuthError)?.message ?? "Could not authorize the Epic game. Sign in again." }
+            }
+            return
+        }
+        let savedEntry = entry
+        var entry = entry
+        if let epicArguments {
+            entry.arguments = [entry.epicLaunchCommand ?? "", entry.arguments, epicArguments]
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+
         guard library.isVisible(entry) else {
             libraryAccess.request(); return
         }
@@ -2554,7 +2573,7 @@ struct ContentView: View {
         // Readiness/signature failures leave the active engine's environment
         // intact; the first runtime baseline also precedes per-game exports.
         entry.configureLaunch()
-        library.begin(entry, remember: entry.temporarySession != true)
+        library.begin(savedEntry, remember: savedEntry.temporarySession != true)
         if let runtimeLaunch, wine_process_is_running() != 0 {
             SteamOwnedLibrary.shared.sessionChanged(active: true)
             DispatchQueue.global(qos: .userInitiated).async {

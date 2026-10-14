@@ -196,3 +196,14 @@ into a signed app.
 `LiveContainer/` and `research/LiveContainer/` are AGPL-3.0 reference copies
 used for local research. Both are gitignored, untracked, and no part of them is
 linked into or shipped with the app. They form no part of the combined work.
+
+## Epic account/library/install integration
+
+Imported from https://github.com/willfaust/Madeira/pull/207 at
+`e81e8128daa7b0498082a76a9ed8953bb18de7d1` (iediot's contribution).
+Source file notices are retained: GPL-3.0-or-later with the Madeira Converter
+Exception, Copyright 2026 125hz where stated. Manifest/chunk/downloader protocol
+work follows Legendary (https://github.com/derrod/legendary). Madeira-specific
+changes cover privacy filtering, launch-profile persistence and token lifecycle.
+GOG integration is Madeira-owned Swift, using public GOG endpoints described in
+Heroic/gogdl's protocol implementation; no gogdl implementation was copied.

@@ -71,6 +71,8 @@ final class LogStore: ObservableObject {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         logFileURL = docs.appendingPathComponent("madeira-log.txt")
 
+        GameLogArchive.recover(sourceURL: logFileURL)
+
         // ml601: ROTATE, don't destroy.
         //
         // This used to truncate unconditionally, so relaunching the app before
@@ -319,6 +321,10 @@ final class LogStore: ObservableObject {
     private func saveReportMetadata() {
         let file = logFileURL.deletingLastPathComponent().appendingPathComponent("madeira-log.meta.json")
         if let data = try? JSONEncoder().encode(reportMetadata) { try? data.write(to: file, options: .atomic) }
+    }
+
+    func startGameLog(_ entry: LibraryEntry) {
+        GameLogArchive.shared.begin(title: entry.title, sourceURL: logFileURL, metadata: reportMetadata)
     }
 
     func clear() {

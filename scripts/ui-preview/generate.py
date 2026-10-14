@@ -50,6 +50,10 @@ struct LibraryEntry: Identifiable, Hashable {
     var epicArtworkURL: URL?
     var epicHeroURL: URL?
     var gogArtworkURL: URL?
+    var gogID:Int?
+    var gogWorkingDir:String?
+    var arguments=""
+    var temporarySession:Bool?
     static let desktopID = UUID()
     static var desktopEntry: Self { Self(title: "Desktop", desktop: true) }
 }
@@ -65,6 +69,8 @@ struct LibraryEntry: Identifiable, Hashable {
 @MainActor final class LibraryModel: ObservableObject {
     static let shared = LibraryModel()
     static var documents: URL { Bundle.main.bundleURL }
+    static var drive: URL { Bundle.main.bundleURL }
+    func save(_ entry:LibraryEntry) {}
     @Published var entries: [LibraryEntry] = []
     @Published var genres = ["Action","Adventure","Indie","Visual novel"].map { LibraryGenre(title:$0) }
     func isPrivate(_ entry: LibraryEntry) -> Bool { entry.privateGame == true }
@@ -72,7 +78,7 @@ struct LibraryEntry: Identifiable, Hashable {
     func seed() {
         let titles = ["Hollow Knight","REPLACED","Hollow Knight: Silksong","Primal Planet","Silver Pines",
             "Liar's Bar","Hollow Knight","REPLACED","Silver Pines","Primal Planet"]
-        let ids = [367520,1663850,1030300,0,0,3097560,367520,1663850,0,0]
+        let ids = [367520,1663850,1030300,2350270,2333000,3097560,367520,1663850,2333000,2350270]
         entries = zip(titles,ids).enumerated().map { i,pair in
             var entry = LibraryEntry(title:pair.0, steamID:pair.1)
             entry.lastPlayed = Date().addingTimeInterval(-Double(i)*86400)
@@ -98,6 +104,13 @@ struct SteamGamesSection: View {
     static func refresh() async {}
     var body:some View { EmptyView() }
 }
+struct EpicGamesSection: View {
+    var search:String;var layout:String;var width:CGFloat;var genre:UUID?;var managementOnly:Bool;var open:(LibraryEntry)->Void
+    static func refresh() async {}
+    var body:some View { EmptyView() }
+}
+
+enum SettingsSheet {case gogSignIn}
 struct PreviewController { var connected = false }
 struct AmbientArt { static func library(_ e:LibraryEntry)->Self { Self() } }
 struct AmbientGlowItem { var id:String;var seed:Int;var art:AmbientArt;var pressed:Bool;var bounds:Anchor<CGRect> }
@@ -156,6 +169,8 @@ for sig in ('private var entries:', 'private var libraryOptions:', 'private var 
 body = block(shelf, 'private var library: some View')
 body = body[:body.index('        .onReceive(controller.commands)')] + '\n        }\n        }\n    }\n'
 sources += body + '\n}\n'
+sources += (root / 'app/Madeira/GOG/GOGStore.swift').read_text(encoding='utf-8')
+
 sources += r'''
 @main struct MadeiraPreviewApp:App {
     var body:some Scene {
