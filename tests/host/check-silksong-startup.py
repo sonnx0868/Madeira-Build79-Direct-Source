@@ -70,7 +70,13 @@ if not swiftc:
     if "--require-swift" in sys.argv: raise SystemExit("swiftc required for the actual Unity sync policy")
     print("SKIP: actual Unity sync policy requires swiftc; Codemagic requires it")
 else:
-    policy = "enum UnityStartupSync {" + library.split("enum UnityStartupSync {", 1)[1].split("\nenum UnityLaunch", 1)[0]
+    start = library.index("enum UnityStartupSync {")
+    end = library.index("{", start) + 1
+    depth = 1
+    while depth:
+        depth += (library[end] == "{") - (library[end] == "}")
+        end += 1
+    policy = library[start:end]
     tests = r'''
 func mode(_ engine: String, _ unity: Bool = true, _ game: Bool? = nil,
           _ global: String? = nil, _ allowed: Bool = true) -> String? {
