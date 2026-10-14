@@ -11,6 +11,7 @@ fixture=r'''
 #include <stdio.h>
 #include "GPUForegroundGate.h"
 #include "GPUFrameDiagnostics.h"
+#include "SlowFrameWindow.h"
 #ifdef _WIN32
 #include <windows.h>
 static void pause_ms(unsigned ms) { Sleep(ms); }
@@ -70,7 +71,43 @@ int main(void) {
     uint64_t invalid=madeira_gpu_metrics_begin(&metrics);
     madeira_gpu_metrics_complete(&metrics,invalid,20,19,0);
     s=madeira_gpu_metrics_take(&metrics); assert(s.buffers==1 && !s.timed_buffers && !s.gpu_ns);
+    /* Out-of-order/overlapping work must not count twice as GPU coverage. */
+    uint64_t a=madeira_gpu_metrics_begin(&metrics),b=madeira_gpu_metrics_begin(&metrics);
+    uint64_t c=madeira_gpu_metrics_begin(&metrics),d=madeira_gpu_metrics_begin(&metrics);
+    madeira_gpu_metrics_complete(&metrics,a,10.004,10.008,0);
+    madeira_gpu_metrics_complete(&metrics,b,10.000,10.006,0);
+    madeira_gpu_metrics_complete(&metrics,c,10.001,10.003,0);
+    madeira_gpu_metrics_complete(&metrics,d,10.010,10.012,0);
+    s=madeira_gpu_metrics_take(&metrics);
+    assert(s.timed_buffers==4 && s.gpu_ns>13999990 && s.gpu_ns<14000010);
+    assert(s.union_gpu_ns>9999990 && s.union_gpu_ns<10000010);
+    assert(s.span_gpu_ns>11999990 && s.span_gpu_ns<12000010 && !s.timing_dropped);
+    s=madeira_gpu_metrics_take(&metrics); assert(!s.union_gpu_ns && !s.span_gpu_ns);
+    for(unsigned i=0;i<MADEIRA_GPU_INTERVAL_LIMIT+3;i++) {
+        a=madeira_gpu_metrics_begin(&metrics);
+        madeira_gpu_metrics_complete(&metrics,a,20,20.001,0);
+    }
+    s=madeira_gpu_metrics_take(&metrics);
+    assert(s.timing_dropped==3 && s.union_gpu_ns>999990 && s.union_gpu_ns<1000010);
+    a=madeira_gpu_metrics_begin(&metrics);
+    madeira_gpu_metrics_complete(&metrics,a,30,30.01,0);
+    madeira_gpu_metrics_enable(&metrics,0); madeira_gpu_metrics_enable(&metrics,1);
+    s=madeira_gpu_metrics_take(&metrics); assert(!s.union_gpu_ns && !s.timing_dropped);
+
+    MadeiraSlowFrameWindow window={.started=0,.frames=0};
+    double seconds=0,fps=0;
+    assert(!madeira_slow_frame_window(&window,4,240,1,&seconds,&fps));
+    assert(madeira_slow_frame_window(&window,5,300,1,&seconds,&fps)==1 && fps==60);
+    assert(madeira_slow_frame_window(&window,10,450,1,&seconds,&fps)==2 && fps==30);
+    assert(madeira_slow_frame_window(&window,15,600,3,&seconds,&fps)==1 && window.reports==1);
+    assert(madeira_slow_frame_window(&window,20,600,0,&seconds,&fps)==1 && fps==0);
+    assert(!madeira_slow_frame_window(&window,21,0,1,&seconds,&fps));
+    assert(madeira_slow_frame_window(&window,26,150,0,&seconds,&fps)==2 && fps==30);
+    for(unsigned i=0;i<10;i++) assert(madeira_slow_frame_window(&window,31+5*i,300+150*i,2,&seconds,&fps)==2);
+    assert(window.reports==12);
+    assert(madeira_slow_frame_window(&window,81,1800,1,&seconds,&fps)==1);
     puts("PASS: inactive GPU work blocks, active work resumes, transitions drain submissions and timing rejects failed/stale buffers");
+    puts("PASS: completed GPU intervals merge out of order, overflow is explicit, and sustained slow-frame sampling respects 30 FPS and report budgets");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-gpu-gate-') as temp:

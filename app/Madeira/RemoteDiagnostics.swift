@@ -376,6 +376,7 @@ enum DiagnosticEvents {
         if gpu.buffers > 0 {
             let average = gpu.timed_buffers > 0 ? Double(gpu.gpu_ns) / Double(gpu.timed_buffers) / 1e6 : 0
             LogStore.shared.log("[gpu-timing-v1] buffers=\(gpu.buffers) timed=\(gpu.timed_buffers) avg-buffer-ms=\(String(format: "%.2f", average)) max-buffer-ms=\(String(format: "%.2f", Double(gpu.max_gpu_ns) / 1e6)) inflight=\(gpu.inflight) peak-inflight=\(gpu.max_inflight) errors=\(gpu.errors)")
+            LogStore.shared.log("[gpu-coverage-v2] completed-union-ms=\(String(format: "%.2f", Double(gpu.union_gpu_ns) / 1e6)) completed-span-ms=\(String(format: "%.2f", Double(gpu.span_gpu_ns) / 1e6)) summed-ms=\(String(format: "%.2f", Double(gpu.gpu_ns) / 1e6)) dropped=\(gpu.timing_dropped) scope=completed-batch")
         }
         sampledAt = now; lastFrames = frames
     }

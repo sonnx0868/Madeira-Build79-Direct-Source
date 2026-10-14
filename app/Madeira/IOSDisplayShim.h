@@ -13,6 +13,7 @@
 
 typedef struct {
     uint64_t buffers, timed_buffers, gpu_ns, max_gpu_ns, inflight, max_inflight, errors;
+    uint64_t union_gpu_ns, span_gpu_ns, timing_dropped;
 } MadeiraGPUStats;
 void madeira_gpu_submit_begin(void);
 void madeira_gpu_submit_end(void);

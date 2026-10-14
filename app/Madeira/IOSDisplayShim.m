@@ -117,7 +117,8 @@ void madeira_gpu_diagnostics_complete(unsigned long long ticket, double start, d
 MadeiraGPUStats madeira_gpu_diagnostics_sample(void) {
     MadeiraGPUFrameSample sample = madeira_gpu_metrics_take(&gpu_metrics);
     return (MadeiraGPUStats){sample.buffers, sample.timed_buffers, sample.gpu_ns, sample.max_gpu_ns,
-                            sample.inflight, sample.max_inflight, sample.errors};
+                            sample.inflight, sample.max_inflight, sample.errors,
+                            sample.union_gpu_ns, sample.span_gpu_ns, sample.timing_dropped};
 }
 
 void madeira_display_set_layer(CAMetalLayer *layer) {
