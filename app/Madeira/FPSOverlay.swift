@@ -22,7 +22,10 @@ struct ThermalPacingPolicy {
 /// is never saved into the game's profile. All UIKit/display work is on main.
 final class ThermalPacingController {
     static let shared = ThermalPacingController()
-    static let preferenceKey = "madeiraAdaptiveCooling"
+    // Build623 introduced automatic thermal caps. Do not inherit that old
+    // automatic default into the revised, explicitly selected cooling policy.
+    static let preferenceKey = "madeiraAdaptiveCoolingOptInV2"
+    static let defaultEnabled = false
     private var policy = ThermalPacingPolicy()
     private(set) var requested: Int32 = 1
     private var hasRequest = false
@@ -63,7 +66,7 @@ final class ThermalPacingController {
 
     private func update() {
         let running = LibraryModel.shared.current != nil || wine_process_is_running() != 0
-        let enabled = (UserDefaults.standard.object(forKey: Self.preferenceKey) as? Bool) ?? true
+        let enabled = (UserDefaults.standard.object(forKey: Self.preferenceKey) as? Bool) ?? Self.defaultEnabled
         let process = ProcessInfo.processInfo
         let state = process.thermalState.rawValue
         let applied = policy.mode(requested: requested, thermal: running ? state : 0,
@@ -77,7 +80,7 @@ final class ThermalPacingController {
             madeira_set_display_max_fps(Int32(ProMotionIntent.panelMaxFPS), 0)
         }
         GamepadInput.shared.setThermalPressure(enabled && running ? state : 0)
-        let report = "adaptive-cooling-v1 nominal-restore-v2 requested=\(requested) applied=\(applied) thermal=\(state) low-power=\(process.isLowPowerModeEnabled ? 1 : 0) enabled=\(enabled ? 1 : 0)"
+        let report = "adaptive-cooling-v2 opt-in requested=\(requested) applied=\(applied) thermal=\(state) low-power=\(process.isLowPowerModeEnabled ? 1 : 0) enabled=\(enabled ? 1 : 0)"
         if report != lastReport {
             lastReport = report
             LogStore.shared.log("[thermal-pacing] \(report)")

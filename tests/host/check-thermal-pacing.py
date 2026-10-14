@@ -11,10 +11,14 @@ source=(root/'app/Madeira/FPSOverlay.swift').read_text(encoding='utf-8')
 policy=source[source.index('struct ThermalPacingPolicy {'):source.index('/// Receives user intent')]
 assert 'ProcessInfo.thermalStateDidChangeNotification' in source
 assert 'ProMotionIntent.shared.setActive(false)' in source
+assert 'static let preferenceKey = "madeiraAdaptiveCoolingOptInV2"' in source
+assert 'static let defaultEnabled = false' in source
+assert '?? Self.defaultEnabled' in source
 library=(root/'app/Madeira/Library.swift').read_text(encoding='utf-8')
 assert 'ThermalPacingController.request(effectiveFPSMode)' in library
 assert 'ThermalPacingController.request(entry.effectiveFPSMode)' in library
 assert 'ThermalPacingController.request(applied)' in library
+assert '@AppStorage(ThermalPacingController.preferenceKey)' in library
 gamepad=(root/'app/Madeira/GamepadInput.swift').read_text(encoding='utf-8')
 assert 'profile.valueChangedHandler =' in gamepad and '.milliseconds(pollingMilliseconds)' in gamepad
 assert 'level >= 2 ? 16 : level == 1 ? 8 : 4' in gamepad
@@ -37,6 +41,11 @@ assert(mode(0,0,141)==0 && mode(0,0,200)==0)
 assert(mode(0,0,201)==0)
 assert(mode(3,2,220)==3 && mode(3,0,230)==3 && mode(3,0,290)==3)
 assert(mode(2,2,300,enabled:false)==2) // opt-out is immediate
+for thermal in 0...3 {
+    for requested in Int32(0)...Int32(3) {
+        assert(mode(requested,thermal,enabled:false)==requested) // restore pre-623 cap behavior
+    }
+}
 assert(mode(2,0,301)==2)
 assert(mode(0,0,310,lowPower:true)==1)
 assert(mode(1,0,310,lowPower:true)==1)

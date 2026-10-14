@@ -89,6 +89,18 @@ hidden library submits zero frames. Evidence is stored locally at
 `E:/CodexTemp/madeira-ui-preview-670/ui-preview.log` and `search-checks.json`.
 This workflow does not link the release Wine/DXMT app or run a Windows game.
 
+The user identified build 623's introduction of adaptive cooling as the point
+where hot-device FPS behavior worsened. The initial policy capped at 30 and
+kept that state for 60 seconds after returning to nominal. Later nominal
+restoration fixed the hold but 666 still automatically capped at 30 under
+serious pressure. The revised policy now defaults off using a new explicit
+opt-in preference, so upgrades do not inherit the previous automatic default.
+The existing FPS selection and game profiles are preserved; when the user
+opts in, MAX/RAW may reduce to 60 and selected 60/30 are preserved.
+This identifies an app-imposed regression under heat, not the whole cause of
+slow frames at nominal temperature. On deployed 666, turning off
+"Reduce heat automatically" restores the requested cap immediately.
+
 Future native builds must rebuild D3D11 plus the Metal archive. The compatibility
 checker rejects cached bundles lacking present-order and cache-mapping markers.
 The published 666 IPA has not been replaced by these source changes. A source

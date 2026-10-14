@@ -4237,7 +4237,7 @@ struct StickDirectionChoice: View {
 
 struct FPSChoice: View {
     @Binding var mode: Int
-    @AppStorage("madeiraAdaptiveCooling") private var adaptiveCooling = true
+    @AppStorage(ThermalPacingController.preferenceKey) private var adaptiveCooling = ThermalPacingController.defaultEnabled
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
         HStack { Text("FPS limit"); Spacer(); Picker("FPS limit", selection: $mode) {
@@ -4247,7 +4247,7 @@ struct FPSChoice: View {
         }.labelsHidden().pickerStyle(.menu) }
             Toggle("Reduce heat automatically", isOn: $adaptiveCooling)
                 .onChange(of: adaptiveCooling) { _, _ in ThermalPacingController.refresh() }
-            Text("Caps FPS while the device is hot, then restores your FPS limit after cooling.")
+            Text("Off by default. When enabled, limits MAX/RAW to 60 FPS while hot and restores your selection after cooling. Your selected 60 or 30 FPS limit is preserved.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
