@@ -497,7 +497,7 @@ struct SteamGamesSection: View {
                             SteamSignInCard { showSignIn = true }
                         }
                         if !groups.downloading.isEmpty {
-                            LibrarySectionHeader(title: "Downloads", count: groups.downloading.count)
+                            LibrarySectionHeader(title: "Downloads", count: groups.downloading.count) { EmptyView() }
                             LibraryCells(items: groups.downloading, layout: layout, width: width) { item, list, dense in
                                 cell(item, list: list, dense: dense)
                             }
