@@ -20957,6 +20957,37 @@ static int ios_lowalloc_process_qualifies(void)
     return hit;
 }
 
+#ifdef WINE_IOS
+#include "guest_spill_ranges.h"
+static NTSTATUS ios_allocate_guest_spill(void **ret, SIZE_T *size, DWORD type, DWORD protect)
+{
+    const struct ios_spill_range windows[] = {
+        {ios_steer_slot, (ULONG_PTR)host_addr_space_limit},
+        {0x7400000000ULL, ios_spill_cap}
+    };
+    SIZE_T wanted = *size;
+    void *saved = *ret;
+    NTSTATUS status = STATUS_NO_MEMORY;
+    unsigned w, r;
+    for (w = 0; w < ARRAY_SIZE(windows); ++w)
+    {
+        struct ios_spill_range ranges[2];
+        unsigned n = ios_guest_spill_ranges(windows[w].lo, windows[w].hi,
+            ios_fex_arena_base_unix, ios_fex_arena_end_unix, ranges);
+        for (r = 0; r < n; ++r)
+        {
+            if ((uint64_t)wanted > ranges[r].hi - ranges[r].lo) continue;
+            *ret = saved; *size = wanted;
+            status = allocate_virtual_memory(ret, size, type, protect,
+                ranges[r].lo, ranges[r].hi, 0, 0);
+            if (!status) return status;
+        }
+    }
+    *ret = saved; *size = wanted;
+    return status;
+}
+#endif
+
 NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR zero_bits,
                                          SIZE_T *size_ptr, ULONG type, ULONG protect )
 {
@@ -21519,38 +21550,14 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                  * described the EMPTY range [ios_spill_cap, 0) and every steer failed with
                  * *ret = 0x0. The upper bound has to be a real address: use the host VA
                  * ceiling, which is_beyond_limit treats as EXCLUSIVE. */
-                NTSTATUS sst = allocate_virtual_memory( ret, size_ptr, type, protect,
-                                                        ios_steer_slot,
-                                                        (ULONG_PTR)host_addr_space_limit,
-                                                        0, 0 );
-                /* ml171: 16GB is not enough. Surviving longer spawns more threads, so
-                 * the reserve count went 27 -> 55 (28160MB) and BOTH the steer slot and
-                 * furniture reported va-scan FAILED maxgap=0 before the NULL deref.
-                 * Fall back to the 0x7400000000 slot, which this run left UNGRANTED —
-                 * pools landed on 0x7000000000, 0x73ffff0000 and 0x7800000000, matching
-                 * the 3-pool census. That doubles steer capacity to ~32GB. */
-                if (sst)
-                {
-                    *ret = saved; *size_ptr = want;
-                    sst = allocate_virtual_memory( ret, size_ptr, type, protect,
-                                                   0x7400000000ULL, ios_spill_cap, 0, 0 );
-                }
-                /* ml173: both steer slots full -> reclaim ranges owned by threads that
-                 * have since exited, then retry once. This is what makes the steer
-                 * region sustainable: the reserves leak per-thread, so without this any
-                 * fixed capacity is exhausted by a long enough run. */
+                /* Generic guest reserves used to consume FEX's entire 16GB
+                 * band (Party Animals 666: 17 reserves consumed ~7.7GB).
+                 * Only allocate outside that published arena, even on retry. */
+                NTSTATUS sst = ios_allocate_guest_spill(ret, size_ptr, type, protect);
                 if (sst && ios_steer_reclaim_dead())
                 {
                     *ret = saved; *size_ptr = want;
-                    sst = allocate_virtual_memory( ret, size_ptr, type, protect,
-                                                   ios_steer_slot,
-                                                   (ULONG_PTR)host_addr_space_limit, 0, 0 );
-                    if (sst)
-                    {
-                        *ret = saved; *size_ptr = want;
-                        sst = allocate_virtual_memory( ret, size_ptr, type, protect,
-                                                       0x7400000000ULL, ios_spill_cap, 0, 0 );
-                    }
+                    sst = ios_allocate_guest_spill(ret, size_ptr, type, protect);
                 }
                 if (!sst && ios_steer_n < IOS_STEER_MAX)
                 {
@@ -21572,7 +21579,7 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
                             steer_n, (unsigned long)want,
                             (unsigned long long)(ios_bigres_reserved_total >> 20),
                             ios_va_pressure ? "va-pressure" : "8GB-total",
-                            sst ? "FAILED, falling back" : "above ceiling", *ret);
+                            sst ? "FAILED, falling back" : "outside FEX arena (guest-spill-v1)", *ret);
                 }
                 if (!sst) { st = sst; ios_steered = 1; }
                 else { *ret = saved; *size_ptr = want; }   /* fall back to normal */

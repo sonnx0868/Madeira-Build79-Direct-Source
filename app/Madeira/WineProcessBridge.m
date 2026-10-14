@@ -546,6 +546,46 @@ static int g_session_close_exited = 0;
 static uint32_t g_launched_pid, g_launched_tid;
 static uint32_t g_presented_pid;
 static uint64_t g_presented_exit;
+static pthread_mutex_t g_game_path_lock = PTHREAD_MUTEX_INITIALIZER;
+static NSString *g_game_path;
+static int g_game_directory;
+static uint32_t g_game_pid;
+static uint64_t g_game_exit;
+static NSString *madeira_game_path(NSString *path) {
+    NSString *value = [[path stringByReplacingOccurrencesOfString:@"/" withString:@"\\"] lowercaseString];
+    if ([value hasPrefix:@"\\??\\"]) value = [value substringFromIndex:4];
+    while ([value hasSuffix:@"\\"]) value = [value substringToIndex:value.length - 1];
+    return value;
+}
+void wine_game_process_expect(const char *path, int directory) {
+    @autoreleasepool {
+        NSString *value = path ? madeira_game_path([NSString stringWithUTF8String:path]) : nil;
+        pthread_mutex_lock(&g_game_path_lock);
+        g_game_path = [value copy]; g_game_directory = directory;
+        pthread_mutex_unlock(&g_game_path_lock);
+    }
+}
+void wine_game_process_started(uint32_t pid, const uint16_t *image, size_t characters) {
+    if (!pid || !image || !characters || characters > 2048) return;
+    @autoreleasepool {
+        NSString *path = madeira_game_path([[NSString alloc] initWithCharacters:image length:characters]);
+        pthread_mutex_lock(&g_game_path_lock);
+        BOOL match = g_game_path.length && (g_game_directory ?
+            ([path hasPrefix:[g_game_path stringByAppendingString:@"\\"]] && [path hasSuffix:@".exe"]) :
+            [path isEqualToString:g_game_path]);
+        pthread_mutex_unlock(&g_game_path_lock);
+        uint32_t empty = 0;
+        if (match && __atomic_compare_exchange_n(&g_game_pid, &empty, pid, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            dprintf(2, "[game-process-v1] selected pid=%04x before first frame\n", pid);
+    }
+}
+int wine_game_process_has_exited(void) { return __atomic_load_n(&g_game_exit, __ATOMIC_ACQUIRE) != 0; }
+int wine_game_process_exit_status(uint32_t *status) {
+    uint64_t value = __atomic_load_n(&g_game_exit, __ATOMIC_ACQUIRE);
+    if (!(value >> 32)) return 0;
+    if (status) *status = (uint32_t)value;
+    return 1;
+}
 void wine_presented_process_track(uint32_t pid) {
     if (!pid || __atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE)) return;
     __atomic_store_n(&g_presented_pid, pid, __ATOMIC_RELEASE);
@@ -593,6 +633,8 @@ int wine_session_close_targets_thread(uint32_t pid, uint32_t tid) {
            __atomic_load_n(&g_session_close_tid, __ATOMIC_ACQUIRE) == tid;
 }
 void wine_session_process_did_exit(uint32_t pid, int status) {
+    if (pid && __atomic_load_n(&g_game_pid, __ATOMIC_ACQUIRE) == pid)
+        __atomic_store_n(&g_game_exit, (UINT64_C(1) << 32) | (uint32_t)status, __ATOMIC_RELEASE);
     if (pid && __atomic_load_n(&g_presented_pid, __ATOMIC_ACQUIRE) == pid)
         __atomic_store_n(&g_presented_exit, (UINT64_C(1) << 32) | (uint32_t)status, __ATOMIC_RELEASE);
     if (wine_session_close_targets_process(pid))
@@ -611,6 +653,8 @@ int wine_launched_process_has_exited(void) {
     return __atomic_load_n(&g_launch_exited, __ATOMIC_ACQUIRE);
 }
 void wine_exit_status_reset(void) {
+    __atomic_store_n(&g_game_pid, 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_game_exit, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_launch_exit, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_launch_exited, 0, __ATOMIC_RELEASE);
     __atomic_store_n(&g_session_close_pid, 0, __ATOMIC_RELEASE);
@@ -1220,13 +1264,13 @@ static void madeira_seed_winsxs_amd64_vc90(NSFileManager *fm, NSString *prefix, 
             ok ? "seeded" : "FAILED", manifest.fileSystemRepresentation);
 }
 
-/* FEX's WOW64 module cannot call sysctl, and without an answer it assumes the
+/* FEX's Windows modules cannot call sysctl, and without an answer assume the
  * newest cores' feature set. A wrong "present" is silent corruption, not a
  * crash (FEAT_AFP claimed on a core without it leaves FPCR.NEP RES0, so every
  * scalar SSE operation zeroes the upper lanes of its destination), so the app
- * asks and passes the answers in FEX_MADEIRA_HOSTPROBE. Only the WOW64 module
- * reads it (FEX Source/Windows/Common/CPUFeatures.cpp, !ARCHITECTURE_arm64ec);
- * "?" means the sysctl does not exist and keeps FEX's assumption. */
+ * asks and passes the answers in FEX_MADEIRA_HOSTPROBE. The upstream CPU
+ * feature implementation reads it in both modules; LRCPC2 is enabled only
+ * for an explicit positive answer. "?" never enables LRCPC2. */
 static void madeira_publish_host_probe(void)
 {
     static const struct { const char *key, *sysctl; } probes[] = {
@@ -1235,6 +1279,7 @@ static void madeira_publish_host_probe(void)
         { "FLAGM2",  "hw.optional.arm.FEAT_FlagM2" },
         { "FCMA",    "hw.optional.arm.FEAT_FCMA" },
         { "RCPC",    "hw.optional.arm.FEAT_LRCPC" },
+        { "LRCPC2",  "hw.optional.arm.FEAT_LRCPC2" },
         { "AES",     "hw.optional.arm.FEAT_AES" },
         { "PMULL",   "hw.optional.arm.FEAT_PMULL" },
         { "SHA",     "hw.optional.arm.FEAT_SHA256" },

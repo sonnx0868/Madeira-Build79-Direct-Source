@@ -8,6 +8,7 @@ final class GameLogArchive: @unchecked Sendable {
         var filename: String
         var startOffset: UInt64
         var headerBytes: UInt64
+        var endOffset: UInt64? = nil
     }
     private let queue = DispatchQueue(label: "madeira.game-log-archive", qos: .utility)
     private var timer: DispatchSourceTimer?
@@ -36,7 +37,7 @@ final class GameLogArchive: @unchecked Sendable {
     func begin(title: String, sourceURL: URL, metadata: [String: String]) {
         let offset = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { UInt64(max(0, $0)) } ?? 0
         queue.async { [self] in
-            finishOnQueue()
+            finishOnQueue(endOffset: offset)
             let folder = sourceURL.deletingLastPathComponent().appendingPathComponent("Logs", isDirectory: true)
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -63,7 +64,13 @@ final class GameLogArchive: @unchecked Sendable {
         }
     }
 
-    func finish() { queue.async { [self] in finishOnQueue() } }
+    func finish(sourceURL: URL? = nil) {
+        // Fix the byte boundary on the caller's timeline, before queued IO
+        // runs. Library/next-game output must not enter the old game's file.
+        let end = sourceURL.flatMap { (try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) }
+            .map { UInt64(max(0, $0)) }
+        queue.async { [self] in finishOnQueue(endOffset: end) }
+    }
 
     @discardableResult private func drain(limit: Int = Int.max) -> Bool {
         guard let source, let destination else { return false }
@@ -78,10 +85,20 @@ final class GameLogArchive: @unchecked Sendable {
             return true
         } catch { return false /* Keep the journal for recovery. */ }
     }
-    private func finishOnQueue() {
+    private func finishOnQueue(endOffset: UInt64? = nil) {
         timer?.cancel(); timer = nil
-        if drain() {
+        if var record = current, let endOffset, endOffset >= record.startOffset {
+            record.endOffset = endOffset; current = record
+            if let journalURL { try? JSONEncoder().encode(record).write(to: journalURL, options: .atomic) }
+        }
+        let remaining = current?.endOffset.map { $0 > cursor ? $0 - cursor : 0 }
+        if drain(limit: remaining.map { Int(clamping: $0) } ?? Int.max) {
             do {
+                if let record = current, let end = record.endOffset, end >= record.startOffset,
+                   record.headerBytes <= UInt64.max - (end - record.startOffset), let destination {
+                    let boundary = record.headerBytes + end - record.startOffset
+                    if try destination.seekToEnd() > boundary { try destination.truncate(atOffset: boundary) }
+                }
                 try destination?.synchronize()
                 if let journalURL { try FileManager.default.removeItem(at: journalURL) }
             } catch { /* Recovery uses the actual destination length. */ }
@@ -113,10 +130,18 @@ final class GameLogArchive: @unchecked Sendable {
               let destination = try? FileHandle(forWritingTo: target) else { return }
         defer { try? source.close(); try? destination.close() }
         do {
-            try source.seek(toOffset: record.startOffset + UInt64(size) - record.headerBytes)
+            if let end = record.endOffset, end < record.startOffset { return }
+            let copied = UInt64(size) - record.headerBytes
+            let maximum = record.endOffset.map { $0 - record.startOffset }
+            var captured = min(copied, maximum ?? copied)
+            if captured < copied { try destination.truncate(atOffset: record.headerBytes + captured) }
+            try source.seek(toOffset: record.startOffset + captured)
             try destination.seekToEnd()
-            while let bytes = try source.read(upToCount: 256 * 1024), !bytes.isEmpty {
+            while maximum == nil || captured < maximum! {
+                let count = Int(min(UInt64(256 * 1024), maximum.map { $0 - captured } ?? UInt64(256 * 1024)))
+                guard let bytes = try source.read(upToCount: count), !bytes.isEmpty else { break }
                 try destination.write(contentsOf: bytes)
+                captured += UInt64(bytes.count)
             }
             try destination.synchronize()
             try FileManager.default.removeItem(at: marker)

@@ -93,6 +93,10 @@ else
 fi
 
 checks() {
+  python3 tests/host/check-game-process.py --require-objc
+  python3 tests/host/check-fex-host-features.py
+  python3 tests/host/check-builtin-xinput.py
+  python3 tests/host/check-guest-spill.py
   python3 tests/host/check-dxmt-cpu-mappings.py
   python3 tests/host/check-gpu-lifecycle.py
   python3 tests/host/check-bcd-compatibility.py

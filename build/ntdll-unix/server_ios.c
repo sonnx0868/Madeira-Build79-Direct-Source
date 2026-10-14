@@ -4065,6 +4065,15 @@ void server_init_process_done(void)
     int suspend;
     FILE_FS_DEVICE_INFORMATION info;
     struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
+#ifdef WINE_IOS
+    {
+        RTL_USER_PROCESS_PARAMETERS *params = NtCurrentTeb()->Peb->ProcessParameters;
+        extern void wine_game_process_started(unsigned int, const WCHAR *, size_t) __attribute__((weak));
+        if (params && wine_game_process_started)
+            wine_game_process_started((unsigned int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueProcess,
+                params->ImagePathName.Buffer, params->ImagePathName.Length / sizeof(WCHAR));
+    }
+#endif
 
     /* iOS-Madeira: this runs on the main (game) thread exactly once —
      * capture its TEB for the server_wait frame-anatomy accounting. */

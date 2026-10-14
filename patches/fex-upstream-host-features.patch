@@ -1,0 +1,126 @@
+Upstream willfaust/FEX host-feature integration, verbatim source delta.
+Source: be778d7ba5b98bee0405fd1d6a50d305a0807df0 including aaf73a9d7ca25c694e7ddce02d2c246c47cee5dd.
+No local FEX algorithm edits.
+
+diff --git a/Source/Windows/Common/CPUFeatures.cpp b/Source/Windows/Common/CPUFeatures.cpp
+--- a/Source/Windows/Common/CPUFeatures.cpp
++++ b/Source/Windows/Common/CPUFeatures.cpp
+@@ -2,9 +2,11 @@
+ 
+ #include "Common/CPUInfo.h"
+ 
++#include <FEXCore/Config/Config.h>
+ #include <FEXCore/Core/Context.h>
+ #include <FEXCore/Core/HostFeatures.h>
+ #include <FEXCore/fextl/fmt.h>
++#include <FEXCore/Utils/LogManager.h>
+ 
+ #include <windows.h>
+ 
+@@ -79,13 +81,15 @@
+   HostFeatures.SupportsFlagM2 = true;
+   HostFeatures.SupportsAFP = true;
+ 
+-#if defined(FEX_IOS_HOST) && !defined(ARCHITECTURE_arm64ec)
+-  /* The list above assumes the newest cores, and a wrong `true` is silent corruption rather than a
+-   * crash: FEAT_AFP claimed on a core without it leaves FPCR.NEP RES0, so every scalar SSE operation
+-   * zeroes the upper lanes of its destination. This module cannot call sysctl, but the app can: it
+-   * publishes `FEX_MADEIRA_HOSTPROBE=AFP=0,FLAGM=1,...` ("?" when a sysctl does not exist). Only an
+-   * explicit `=0` turns a feature off; no variable, or "?", keeps the assumption. WOW64 module
+-   * only; the ARM64EC module keeps its current feature set. */
++#if defined(FEX_IOS_HOST)
++  /* The list above assumes the newest cores. A wrong `true` is silent corruption (FEAT_AFP claimed
++   * on a core without it leaves FPCR.NEP RES0, so every scalar SSE operation zeroes the upper lanes
++   * of its destination) or SIGILL: FEX emits AXFLAG/XAFLAG (FlagM2) and CFINV, RMIF, SETF8/16
++   * (FlagM) for ordinary x86 flag handling, and A12 has neither, A13 no FlagM2, so a 64-bit game
++   * there stopped with STATUS_ILLEGAL_INSTRUCTION (0xC000001D). This module cannot call sysctl, but
++   * the app can: it publishes `FEX_MADEIRA_HOSTPROBE=AFP=0,FLAGM=1,...` ("?" when a sysctl does not
++   * exist). Only an explicit `=0` turns a feature off; no variable, or "?", keeps the assumption.
++   * Both modules; FEX has a fallback for each feature. */
+   if (const char* Probe = getenv("FEX_MADEIRA_HOSTPROBE")) {
+     const auto Absent = [Probe](const char* Key) {
+       const size_t Len = strlen(Key);
+@@ -109,8 +113,63 @@
+     if (Absent("ATOMICS")) HostFeatures.SupportsAtomics = false;
+   }
+ #endif
++#if defined(FEX_IOS_HOST) && defined(ARCHITECTURE_arm64ec)
++  /* ml1231 (local Madeira change, not for upstream): two host features for the
++   * 64-bit (ARM64EC) module, where Unity-class games spend their CPU.
++   *
++   * FEAT_LRCPC2 lets a TSO guest access [reg+disp] be one LDAPUR/STLUR instead of
++   * an ADD plus LDAPR/STLR; in Ori and the Will of the Wisps' hot JIT code nearly every LDAPR had that ADD
++   * in front of it. Armv8.4 made it mandatory, so every core that runs this has
++   * it, but a wrong `true` is SIGILL, so it is taken only from an explicit
++   * LRCPC2=1 in the app's sysctl probe (FEX_MADEIRA_HOSTPROBE). The WOW64 build is
++   * left alone: its guest window folds every displacement into the address.
++   *
++   * FEAT_AFP is switched OFF by default. With it, FEX writes FPCR on every entry to
++   * and exit from JIT code (FillSpecialRegs / SpillStaticRegs / ExitFunctionEC),
++   * i.e. twice per x64 -> ARM64EC call, and an FPCR write is expensive on Apple
++   * cores: ~9% of Ori and the Will of the Wisps' render-thread samples sat on the instruction after the
++   * write in ExitFunctionEC. Without AFP, FEX takes its ordinary path for scalar
++   * SSE (an extra INS per op), which is what most ARM64 hosts run.
++   *
++   * FEX_HOSTFEATURES=enableafp restores AFP (when the probe does not say AFP=0);
++   * FEX_HOSTFEATURES=disablelrcpc2 turns the offset forms off. */
++  {
++    const char* Probe = getenv("FEX_MADEIRA_HOSTPROBE");
++    const auto Has = [Probe](const char* Key, char Want) {
++      if (!Probe) {
++        return false;
++      }
++      const size_t Len = strlen(Key);
++      for (const char* p = Probe; (p = strstr(p, Key)) != nullptr; p += Len) {
++        const bool AtStart = p == Probe || p[-1] == ',';
++        if (AtStart && p[Len] == '=') {
++          return p[Len + 1] == Want;
++        }
++      }
++      return false;
++    };
++    FEX_CONFIG_OPT(HostFeaturesOverride, HOSTFEATURES);
++    const uint64_t Override = HostFeaturesOverride();
++
++    HostFeatures.SupportsTSOImm9 = Has("LRCPC2", '1') && !(Override & FEXCore::Config::HostFeatures::DISABLELRCPC2);
++    HostFeatures.SupportsAFP = (Override & FEXCore::Config::HostFeatures::ENABLEAFP) && !Has("AFP", '0');
++    LogMan::Msg::IFmt("FEX: ml1231 iOS ARM64EC host features: LRCPC2={} AFP={} (probe {})", HostFeatures.SupportsTSOImm9,
++                      HostFeatures.SupportsAFP, Probe ? Probe : "none");
++  }
++#endif
+   HostFeatures.CPUMIDRs.push_back(0u);
+   HostFeatures.HostType = HostType;
++  /* iOS-Madeira: AVX/AVX2 stay off (titles that check CPUID take their SSE
++   * paths), but a game built for AVX dies on its first VEX instruction. The app
++   * sets MADEIRA_FEX_AVX=1 for such a game; FEX then runs AVX through its
++   * 128-bit emulation. CPUID, XCR0 and IsProcessorFeaturePresent all derive
++   * from SupportsAVX. AVX is unsupported for WOW64, as on other hosts. */
++  if (const char* Avx = getenv("MADEIRA_FEX_AVX");
++      Avx && Avx[0] == '1' && HostType != FEXCore::HostFeatures::HostTypeEnum::Wow64) {
++    HostFeatures.SupportsAVX = true;
++    HostFeatures.SupportsAES256 = HostFeatures.SupportsAES;
++    LogMan::Msg::IFmt("[fex-avx] MADEIRA_FEX_AVX=1: AVX and AVX2 reported and emulated");
++  }
+   return HostFeatures;
+ #else
+   HKEY Key = OpenProcessorKey(0);
+
+diff --git a/FEXCore/Source/Interface/IR/PassManager.cpp b/FEXCore/Source/Interface/IR/PassManager.cpp
+--- a/FEXCore/Source/Interface/IR/PassManager.cpp
++++ b/FEXCore/Source/Interface/IR/PassManager.cpp
+@@ -217,9 +217,13 @@
+  * target instruction. Containment, NOT entry RIP: with multiblock the block
+  * routinely starts hundreds of bytes earlier, so an entry-range gate (which is
+  * what I first proposed) would have missed this block entirely. */
+-#if defined(FEX_IOS_HOST) && defined(_WIN32) && !defined(ARCHITECTURE_arm64ec)
+-// Not thread_local in the WOW64 module (see AllocWatch.cpp): process-global, so two threads
++#if defined(FEX_IOS_HOST) && defined(_WIN32)
++// Not thread_local in either Windows module (see AllocWatch.cpp): process-global, so two threads
+ // compiling at once share the mark. For a diagnostic that can only cost a missed capture.
++// MADEIRA: in the ARM64EC module a thread_local here did not reach xtajit64's own TLS block but
++// the main executable's TLS[0] block, at the offset of IRCapRIP in xtajit64's TLS template (8),
++// so FEX_MadeiraIRCapClear() at the start of every block compile zeroed the game's thread-local
++// bytes +0x8..+0xf.
+ std::atomic<uint64_t> IRCapRIP {0};
+ #else
+ thread_local uint64_t IRCapRIP = 0;

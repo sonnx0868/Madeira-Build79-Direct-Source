@@ -1,0 +1,62 @@
+Verbatim upstream Wine builtin XInput selection from BCD Wine 257f271.
+
+diff --git a/dlls/ntdll/loader.c b/dlls/ntdll/loader.c
+index 284081e827c..b316ccac6a2 100644
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -3884,6 +3884,43 @@ done:
+     return status;
+ }
+ 
++/***********************************************************************
++ *	madeira_force_builtin_dll
++ *
++ * Madeira: the touch and paired controllers reach Windows programs through
++ * the builtin XInput, which asks win32u for the host's controller state.
++ * Games often ship Microsoft's redistributable xinput1_3.dll next to the
++ * exe. The application directory is searched first, and the iOS unix loader
++ * never replaces a native image with the builtin (load_builtin in Madeira's
++ * loader_ios.c returns STATUS_IMAGE_ALREADY_LOADED), so that native copy is
++ * loaded, finds no XUSB device and reports no controllers. With Wine's
++ * default load order the builtin would be used, so search system32 for
++ * these names. MADEIRA_NATIVE_XINPUT=1 restores the normal search.
++ */
++static BOOL madeira_force_builtin_dll( const WCHAR *name )
++{
++    static const WCHAR * const names[] =
++    {
++        L"xinput1_1.dll", L"xinput1_2.dll", L"xinput1_3.dll", L"xinput1_4.dll",
++        L"xinput9_1_0.dll", L"xinputuap.dll",
++    };
++    static int native = -1;
++    unsigned int i;
++
++    if (native < 0)
++    {
++        UNICODE_STRING nm, val;
++        WCHAR buf[8];
++        RtlInitUnicodeString( &nm, L"MADEIRA_NATIVE_XINPUT" );
++        val.Buffer = buf; val.Length = 0; val.MaximumLength = sizeof(buf);
++        native = (!RtlQueryEnvironmentVariable_U( NULL, &nm, &val ) && val.Length && buf[0] == '1');
++    }
++    if (native) return FALSE;
++    for (i = 0; i < ARRAY_SIZE(names); i++)
++        if (!wcsicmp( name, names[i] )) return TRUE;
++    return FALSE;
++}
++
+ /***********************************************************************
+  *	find_dll_file
+  *
+@@ -3935,6 +3972,11 @@ static NTSTATUS find_dll_file( const WCHAR *load_path, const WCHAR *libname, UNI
+ 
+     if (RtlDetermineDosPathNameType_U( libname ) == RtlPathTypeRelative)
+     {
++        if (madeira_force_builtin_dll( libname ))
++        {
++            TRACE( "%s: searching system32 only, for the builtin\n", debugstr_w(libname) );
++            load_path = system_dir;
++        }
+         status = search_dll_file( load_path, libname, nt_name, pwm, mapping, image_info, id );
+         if (status == STATUS_DLL_NOT_FOUND)
+             status = find_builtin_without_file( libname, nt_name, pwm, mapping, image_info, id );

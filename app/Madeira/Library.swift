@@ -486,6 +486,12 @@ struct LibraryEntry: Codable, Identifiable {
             if let folder = steamWorkingWindowsPath { setenv("MADEIRA_WORKDIR", folder, 1) }
         }
         if let gogWorkingDir, gogID != nil { setenv("MADEIRA_WORKDIR", "C:\\" + gogWorkingDir.replacingOccurrences(of: "/", with: "\\"), 1) }
+        if steamAppID == nil, desktop != true,
+           let appID = FolderSteamIdentity.appID(executable: LibraryModel.drive.appendingPathComponent(launchRelativePath)) {
+            setenv("MADEIRA_STEAM_APPID", String(appID), 1)
+            let parent = String(launchWindowsPath.prefix(upTo: launchWindowsPath.lastIndex(of: "\\")!))
+            setenv("MADEIRA_STEAM_APPPATH", parent, 1)
+        }
         // Every session's virtual monitor takes this entry's Resolution
         // (MADEIRA_SCREEN_W/H, source "knob"); for the Desktop entry it is the
         // same size as its /desktop= argument.
@@ -592,6 +598,25 @@ enum UnityStartupSync {
         if engine == "fastsync" { return gameEnabled == false ? "0" : (globalMode ?? "auto") }
         if engine == "wine", unity, automaticAllowed, globalMode == nil, gameEnabled != false {
             return "auto"
+        }
+        return nil
+    }
+}
+
+/// A bounded, read-only Steam identity supplied with an imported game.
+enum FolderSteamIdentity {
+    static func appID(executable: URL) -> UInt32? {
+        let folder = executable.deletingLastPathComponent()
+        for name in ["steam_appid.txt", "steam_settings/steam_appid.txt"] {
+            guard let handle = try? FileHandle(forReadingFrom: folder.appendingPathComponent(name)) else { continue }
+            defer { try? handle.close() }
+            guard let bytes = try? handle.read(upToCount: 65), bytes.count <= 64,
+                  let text = String(data: bytes, encoding: .utf8) else { continue }
+            let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty, value.utf8.count <= 10,
+                  value.utf8.allSatisfy({ (48...57).contains($0) }),
+                  let id = UInt32(value), id > 0 else { continue }
+            return id
         }
         return nil
     }
@@ -1094,7 +1119,7 @@ final class LibraryModel: ObservableObject {
             status = GameRuntime.shared.lastExitCode
         } else {
             var value: UInt32 = 0
-            if wine_presented_process_exit_status(&value) != 0 || wine_launched_process_exit_status(&value) != 0 { status = value }
+            if wine_game_process_exit_status(&value) != 0 || wine_presented_process_exit_status(&value) != 0 || wine_launched_process_exit_status(&value) != 0 { status = value }
         }
         let presented = madeira_frame_count() > launchPresent || winios_surface_present_count() > launchSurface
         let expectsFrame = activeEntry?.desktop != true && activeEntry?.temporarySession != true
@@ -1485,6 +1510,13 @@ final class LibraryModel: ObservableObject {
         DiagnosticEvents.begin(entry)
         LogStore.shared.startGameLog(entry)
         wine_exit_status_reset()
+        var processPath = entry.launchWindowsPath
+        var processDirectory = entry.steamAppID != nil && !entry.startsSteamGameDirectly
+        if processDirectory, let program = entry.steamProgram, !program.isEmpty {
+            processPath += "\\" + program.replacingOccurrences(of: "/", with: "\\")
+            processDirectory = false
+        }
+        wine_game_process_expect(processPath, processDirectory ? 1 : 0)
         winios_reset_session_close()
         winios_window_alert_reset()
         launchAttention = nil
@@ -1536,6 +1568,7 @@ final class LibraryModel: ObservableObject {
         if GameRuntime.shared.ended { sawProcess = true; finish(); return }
         let directInitial = activeEntry?.steamAppID == nil || activeEntry?.startsSteamGameDirectly == true
         if current != nil, !GameRuntime.shared.ownsSession, (directInitial && wine_launched_process_has_exited() != 0) ||
+                            (activeEntry?.desktop != true && wine_game_process_has_exited() != 0) ||
                             (activeEntry?.desktop != true && wine_presented_process_has_exited() != 0) ||
                             (quitting && wine_session_close_has_exited() != 0) {
             sawProcess = true
@@ -1707,8 +1740,8 @@ final class LibraryModel: ObservableObject {
     private func finish() {
         madeira_flush_pipeline_cache()
         DiagnosticEvents.phase("session-finished")
-        GameLogArchive.shared.finish()
         let report = sawProcess ? exitReport() : nil
+        LogStore.shared.finishGameLog()
         timer?.invalidate(); timer = nil
         winios_reset_session_close()
         saveCurrentProfile()

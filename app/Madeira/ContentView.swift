@@ -3800,8 +3800,10 @@ final class TouchControlsModel: ObservableObject {
     /// ml1990: touch controls will feed player 1 this session (visible
     /// controller mappings, or the built-in a user without controls is about to get with MADEIRA_CONTROLS_XBOX_DEFAULT=1).
     var offersControllerInput: Bool {
-        visible && (controls.contains { $0.action.padName.map(TouchPadAction.supported) ?? false }
-                    || ControlPresetsModel.shared.defaultPending)
+        // A game may enumerate controllers once, before the overlay appears.
+        // Reserve its configured touch pad even if the user shows it later.
+        controls.contains { $0.action.padName.map(TouchPadAction.supported) ?? false }
+            || ControlPresetsModel.shared.defaultPending
     }
 
     func index(of id: UUID?) -> Int? {

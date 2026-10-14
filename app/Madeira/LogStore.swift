@@ -326,6 +326,7 @@ final class LogStore: ObservableObject {
     func startGameLog(_ entry: LibraryEntry) {
         GameLogArchive.shared.begin(title: entry.title, sourceURL: logFileURL, metadata: reportMetadata)
     }
+    func finishGameLog() { GameLogArchive.shared.finish(sourceURL: logFileURL) }
 
     func clear() {
         stateLock.lock()

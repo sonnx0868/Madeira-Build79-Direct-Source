@@ -5,6 +5,12 @@ work="$root/build/ui-preview"
 out="${BITRISE_DEPLOY_DIR:-$work/artifacts}"
 mkdir -p "$work" "$out"
 exec > >(tee "$out/ui-preview.log") 2>&1
+git -C "$root" submodule update --init FEX wine
+python3 "$root/tests/host/check-fex-host-features.py"
+python3 "$root/tests/host/check-builtin-xinput.py"
+python3 "$root/tests/host/check-guest-spill.py"
+python3 "$root/tests/host/check-game-process.py" --require-objc
+python3 "$root/tests/host/check-touch-gamepad.py"
 python3 "$root/tests/host/check-game-log-archive.py"
 python3 "$root/tests/host/check-gpu-lifecycle.py"
 python3 "$root/tests/host/check-game-pointer.py" --require-swift
@@ -26,6 +32,10 @@ for id in 367520 1663850 1030300 3097560 2350270 2333000; do
 done
 
 sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+xcrun --sdk iphonesimulator clang -fobjc-arc -fmodules -fblocks \
+  -target arm64-apple-ios17.0-simulator -isysroot "$sdk" \
+  -c "$root/app/Madeira/WineProcessBridge.m" -o "$work/WineProcessBridge.o"
+echo 'PASS: production Wine bridge, host probe and selected-game lifetime hooks compile against iOS SDK'
 xcrun --sdk iphonesimulator clang -fobjc-arc -fmodules -fblocks \
   -target arm64-apple-ios17.0-simulator -isysroot "$sdk" \
   -c "$root/app/Madeira/IOSDisplayShim.m" -o "$work/IOSDisplayShim.o"

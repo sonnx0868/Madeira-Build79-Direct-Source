@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 #include "GameRuntime.h"
 
 #ifdef __cplusplus
@@ -36,6 +37,11 @@ int wine_session_close_targets_process(uint32_t pid);
 int wine_session_close_targets_thread(uint32_t pid, uint32_t tid);
 void wine_session_process_did_exit(uint32_t pid, int status);
 void wine_presented_process_track(uint32_t pid);
+// Selected library program, tracked before its first rendered window.
+void wine_game_process_expect(const char *windows_path, int directory);
+void wine_game_process_started(uint32_t pid, const uint16_t *image, size_t characters);
+int wine_game_process_has_exited(void);
+int wine_game_process_exit_status(uint32_t *status);
 int wine_presented_process_has_exited(void);
 int wine_presented_process_exit_status(uint32_t *status);
 int wine_session_close_has_exited(void);

@@ -30,6 +30,7 @@ final class GamepadInput: @unchecked Sendable {
                 fputs("[touch-xinput] route controls=\(allowed.count) active=\(active ? 1 : 0)\n", stderr)
             }
             touchState.configure(allowed)
+            if !allowed.isEmpty { touchState.reserved = true }
             sample()
         }
     }

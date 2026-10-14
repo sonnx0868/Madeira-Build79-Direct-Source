@@ -10,6 +10,7 @@ root = Path(__file__).resolve().parents[2]
 source = (root / 'app/Madeira/GameEngineDetection.swift').read_text(encoding='utf-8')
 library = (root / 'app/Madeira/Library.swift').read_text(encoding='utf-8')
 source += '\n' + library[library.index('enum GodotLaunch {'):library.index('enum UnityLaunch {')]
+source += '\n' + library[library.index('enum FolderSteamIdentity {'):library.index('enum GodotLaunch {')]
 project = (root / 'app/Madeira.xcodeproj/project.pbxproj').read_text(encoding='utf-8')
 assert 'GameEngineDetection.swift in Sources' in project
 assert 'GameEngineDetection.detect' in (root / 'app/Madeira/Library.swift').read_text(encoding='utf-8')
@@ -46,6 +47,16 @@ func fixture(_ name: String, files: [String: Data], expected: String?) throws {
     assert(try! Data(contentsOf: exe) == original)
 }
 let empty = Data()
+let steamFolder=base.appendingPathComponent("folder-steam")
+try fm.createDirectory(at:steamFolder.appendingPathComponent("steam_settings"),withIntermediateDirectories:true)
+let steamExecutable=steamFolder.appendingPathComponent("game.exe")
+let identity=steamFolder.appendingPathComponent("steam_settings/steam_appid.txt")
+try Data("1687000\n".utf8).write(to:identity)
+assert(FolderSteamIdentity.appID(executable:steamExecutable)==1687000)
+for bad in ["0","-1","4294967296","x1687000",String(repeating:"9",count:65)] {
+    try Data(bad.utf8).write(to:identity)
+    assert(FolderSteamIdentity.appID(executable:steamExecutable)==nil)
+}
 try fixture("gamemaker", files:["data.win":Data("FORM1234GEN8".utf8)], expected:"GameMaker")
 try fixture("false-gamemaker", files:["data.win":Data("FORM1234OTHER".utf8)], expected:nil)
 try fixture("renpy", files:["LIB/PY3-WINDOWS-X86_64/LibRenPython.DLL":empty], expected:"Ren'Py")

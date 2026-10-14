@@ -1456,6 +1456,12 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         {
             process_handle = wine_server_ptr_handle( reply->handle );
             id.UniqueProcess = ULongToHandle( reply->pid );
+#ifdef WINE_IOS
+            extern void wine_game_process_started(unsigned int, const WCHAR *, size_t) __attribute__((weak));
+            if (wine_game_process_started)
+                wine_game_process_started(reply->pid, params->ImagePathName.Buffer,
+                                          params->ImagePathName.Length / sizeof(WCHAR));
+#endif
         }
         process_info = wine_server_ptr_handle( reply->info );
     }

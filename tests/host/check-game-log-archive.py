@@ -21,12 +21,16 @@ archive.begin(title:"Game / one",sourceURL:log,metadata:["build":"fixture"])
 Thread.sleep(forTimeInterval:0.1)
 let writer=try FileHandle(forWritingTo:log)
 try writer.seekToEnd();try writer.write(contentsOf:Data("Wine output\nFEX crash line\n".utf8));try writer.close()
-archive.finish();Thread.sleep(forTimeInterval:0.1)
+archive.finish(sourceURL:log)
+let after=try FileHandle(forWritingTo:log);try after.seekToEnd()
+try after.write(contentsOf:Data("AFTER GAME EXIT\n".utf8));try after.close()
+Thread.sleep(forTimeInterval:0.1)
 let files=try fm.contentsOfDirectory(at:dir.appendingPathComponent("Logs"),includingPropertiesForKeys:nil)
 let first=files.first(where:{$0.pathExtension=="txt"})!
 let text=try String(contentsOf:first,encoding:.utf8)
 assert(first.lastPathComponent.hasPrefix("Game _ one_"))
 assert(text.contains("Wine output\nFEX crash line\n") && !text.contains("before\n"))
+assert(!text.contains("AFTER GAME EXIT"))
 assert(!fm.fileExists(atPath:dir.appendingPathComponent("Logs/.active-session.json").path))
 let unicode=GameLogArchive.filename(title:String(repeating:"🎮",count:1000),date:Date())
 assert(unicode.utf8.count<255 && !unicode.contains("/"))
@@ -40,6 +44,16 @@ try JSONSerialization.data(withJSONObject:journal).write(to:folder.appendingPath
 GameLogArchive.recover(sourceURL:log)
 let recovered=try String(contentsOf:target,encoding:.utf8)
 assert(recovered=="HDR\nWine crash remains\n")
+// An interrupted finish retains its recorded boundary, even when unrelated
+// app output already reached the old file before the finish worker ran.
+let bounded=folder.appendingPathComponent("bounded.txt")
+try Data("HDR\nGAME\nEXTRA APP OUTPUT\n".utf8).write(to:bounded)
+try Data("prefix\nGAME\nAFTER EXIT\n".utf8).write(to:log)
+let bound:[String:Any]=["filename":"bounded.txt","startOffset":7,"headerBytes":4,"endOffset":12]
+try JSONSerialization.data(withJSONObject:bound).write(to:folder.appendingPathComponent(".active-session.json"))
+GameLogArchive.recover(sourceURL:log)
+let boundedText=try String(contentsOf:bounded,encoding:.utf8)
+assert(boundedText=="HDR\nGAME\n")
 // Traversal journals are rejected and cannot create an outside file.
 let bad:[String:Any]=["filename":"../outside.txt","startOffset":0,"headerBytes":0]
 try JSONSerialization.data(withJSONObject:bad).write(to:folder.appendingPathComponent(".active-session.json"))

@@ -5,6 +5,7 @@ set -euo pipefail
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="${LLVM_MINGW:-$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin}:$PATH"
 B="$R/FEX/build-arm64ec-ios"
+python3 "$R/scripts/apply-fex-host-features.py"
 python3 "$R/scripts/apply-fex-cache.py" --compiler "$(command -v arm64ec-w64-mingw32-clang++)"
 # A host fmt_DIR can survive in CMakeCache.txt or come from Homebrew. Always
 # compile the pinned dependencies for Windows instead of importing host libraries.
@@ -22,5 +23,6 @@ cmake -S "$R/FEX" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON \
         -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DENABLE_ASSERTIONS=OFF
 cmake --build "$B" --parallel "${JOBS:-4}" --target arm64ecfex
+grep -a -q 'ml1231 iOS ARM64EC host features' "$B/Bin/libarm64ecfex.dll"
 python3 "$R/tests/host/check-fex-transition-arch.py" --dll "$B/Bin/libarm64ecfex.dll"
 cp "$B/Bin/libarm64ecfex.dll" "$R/app/Madeira/arm64ec-windows/xtajit64.dll" && ls -l "$R/app/Madeira/arm64ec-windows/xtajit64.dll"
