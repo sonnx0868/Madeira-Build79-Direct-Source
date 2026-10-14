@@ -2065,6 +2065,11 @@ struct LibraryNavSearch: UIViewControllerRepresentable {
             let t = searchController.searchBar.text ?? ""
             if t != parent.text { parent.text = t }
         }
+        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+            // Inline search is not presented by a navigation item; its native
+            // delegate must update the binding even while the controller is inactive.
+            if searchText != parent.text { parent.text = searchText }
+        }
         func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { searchBar.resignFirstResponder() }
 
         // While the field is being edited, any tap outside it closes the keyboard.

@@ -31,6 +31,8 @@ for sig in ('final class LibraryHeaderAlignment', 'final class ReportingSearchCo
             'actor LibraryArtworkStore', 'struct LibraryArtwork', 'struct LibraryCells'):
     sources += block(library, sig)
 sources += (root / 'app/Madeira/LibraryGrouping.swift').read_text(encoding='utf-8')
+sources += block(library, '@MainActor final class LiquidMetalSetting')
+sources += (root / 'app/Madeira/GlassSkin.swift').read_text(encoding='utf-8')
 
 sources += r'''
 struct LibraryEntry: Identifiable, Hashable {
@@ -171,7 +173,7 @@ body = block(shelf, 'private var library: some View')
 body = body[:body.index('        .onReceive(controller.commands)')] + '\n        }\n        }\n    }\n'
 sources += body + '\n}\n'
 sources += (root / 'app/Madeira/GOG/GOGStore.swift').read_text(encoding='utf-8')
-sources += "\nenum EpicContentError: Error { case invalid(String) }\nfinal class LogStore { static let shared = LogStore(); enum Level { case error }; func log(_ value:String, level:Level = .error) {} }\n"
+sources += "\nenum EpicContentError: Error { case invalid(String) }\nfinal class LogStore { static let shared = LogStore(); enum Level { case error }; func log(_ value:String, level:Level = .error) {} }\nenum MadeiraConfig { static func flag(_ name:String,fallback:Bool)->Bool { fallback }; static func set(_ name:String,_ value:String?) {} }\n"
 for file in ('EpicAuth.swift','EpicAPI.swift','EpicSignInView.swift'):
     sources += (root / 'app/Madeira/Epic' / file).read_text(encoding='utf-8')
 
@@ -186,7 +188,8 @@ sources += r'''
         guard let scene=UIApplication.shared.connectedScenes.compactMap({$0 as? UIWindowScene}).first else { return }
         let size=CGSize(width:1194,height:834)
         let folder=FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0]
-        for mode in ["library","private","pin"] {
+        var searchChecks: [String:Any] = [:]
+        for mode in ["library","library-metal","library-restored","private","pin"] {
             LibraryAccess.shared.unlocked = mode == "private"
             let root:AnyView = mode == "pin" ? AnyView(LibraryAccessView()) : AnyView(PreviewLibrary(privateMode:mode == "private"))
             let window=UIWindow(windowScene:scene)
@@ -196,13 +199,46 @@ sources += r'''
             window.rootViewController=host;window.makeKeyAndVisible()
             host.view.frame=CGRect(origin:.zero,size:size)
             host.view.setNeedsLayout();host.view.layoutIfNeeded()
+            LiquidMetalSetting.shared.on = mode == "library-metal"
             try? await Task.sleep(for:.seconds(3))
+            func searches(_ view:UIView)->[UISearchBar] {
+                if let bar=view as? UISearchBar { return [bar] }
+                return view.subviews.flatMap { searches($0) }
+            }
+            func skinCount(_ layer:CALayer)->Int {
+                (layer.name == "madeira.glass-skin" ? 1 : 0) + (layer.sublayers ?? []).reduce(0) { $0 + skinCount($1) }
+            }
+            let bars=searches(host.view)
+            if mode.hasPrefix("library") {
+                searchChecks[mode] = ["nativeSearchBars":bars.count,
+                    "metalLayers":bars.reduce(0) { $0 + skinCount($1.layer) },
+                    "setting":LiquidMetalSetting.shared.on]
+                if mode == "library-metal", let bar=bars.first {
+                    var layerNames:[String]=[]
+                    func walk(_ layer:CALayer) {
+                        layerNames.append(NSStringFromClass(type(of:layer))+" "+(layer.name ?? ""))
+                        for child in layer.sublayers ?? [] { walk(child) }
+                    }
+                    walk(bar.layer)
+                    try? Data(layerNames.joined(separator:"\n").utf8).write(to:folder.appendingPathComponent("search-layers.txt"))
+                }
+            }
             let format=UIGraphicsImageRendererFormat();format.scale=2
             let image=UIGraphicsImageRenderer(size:size,format:format).image { _ in
                 host.view.drawHierarchy(in:CGRect(origin:.zero,size:size),afterScreenUpdates:true)
             }
             if let png=image.pngData() { try? png.write(to:folder.appendingPathComponent(mode+".png"),options:.atomic) }
+            // simctl captures the render server's Metal contents, which a UIKit
+            // hierarchy renderer does not guarantee to include.
+            try? Data(mode.utf8).write(to:folder.appendingPathComponent(mode+".ready"),options:.atomic)
+            for _ in 0..<150 {
+                if FileManager.default.fileExists(atPath:folder.appendingPathComponent(mode+".captured").path) { break }
+                try? await Task.sleep(for:.milliseconds(100))
+            }
             window.isHidden=true
+        }
+        if let json=try? JSONSerialization.data(withJSONObject:searchChecks,options:[.prettyPrinted,.sortedKeys]) {
+            try? json.write(to:folder.appendingPathComponent("search-checks.json"))
         }
         try? Data("complete".utf8).write(to:folder.appendingPathComponent("screenshots-ready.txt"))
     }
@@ -214,7 +250,8 @@ assets.mkdir(exist_ok=True)
 shutil.copytree(root / 'app/Madeira/Assets.xcassets/LibraryLandscape.imageset', assets / 'LibraryLandscape.imageset', dirs_exist_ok=True)
 (assets / 'Contents.json').write_text('{"info":{"author":"xcode","version":1}}')
 receipt = {p: hashlib.sha256((root/p).read_bytes()).hexdigest() for p in (
-    'app/Madeira/Library.swift','app/Madeira/LibraryAccess.swift','app/Madeira/LibraryGrouping.swift')}
+    'app/Madeira/Library.swift','app/Madeira/LibraryAccess.swift','app/Madeira/LibraryGrouping.swift',
+    'app/Madeira/GlassSkin.swift','app/Madeira/LiquidMetalSkin.metal')}
 receipt['scope'] = 'Production shelf/search/PIN SwiftUI; fixture account/game data; no Wine/JIT or release IPA'
 (out / 'preview-source.json').write_text(json.dumps(receipt, indent=2))
 print('Generated production-view simulator preview:', out)

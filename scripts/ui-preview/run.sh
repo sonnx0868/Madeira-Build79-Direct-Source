@@ -21,6 +21,8 @@ for id in 367520 1663850 1030300 3097560 2350270 2333000; do
 done
 
 sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+xcrun --sdk iphonesimulator metal -c "$root/app/Madeira/LiquidMetalSkin.metal" -o "$work/LiquidMetalSkin.air"
+xcrun --sdk iphonesimulator metallib "$work/LiquidMetalSkin.air" -o "$app/default.metallib"
 xcrun --sdk iphonesimulator swiftc -parse-as-library -swift-version 5 \
   -target arm64-apple-ios17.0-simulator -sdk "$sdk" \
   "$work/Preview.swift" -o "$app/MadeiraPreview"
@@ -50,10 +52,21 @@ xcrun simctl bootstatus "$device" -b
 xcrun simctl install "$device" "$app"
 xcrun simctl launch "$device" org.madeira.ui-preview
 container="$(xcrun simctl get_app_container "$device" org.madeira.ui-preview data)"
-for attempt in $(seq 1 60); do
+for screen in library library-metal library-restored private pin; do
+  for attempt in $(seq 1 30); do
+    [[ ! -f "$container/Documents/$screen.ready" ]] || break
+    sleep 1
+  done
+  test -f "$container/Documents/$screen.ready"
+  xcrun simctl io "$device" screenshot "$out/$screen-screen.png"
+  touch "$container/Documents/$screen.captured"
+  cp "$container/Documents/$screen.png" "$out/$screen.png"
+done
+for attempt in $(seq 1 10); do
   [[ ! -f "$container/Documents/screenshots-ready.txt" ]] || break
   sleep 1
 done
-for screen in library private pin; do cp "$container/Documents/$screen.png" "$out/$screen.png"; done
+cp "$container/Documents/search-checks.json" "$out/search-checks.json"
+cp "$container/Documents/search-layers.txt" "$out/search-layers.txt"
 cp "$work/preview-source.json" "$out/preview-source.json"
 echo 'PASS: production SwiftUI shelf/search/PIN rendered on iPad Simulator with fixture data'

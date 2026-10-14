@@ -231,7 +231,7 @@ final class GlassSkin: NSObject {
         }
     }
 
-    /// The navigation bars and tab bars, in every window.
+    /// Navigation bars, tab bars and the library's standalone search bars.
     private func findBars() -> [UIView] {
         UIApplication.shared.connectedScenes.flatMap { ($0 as? UIWindowScene)?.windows ?? [] }.flatMap { bars(in: $0) }
     }
@@ -254,7 +254,10 @@ final class GlassSkin: NSObject {
     }
 
     private func bars(in view: UIView) -> [UIView] {
-        if view is UINavigationBar || view is UITabBar { return [view] }
+        // A regular-width library places its native search bar in its content,
+        // outside UINavigationBar. Keep it in the same live glass/metal pass.
+        // Returning at a navigation bar also avoids finding its search twice.
+        if view is UINavigationBar || view is UITabBar || view is UISearchBar { return [view] }
         return view.subviews.flatMap { bars(in: $0) }
     }
 
