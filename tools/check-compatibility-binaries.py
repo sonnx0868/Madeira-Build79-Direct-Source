@@ -44,6 +44,7 @@ def main():
     parser.add_argument('--stamp-ntdll', action='store_true')
     parser.add_argument('--stamp-mesa', action='store_true')
     parser.add_argument('--pe-only', action='store_true')
+    parser.add_argument('--wine-only', action='store_true', help='Early bootstrap gate before FEX and DXMT are rebuilt')
     args = parser.parse_args()
     root = args.root
     pe_class = load_pe(root)
@@ -76,8 +77,9 @@ def main():
     for arch in ('arm64ec-windows', 'aarch64-windows'):
         assert b'tick-direct-v1' in (root / 'app/Madeira' / arch / 'kernelbase.dll').read_bytes(), 'stale native tick clock: ' + arch
     farm = root / 'app/Madeira/arm64ec-windows'
-    assert b'ml1231 iOS ARM64EC host features' in (farm / 'xtajit64.dll').read_bytes(), 'stale FEX CPU feature implementation'
-    assert b'commitBeforePresent=' in (farm / 'd3d11.dll').read_bytes(), 'stale DXMT present ordering'
+    if not args.wine_only:
+        assert b'ml1231 iOS ARM64EC host features' in (farm / 'xtajit64.dll').read_bytes(), 'stale FEX CPU feature implementation'
+        assert b'commitBeforePresent=' in (farm / 'd3d11.dll').read_bytes(), 'stale DXMT present ordering'
     for name in ('xaudio2_8.dll', 'xaudio2_9.dll'):
         data = (farm / name).read_bytes()
         pe = pe_class(data)
@@ -86,7 +88,7 @@ def main():
         assert b'Using FAudio version' in data, (name, 'missing FAudio implementation')
         for imported in pe.imports():
             assert (farm / imported).is_file(), (name, 'missing dependency', imported)
-    if not args.pe_only:
+    if not args.pe_only and not args.wine_only:
         assert b'madeira_gpu_submit_begin' in (root / 'app/Madeira/libdxmt_combined.a').read_bytes(), 'stale DXMT foreground gate'
         assert b'cache-mappings-v1' in (root / 'app/Madeira/libdxmt_combined.a').read_bytes(), 'stale DXMT CPU mappings'
         assert b'WINE_IOS_JIT_HOLE' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale split-pool archive'
