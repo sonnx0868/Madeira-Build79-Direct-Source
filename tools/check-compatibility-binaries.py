@@ -84,6 +84,7 @@ def main():
         for imported in pe.imports():
             assert (farm / imported).is_file(), (name, 'missing dependency', imported)
     if not args.pe_only:
+        assert b'madeira_gpu_submit_begin' in (root / 'app/Madeira/libdxmt_combined.a').read_bytes(), 'stale DXMT foreground gate'
         assert b'WINE_IOS_JIT_HOLE' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale split-pool archive'
         assert b'teb-slots-v1' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale trampoline archive'
         mesa = root / 'app/Madeira/gl/libOSMesa.dylib'

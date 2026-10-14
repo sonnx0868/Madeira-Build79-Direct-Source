@@ -603,7 +603,7 @@ final class GlassSkin: NSObject {
             let live = Set((skins + searchSkins.map(\.skin)).map { ObjectIdentifier($0.metal) })
             steadyRects = steadyRects.filter { live.contains($0.key) }
         }
-        guard !(skins.isEmpty && searchSkins.isEmpty), UIApplication.shared.applicationState != .background else { return }
+        guard !(skins.isEmpty && searchSkins.isEmpty), UIApplication.shared.applicationState == .active else { return }
         let light = bars.lazy.compactMap(\.view).first?.traitCollection.userInterfaceStyle == .light
         for skin in skins where skin.host.map(Self.isVisible) == true && skin.group.opacity > 0.01 {
             render(skin, light: light)

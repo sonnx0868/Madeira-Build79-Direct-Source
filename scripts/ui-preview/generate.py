@@ -254,6 +254,39 @@ sources += r'''
 }
 '''
 (out / 'Preview.swift').write_text(sources, encoding='utf-8')
+diagnostics = (root / 'app/Madeira/RemoteDiagnostics.swift').read_text(encoding='utf-8')
+diagnostic_fixture = r'''
+import SwiftUI
+import UIKit
+import Darwin
+struct LibraryEntry {
+    var title=""; var relativePath=""; var bits=64; var graphicsAPI:String?
+    var resolution="1920x1080"; var effectiveFPSMode:Int32=1; var cpuCount:Int?
+    var unityOptimizations:Bool?; var controllerMode:String?
+    enum Display:String { case fit }; var displayMode=Display.fit
+}
+enum MadeiraConfig {
+    static func flag(_ key:String,fallback:Bool)->Bool { fallback }
+    static func get(_ key:String)->String? { nil }
+}
+final class LogStore {
+    static let shared=LogStore()
+    func recordTest(_ entry:LibraryEntry) {}
+    func log(_ text:String) {}
+}
+final class MetalHostView {
+    static let shared=MetalHostView(); var metalLayer=CAMetalLayer()
+}
+final class HardwareInput {
+    static let shared=HardwareInput(); var pointerLocked=false; var pointerCaptured=false
+    enum Mouse:String { case none };var mousePath=Mouse.none
+}
+func madeira_stall_monitor_begin() {}
+func madeira_stall_monitor_end() {}
+func madeira_frame_count()->UInt64 { 0 }
+func madeira_get_vsync_locked()->Int32 { 1 }
+'''
+(out / 'DiagnosticTypes.swift').write_text(diagnostic_fixture + block(diagnostics, 'enum DiagnosticEvents'), encoding='utf-8')
 assets = out / 'Assets.xcassets'
 assets.mkdir(exist_ok=True)
 shutil.copytree(root / 'app/Madeira/Assets.xcassets/LibraryLandscape.imageset', assets / 'LibraryLandscape.imageset', dirs_exist_ok=True)

@@ -9,6 +9,17 @@
 
 #ifndef IOS_DISPLAY_SHIM_H
 #define IOS_DISPLAY_SHIM_H
+#include <stdint.h>
+
+typedef struct {
+    uint64_t buffers, timed_buffers, gpu_ns, max_gpu_ns, inflight, max_inflight, errors;
+} MadeiraGPUStats;
+void madeira_gpu_submit_begin(void);
+void madeira_gpu_submit_end(void);
+void madeira_gpu_diagnostics_enable(int enabled);
+unsigned long long madeira_gpu_diagnostics_begin(void);
+void madeira_gpu_diagnostics_complete(unsigned long long ticket, double start, double end, int error);
+MadeiraGPUStats madeira_gpu_diagnostics_sample(void);
 
 #ifdef __OBJC__
 #import <QuartzCore/CAMetalLayer.h>

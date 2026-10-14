@@ -13,6 +13,8 @@
 
 #include "IOSDisplayShim.h"
 #include "InputSurfaceState.h"
+#include "GPUForegroundGate.h"
+#include "GPUFrameDiagnostics.h"
 #include <stdio.h>
 
 static pthread_mutex_t g_input_surface_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -85,8 +87,41 @@ struct macdrv_functions_t {
 
 static CAMetalLayer *g_layer = nil;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+static MadeiraGPUForegroundGate gpu_gate = MADEIRA_GPU_FOREGROUND_INITIALIZER;
+static MadeiraGPUFrameDiagnostics gpu_metrics = MADEIRA_GPU_DIAGNOSTICS_INITIALIZER;
+
+static void madeira_gpu_install_lifecycle(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+        [center addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            madeira_gpu_gate_set(&gpu_gate, 0);
+        }];
+        [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            madeira_gpu_gate_set(&gpu_gate, 1);
+        }];
+        // MetalHostView registers its layer on main, before starting Wine.
+        if ([NSThread isMainThread]) {
+            madeira_gpu_gate_set(&gpu_gate, UIApplication.sharedApplication.applicationState == UIApplicationStateActive);
+        }
+        fprintf(stderr, "[gpu-foreground-v1] native DXMT submission gate registered\n");
+    });
+}
+void madeira_gpu_submit_begin(void) { madeira_gpu_gate_begin(&gpu_gate); }
+void madeira_gpu_submit_end(void) { madeira_gpu_gate_end(&gpu_gate); }
+void madeira_gpu_diagnostics_enable(int enabled) { madeira_gpu_metrics_enable(&gpu_metrics, enabled); }
+unsigned long long madeira_gpu_diagnostics_begin(void) { return madeira_gpu_metrics_begin(&gpu_metrics); }
+void madeira_gpu_diagnostics_complete(unsigned long long ticket, double start, double end, int error) {
+    madeira_gpu_metrics_complete(&gpu_metrics, ticket, start, end, error);
+}
+MadeiraGPUStats madeira_gpu_diagnostics_sample(void) {
+    MadeiraGPUFrameSample sample = madeira_gpu_metrics_take(&gpu_metrics);
+    return (MadeiraGPUStats){sample.buffers, sample.timed_buffers, sample.gpu_ns, sample.max_gpu_ns,
+                            sample.inflight, sample.max_inflight, sample.errors};
+}
 
 void madeira_display_set_layer(CAMetalLayer *layer) {
+    madeira_gpu_install_lifecycle();
     pthread_mutex_lock(&g_lock);
     g_layer = layer;
     pthread_mutex_unlock(&g_lock);

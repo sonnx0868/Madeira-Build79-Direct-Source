@@ -312,10 +312,17 @@ enum DiagnosticEvents {
     private static var lastFrames: UInt64 = 0
     private static var sessionStartFrames: UInt64 = 0
     static func phase(_ phase: String) {
-        if ["launch-failed", "quit-requested", "session-finished"].contains(phase) { madeira_stall_monitor_end() }
+        if ["launch-failed", "quit-requested", "session-finished"].contains(phase) {
+            madeira_stall_monitor_end()
+            madeira_gpu_diagnostics_enable(0)
+        }
         LogStore.shared.log("[diagnostics] phase=\(phase) uptime=\(String(format: "%.3f", ProcessInfo.processInfo.systemUptime)) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
     }
     static func begin(_ entry: LibraryEntry) {
+        let gpuTiming = entry.title.lowercased().contains("replaced") ||
+            entry.relativePath.lowercased().contains("replaced") ||
+            MadeiraConfig.flag("MADEIRA_GPU_TIMING", fallback: false)
+        madeira_gpu_diagnostics_enable(gpuTiming ? 1 : 0)
         // Target the requested REPLACED load/save investigation. Ordinary
         // game sessions keep their existing quiet diagnostics.
         if entry.title.lowercased().contains("replaced") || entry.relativePath.lowercased().contains("replaced") {
@@ -329,7 +336,7 @@ enum DiagnosticEvents {
         var settings: [String: String] = [:]
         for key in ["pool", "vram-mb", "swap-mb", "env.MADEIRA_SWAP_PRESSURE", "inproc-sync", "env.MADEIRA_FASTSYNC",
                     "env.MADEIRA_RUNTIME_PROFILERS", "env.MADEIRA_MIP_CLAMP_AUTO",
-                    "env.MADEIRA_MEMORY_CENSUS",
+                    "env.MADEIRA_MEMORY_CENSUS", "env.MADEIRA_GPU_TIMING",
                     "env.DXMT_CENSUS_THROTTLE", "env.DXMT_WSI_MODE_TABLE",
                     "env.DXMT_WSI_MONITOR_IDENTITY",
                     "env.MADEIRA_UNITY_RESOLUTION",
@@ -365,6 +372,11 @@ enum DiagnosticEvents {
         let cpu = getenv("MADEIRA_CPU_COUNT").map { String(cString: $0) } ?? "auto"
         let input = HardwareInput.shared
         LogStore.shared.log("[diagnostics] sample seconds=\(String(format: "%.1f", elapsed)) fps=\(String(format: "%.1f", fps)) footprintMB=\(result == KERN_SUCCESS ? info.phys_footprint / 1048576 : 0) thermal=\(ProcessInfo.processInfo.thermalState.rawValue) monitor=\(screenW)x\(screenH) drawable=\(Int(drawable.width))x\(Int(drawable.height)) fpsMode=\(madeira_get_vsync_locked()) cpuReported=\(cpu) pointerRequested=\(input.pointerLocked ? 1 : 0) pointerCaptured=\(input.pointerCaptured ? 1 : 0) mousePath=\(input.mousePath.rawValue)")
+        let gpu = madeira_gpu_diagnostics_sample()
+        if gpu.buffers > 0 {
+            let average = gpu.timed_buffers > 0 ? Double(gpu.gpu_ns) / Double(gpu.timed_buffers) / 1e6 : 0
+            LogStore.shared.log("[gpu-timing-v1] buffers=\(gpu.buffers) timed=\(gpu.timed_buffers) avg-buffer-ms=\(String(format: "%.2f", average)) max-buffer-ms=\(String(format: "%.2f", Double(gpu.max_gpu_ns) / 1e6)) inflight=\(gpu.inflight) peak-inflight=\(gpu.max_inflight) errors=\(gpu.errors)")
+        }
         sampledAt = now; lastFrames = frames
     }
 }

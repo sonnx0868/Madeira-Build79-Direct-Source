@@ -9,7 +9,7 @@ import tempfile
 PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lifecycle.patch",
                "patches/dxmt-gameplay-performance.patch", "build/dxmt-ios/clean-build.patch",
                "build/dxmt-ios/pipeline-cache.patch", "patches/dxmt-metal-public-atomic.patch",
-               "build/dxmt-ios/pipeline-warmup.patch")
+               "build/dxmt-ios/pipeline-warmup.patch", "patches/dxmt-gpu-foreground.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",
                 "src/d3d9/d3d9_shader.cpp", "src/dxmt/dxmt_tasks.hpp", "src/dxmt/dxmt_shader_cache.hpp",

@@ -6,6 +6,7 @@ out="${BITRISE_DEPLOY_DIR:-$work/artifacts}"
 mkdir -p "$work" "$out"
 exec > >(tee "$out/ui-preview.log") 2>&1
 python3 "$root/tests/host/check-game-log-archive.py"
+python3 "$root/tests/host/check-gpu-lifecycle.py"
 python3 "$root/tests/host/check-gog-rules.py"
 python3 "$root/tests/host/check-epic-manifest.py"
 python3 "$root/scripts/ui-preview/generate.py" "$work"
@@ -21,6 +22,14 @@ for id in 367520 1663850 1030300 3097560 2350270 2333000; do
 done
 
 sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+xcrun --sdk iphonesimulator clang -fobjc-arc -fmodules -fblocks \
+  -target arm64-apple-ios17.0-simulator -isysroot "$sdk" \
+  -c "$root/app/Madeira/IOSDisplayShim.m" -o "$work/IOSDisplayShim.o"
+xcrun --sdk iphonesimulator swiftc -parse-as-library -swift-version 5 -emit-object \
+  -target arm64-apple-ios17.0-simulator -sdk "$sdk" \
+  -import-objc-header "$root/app/Madeira/IOSDisplayShim.h" \
+  "$work/DiagnosticTypes.swift" -o "$work/DiagnosticTypes.o"
+echo 'PASS: production Objective-C GPU adapter and Swift diagnostic bridge compile against iOS SDK'
 xcrun --sdk iphonesimulator metal -target air64-apple-ios17.0-simulator -isysroot "$sdk" \
   -c "$root/app/Madeira/LiquidMetalSkin.metal" -o "$work/LiquidMetalSkin.air"
 xcrun --sdk iphonesimulator metallib "$work/LiquidMetalSkin.air" -o "$app/default.metallib"

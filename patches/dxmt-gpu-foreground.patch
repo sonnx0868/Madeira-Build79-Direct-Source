@@ -1,0 +1,34 @@
+diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_unix.c
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -489,6 +489,20 @@ _MTLCommandBuffer_commit(void *obj) {
+     wmtr_call(RM_OP_COMMIT, &a, sizeof a, 0, 0, 0);
+     return STATUS_SUCCESS;
+   }
++#if TARGET_OS_IOS
++  extern void madeira_gpu_submit_begin(void);
++  extern void madeira_gpu_submit_end(void);
++  extern unsigned long long madeira_gpu_diagnostics_begin(void);
++  extern void madeira_gpu_diagnostics_complete(unsigned long long, double, double, int);
++  madeira_gpu_submit_begin();
++  unsigned long long ticket = madeira_gpu_diagnostics_begin();
++  if (ticket) {
++    [(id<MTLCommandBuffer>)params->handle addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
++      madeira_gpu_diagnostics_complete(ticket, buffer.GPUStartTime, buffer.GPUEndTime,
++                                      buffer.status == MTLCommandBufferStatusError);
++    }];
++  }
++#endif
+   /* ml1140: retirement belongs to the GPU completion, not waitUntilCompleted.
+    * The finish thread skips that wait for buffers already completed, so the
+    * old subtraction counted them as queued forever and omitted their GPU time. */
+@@ -511,6 +525,9 @@ _MTLCommandBuffer_commit(void *obj) {
+     }];
+   }
+   [(id<MTLCommandBuffer>)params->handle commit];
++#if TARGET_OS_IOS
++  madeira_gpu_submit_end();
++#endif
+   return STATUS_SUCCESS;
+ }
+ 
