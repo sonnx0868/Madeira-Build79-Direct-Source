@@ -595,8 +595,9 @@ enum StikJITHelper {
                 level: .error)
         }
 
-        // madeira-bcd SPLIT POOL: `pool-split = 1` in the game's own file or in
-        // madeira.cfg. Off by default; nothing below runs without it.
+        // madeira-bcd SPLIT POOL: explicit pool-split in madeira.cfg wins;
+        // otherwise the active compatibility profile may request it.
+        // Off for other games by default.
         //
         // Executable memory can only come from the debugger and can only live in
         // the low band under the dyld shared region (0x180000000): everything from
@@ -613,7 +614,7 @@ enum StikJITHelper {
         // WINE_IOS_JIT_HOLE tells ntdll never to hand out the part in between.
         // Costs the second region's size in footprint (debugger-blessed pages are
         // dirty from birth) -- the total stays within the requested pool size.
-        let splitValue = (MadeiraConfig.gameValue("pool-split") ?? MadeiraConfig.get("pool-split") ?? (getenv("_MADEIRA_SPLIT_POOL") != nil ? "1" : ""))
+        let splitValue = (MadeiraConfig.get("pool-split") ?? (getenv("_MADEIRA_SPLIT_POOL") != nil ? "1" : ""))
             .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         poolHole = nil
         if ["1", "on", "true", "yes"].contains(splitValue) {
