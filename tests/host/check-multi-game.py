@@ -18,7 +18,8 @@ runtime = (root / "app/Madeira/GameRuntime.swift").read_text(encoding="utf-8")
 library = (root / "app/Madeira/Library.swift").read_text(encoding="utf-8")
 view = (root / "app/Madeira/ContentView.swift").read_text(encoding="utf-8")
 server = (root / "build/ntdll-unix/server_ios.c").read_text(encoding="utf-8")
-assert 'GameRuntime.shared.hasEngine { startLibraryEntry(entry); return }' in view
+assert 'if GameRuntime.shared.hasEngine {\n            guard jitReadyForLaunch' in view
+assert 'startLibraryEntry(entry); return' in view
 assert "runtimeLaunch.restoreEnvironment(); entry.applyEnvironment(); try runtimeLaunch.publish()" in view
 assert "!GameRuntime.shared.ownsSession" in library and "GameRuntime.shared.ended" in library
 assert "wine_runtime_prepare_process_exit" in server and "if (runtime_safe) ios_jit_reclaim_process" in server
