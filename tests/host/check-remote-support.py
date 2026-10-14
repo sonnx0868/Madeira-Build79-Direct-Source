@@ -47,6 +47,8 @@ struct RendererEntry {
     var desktopCommand: String? = nil
     var startsSteamGameDirectly = false
     var steamProgramArguments: String? = nil
+    var gogID: Int? = nil
+    var gogLaunchCommand: String? = nil
     var arguments = ""
     var resolution = "1408x648"
     var unity = true
@@ -82,6 +84,7 @@ MadeiraConfig.rendererChoice="0"
 assert(!RendererEntry().launchArguments.contains("-force-d3d11"))
 assert(RendererEntry(unity:false).launchArguments.isEmpty)
 assert(RendererEntry(startsSteamGameDirectly:true,steamProgramArguments:"-force-d3d12").launchArguments == "-force-d3d12")
+assert(RendererEntry(gogID:42,gogLaunchCommand:"-store-default",arguments:"-user-choice").launchArguments == "-store-default -user-choice")
 print("PASS: production Unity launch preserves the game's renderer by default and explicit DX11/DX12 choices")
 for bad in ["2560x1440 -other", "99999x1440", "0x0", "2560", "2560x1440x1", "badx2560x1440", "2560xx1440", "2560x1440x"] {
     assert(UnityLaunch.arguments("", resolution: bad, matchResolution: true, forceD3D11: false).isEmpty)
