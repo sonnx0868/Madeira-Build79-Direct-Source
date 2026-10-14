@@ -68,5 +68,13 @@ for attempt in $(seq 1 10); do
 done
 cp "$container/Documents/search-checks.json" "$out/search-checks.json"
 cp "$container/Documents/search-layers.txt" "$out/search-layers.txt"
+python3 - "$out/search-checks.json" <<'PY'
+import json,sys
+checks=json.load(open(sys.argv[1]))
+assert all(checks[k]['nativeSearchBars']==1 for k in ('library','library-metal','library-restored')),checks
+assert checks['library-metal']['metalLayers']>0,checks
+assert checks['library']['metalLayers']==checks['library-restored']['metalLayers']==0,checks
+print('PASS: native inline search gains Metal when enabled and removes it when disabled')
+PY
 cp "$work/preview-source.json" "$out/preview-source.json"
 echo 'PASS: production SwiftUI shelf/search/PIN rendered on iPad Simulator with fixture data'

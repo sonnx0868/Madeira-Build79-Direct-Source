@@ -51,6 +51,7 @@ final class GlassSkin: NSObject {
     private var bars: [WeakView] = []
     private var lastBarSearch: CFTimeInterval = 0
     private var skins: [Skin] = []
+    private var searchSkins: [SearchSkin] = []
     private let started = CACurrentMediaTime()
 
     private struct WeakView { weak var view: UIView? }
@@ -66,11 +67,19 @@ final class GlassSkin: NSObject {
         /// A navigation bar pill, which a context menu from one of its buttons covers.
         let veils: Bool
     }
+    private struct SearchSkin {
+        weak var field: UITextField?
+        let skin: Skin
+        // Retain the public shape geometry used by the same Metal renderer.
+        let source: CALayer
+        let element: CALayer
+        let mask: CAShapeLayer
+    }
 
     /// `fadeIn`: liquid metal was just turned on in Settings, so the pills it finds in the
     /// next moment fade from their glass into metal instead of switching.
     func start(fadeIn: Bool = false) {
-        guard Self.enabled, observer == nil, Self.privateClassesPresent, preparePipeline() else { return }
+        guard Self.enabled, observer == nil, preparePipeline() else { return }
         fadeInUntil = fadeIn ? CACurrentMediaTime() + 0.5 : 0
         // Core Animation commits in an observer of order 2,000,000; run just before it.
         observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
@@ -95,7 +104,7 @@ final class GlassSkin: NSObject {
         self.observer = nil
         link?.invalidate()
         link = nil
-        let fading = skins
+        let fading = skins + searchSkins.map(\.skin)
         CATransaction.begin()
         CATransaction.setAnimationDuration(UIAccessibility.isReduceMotionEnabled ? 0.15 : 0.35)
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { for skin in fading { skin.group.removeFromSuperlayer() } } }
@@ -107,6 +116,7 @@ final class GlassSkin: NSObject {
         }
         CATransaction.commit()
         skins.removeAll()
+        searchSkins.removeAll()
         steadyRects.removeAll()
         bars.removeAll()
         veiled = false
@@ -176,6 +186,13 @@ final class GlassSkin: NSObject {
             skin.group.removeFromSuperlayer()
             skins.remove(at: i)
         }
+        searchSkins.removeAll { search in
+            guard search.field?.window != nil, search.skin.group.superlayer != nil else {
+                search.skin.group.removeFromSuperlayer()
+                return true
+            }
+            return false
+        }
         let menu = contextMenuShowing()
         if menu != veiled {
             veiled = menu
@@ -186,8 +203,78 @@ final class GlassSkin: NSObject {
                 skinTabBar(bar)
             } else {
                 for platter in Self.platters(in: bar) { skinNewPills(in: platter) }
-                for search in Self.searchBars(in: bar) { skinGlass(in: [search.layer], rimEverywhere: true) }
+                for search in Self.searchBars(in: bar) {
+                    skinGlass(in: [search.layer], rimEverywhere: true)
+                    // Inline UISearchBar has an ordinary UIKit background rather
+                    // than a navigation bar's SDF glass on current iPadOS.
+                    let nativeSkin = skins.contains { skin in
+                        var layer = skin.container
+                        while let current = layer {
+                            if current === search.layer { return true }
+                            layer = current.superlayer
+                        }
+                        return false
+                    }
+                    if !nativeSkin { skinSearchField(search.searchTextField) }
+                }
             }
+        }
+    }
+
+    /// Public UIKit geometry for a search field without an SDF glass layer.
+    /// Its existing background, icons, text, focus and hit testing stay native;
+    /// the same shader draws only a rim, underneath the field's text views.
+    private func skinSearchField(_ field: UITextField) {
+        guard field.bounds.width > 0, field.bounds.height > 0, let device else { return }
+        let search: SearchSkin
+        if let existing = searchSkins.first(where: { $0.field === field }) {
+            search = existing
+        } else {
+            let group = CALayer()
+            group.name = Self.groupName
+            let source = CALayer(), element = CALayer()
+            source.opacity = 0
+            source.addSublayer(element)
+            group.addSublayer(source)
+            let metal = CAMetalLayer()
+            metal.device = device
+            metal.pixelFormat = .bgra8Unorm
+            metal.framebufferOnly = true
+            metal.isOpaque = false
+            metal.contentsScale = field.window?.screen.scale ?? field.contentScaleFactor
+            group.addSublayer(metal)
+            let mask = CAShapeLayer()
+            group.mask = mask
+            if let background = field.layer.sublayers?.first(where: {
+                guard let view = $0.delegate as? UIView else { return false }
+                return NSStringFromClass(type(of: view)).contains("Background")
+            }) {
+                field.layer.insertSublayer(group, above: background)
+            } else {
+                field.layer.insertSublayer(group, at: 0)
+            }
+            let skin = Skin(container: field.layer, source: source, group: group, metal: metal,
+                            rim: true, lens: nil, veils: false)
+            search = SearchSkin(field: field, skin: skin, source: source, element: element, mask: mask)
+            searchSkins.append(search)
+            if CACurrentMediaTime() < fadeInUntil { fadeIn(skin, over: nil) }
+        }
+        let bounds = field.bounds
+        if search.skin.group.frame != bounds || search.skin.metal.drawableSize == .zero {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            search.skin.group.frame = bounds
+            search.skin.group.bounds = CGRect(origin: .zero, size: bounds.size)
+            let local = search.skin.group.bounds
+            search.source.frame = local
+            search.element.frame = local
+            search.skin.metal.frame = local
+            search.skin.metal.drawableSize = CGSize(width: bounds.width * search.skin.metal.contentsScale,
+                                                    height: bounds.height * search.skin.metal.contentsScale)
+            search.mask.frame = local
+            search.mask.path = UIBezierPath(roundedRect: local,
+                cornerRadius: field.layer.cornerRadius > 0 ? field.layer.cornerRadius : bounds.height / 2).cgPath
+            CATransaction.commit()
         }
     }
 
@@ -494,9 +581,12 @@ final class GlassSkin: NSObject {
             let live = Set(skins.map { ObjectIdentifier($0.metal) })
             steadyRects = steadyRects.filter { live.contains($0.key) }
         }
-        guard !skins.isEmpty, UIApplication.shared.applicationState != .background else { return }
+        guard !(skins.isEmpty && searchSkins.isEmpty), UIApplication.shared.applicationState != .background else { return }
         let light = bars.lazy.compactMap(\.view).first?.traitCollection.userInterfaceStyle == .light
         for skin in skins { render(skin, light: light) }
+        for search in searchSkins where search.field?.window != nil {
+            render(search.skin, light: search.field?.traitCollection.userInterfaceStyle == .light)
+        }
     }
 
     /// UIKit's tab bar glass places its shape elements with match animations (they follow
