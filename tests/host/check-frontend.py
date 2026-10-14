@@ -241,6 +241,17 @@ party.applyEnvironment()
 expect(env("_MADEIRA_PARTY_COMPAT") == "1", "Party Animals selects a consistent native CRT")
 game.applyEnvironment()
 expect(env("_MADEIRA_PARTY_COMPAT") == nil && env("_MADEIRA_SPLIT_POOL") == nil, "next game clears Party compatibility flags")
+var gogProfile = LibraryEntry(title:"GOG fixture", relativePath:"GOG/game.exe", bits:64)
+gogProfile.gogID = 1; gogProfile.gogLaunchCommand = "-store"; gogProfile.arguments = "-custom"
+gogProfile.gogWorkingDir = "Program Files/GOG Games/1"
+gogProfile.configureLaunch()
+expect(gogProfile.launchArguments == "-store -custom", "GOG metadata preserves user launch arguments")
+expect(env("MADEIRA_WORKDIR") == "C:\\Program Files\\GOG Games\\1", "GOG launch uses validated game working directory")
+var epicProfile = game; epicProfile.epicAppName = "fixture"; epicProfile.applyEnvironment()
+expect(env("_MADEIRA_PRIVATE_ARGS") == "1", "Epic launch marks argument logging private")
+game.applyEnvironment()
+expect(env("_MADEIRA_PRIVATE_ARGS") == nil && env("MADEIRA_WORKDIR") == nil, "next game clears store launch state")
+
 
 game.controllerMode = nil
 expect(env("MADEIRA_FASTSYNC") == "auto" && env("MADEIRA_FASTSYNC_SEM") == "0",

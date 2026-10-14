@@ -171,7 +171,7 @@ body = block(shelf, 'private var library: some View')
 body = body[:body.index('        .onReceive(controller.commands)')] + '\n        }\n        }\n    }\n'
 sources += body + '\n}\n'
 sources += (root / 'app/Madeira/GOG/GOGStore.swift').read_text(encoding='utf-8')
-sources += "\nenum EpicContentError: Error { case invalid(String) }\nfinal class LogStore { static let shared = LogStore(); enum Level { case error }; func log(_ value:String, level:Level) {} }\n"
+sources += "\nenum EpicContentError: Error { case invalid(String) }\nfinal class LogStore { static let shared = LogStore(); enum Level { case error }; func log(_ value:String, level:Level = .error) {} }\n"
 for file in ('EpicAuth.swift','EpicAPI.swift','EpicSignInView.swift'):
     sources += (root / 'app/Madeira/Epic' / file).read_text(encoding='utf-8')
 
