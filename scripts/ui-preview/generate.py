@@ -199,6 +199,7 @@ sources += r'''
             window.rootViewController=host;window.makeKeyAndVisible()
             host.view.frame=CGRect(origin:.zero,size:size)
             host.view.setNeedsLayout();host.view.layoutIfNeeded()
+            let framesBefore=GlassSkin.shared.renderedFrames
             LiquidMetalSetting.shared.on = mode == "library-metal"
             try? await Task.sleep(for:.seconds(3))
             func searches(_ view:UIView)->[UISearchBar] {
@@ -214,6 +215,7 @@ sources += r'''
                     "metalLayers":bars.reduce(0) { $0 + skinCount($1.layer) },
                     "metalDeviceAvailable":MTLCreateSystemDefaultDevice() != nil,
                     "metalLibraryAvailable":(try? MTLCreateSystemDefaultDevice()?.makeDefaultLibrary(bundle: .main)) != nil,
+                    "renderedFrames":GlassSkin.shared.renderedFrames-framesBefore,
                     "setting":LiquidMetalSetting.shared.on]
                 if mode == "library-metal", let bar=bars.first {
                     var layerNames:[String]=[]
@@ -238,6 +240,11 @@ sources += r'''
                 try? await Task.sleep(for:.milliseconds(100))
             }
             window.isHidden=true
+            if mode == "library-metal" {
+                let hiddenFrames=GlassSkin.shared.renderedFrames
+                try? await Task.sleep(for:.seconds(1))
+                searchChecks["hidden-library"] = ["renderedFrames":GlassSkin.shared.renderedFrames-hiddenFrames]
+            }
         }
         if let json=try? JSONSerialization.data(withJSONObject:searchChecks,options:[.prettyPrinted,.sortedKeys]) {
             try? json.write(to:folder.appendingPathComponent("search-checks.json"))

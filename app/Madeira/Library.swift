@@ -3001,11 +3001,13 @@ struct LibraryView: View {
         }
         .onAppear {
             privatePlaylist = access.unlocked
+            GlassSkin.shared.start()
             // An ended desktop session's surface never stays over the library.
             EndedSessionSurface.install(); EndedSessionSurface.hide(reason: "library-appeared")
             // First-run setup opens once on a new install.
             onboarding.presentIfNeeded()
         }
+        .onDisappear { GlassSkin.shared.stop() }
         .onAppear {
             LogStore.shared.log("[library-sections] native-steam=\(SteamOwnedLibrary.enabled ? 1 : 0) sections=\(SteamGamesSection.shown ? 1 : 0) collapse=\(SteamGamesSection.collapsible ? 1 : 0)")
         }
@@ -3399,7 +3401,6 @@ struct LibraryView: View {
         .onChange(of: scenePhase) { _, phase in if phase == .active { model.refreshFlag() } }
         .onAppear {
             if focused == nil { focused = LibraryEntry.desktopID }
-            GlassSkin.shared.start()   // liquid metal on the navigation bar's glass pills
         }
         .onChange(of: focused) { _, id in
             if let id { withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.2)) { reader.scrollTo(id, anchor: .center) } }

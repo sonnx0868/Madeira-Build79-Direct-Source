@@ -52,6 +52,8 @@ final class GlassSkin: NSObject {
     private var lastBarSearch: CFTimeInterval = 0
     private var skins: [Skin] = []
     private var searchSkins: [SearchSkin] = []
+    private weak var attachingBar: UIView?
+    private(set) var renderedFrames: UInt64 = 0
     private let started = CACurrentMediaTime()
 
     private struct WeakView { weak var view: UIView? }
@@ -66,6 +68,7 @@ final class GlassSkin: NSObject {
         weak var lens: UIView?
         /// A navigation bar pill, which a context menu from one of its buttons covers.
         let veils: Bool
+        weak var host: UIView?
     }
     private struct SearchSkin {
         weak var field: UITextField?
@@ -205,7 +208,8 @@ final class GlassSkin: NSObject {
             veiled = menu
             for skin in skins where skin.veils { veil(skin, menu) }
         }
-        for bar in bars.compactMap(\.view) where bar.window != nil {
+        for bar in bars.compactMap(\.view) where Self.isVisible(bar) {
+            attachingBar = bar
             if bar is UITabBar {
                 skinTabBar(bar)
             } else {
@@ -226,6 +230,17 @@ final class GlassSkin: NSObject {
                 }
             }
         }
+        attachingBar = nil
+    }
+
+    private static func isVisible(_ view: UIView) -> Bool {
+        guard let window = view.window, !window.isHidden else { return false }
+        var ancestor: UIView? = view
+        while let current = ancestor {
+            if current.isHidden || current.alpha <= 0.01 || current.layer.opacity <= 0.01 { return false }
+            ancestor = current.superview
+        }
+        return true
     }
 
     /// Public UIKit geometry for a search field without an SDF glass layer.
@@ -261,7 +276,7 @@ final class GlassSkin: NSObject {
                 field.layer.insertSublayer(group, at: 0)
             }
             let skin = Skin(container: field.layer, source: source, group: group, metal: metal,
-                            rim: true, lens: nil, veils: false)
+                            rim: true, lens: nil, veils: false, host: field)
             search = SearchSkin(field: field, skin: skin, source: source, element: element, mask: mask)
             searchSkins.append(search)
             if CACurrentMediaTime() < fadeInUntil { fadeIn(skin, over: nil) }
@@ -442,7 +457,7 @@ final class GlassSkin: NSObject {
         guard let current = highlight.sublayers?.first?.value(forKey: "sourceLayer") as? CALayer,
               current !== skin.source else { return }
         for shape in shapes { shape.sublayers?.first?.setValue(current, forKey: "sourceLayer") }
-        skins[index] = Skin(container: container, source: current, group: skin.group, metal: skin.metal, rim: skin.rim, lens: skin.lens, veils: skin.veils)
+        skins[index] = Skin(container: container, source: current, group: skin.group, metal: skin.metal, rim: skin.rim, lens: skin.lens, veils: skin.veils, host: skin.host)
     }
 
     /// The skin goes into the pill's glass container, right above the backdrop, so it sits
@@ -493,7 +508,7 @@ final class GlassSkin: NSObject {
         } else if !rim {
             backdrop.opacity = 0
         }
-        skins.append(Skin(container: container, source: source, group: group, metal: metal, rim: rim, lens: lens, veils: veils))
+        skins.append(Skin(container: container, source: source, group: group, metal: metal, rim: rim, lens: lens, veils: veils, host: attachingBar))
         if CACurrentMediaTime() < fadeInUntil, !(veils && veiled) {
             fadeIn(skins[skins.count - 1], over: rim ? nil : backdrop)
         }
@@ -584,14 +599,16 @@ final class GlassSkin: NSObject {
         // A press can change the pill in a commit the run-loop observer does not precede.
         attachAgainAfterLayout()
         skins.removeAll { $0.container?.superlayer == nil || $0.group.superlayer == nil }
-        if steadyRects.count > skins.count {
-            let live = Set(skins.map { ObjectIdentifier($0.metal) })
+        if steadyRects.count > skins.count + searchSkins.count {
+            let live = Set((skins + searchSkins.map(\.skin)).map { ObjectIdentifier($0.metal) })
             steadyRects = steadyRects.filter { live.contains($0.key) }
         }
         guard !(skins.isEmpty && searchSkins.isEmpty), UIApplication.shared.applicationState != .background else { return }
         let light = bars.lazy.compactMap(\.view).first?.traitCollection.userInterfaceStyle == .light
-        for skin in skins { render(skin, light: light) }
-        for search in searchSkins where search.field?.window != nil {
+        for skin in skins where skin.host.map(Self.isVisible) == true && skin.group.opacity > 0.01 {
+            render(skin, light: light)
+        }
+        for search in searchSkins where search.field.map(Self.isVisible) == true {
             render(search.skin, light: search.field?.traitCollection.userInterfaceStyle == .light)
         }
     }
@@ -659,5 +676,6 @@ final class GlassSkin: NSObject {
         encoder.endEncoding()
         commands.present(drawable)
         commands.commit()
+        renderedFrames &+= 1
     }
 }

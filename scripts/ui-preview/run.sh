@@ -76,7 +76,10 @@ assert all(checks[k]['nativeSearchBars']==1 for k in ('library','library-metal',
 assert checks['library']['metalLayers']==checks['library-restored']['metalLayers']==0,checks
 if checks['library-metal']['metalDeviceAvailable']:
     assert checks['library-metal']['metalLayers']>0,checks
+    assert checks['library-metal']['renderedFrames']>0,checks
+    assert checks['hidden-library']['renderedFrames']==0,checks
     print('PASS: native inline search gains Metal when enabled and removes it when disabled')
+    print('PASS: hidden library submits no Metal frames while visible search remains animated')
 else:
     assert checks['library-metal']['metalLayers']==0,checks
     print('PASS: native search remains usable when simulator has no Metal device')
