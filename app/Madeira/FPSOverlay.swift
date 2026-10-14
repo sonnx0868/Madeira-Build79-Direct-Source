@@ -10,7 +10,9 @@ struct ThermalPacingPolicy {
         let requested = (0...3).contains(requested) ? requested : 1
         let base: Int32 = requested == 3 && !has30Cap ? 1 : requested
         guard enabled else { return base }
-        if thermal >= 2 { return has30Cap ? 3 : 1 }
+        // Reduce MAX/RAW to 60 under pressure without silently replacing the
+        // user's 60 target with 30. iOS still manages hardware thermal limits.
+        if thermal >= 2 { return base == 3 ? 3 : 1 }
         if (thermal == 1 || lowPower) && (base == 0 || base == 2) { return 1 }
         return base
     }
