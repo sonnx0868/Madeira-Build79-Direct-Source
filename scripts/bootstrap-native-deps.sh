@@ -23,6 +23,9 @@ bash "$root/scripts/fetch-love-luajit-gc64.sh"
 log "Fetch ANGLE OpenGL ES to D3D11 compatibility runtime"
 bash "$root/scripts/fetch-angle-d3d11.sh"
 
+log "Fetch verified Mesa source before native compilation"
+bash "$root/build/mesa-ios/fetch-source.sh"
+
 log "Initialize pinned upstream submodules"
 git -C "$root" submodule update --init FEX wine dxmt madeira-dock
 git -C "$root/FEX" submodule update --init --depth 1 --jobs 4 \

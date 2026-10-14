@@ -28,11 +28,7 @@ OUT="$R/app/Madeira/gl"
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 
 if [ ! -f "$SRC/meson.build" ]; then
-    archive="${TMPDIR:-/tmp}/madeira-mesa-25.0.7.tar.xz"
-    curl --fail --location --retry 3 https://archive.mesa3d.org/mesa-25.0.7.tar.xz -o "$archive"
-    printf '%s  %s\n' 592272df3cf01e85e7db300c449df5061092574d099da275d19e97ef0510f8a6 "$archive" | shasum -a 256 -c -
-    mkdir -p "$(dirname "$SRC")"
-    tar -xJf "$archive" -C "$(dirname "$SRC")"
+    MESA_SRC="$SRC" bash "$HERE/fetch-source.sh"
 fi
 if [ ! -x "$VENV/bin/meson" ] || [ ! -x "$VENV/bin/ninja" ]; then
     python3 -m venv "$VENV"
