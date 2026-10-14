@@ -5,7 +5,10 @@ import Foundation
 enum GameEngineDetection {
     static func detect(_ executable: URL) -> String? {
         let fm = FileManager.default
-        let root = executable.deletingLastPathComponent()
+        // Dock profiles name the install directory; imported profiles name an EXE.
+        var directory: ObjCBool = false
+        let isFolder = fm.fileExists(atPath: executable.path, isDirectory: &directory) && directory.boolValue
+        let root = isFolder ? executable : executable.deletingLastPathComponent()
         func names(_ folder: URL) -> [String: URL] {
             let items = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil,
                                                    options: [.skipsHiddenFiles])) ?? []

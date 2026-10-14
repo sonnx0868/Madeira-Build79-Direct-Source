@@ -34,6 +34,7 @@ func fixture(_ name: String, files: [String: Data], expected: String?) throws {
     }
     let original = try Data(contentsOf: exe)
     assert(GameEngineDetection.detect(exe) == expected, "wrong engine: \(name)")
+    assert(GameEngineDetection.detect(folder) == expected, "wrong Steam folder engine: \(name)")
     assert(try! Data(contentsOf: exe) == original)
 }
 let empty = Data()

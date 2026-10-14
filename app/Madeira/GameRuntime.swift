@@ -147,6 +147,7 @@ final class GameRuntime: ObservableObject {
         // spawning cmd helpers. Keep Ren'Py on the isolated launch route until
         // its mixed-architecture child transitions are validated on device.
         switch GameEngineDetection.detect(executable) {
+        case "Unity": return true
         case "GameMaker":
             // Fading Afternoon build647: supervised launch returned
             // DXGI_ERROR_INVALID_CALL creating its swapchain, then the runner

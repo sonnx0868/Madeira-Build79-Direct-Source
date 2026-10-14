@@ -32,3 +32,7 @@ serviced by Mach exceptions. No measured FPS gain from the new build yet.
 Host tests verify allocator boundaries and timer conversion. Mac CI must prove
 native compilation, policy behavior and the app build. No game/device outcome
 is implied by compilation; no 60 FPS guarantee is made.
+
+Steam/Dock profiles are installation folders, so runtime detection now handles
+both directory and executable inputs. GameMaker/Godot/Unity isolation and the
+Godot input policy apply to Steam entries as well as imported games.
