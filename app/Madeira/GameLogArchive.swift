@@ -18,6 +18,14 @@ final class GameLogArchive: @unchecked Sendable {
     private var current: Journal?
     private var cursor: UInt64 = 0
 
+    private static func currentSize(_ url: URL) -> UInt64? {
+        // URL resource values may cache an earlier file size. Query the live
+        // descriptor at both boundaries so a stale size cannot discard a game.
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        return try? handle.seekToEnd()
+    }
+
     static func filename(title: String, date: Date) -> String {
         let forbidden = CharacterSet.controlCharacters.union(CharacterSet(charactersIn: "/\\:*?\"<>|"))
         var scalars = String.UnicodeScalarView(), bytes = 0
@@ -35,7 +43,7 @@ final class GameLogArchive: @unchecked Sendable {
     }
 
     func begin(title: String, sourceURL: URL, metadata: [String: String]) {
-        let offset = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { UInt64(max(0, $0)) } ?? 0
+        let offset = Self.currentSize(sourceURL) ?? 0
         queue.async { [self] in
             finishOnQueue(endOffset: offset)
             let folder = sourceURL.deletingLastPathComponent().appendingPathComponent("Logs", isDirectory: true)
@@ -67,8 +75,7 @@ final class GameLogArchive: @unchecked Sendable {
     func finish(sourceURL: URL? = nil) {
         // Fix the byte boundary on the caller's timeline, before queued IO
         // runs. Library/next-game output must not enter the old game's file.
-        let end = sourceURL.flatMap { (try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) }
-            .map { UInt64(max(0, $0)) }
+        let end = sourceURL.flatMap(Self.currentSize)
         queue.async { [self] in finishOnQueue(endOffset: end) }
     }
 
