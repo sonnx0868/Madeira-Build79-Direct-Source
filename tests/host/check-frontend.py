@@ -485,7 +485,13 @@ start = bridge.index('static uint64_t g_launch_exit')
 end = bridge.index('static char *g_prefix_path')
 c_src += 'void wine_launched_process_did_exit(int status);\nvoid wine_exit_status_reset(void);\nint wine_crash_exit_status(uint32_t *status);\nint wine_session_close_targets_thread(uint32_t pid, uint32_t tid);\n'
 c_src += 'int wine_session_close_accept_target(uint32_t pid,uint32_t tid);\nint wine_session_close_has_exited(void);\nstatic uint32_t requested_stop;\nvoid ios_wineserver_request_game_stop(uint32_t pid) { requested_stop=pid; }\n'
-c_src += bridge[start:end]
+exit_state = bridge[start:end]
+# Name matching is Objective-C and has its own Foundation/iOS SDK fixture.
+# Keep the actual atomic exit state/reporting in this portable C harness.
+objc_start = exit_state.index('static pthread_mutex_t g_game_path_lock')
+objc_end = exit_state.index('int wine_game_process_has_exited(')
+exit_state = exit_state[:objc_start] + 'static uint32_t g_game_pid;\nstatic uint64_t g_game_exit;\n' + exit_state[objc_end:]
+c_src += exit_state
 c_src += r'''
 typedef void *HWND;
 typedef uintptr_t ULONG_PTR;
@@ -596,9 +602,9 @@ wrapper = block(server, 'void process_exit_wrapper( int status )')
 initial = wrapper[wrapper.index('    else\n    {'):]
 check('wine_launched_process_did_exit( status );' in initial and wrapper.count('wine_launched_process_did_exit( status );') == 1,
       'ntdll reports only the initial (app-launched) process exit, from the no-slot branch')
-check('__attribute__((weak))' in initial and 'ImagePathName' not in server and 'wine_process_did_' not in server,
+check('__attribute__((weak))' in initial and 'ImagePathName' not in wrapper and 'wine_process_did_' not in wrapper,
       'the hook is weak and gets no image name')
-check('madeira_exit_is_helper' not in bridge and '.exe"' not in bridge[bridge.index('static uint64_t g_launch_exit'):bridge.index('static char *g_prefix_path')],
+check('madeira_exit_is_helper' not in bridge and '.exe"' not in block(bridge, 'void wine_launched_process_did_exit('),
       'no program-name list in the exit report')
 check('MADEIRA_PROMOTE' not in fps and 'DisplayRateSettings' not in lib,
       'removed display-rate override cannot be enabled by saved settings')
