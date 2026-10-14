@@ -228,6 +228,20 @@ expect(env("MADEIRA_CPU_COUNT") == nil && env("DXMT_D9_ANISO_LIMIT") == nil, "no
 expect(env("MADEIRA_DINPUT_PAD") == "1", "Automatic controller mode publishes DirectInput beside XInput")
 game.controllerMode = "xinput"; game.applyEnvironment()
 expect(env("MADEIRA_DINPUT_PAD") == "0", "XInput-only mode suppresses the duplicate DirectInput view")
+let godotFolder = LibraryModel.drive.appendingPathComponent("controller-godot")
+try FileManager.default.createDirectory(at: godotFolder, withIntermediateDirectories: true)
+try Data("GDPC".utf8).write(to: godotFolder.appendingPathComponent("game.pck"))
+var godotPad = LibraryEntry(title: "Renamed", relativePath: "controller-godot/game.exe", bits: 64)
+godotPad.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == "0", "Godot automatic input exposes one XInput device")
+godotPad.controllerMode = "dinput"; godotPad.applyEnvironment()
+expect(env("MADEIRA_DINPUT_PAD") == "1", "explicit DirectInput choice still wins")
+var party = LibraryEntry(title: "Party Animals", relativePath: "Steam/PartyAnimals.exe", bits: 64)
+party.applyEnvironment()
+expect(env("_MADEIRA_PARTY_COMPAT") == "1", "Party Animals selects a consistent native CRT")
+game.applyEnvironment()
+expect(env("_MADEIRA_PARTY_COMPAT") == nil && env("_MADEIRA_SPLIT_POOL") == nil, "next game clears Party compatibility flags")
+
 game.controllerMode = nil
 expect(env("MADEIRA_FASTSYNC") == "auto" && env("MADEIRA_FASTSYNC_SEM") == "0",
        "no sync keys (Fastsync, the default): the game's fastsync switches are exported")

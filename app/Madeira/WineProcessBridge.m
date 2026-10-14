@@ -1702,6 +1702,15 @@ static void *wine_process_thread(void *arg) {
                 setenv("WINEDLLOVERRIDES", joined.UTF8String, 1);
                 fprintf(stderr, "[steam-modules] overlay/video disabled for this Dock session overrides=%s\n", joined.UTF8String);
             }
+            if (getenv("_MADEIRA_PARTY_COMPAT")) {
+                NSString *raw = getenv("WINEDLLOVERRIDES") ? [NSString stringWithUTF8String:getenv("WINEDLLOVERRIDES")] : @"";
+                // Append exact builtin choices so explicit local x64 DLL paths
+                // cannot mix the C++ exception runtime with native MSVCP140.
+                NSString *joined = [raw stringByAppendingString:@";msvcp140,vcruntime140,vcruntime140_1=b"];
+                setenv("WINEDLLOVERRIDES", joined.UTF8String, 1);
+                fprintf(stderr, "[party-crt-v1] use bundled MSVCP140/VCRUNTIME140; split-pool requested=%d\n",
+                        getenv("_MADEIRA_SPLIT_POOL") != NULL);
+            }
             if (getenv("_MADEIRA_LUA51_GC64")) {
                 NSString *compatBundlePath = [[NSBundle mainBundle] bundlePath];
                 NSString *gc64 = [compatBundlePath stringByAppendingPathComponent:@"arm64ec-windows/lua51-gc64.dll"];

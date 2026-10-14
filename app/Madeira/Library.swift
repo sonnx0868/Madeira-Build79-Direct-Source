@@ -400,7 +400,9 @@ struct LibraryEntry: Codable, Identifiable {
         // APIs. This covers old Unity/DirectInput titles and modern XInput games
         // without a per-game first-run ritual. XInput-only remains an escape
         // hatch for the few games that list both API views as separate pads.
-        let automaticPad = GamepadInput.keyboardMouseAvailable && controllerMode != "keys" && controllerMode != "xinput"
+        let engine = GameEngineDetection.detect(LibraryModel.drive.appendingPathComponent(launchRelativePath))
+        let automaticPad = GamepadInput.keyboardMouseAvailable && controllerMode != "keys" && controllerMode != "xinput" &&
+            (controllerMode == "dinput" || engine != "Godot")
         if automaticPad { setenv("MADEIRA_DINPUT_PAD", "1", 1) }
         else { setenv("MADEIRA_DINPUT_PAD", "0", 1) }
         let controllerPrefs = ControllerCompatibility.prepare(self)
@@ -741,9 +743,24 @@ enum ExternalGameCompatibility {
         clearStrictMemory()
         unsetenv("_MADEIRA_OPENGL_ANGLE_MODE")
         unsetenv("_MADEIRA_LUA51_GC64")
+        unsetenv("_MADEIRA_PARTY_COMPAT")
+        unsetenv("_MADEIRA_SPLIT_POOL")
         guard entry.desktop != true else { return [] }
         var applied: [String] = []
         let identity = (entry.title + " " + entry.launchWindowsPath).lowercased()
+        // Log a54a899f: native MSVCP140 picked the game's x64 VCRUNTIME140,
+        // then jumped to its MZ header. The same launch exhausted its 560MB
+        // contiguous pool loading phonon.dll. Keep one CRT architecture and
+        // recover the free executable run above the main thread's stack.
+        if entry.desktop != true && (entry.steamAppID == 1260320 ||
+            identity.contains("partyanimals.exe") || identity.contains("party animals")) {
+            setenv("_MADEIRA_PARTY_COMPAT", "1", 1)
+            if ProcessInfo.processInfo.physicalMemory >= 8 * 1024 * 1024 * 1024 {
+                setenv("_MADEIRA_SPLIT_POOL", "1", 1)
+            }
+            applied.append("party-native-crt-split-pool")
+        }
+
         let balatro = entry.steamAppID == 2379780 || identity.contains("balatro")
 
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -1822,6 +1839,7 @@ struct LibraryLargeTitle: ToolbarContent {
 /// The bolt is as tall as the title's capitals and centred on them: an SF
 /// Symbol at the title's own size is nearly twice the height of its M.
 struct LibraryTitleText: View {
+    var navigationAligned = true
     @ObservedObject private var alignment = LibraryHeaderAlignment.shared
     @ObservedObject private var jitState = LibraryJITState.shared
     var body: some View {
@@ -1835,10 +1853,10 @@ struct LibraryTitleText: View {
                 .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + LibraryHeaderAlignment.titleFont().capHeight / 2 }
                 .accessibilityLabel(jit ? "JIT enabled" : "JIT not enabled")
         }
-        .font(.largeTitle.bold())
+        .font(navigationAligned ? .largeTitle.bold() : .system(size: 27, weight: .bold))
         .fixedSize()
-        .offset(x: alignment.shift)
-        .background(LibraryTitleAnchor())   // after the offset: marks where the text is laid out
+        .offset(x: navigationAligned ? alignment.shift : 0)
+        .background { if navigationAligned { LibraryTitleAnchor() } }   // after the offset: marks where the text is laid out
         .contentShape(Rectangle())
         .onLongPressGesture(minimumDuration: 2) { LibraryAccess.shared.toggle() }
     }
@@ -1958,6 +1976,35 @@ final class ReportingSearchBar: UISearchBar {
 /// goes away, so the developer screen has no search bar. Checked in the iOS
 /// simulator: the title and the toolbar buttons share a centre line, and the
 /// field spans the screen on both tabs.
+/// The regular-width shelf owns its search field; it must not occupy the
+/// sidebar's navigation item or feed the toolbar title's alignment offset.
+struct LibraryInlineSearch: UIViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> UISearchBar {
+        let bar = UISearchBar()
+        bar.searchBarStyle = .minimal
+        bar.autocapitalizationType = .none
+        bar.autocorrectionType = .no
+        bar.returnKeyType = .search
+        bar.delegate = context.coordinator
+        return bar
+    }
+    func updateUIView(_ bar: UISearchBar, context: Context) {
+        context.coordinator.parent = self
+        bar.placeholder = placeholder
+        if bar.text != text { bar.text = text }
+    }
+    static func dismantleUIView(_ bar: UISearchBar, coordinator: Coordinator) { bar.resignFirstResponder() }
+    final class Coordinator: NSObject, UISearchBarDelegate {
+        var parent: LibraryInlineSearch
+        init(_ parent: LibraryInlineSearch) { self.parent = parent }
+        func searchBar(_ searchBar: UISearchBar, textDidChange text: String) { parent.text = text }
+        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { searchBar.resignFirstResponder() }
+    }
+}
+
 struct LibraryNavSearch: UIViewControllerRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -2849,9 +2896,15 @@ struct LibraryView: View {
         Group {
         if horizontalSizeClass == .regular {
             HStack(spacing: 0) {
-                sidebar.frame(width: 180)
+                sidebar.frame(width: 224)
                 Divider()
-                if tab == 0 { library } else { settings }
+                VStack(spacing: 0) {
+                    LibraryInlineSearch(text: tab == 0 ? $search : $settingsSearch,
+                        placeholder: tab == 0 ? "Search your library" : "Search settings")
+                        .frame(height: 52).padding(.horizontal, 20).padding(.bottom, 8)
+                    if tab == 0 { library } else { settings }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+
             }
         } else {
         TabView(selection: Binding(get: { tab }, set: { switchTab(to: $0) })) {
@@ -2874,9 +2927,13 @@ struct LibraryView: View {
         }
         // The system search field (Liquid Glass on iOS 26) in the title's place, left
         // of the library's buttons, on both tabs; each tab keeps its own text.
-        .background(LibraryNavSearch(text: tab == 0 ? $search : $settingsSearch,
-                                     placeholder: tab == 0 ? "Search your library" : "Search settings")
-            .frame(width: 0, height: 0))
+        .background {
+            if horizontalSizeClass != .regular {
+                LibraryNavSearch(text: tab == 0 ? $search : $settingsSearch,
+                    placeholder: tab == 0 ? "Search your library" : "Search settings")
+                    .frame(width: 0, height: 0)
+            }
+        }
         // Each tab is hosted by the tab bar controller, so a toolbar set inside a tab
         // would not reach the navigation bar: the library's lives here.
         // The title is a large leading toolbar item, level with the library's
@@ -2948,7 +3005,10 @@ struct LibraryView: View {
     }
     private func navigationRow(_ title: String, _ icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon).font(.subheadline.weight(.medium))
+            HStack(spacing: 12) {
+                Image(systemName: icon).frame(width: 22)
+                Text(title).lineLimit(1)
+            }.font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).padding(.vertical, 13)
                 .foregroundStyle(selected ? Color.cyan : Color.primary.opacity(0.7))
                 .background(selected ? Color.cyan.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 12))
@@ -2956,7 +3016,8 @@ struct LibraryView: View {
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LibraryTitleText().padding(.horizontal, 12).padding(.top, 20).padding(.bottom, 36)
+            LibraryTitleText(navigationAligned: false)
+                .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 28)
             navigationRow("Library", "square.grid.2x2.fill", selected: tab == 0 && !privatePlaylist && !recentOnly) {
                 tab = 0; privatePlaylist = false; recentOnly = false; genre = nil
             }
@@ -4064,8 +4125,9 @@ struct ControllerModeChoice: View {
     @Binding var mode: String?
     var body: some View {
         LabeledContent("Controller") {
-            Picker("Controller", selection: Binding(get: { mode == "dinput" ? "" : (mode ?? "") }, set: { mode = $0.isEmpty ? nil : $0 })) {
-                Text("Automatic (XInput + DirectInput)").tag("")
+            Picker("Controller", selection: Binding(get: { mode ?? "" }, set: { mode = $0.isEmpty ? nil : $0 })) {
+                Text("Automatic").tag("")
+                Text("XInput + DirectInput").tag("dinput")
                 Text("XInput only").tag("xinput")
                 Text("Keyboard and mouse").tag("keys")
             }.pickerStyle(.menu).labelsHidden()

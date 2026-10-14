@@ -15,6 +15,12 @@ access = (root / 'app/Madeira/LibraryAccess.swift').read_text(encoding='utf-8')
 assert 'SecItemAdd' in access and 'kSecAttrAccessibleWhenUnlockedThisDeviceOnly' in access
 assert 'token == epoch' in access and 'private(set) var unlocked = false' in access
 assert 'willResignActiveNotification' in access and 'window.windowLevel = .alert + 5' in access
+assert 'LibraryPrivacyShield.shared.cover(); access.background()' in access
+assert 'if LibraryModel.shared.current != nil {' in access
+assert 'LibraryAccess.shared.unlocked || LibraryModel.shared.current != nil' in access
+assert 'LibraryTitleText(navigationAligned: false)' in library
+assert 'LibraryInlineSearch(text:' in library and 'sidebar.frame(width: 224)' in library
+
 assert '.onLongPressGesture(minimumDuration: 2)' in library
 assert 'onTapGesture(count: 3)' not in access
 assert 'var genreID: UUID?' in library and 'var privateGame: Bool?' in library

@@ -69,3 +69,13 @@ else
     echo "Wine source does not match the pinned OpenGL patch" >&2
     exit 1
 fi
+
+patch="$root/patches/wine-native-tick-clock.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine native boot clock already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the native boot clock patch" >&2
+    exit 1
+fi

@@ -42,6 +42,13 @@ final class LibraryAccess: ObservableObject {
             MetalHostView.shared.isHidden = true
         }
     }
+    func background() {
+        // Cancel a pending PIN verification, but keep an authorized live game.
+        // The switcher snapshot is covered separately. Quit locks the shelf.
+        if LibraryModel.shared.current != nil {
+            epoch += 1; requested = false; afterAccess = nil
+        } else { lock() }
+    }
     private func query() -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
          kSecAttrAccount as String: "library", kSecAttrSynchronizable as String: false]
@@ -226,7 +233,7 @@ final class LibraryPrivacyShield {
         else {
             revision += 1
             let token = revision
-            if LibraryAccess.shared.unlocked {
+            if LibraryAccess.shared.unlocked || LibraryModel.shared.current != nil {
                 for window in windows { window.isHidden = true }
             } else {
                 // Let SwiftUI finish dismissing details sheets before exposing
@@ -260,7 +267,7 @@ struct LibraryAccessPresentation: ViewModifier {
             .sheet(isPresented: Binding(get: { access.requested && !access.protectedSurface },
                                        set: { if !$0 { access.requested = false } })) { LibraryAccessView() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-                LibraryPrivacyShield.shared.cover(); access.lock()
+                LibraryPrivacyShield.shared.cover(); access.background()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 LibraryPrivacyShield.shared.refresh()

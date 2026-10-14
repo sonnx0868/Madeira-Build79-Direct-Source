@@ -1,0 +1,55 @@
+--- a/dlls/kernelbase/sync.c
++++ b/dlls/kernelbase/sync.c
+@@ -175,13 +175,34 @@
+ }
+ 
+ 
++/* Madeira: on iOS the fixed Windows shared page is below __PAGEZERO.
++ * Native ARM64/ARM64EC reads otherwise trap through the Mach exception thread
++ * for every timer poll. QueryPerformanceCounter uses the same boot clock as
++ * wineserver TickCount, in 100 ns units, without reading that fixed page. */
++#if defined(__aarch64__) || defined(__arm64ec__)
++static ULONGLONG madeira_tick_count(void)
++{
++    LARGE_INTEGER counter;
++    if (!RtlQueryPerformanceCounter( &counter ))
++    {
++        ERR( "[tick-direct-v1] boot clock unavailable\n" );
++        return 0;
++    }
++    return (ULONGLONG)counter.QuadPart / 10000;
++}
++#endif
++
+ /******************************************************************************
+  *           GetTickCount   (kernelbase.@)
+  */
+ ULONG WINAPI DECLSPEC_HOTPATCH GetTickCount(void)
+ {
+     /* note: we ignore TickCountMultiplier */
++#if defined(__aarch64__) || defined(__arm64ec__)
++    return (ULONG)madeira_tick_count();
++#else
+     return user_shared_data->TickCount.LowPart;
++#endif
+ }
+ 
+ 
+@@ -190,6 +211,9 @@
+  */
+ ULONGLONG WINAPI DECLSPEC_HOTPATCH GetTickCount64(void)
+ {
++#if defined(__aarch64__) || defined(__arm64ec__)
++    return madeira_tick_count();
++#else
+     ULONG high, low;
+ 
+     do
+@@ -200,6 +224,7 @@
+     while (high != user_shared_data->TickCount.High2Time);
+     /* note: we ignore TickCountMultiplier */
+     return (ULONGLONG)high << 32 | low;
++#endif
+ }
+ 
+ 

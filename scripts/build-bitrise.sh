@@ -94,6 +94,7 @@ fi
 
 checks() {
   python3 tests/host/check-bcd-compatibility.py
+  python3 tests/host/check-game-startup-fixes.py
   python3 tests/host/check-dock-contract.py
   python3 tests/host/check-version.py
   python3 tests/host/check-native-wrapper.py

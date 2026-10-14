@@ -55,6 +55,7 @@ python3 "$root/tests/host/check-window-proc.py"
 python3 "$root/tests/host/check-renpy-wgl-probe.py"
 python3 "$root/tests/host/check-user-object-generation.py"
 python3 "$root/tests/host/check-bcd-compatibility.py"
+python3 "$root/tests/host/check-game-startup-fixes.py"
 
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tools/shader-compiler-identity.py" --root "$root" --check-source-inputs
@@ -114,9 +115,9 @@ WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-ntdll.sh"
 bash "$root/build/wine-pe/build-controller.sh"
 bash "$root/build/wine-pe/build-wintypes.sh"
 bash "$root/build/wine-pe/build-d3dcompiler.sh"
-bash "$root/build/wine-pe/build-modules.sh" gdiplus mlang sspicli opengl32 glu32 xaudio2_8 xaudio2_9
+bash "$root/build/wine-pe/build-modules.sh" gdiplus mlang sspicli opengl32 glu32 xaudio2_8 xaudio2_9 kernelbase
+WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-modules.sh" opengl32 glu32 kernelbase
 python3 "$root/tools/check-compatibility-binaries.py" --root "$root" --pe-only
-WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-modules.sh" opengl32 glu32
 git -C "$root/wine" rev-parse HEAD > "$root/build/wine-pe/opengl-pe.version"
 
 log "Build FEX iOS"

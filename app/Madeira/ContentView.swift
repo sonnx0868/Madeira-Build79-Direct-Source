@@ -1350,7 +1350,10 @@ struct ContentView: View {
             } message: { Text(library.cloudNotice?.message ?? "") }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 library.refreshFlag()
-                if library.enabled && library.current == nil { MetalHostView.shared.isHidden = true }
+                if library.enabled {
+                    MetalHostView.shared.isHidden = library.current == nil || libraryAccess.protectedSurface
+                    LibraryPrivacyShield.shared.refresh()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: TranslationTools.launch)) { note in
                 guard let path = note.object as? String,
@@ -3058,6 +3061,9 @@ struct ContentView: View {
                 setenv("WINE_IOS_JIT_RX", String(format: "%lx", Int(bitPattern: pool.rx)), 1)
                 setenv("WINE_IOS_JIT_RW", String(format: "%lx", Int(bitPattern: pool.rw)), 1)
                 setenv("WINE_IOS_JIT_SIZE", String(format: "%lx", pool.size), 1)
+                if let hole = StikJITHelper.poolHole {
+                    setenv("WINE_IOS_JIT_HOLE", String(format: "%lx:%lx", hole.off, hole.end), 1)
+                } else { unsetenv("WINE_IOS_JIT_HOLE") }
             } else {
                 // ml596: ABORT. "Continuing without it" produced ml595 — a run that
                 // looked like an ARM64EC/optimizer regression but was only Wine

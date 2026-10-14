@@ -72,6 +72,8 @@ def main():
         print('Stamped rebuilt Mesa capability fixes')
         return
     assert json.loads(receipt.read_text(encoding='utf-8')) == expected, 'ARM64EC callback bridge is stale'
+    for arch in ('arm64ec-windows', 'aarch64-windows'):
+        assert b'tick-direct-v1' in (root / 'app/Madeira' / arch / 'kernelbase.dll').read_bytes(), 'stale native tick clock: ' + arch
     farm = root / 'app/Madeira/arm64ec-windows'
     for name in ('xaudio2_8.dll', 'xaudio2_9.dll'):
         data = (farm / name).read_bytes()
@@ -82,6 +84,7 @@ def main():
         for imported in pe.imports():
             assert (farm / imported).is_file(), (name, 'missing dependency', imported)
     if not args.pe_only:
+        assert b'WINE_IOS_JIT_HOLE' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale split-pool archive'
         assert b'teb-slots-v1' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale trampoline archive'
         mesa = root / 'app/Madeira/gl/libOSMesa.dylib'
         verify_mesa_implementation(mesa)

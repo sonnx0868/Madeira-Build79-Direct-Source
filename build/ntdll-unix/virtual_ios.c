@@ -180,6 +180,77 @@ static int ios_jit_mapping_count = 0;
  * collision risk. */
 static size_t jit_pool_offset = 0;
 
+/* madeira-bcd SPLIT POOL (StikJITHelper.swift, `pool-split = 1` in madeira.cfg
+ * or in a game's own file).
+ *
+ * Host-executable JIT memory can only live in the low band below the dyld
+ * shared region (0x180000000): [0x70,0x80)G is guest/PartitionAlloc/FEX memory
+ * (FEX treats a guest RIP >= 0x7400000000 as a bogus host RIP) and everything
+ * between 0x180000000 and 0x7000000000 is the shared region, the kernel's
+ * reserved jumbo range and the GPU carveout. Above the 128 MB executable
+ * window the band holds [0x148000000, 0x180000000) = 896 MB, but iOS put the
+ * main thread's stack in it (0x16d7..-0x16fd.. with the ASLR slide), so the
+ * largest single run is 592-631 MB (GTA V Enhanced, 2026-10-02 16:00/16:19/
+ * 16:33): the pool shrank to that and Social Club's 240 MB libcef.dll copy no
+ * longer fit (bump 274 MB + FEX tail 160 MB). With pool-split the app also
+ * takes the run above the stack (253-332 MB in every log) as a second debugger
+ * region and maps both as ONE pool span [rx, rx + size): one RW alias with the
+ * same RX->RW distance, so every range test and offset in this file and in FEX
+ * holds for both parts. WINE_IOS_JIT_HOLE="<off>:<end>" (hex pool offsets)
+ * names the part in between -- the stack plus the app's PROT_NONE
+ * placeholders -- which is not pool memory: the head bump jumps over it, a
+ * tail carve that would overlap it goes below it, and the pool warmer skips
+ * it. Without WINE_IOS_JIT_HOLE both bounds stay 0 and every path below is
+ * the unsplit one. */
+static size_t ios_jit_hole_off, ios_jit_hole_end;
+
+/* The offset a head allocation of `size` gets with the bump cursor at `cur`:
+ * `cur`, or the end of the hole when [cur, cur + size) would reach into it. */
+static size_t ios_pool_hole_head_place( size_t cur, size_t size, size_t hole_off, size_t hole_end )
+{
+    if (hole_end > hole_off && cur < hole_end && cur + size > hole_off) return hole_end;
+    return cur;
+}
+
+/* Where a tail carve of `size` starts, counted down from the pool's end, when
+ * `cur` bytes are reserved there: the carve is [total - start - size,
+ * total - start). One that would overlap the hole starts at the hole instead,
+ * i.e. lies directly below it (the span above it stays unused). */
+static size_t ios_pool_hole_tail_start( size_t total, size_t cur, size_t size,
+                                        size_t hole_off, size_t hole_end )
+{
+    size_t top;
+
+    if (hole_end <= hole_off || hole_end > total || cur >= total) return cur;
+    top = total - cur;
+    if (top > hole_off && (top <= size || top - size < hole_end)) return total - hole_off;
+    return cur;
+}
+
+/* Bytes of the hole between the head cursor and the bottom of the tail: what
+ * `total - head - tail` counts as free although it can never be handed out. */
+static size_t ios_pool_hole_between( size_t total, size_t head, size_t tail,
+                                     size_t hole_off, size_t hole_end )
+{
+    if (hole_end <= hole_off || tail > total) return 0;
+    return (head <= hole_off && total - tail >= hole_end) ? hole_end - hole_off : 0;
+}
+
+/* 1 for a pool offset inside the hole (always 0 without a split). */
+#define IOS_POOL_IN_HOLE(o) ((size_t)(o) - ios_jit_hole_off < ios_jit_hole_end - ios_jit_hole_off)
+
+/* Gives back a refused tail carve's reservation: `added` bytes taken when the
+ * counter went to `mine`. Unsplit this is the old fetch-and-sub. Split, a carve
+ * may have jumped the hole, so `added` is more than its size: it is given back
+ * only while no later carve sits on top of it (else a later carve placed by the
+ * lowered counter could overlap one placed below the hole); otherwise the
+ * bytes stay reserved, which wastes them but never overlaps. */
+static void ios_pool_tail_unreserve( volatile size_t *reserved, size_t mine, size_t added, int split )
+{
+    if (!split) __sync_fetch_and_sub( reserved, added );
+    else __sync_bool_compare_and_swap( reserved, mine, mine - added );
+}
+
 /* ---- Pool reclamation (task #25) ----------------------------------------
  * The bump allocator never freed anything: 8 pseudo-processes consumed
  * 368.9/384MB (2026-07-07) and the 9th BUS-loop-locked the session. Every
@@ -722,12 +793,14 @@ static void *ios_pool_warmer_thread( void *arg )
             volatile char sink = 0;
             if (head > total) head = total;
             if (tail > total) tail = total;
-            for (o = 0; o < head; o += 0x4000) { sink += rw[o]; touched++; }
-            for (o = total - tail; o < total; o += 0x4000) { sink += rw[o]; touched++; }
+            /* madeira-bcd split pool: the hole is not pool memory (its RW side
+             * is PROT_NONE, its RX side the main thread's stack) -- skip it. */
+            for (o = 0; o < head; o += 0x4000) { if (IOS_POOL_IN_HOLE(o)) continue; sink += rw[o]; touched++; }
+            for (o = total - tail; o < total; o += 0x4000) { if (IOS_POOL_IN_HOLE(o)) continue; sink += rw[o]; touched++; }
             if (rx)
             {
-                for (o = 0; o < head; o += 0x4000) { sink += rx[o]; touched++; }
-                for (o = total - tail; o < total; o += 0x4000) { sink += rx[o]; touched++; }
+                for (o = 0; o < head; o += 0x4000) { if (IOS_POOL_IN_HOLE(o)) continue; sink += rx[o]; touched++; }
+                for (o = total - tail; o < total; o += 0x4000) { if (IOS_POOL_IN_HOLE(o)) continue; sink += rx[o]; touched++; }
             }
             (void)sink;
             cycle++;
@@ -2528,11 +2601,37 @@ static size_t ios_pool_alloc_range_ex( size_t alloc_size, size_t pool_limit,
 
     if (off == (size_t)-1)
     {
-        if (jit_pool_offset + alloc_size <= pool_limit
-            && IOS_POOL_IN_REACH(jit_pool_offset))
+        /* madeira-bcd split pool: never into the hole (ios_jit_hole_off). Without
+         * a split `cand` is the cursor itself and this is the old bump. */
+        size_t cand = ios_pool_hole_head_place( jit_pool_offset, alloc_size,
+                                                ios_jit_hole_off, ios_jit_hole_end );
+        if (cand + alloc_size <= pool_limit
+            && IOS_POOL_IN_REACH(cand))
         {
-            off = jit_pool_offset;
-            jit_pool_offset += alloc_size;
+            if (cand != jit_pool_offset)
+            {
+                /* The run below the hole stays usable: hand it to the freelist as
+                 * a never-used range (no grace, nothing to advise), so the next
+                 * image that fits there goes there. */
+                size_t below = ios_jit_hole_off > jit_pool_offset ? ios_jit_hole_off - jit_pool_offset : 0;
+                static int jump_n;
+                if (below >= 0x4000 && ios_pool_free_count < IOS_POOL_FREE_MAX)
+                {
+                    ios_pool_freelist[ios_pool_free_count].off = jit_pool_offset;
+                    ios_pool_freelist[ios_pool_free_count].size = below & ~(size_t)0x3fff;
+                    ios_pool_freelist[ios_pool_free_count].freed_at = 0;
+                    ios_pool_freelist[ios_pool_free_count].advised = 1;
+                    ios_pool_free_count++;
+                }
+                if (jump_n++ < 8)
+                    dprintf(2, "[jit-pool] split pool: head 0x%lx+0x%lx would reach the hole [0x%lx,0x%lx) "
+                            "-- placed above it at 0x%lx; the 0x%lx below it stays on the freelist\n",
+                            (unsigned long)jit_pool_offset, (unsigned long)alloc_size,
+                            (unsigned long)ios_jit_hole_off, (unsigned long)ios_jit_hole_end,
+                            (unsigned long)cand, (unsigned long)below);
+            }
+            off = cand;
+            jit_pool_offset = cand + alloc_size;
             ios_pool_last_alloc_reused = 0;
             /* ml89 CONTROL for the POISONED check above: report the same
              * max_prot for a range that has NEVER been freed. If virgin ranges
@@ -11723,6 +11822,34 @@ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
                 ios_jit_rx_base_global = jit_rx_base;
                 ios_jit_rw_base_global = jit_rw_base;
                 ios_jit_pool_size_global = jit_pool_size;
+
+                /* madeira-bcd split pool: the app names the hole between its two
+                 * debugger regions (see ios_jit_hole_off). Anything malformed is
+                 * ignored, which leaves the allocators exactly as without it. */
+                {
+                    const char *hole = getenv( "WINE_IOS_JIT_HOLE" );
+                    if (hole && *hole)
+                    {
+                        char *sep = NULL;
+                        unsigned long long h0 = strtoull( hole, &sep, 16 ), h1 = 0;
+                        if (sep && *sep == ':') h1 = strtoull( sep + 1, NULL, 16 );
+                        if (h0 >= 0x8000 && h1 > h0 && h1 < jit_pool_size &&
+                            !(h0 & 0x3fff) && !(h1 & 0x3fff))
+                        {
+                            ios_jit_hole_off = (size_t)h0;
+                            ios_jit_hole_end = (size_t)h1;
+                            dprintf( 2, "[jit-pool] split pool: RX [%p,%p) + [%p,%p) as one span of 0x%lx; "
+                                     "hole [0x%llx,0x%llx) (%llu MB: the main thread's stack) is never "
+                                     "handed out -- images 0x%llx below it, FEX code from the top\n",
+                                     jit_rx_base, (char *)jit_rx_base + h0,
+                                     (char *)jit_rx_base + h1, (char *)jit_rx_base + jit_pool_size,
+                                     (unsigned long)jit_pool_size, h0, h1, (h1 - h0) >> 20, h0 );
+                        }
+                        else
+                            dprintf( 2, "[jit-pool] split pool: WINE_IOS_JIT_HOLE=%s ignored (pool size 0x%lx)\n",
+                                     hole, (unsigned long)jit_pool_size );
+                    }
+                }
 
                 /* ml91 (task #35): dump the VA map ONCE here, unconditionally.
                  * The first cut only probed on jumbo-reserve failure, so a
@@ -22519,8 +22646,11 @@ NTSTATUS WINAPI NtAllocateVirtualMemoryEx( HANDLE process, PVOID *ret, SIZE_T *s
              * between the image head and the tail. */
             enum { TAIL_SMALL = 0x1000000, TAIL_MAX = 0x8000000, HEAD_RESERVE = 48u * 1024 * 1024 };
             size_t head_now = jit_pool_offset, tail_now = ios_jit_tail_reserved;
-            size_t room = ios_jit_pool_size_global > head_now + tail_now + HEAD_RESERVE
-                        ? ios_jit_pool_size_global - head_now - tail_now - HEAD_RESERVE : 0;
+            /* madeira-bcd split pool: a hole still between head and tail is not room */
+            size_t hole_now = ios_pool_hole_between( ios_jit_pool_size_global, head_now, tail_now,
+                                                     ios_jit_hole_off, ios_jit_hole_end );
+            size_t room = ios_jit_pool_size_global > head_now + tail_now + hole_now + HEAD_RESERVE
+                        ? ios_jit_pool_size_global - head_now - tail_now - hole_now - HEAD_RESERVE : 0;
             size_t cap = TAIL_SMALL;
             while (cap < TAIL_MAX && cap * 2 <= room) cap *= 2;
             /* A retired generation of this size already sitting on the carve
@@ -22585,7 +22715,29 @@ NTSTATUS WINAPI NtAllocateVirtualMemoryEx( HANDLE process, PVOID *ret, SIZE_T *s
          * mprotect_exec's PE-image copies which take from the start.
          * ios_jit_tail_reserved is the shared file-scope counter so the
          * head allocators can refuse to grow into tail-carved buffers. */
-        size_t reserve_offset = __sync_fetch_and_add(&ios_jit_tail_reserved, alloc_size);
+        size_t reserve_offset, tail_added, tail_skipped = 0;
+        if (ios_jit_hole_end > ios_jit_hole_off)
+        {
+            /* madeira-bcd split pool: a carve that would overlap the hole goes
+             * directly below it; the span it skips above the hole becomes a free
+             * carve once this one is granted. */
+            size_t cur, start;
+            do
+            {
+                cur = ios_jit_tail_reserved;
+                start = ios_pool_hole_tail_start( ios_jit_pool_size_global, cur, alloc_size,
+                                                  ios_jit_hole_off, ios_jit_hole_end );
+            } while (!__sync_bool_compare_and_swap( &ios_jit_tail_reserved, cur, start + alloc_size ));
+            reserve_offset = start;
+            tail_added = start + alloc_size - cur;
+            if (start != cur && ios_jit_pool_size_global - cur > ios_jit_hole_end)
+                tail_skipped = ios_jit_pool_size_global - cur - ios_jit_hole_end;
+        }
+        else
+        {
+            reserve_offset = __sync_fetch_and_add(&ios_jit_tail_reserved, alloc_size);
+            tail_added = alloc_size;
+        }
         size_t pool_tail_off = ios_jit_pool_size_global - reserve_offset - alloc_size;
         /* ml1052: was "tail may never exceed half the pool", a rule from a
          * workload whose HEAD was 700 MB. The real constraint is the collision. */
@@ -22601,7 +22753,8 @@ NTSTATUS WINAPI NtAllocateVirtualMemoryEx( HANDLE process, PVOID *ret, SIZE_T *s
                     volatile uint32_t *f_rw = (volatile uint32_t *)((char *)ios_jit_rw_base_global + foff);
                     size_t w, nw = alloc_size / sizeof(uint32_t);
 
-                    __sync_fetch_and_sub(&ios_jit_tail_reserved, alloc_size);   /* not a tail carve */
+                    ios_pool_tail_unreserve( &ios_jit_tail_reserved, reserve_offset + alloc_size, tail_added,
+                                             ios_jit_hole_end > ios_jit_hole_off );   /* not a tail carve */
                     for (w = 0; w < nw; w++) f_rw[w] = 0xd503201fu;             /* NOP-prefill, as for fresh carves */
                     pthread_mutex_lock( &ios_tail_carve_lock );
                     if (ios_tail_carve_n < IOS_TAIL_CARVE_MAX)
@@ -22631,7 +22784,8 @@ NTSTATUS WINAPI NtAllocateVirtualMemoryEx( HANDLE process, PVOID *ret, SIZE_T *s
              * to 1MB (small carves can still fit pool gaps), and if nothing
              * fits forces the diagnosable 0xdead fault. Also roll back the
              * tail reservation — the old path leaked it on every refusal. */
-            __sync_fetch_and_sub(&ios_jit_tail_reserved, alloc_size);
+            ios_pool_tail_unreserve( &ios_jit_tail_reserved, reserve_offset + alloc_size, tail_added,
+                                     ios_jit_hole_end > ios_jit_hole_off );
             ERR("NtAllocateVirtualMemoryEx iOS: JIT-pool tail exhausted for FEX EC_CODE %zu bytes\n",
                 (size_t)*size_ptr);
             /* ml459 (#75): dump the carve table on the FIRST refusal — the
@@ -22712,7 +22866,22 @@ NTSTATUS WINAPI NtAllocateVirtualMemoryEx( HANDLE process, PVOID *ret, SIZE_T *s
                 ios_tail_carves[ios_tail_carve_n].free = 0;
                 ios_tail_carve_n++;
             }
+            /* madeira-bcd split pool: this carve went below the hole; the span it
+             * skipped above the hole is a never-used carve a smaller ask can take. */
+            if (tail_skipped >= 0x100000 && ios_tail_carve_n < IOS_TAIL_CARVE_MAX)
+            {
+                ios_tail_carves[ios_tail_carve_n].off = ios_jit_hole_end;
+                ios_tail_carves[ios_tail_carve_n].size = tail_skipped & ~(size_t)0x3fff;
+                ios_tail_carves[ios_tail_carve_n].free = 1;
+                ios_tail_carve_n++;
+            }
             pthread_mutex_unlock( &ios_tail_carve_lock );
+            if (tail_added != alloc_size)
+                dprintf(2, "[jit-pool] split pool: tail carve 0x%lx would overlap the hole [0x%lx,0x%lx) -- "
+                        "placed below it at off 0x%lx; 0x%lx above the hole kept as a free carve\n",
+                        (unsigned long)alloc_size, (unsigned long)ios_jit_hole_off,
+                        (unsigned long)ios_jit_hole_end, (unsigned long)pool_tail_off,
+                        (unsigned long)tail_skipped);
             dprintf(2, "[jit-pool] tail EC_CODE rx=%p size=0x%lx tail_resv=0x%lx head_used=0x%lx/0x%lx\n",
                     jit_rx, (unsigned long)alloc_size,
                     (unsigned long)(reserve_offset + alloc_size),

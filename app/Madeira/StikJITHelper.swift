@@ -118,6 +118,12 @@ enum StikJITHelper {
     /// made, by design, so from then on "no debugger attached" is the normal state.
     private(set) static var poolTaken = false
 
+    /// madeira-bcd split pool (`pool-split = 1`): the pool offsets [off, end) that
+    /// lie between its two debugger regions (the main thread's stack and our
+    /// PROT_NONE placeholders). ContentView exports it as WINE_IOS_JIT_HOLE; ntdll
+    /// never hands it out. nil for a pool of one region.
+    private(set) static var poolHole: (off: Int, end: Int)?
+
     // 0 treats JIT as ready whenever CS_DEBUGGED is set, as before, without asking whether a debugger is attached.
     private static let attachCheck = MadeiraConfig.flag("MADEIRA_JIT_ATTACH_CHECK")
 
@@ -589,6 +595,61 @@ enum StikJITHelper {
                 level: .error)
         }
 
+        // madeira-bcd SPLIT POOL: `pool-split = 1` in the game's own file or in
+        // madeira.cfg. Off by default; nothing below runs without it.
+        //
+        // Executable memory can only come from the debugger and can only live in
+        // the low band under the dyld shared region (0x180000000): everything from
+        // there to 0x7000000000 is the shared region, the kernel's reserved range
+        // and the GPU carveout, and [0x7000000000, 0x8000000000) is the guest
+        // window. Above the 128MB executable window that band holds
+        // [0x148000000, 0x180000000) = 896MB, but iOS puts the main thread's stack
+        // in it, so the largest run is 560-631MB (2026-10-02: GTA V Enhanced
+        // 624/608/592MB, God of War 560MB) and the census above shrinks the pool
+        // to it. GTA's Social Club then cannot get the 240MB copy of libcef.dll.
+        // The run above the stack (258-325MB in the same logs) is taken here as a
+        // second debugger region and both are aliased as ONE pool span with one
+        // RX->RW distance, so ntdll and FEX keep a single [RX, RX+size) range;
+        // WINE_IOS_JIT_HOLE tells ntdll never to hand out the part in between.
+        // Costs the second region's size in footprint (debugger-blessed pages are
+        // dirty from birth) -- the total stays within the requested pool size.
+        let splitValue = (MadeiraConfig.gameValue("pool-split") ?? MadeiraConfig.get("pool-split") ?? (getenv("_MADEIRA_SPLIT_POOL") != nil ? "1" : ""))
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        poolHole = nil
+        if ["1", "on", "true", "yes"].contains(splitValue) {
+            if poolSize >= requestedPoolSize {
+                LogStore.shared.log("[pool-split] the pool got its full \(poolSize >> 20)MB in one region — no split needed")
+            } else if let second = takeSecondRegion(above: rxAddrV + vm_address_t(poolSize), want: requestedPoolSize - poolSize,
+                                                    exeWindow: (exeWinBase, exeWinSize)) {
+                if let rw = mapSplitAlias(rxA: rxAddrV, sizeA: vm_address_t(poolSize), rxB: second.base, sizeB: second.size) {
+                    let span = Int(second.base + second.size - rxAddrV)
+                    let holeEnd = Int(second.base - rxAddrV)
+                    let rwPtr = UnsafeMutableRawPointer(bitPattern: rw)!
+                    LogStore.shared.log("ml977: RX=[\(String(format: "%p", Int(rxAddrV))),\(String(format: "%p", Int(rxAddrV) + span))) "
+                        + "RW=[\(String(format: "%p", Int(rw))),\(String(format: "%p", Int(rw) + span))) "
+                        + "offset=0x\(String(Int(rw) - Int(rxAddrV), radix: 16)) windowHeld=\(windowHeld) rwOverlap=false",
+                        level: .success)
+                    // one exemption request per region: they are separate VM objects
+                    let exemptA = jit_make_region_no_footprint(rwPtr, poolSize, "pool-RW-alias")
+                    let exemptB = jit_make_region_no_footprint(rwPtr + holeEnd, Int(second.size), "pool-RW-alias-2")
+                    LogStore.shared.log("[no-footprint] pool applied=\(exemptA && exemptB)", level: exemptA && exemptB ? .success : .error)
+                    poolHole = holeEnd > poolSize ? (off: poolSize, end: holeEnd) : nil
+                    LogStore.shared.log(String(format: "[pool-split] JIT pool = RX [0x%lx,0x%lx) %luMB + [0x%lx,0x%lx) %luMB as one "
+                        + "%luMB span; pool offsets [0x%lx,0x%lx) (%luMB, the main thread's stack) are never handed out",
+                        Int(rxAddrV), Int(rxAddrV) + poolSize, poolSize >> 20,
+                        Int(second.base), Int(second.base + second.size), Int(second.size >> 20),
+                        (poolSize + Int(second.size)) >> 20, poolSize, holeEnd, (holeEnd - poolSize) >> 20),
+                        level: .success)
+                    LogStore.shared.log("JIT pool ready (debugger still attached).", level: .success)
+                    poolTaken = true
+                    return (rx: rxPtr, rw: rwPtr, size: span)
+                }
+                let dkr = vm_deallocate(mach_task_self_, second.base, vm_size_t(second.size))
+                LogStore.shared.log("[pool-split] no RW alias for the split pool — second region released (kr=\(dkr)); "
+                    + "the pool stays \(poolSize >> 20)MB in one region", level: .error)
+            }
+        }
+
         // ml1037: the hint used to be 0x150000000 ("just above the window"), and
         // the alias duly took the 500MB hole there -- the very hole the RX pool
         // now needs. The alias has no placement requirement of its own (FEX
@@ -677,6 +738,142 @@ enum StikJITHelper {
         poolTaken = true
 
         return (rx: rxPtr, rw: rwPtr, size: poolSize)
+    }
+
+    /// madeira-bcd split pool: the free runs of at least `minSize` in [lo, hi).
+    private static func freeRuns(_ lo: vm_address_t, _ hi: vm_address_t,
+                                 minSize: vm_address_t) -> [(base: vm_address_t, size: vm_address_t)] {
+        var runs: [(base: vm_address_t, size: vm_address_t)] = []
+        var prevEnd = lo
+        while prevEnd < hi {
+            var addr = prevEnd
+            var rsize: vm_size_t = 0
+            var info = vm_region_basic_info_data_64_t()
+            var cnt = mach_msg_type_number_t(MemoryLayout<vm_region_basic_info_data_64_t>.size / MemoryLayout<Int32>.size)
+            var obj: mach_port_t = 0
+            let kr = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: Int32.self, capacity: Int(cnt)) {
+                    vm_region_64(mach_task_self_, &addr, &rsize, VM_REGION_BASIC_INFO_64, $0, &cnt, &obj)
+                }
+            }
+            let start = kr == KERN_SUCCESS ? min(addr, hi) : hi
+            if start > prevEnd && start - prevEnd >= minSize { runs.append((prevEnd, start - prevEnd)) }
+            if kr != KERN_SUCCESS || addr >= hi || rsize == 0 { break }
+            prevEnd = max(prevEnd, addr + vm_address_t(rsize))
+        }
+        return runs
+    }
+
+    /// madeira-bcd split pool: the second debugger region. It is the largest free
+    /// run between the first region and the dyld shared region (0x180000000), at
+    /// most `want` (rounded up to 16MB) and at least 64MB. The debugger allocates
+    /// first-fit, so every lower run that could take it is plugged for the request,
+    /// as ml1040 does for the first region. The part between the two regions (the
+    /// main thread's stack) gets PROT_NONE placeholders in its free gaps, so
+    /// nothing else lands inside the pool's span. Returns nil, holding nothing,
+    /// when no run qualifies or the region landed anywhere else.
+    private static func takeSecondRegion(above aEnd: vm_address_t, want: Int,
+                                         exeWindow: (base: vm_address_t, size: vm_address_t))
+        -> (base: vm_address_t, size: vm_address_t)? {
+        let ceiling: vm_address_t = 0x180000000           // SHARED_REGION_BASE_ARM64
+        let mb16: vm_address_t = 16 << 20
+        let runs = freeRuns(aEnd, ceiling, minSize: 64 << 20)
+        let desc = runs.map { String(format: "0x%lx+%luMB", Int($0.base), Int($0.size >> 20)) }.joined(separator: " ")
+        guard let best = runs.max(by: { $0.size < $1.size }) else {
+            LogStore.shared.log("[pool-split] no free run of 64MB or more between the pool and 0x180000000 — the pool stays "
+                + "one region", level: .error)
+            return nil
+        }
+        let wanted = vm_address_t(want) & ~(mb16 - 1)
+        let size = min(best.size & ~(mb16 - 1), wanted)
+        // The part between the regions must never hold the executable window:
+        // the fixed-base main image would then sit inside the pool's span.
+        let gapHitsWindow = aEnd < exeWindow.base + exeWindow.size && best.base > exeWindow.base
+        guard size >= 64 << 20, !gapHitsWindow else {
+            LogStore.shared.log("[pool-split] free runs above the pool: \(desc) — "
+                + (gapHitsWindow ? "the gap would hold the executable window" : "none fits 64MB")
+                + "; the pool stays one region", level: .error)
+            return nil
+        }
+        var plugs: [(vm_address_t, vm_size_t)] = []
+        for h in freeRuns(0x100000000, best.base, minSize: size) {
+            var a = h.base
+            if vm_allocate(mach_task_self_, &a, vm_size_t(h.size), 0 /* VM_FLAGS_FIXED */) == KERN_SUCCESS {
+                if a == h.base { plugs.append((a, vm_size_t(h.size))) } else { vm_deallocate(mach_task_self_, a, vm_size_t(h.size)) }
+            }
+        }
+        let got = jit26_prepare_region(nil, Int(size))
+        for (a, sz) in plugs { vm_deallocate(mach_task_self_, a, sz) }
+        guard let p = got, p != UnsafeMutableRawPointer(bitPattern: 0) else {
+            LogStore.shared.log("[pool-split] the debugger did not allocate the second region (\(size >> 20)MB) — the pool "
+                + "stays one region", level: .error)
+            return nil
+        }
+        let b = vm_address_t(bitPattern: p)
+        if b < aEnd || b + size > ceiling || (aEnd < exeWindow.base + exeWindow.size && b > exeWindow.base) {
+            let dkr = vm_deallocate(mach_task_self_, b, vm_size_t(size))
+            LogStore.shared.log(String(format: "[pool-split] the second region landed at 0x%lx, not in the run at 0x%lx — "
+                + "released (kr=%d); the pool stays one region", Int(b), Int(best.base), dkr), level: .error)
+            return nil
+        }
+        // PROT_NONE placeholders over the free gaps between the regions.
+        var held = 0
+        for g in freeRuns(aEnd, b, minSize: 0x4000) {
+            var a = g.base
+            if vm_allocate(mach_task_self_, &a, vm_size_t(g.size), 0 /* VM_FLAGS_FIXED */) == KERN_SUCCESS {
+                if a == g.base {
+                    _ = vm_protect(mach_task_self_, a, vm_size_t(g.size), 1, VM_PROT_NONE)
+                    held += Int(g.size)
+                } else { vm_deallocate(mach_task_self_, a, vm_size_t(g.size)) }
+            }
+        }
+        LogStore.shared.log(String(format: "[pool-split] second debugger region 0x%lx+%luMB (free runs above the pool: %@); "
+            + "between the regions: %luKB, %luKB of it free and now held PROT_NONE",
+            Int(b), Int(size >> 20), desc, Int(b - aEnd) >> 10, held >> 10))
+        return (b, size)
+    }
+
+    /// madeira-bcd split pool: ONE RW alias for both regions at the same RX->RW
+    /// distance, so the pool is a single span for ntdll and FEX. The alias of the
+    /// part between them stays reserved and PROT_NONE. Returns the alias base, or
+    /// nil with nothing left mapped.
+    private static func mapSplitAlias(rxA: vm_address_t, sizeA: vm_address_t,
+                                      rxB: vm_address_t, sizeB: vm_address_t) -> vm_address_t? {
+        let span = rxB + sizeB - rxA
+        // ml1037: the alias goes high, where it always lived (0x7000000000).
+        var rw: vm_address_t = 0x7000000000
+        var kr = vm_allocate(mach_task_self_, &rw, vm_size_t(span), VM_FLAGS_ANYWHERE)
+        if kr == KERN_NO_SPACE && MadeiraConfig.flag("MADEIRA_RW_ALIAS_RETRY") {
+            rw = 0
+            kr = vm_allocate(mach_task_self_, &rw, vm_size_t(span), VM_FLAGS_ANYWHERE)
+        }
+        guard kr == KERN_SUCCESS else {
+            LogStore.shared.log("[pool-split] could not reserve \(span >> 20)MB for the RW alias (kr=\(kr))", level: .error)
+            return nil
+        }
+        var curProt: vm_prot_t = 0
+        var maxProt: vm_prot_t = 0
+        var a = rw
+        let krA = vm_remap(mach_task_self_, &a, vm_size_t(sizeA), 0, 0 /* VM_FLAGS_FIXED */ | VM_FLAGS_OVERWRITE,
+                           mach_task_self_, rxA, 0, &curProt, &maxProt, VM_INHERIT_NONE)
+        var b = rw + (rxB - rxA)
+        let krB = krA == KERN_SUCCESS
+            ? vm_remap(mach_task_self_, &b, vm_size_t(sizeB), 0, 0 /* VM_FLAGS_FIXED */ | VM_FLAGS_OVERWRITE,
+                       mach_task_self_, rxB, 0, &curProt, &maxProt, VM_INHERIT_NONE)
+            : krA
+        let krHole = vm_protect(mach_task_self_, rw + sizeA, vm_size_t(rxB - rxA - sizeA), 1, VM_PROT_NONE)
+        let krRW = krB == KERN_SUCCESS
+            ? max(vm_protect(mach_task_self_, rw, vm_size_t(sizeA), 0, VM_PROT_READ | VM_PROT_WRITE),
+                  vm_protect(mach_task_self_, b, vm_size_t(sizeB), 0, VM_PROT_READ | VM_PROT_WRITE))
+            : krB
+        guard krA == KERN_SUCCESS, krB == KERN_SUCCESS, krRW == KERN_SUCCESS, krHole == KERN_SUCCESS,
+              rw >= rxB + sizeB, a == rw, b == rw + (rxB - rxA) else {
+            vm_deallocate(mach_task_self_, rw, vm_size_t(span))
+            LogStore.shared.log(String(format: "[pool-split] RW alias at 0x%lx failed (remap %d/%d, protect %d, hole %d)",
+                                       Int(rw), krA, krB, krRW, krHole), level: .error)
+            return nil
+        }
+        return rw
     }
 
     /// Detach the debugger. Call this after Wine is done loading PE DLLs.
