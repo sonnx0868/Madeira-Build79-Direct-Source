@@ -7,6 +7,7 @@ mkdir -p "$work" "$out"
 exec > >(tee "$out/ui-preview.log") 2>&1
 git -C "$root" submodule update --init FEX wine
 python3 "$root/tests/host/check-fex-host-features.py"
+python3 "$root/tests/host/check-pe-launch.py"
 python3 "$root/tests/host/check-builtin-xinput.py"
 python3 "$root/tests/host/check-guest-spill.py"
 python3 "$root/tests/host/check-game-process.py" --require-objc

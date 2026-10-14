@@ -20,6 +20,8 @@ void madeira_stall_monitor_begin(void);
 void madeira_stall_monitor_end(void);
 // Reject cached x64 session hosts before creating a persistent Wine engine.
 int wine_runtime_native_host_available(void);
+// PE32 native / CLR 32BITREQUIRED, excluding AnyCPU managed assemblies.
+int wine_executable_requires_wow64(const char *unix_path);
 
 // Session exit report (the library front end). ntdll calls
 // wine_launched_process_did_exit() when the program the app launched (the

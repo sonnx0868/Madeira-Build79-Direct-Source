@@ -369,6 +369,19 @@ struct LibraryEntry: Codable, Identifiable {
         // automatic Unity options, so its tokenizer never drops the screen size.
         guard launchArguments.utf8.count < 1024 else { throw LibraryError.message("The complete launch command is too long.") }
         guard !quoted, tokens <= 16 else { throw LibraryError.message("Use balanced double quotes and at most 16 launch arguments in total, including automatic Unity options.") }
+        if desktop != true, steamAppID == nil || startsSteamGameDirectly {
+            let executable = LibraryModel.drive.appendingPathComponent(launchRelativePath)
+            if wine_executable_requires_wow64(executable.path) != 0 {
+                let runtime = ["i386-windows/ntdll.dll", "aarch64-windows/wow64.dll",
+                               "aarch64-windows/wow64win.dll", "aarch64-windows/xtajit.dll"]
+                let available = runtime.allSatisfy {
+                    FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent($0).path)
+                }
+                guard available else {
+                    throw LibraryError.message("This executable requires the 32-bit Windows runtime, which is missing from this Madeira build. The game cannot start with the 64-bit runtime.")
+                }
+            }
+        }
     }
 
     /// Runs on the launch worker, before the JIT pool is taken.
@@ -409,7 +422,6 @@ struct LibraryEntry: Codable, Identifiable {
         setenv("MADEIRA_THIN_RESERVE", thinReserve == true ? "1" : "0", 1)
         setenv("_MADEIRA_THIN_PROFILE", thinReserve == true ? "1" : "0", 1)
         if let cpuCount, (1..<64).contains(cpuCount) { setenv("MADEIRA_CPU_COUNT", String(cpuCount), 1) }
-        else if unityProfile { setenv("MADEIRA_CPU_COUNT", "4", 1) }
         else { unsetenv("MADEIRA_CPU_COUNT") }
         // Automatic mode publishes one host pad through both Windows controller
         // APIs. This covers old Unity/DirectInput titles and modern XInput games
@@ -880,7 +892,6 @@ enum ExternalGameCompatibility {
         let unityProfile = unity && entry.steamAppID == nil && entry.unityOptimizations != false &&
             MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS")
         if unityProfile {
-            if entry.cpuCount == nil { applied.append("unity-cpu4") }
             // The build572 Silksong report has abundant RAM but file-backs
             // hundreds of MB during scene loading. Keep the configured swap
             // capacity available for pressure, rather than backing every fresh

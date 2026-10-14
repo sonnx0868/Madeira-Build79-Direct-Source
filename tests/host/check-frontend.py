@@ -102,6 +102,10 @@ struct TouchControl: Codable, Equatable { var nx = 0.5 }
 enum ControlAction: Codable, Equatable, Hashable { case none }   // LibraryEntry.controllerBinds
 enum GamepadInput { static let keyboardMouseAvailable = true }   // LibraryEntry's per-game DirectInput choice
 func wineserver_is_running() -> Int32 { 0 }
+// The production file reader is exercised in check-pe-launch.py; this fixture
+// controls its result to exercise LibraryEntry's preflight presentation.
+var fixtureRequiresWOW64: Int32 = 0
+func wine_executable_requires_wow64(_ path: String) -> Int32 { fixtureRequiresWOW64 }
 enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
@@ -227,6 +231,10 @@ setenv("FEX_X87REDUCEDPRECISION", "1", 1)
 game.applyEnvironment()
 expect(env("FEX_X87REDUCEDPRECISION") == nil, "x87: nothing exported unless chosen")
 expect(env("MADEIRA_CPU_COUNT") == nil && env("DXMT_D9_ANISO_LIMIT") == nil, "no other engine switches are exported")
+game.cpuCount = 4; game.applyEnvironment()
+expect(env("MADEIRA_CPU_COUNT") == "4", "explicit four-CPU choice is preserved")
+game.cpuCount = nil; game.applyEnvironment()
+expect(env("MADEIRA_CPU_COUNT") == nil, "automatic CPU selection clears the previous game's explicit limit")
 expect(env("MADEIRA_DINPUT_PAD") == "1", "Automatic controller mode publishes DirectInput beside XInput")
 game.controllerMode = "xinput"; game.applyEnvironment()
 expect(env("MADEIRA_DINPUT_PAD") == "0", "XInput-only mode suppresses the duplicate DirectInput view")
@@ -353,6 +361,10 @@ expect(vsync == 1, "60 FPS applied")
 
 // Validation.
 expect((try? game.validate()) != nil, "a normal profile validates")
+fixtureRequiresWOW64 = 1
+expect((try? game.validate()) == nil, "required32 is refused when the fixture bundle has no WoW64 runtime")
+fixtureRequiresWOW64 = 0
+expect((try? game.validate()) != nil, "native64 and AnyCPU do not require the x86 farm")
 var bad = game; bad.arguments = "\"unbalanced"
 expect((try? bad.validate()) == nil, "unbalanced quotes refused")
 bad = game; bad.arguments = (0..<17).map { "a\($0)" }.joined(separator: " ")

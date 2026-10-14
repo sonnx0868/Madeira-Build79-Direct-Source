@@ -63,6 +63,7 @@ sysctl -n hw.memsize hw.ncpu
 
 if [[ "$mode" = bootstrap ]]; then
   # Validate Foundation-only policies before the expensive native compilation.
+  timed pe-launch python3 tests/host/check-pe-launch.py
   timed library-privacy python3 tests/host/check-library-privacy.py --require-swift
   timed pe-imports python3 tests/host/check-pe-imports.py --require-swift
   timed cdn-policy python3 tests/host/check-cdn-routing.py --require-swift
@@ -93,6 +94,8 @@ else
 fi
 
 checks() {
+  python3 tests/host/check-pe-launch.py
+  python3 tests/host/check-unity-folder-profile.py
   python3 tests/host/check-game-process.py --require-objc
   python3 tests/host/check-fex-host-features.py
   python3 tests/host/check-builtin-xinput.py

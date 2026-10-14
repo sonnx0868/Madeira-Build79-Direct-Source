@@ -89,6 +89,11 @@ struct EpicInstalledGame: Codable {
         entry.epicAppName = record.appName
         entry.epicLaunchCommand = record.launchCommand
         entry.relativePath = record.installDir + "/" + record.launchExe
+        if let executable = try? LibraryModel.inspect(LibraryModel.drive.appendingPathComponent(entry.relativePath)) {
+            entry.bits = executable.bits
+            entry.graphicsAPI = executable.graphicsAPI
+            entry.gameEngine = executable.gameEngine
+        }
         entry.epicArtworkURL = record.game.artworkURL
         entry.epicHeroURL = record.game.heroURL
         LibraryModel.shared.save(entry)

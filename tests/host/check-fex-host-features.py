@@ -3,6 +3,11 @@
 from pathlib import Path
 import os, shutil, subprocess, tempfile
 root=Path(__file__).resolve().parents[2]
+bridge=(root/'app/Madeira/WineProcessBridge.m').read_text(encoding='utf-8')
+startup=bridge[bridge.index('ios_main_image_i386 = is_i386_target ? 1 : 0;'):]
+startup=startup[:startup.index('__wine_main(argc, argv);')]
+assert '\n        madeira_publish_host_probe();' in startup
+assert 'if (has_i386_set) madeira_publish_host_probe()' not in startup
 names=['Source/Windows/Common/CPUFeatures.cpp','FEXCore/Source/Interface/IR/PassManager.cpp']
 compiler=os.environ.get('CXX') or shutil.which('clang++')
 if not compiler: raise SystemExit('clang++ required')

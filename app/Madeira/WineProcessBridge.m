@@ -6,6 +6,7 @@
 #import <os/log.h>
 #import <pthread.h>
 #import "WineProcessBridge.h"
+#include "PELaunch.h"
 /* AVFoundation: AVAudioSession activation for the Tier-2 audio driver
  * (audio_null_ios.c RemoteIO backend). AudioToolbox: pulls the framework
  * in via autolink — the static-lib driver code can't autolink itself. */
@@ -962,6 +963,11 @@ static uint16_t madeira_pe_machine(const char *unix_path)
     }
     fclose(f);
     return machine;
+}
+
+int wine_executable_requires_wow64(const char *unix_path)
+{
+    return madeira_pe_requires_wow64(unix_path);
 }
 
 /* The machine of the file the launch below will run, or 0 when it is not
@@ -2184,11 +2190,12 @@ static void *wine_process_thread(void *arg) {
 
         LOG("Calling __wine_main...");
 
-        /* WoW64: publish the main image's machine so the unix side reserves
-         * this process's guest window before its first TEB, and hand FEX's
-         * WOW64 module the host features it cannot query itself. */
+        /* Publish the main machine before the first TEB. Both FEX modules
+         * consume the native feature probe, including an ARM64EC-only bundle:
+         * build679 gated this on the optional i386 farm, leaving x64 games
+         * with "probe none" and the LRCPC2 optimization disabled. */
         ios_main_image_i386 = is_i386_target ? 1 : 0;
-        if (has_i386_set) madeira_publish_host_probe();
+        madeira_publish_host_probe();
 
         if (setjmp(wine_ios_exit_jmpbuf) == 0) {
             __wine_main(argc, argv);

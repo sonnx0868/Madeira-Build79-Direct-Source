@@ -15,14 +15,16 @@ def require(condition: bool, message: str) -> None:
 
 require("var unityOptimizations: Bool?" in library and 'Toggle("Unity smoothness profile"' in library,
         "the optimization is not a visible per-game choice")
-require('else if unityProfile { setenv("MADEIRA_CPU_COUNT", "4", 1) }' in library,
-        "Unity's worker fan-out is not bounded when CPU count is automatic")
+require('else if unityProfile { setenv("MADEIRA_CPU_COUNT", "4", 1) }' not in library and
+        'if let cpuCount, (1..<64).contains(cpuCount)' in library and
+        'else { unsetenv("MADEIRA_CPU_COUNT") }' in library,
+        "automatic CPU selection must inherit the host/global count; explicit choices remain available")
 require('MadeiraConfig.get("env.MADEIRA_MIP_CLAMP_AUTO") == nil' in library and
         'setenv("MADEIRA_MIP_CLAMP_AUTO", "1", 1)' in library,
         "pressure-aware texture control is absent or overwrites an explicit setting")
 require('MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS")' in library,
         "there is no global kill switch")
-require("four CPU cores" in docs and "pressure-aware mip clamp" in docs,
+require("host/global CPU count" in docs and "pressure-aware mip clamp" in docs,
         "the quality/performance tradeoff is not documented")
 
 print("Unity direct-folder profile contract: ok")

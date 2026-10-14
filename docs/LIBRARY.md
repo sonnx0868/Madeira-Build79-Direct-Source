@@ -41,9 +41,10 @@ the same monitor identity as user32. Startup dimensions alone do not populate
 the picker. The list remains capped to the selected library resolution;
 `[unity-display]` records the effective settings before the game starts.
 
-The same detection exposes a per-game **Unity smoothness profile**. It reports
-four CPU cores when the profile has no explicit CPU choice, reducing Unity 6's
-worker/synchronization fan-out, and enables DXMT's pressure-aware mip clamp for
+The same detection exposes a per-game **Unity smoothness profile**. Automatic
+processor selection inherits the host/global CPU count, as the BCD default
+does; choose four processors explicitly when a particular game's worker
+fan-out benefits from that limit. The profile enables DXMT's pressure-aware mip clamp for
 new large textures when iOS memory headroom becomes low. It does not lower the
 selected resolution and it never overrides an explicit
 `env.MADEIRA_MIP_CLAMP_AUTO` value. The profile is on by default and can be
