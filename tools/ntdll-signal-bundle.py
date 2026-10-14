@@ -28,7 +28,12 @@ def ar_command():
 def members(archive):
     command = ar_command()
     names = subprocess.check_output([*command, 't', str(archive)], text=True).splitlines()
+    # Apple ar lists its rebuilt symbol index; llvm-ar hides that metadata.
+    # Compare every code/data object, not an index that must change on relink.
+    indexes = {'__.SYMDEF', '__.SYMDEF SORTED', '__.SYMDEF_64', '__.SYMDEF_64 SORTED', '/', '//', '/SYM64/'}
+    names = [name for name in names if name not in indexes]
     assert names and len(names) == len(set(names)), 'duplicate/empty archive members'
+    assert all(name.endswith('.o') for name in names), 'unexpected non-object archive member'
     assert 'signal_arm64.o' in names, 'archive has no ARM64 signal handler'
     return {name: sha(subprocess.check_output([*command, 'p', str(archive), name])) for name in names}
 
