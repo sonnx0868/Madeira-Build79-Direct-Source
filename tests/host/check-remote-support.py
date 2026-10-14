@@ -26,6 +26,7 @@ while depth:
     depth += (library[end] == "{") - (library[end] == "}")
     end += 1
 unity = library[start:end] + "\n"
+godot = library[library.index('enum GodotLaunch {'):library.index('enum UnityLaunch {')]
 start = library.index('    var launchArguments: String {')
 end = library.index('{', start) + 1
 depth = 1
@@ -42,6 +43,7 @@ enum MadeiraConfig {
     }
 }
 enum ExternalGameCompatibility { static func isUnity(_ entry: RendererEntry) -> Bool { entry.unity } }
+enum LibraryModel { static let drive = URL(fileURLWithPath: NSTemporaryDirectory()) }
 struct RendererEntry {
     var desktop: Bool? = nil
     var desktopCommand: String? = nil
@@ -52,7 +54,9 @@ struct RendererEntry {
     var arguments = ""
     var resolution = "1408x648"
     var unity = true
-''' + arguments + '\n}\n'
+    var glBackend: String? = nil
+    var launchRelativePath = "fixture-renderer.exe"
+''' + arguments + '\n}\n' + godot
 fps = (root / "app/Madeira/FPSOverlay.swift").read_text(encoding="utf-8")
 rate_policy = fps[fps.index("    static func maxHz(for mode:"):fps.index("    /// Arms or releases the link")]
 display = "enum TestDisplayPolicy { static var panelMaxFPS = 120\n" + rate_policy + "}\n"
