@@ -39,6 +39,7 @@ rm -f "$output"
   app/Madeira/aarch64-windows/glu32.dll \
   app/Madeira/gl \
   app/Madeira/arm64ec-windows/ntdll.dll \
+  app/Madeira/arm64ec-windows/kernelbase.dll \
   app/Madeira/arm64ec-windows/xaudio2_8.dll \
   app/Madeira/arm64ec-windows/xaudio2_9.dll \
   app/Madeira/arm64ec-windows/wintypes.dll \
@@ -53,6 +54,7 @@ rm -f "$output"
   app/Madeira/translation-lab \
   app/Madeira/aarch64-windows/madeira-session-host.exe \
   app/Madeira/aarch64-windows/ntdll.dll \
+  app/Madeira/aarch64-windows/kernelbase.dll \
   app/Madeira/arm64ec-windows/dock-notices.txt \
   app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html \
   app/Madeira/licenses/Mesa-license.rst \
