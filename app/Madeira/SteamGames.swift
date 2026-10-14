@@ -410,7 +410,7 @@ private struct SteamGameSelection: Identifiable { let id: Int }
 struct SteamGamesSection: View {
     /// Which half the library asks for: the installed games under the Steam
     /// title, the Not installed group, or both together (the old layout).
-    enum Part { case all, installed, notInstalled }
+    enum Part { case all, installed, notInstalled, management }
     let search: String
     /// The library's layout and Sort by choices and its width (LibraryView).
     var layout = "cards"
@@ -492,7 +492,18 @@ struct SteamGamesSection: View {
         Group {
             if Self.shown {
                 VStack(alignment: .leading, spacing: 14) {
-                    if part != .notInstalled {
+                    if part == .management {
+                        if SteamGamesRules.showsSignIn(library: libraryEnabled, signedIn: steam.signedIn) {
+                            SteamSignInCard { showSignIn = true }
+                        }
+                        if !groups.downloading.isEmpty {
+                            LibrarySectionHeader(title: "Downloads", count: groups.downloading.count)
+                            LibraryCells(items: groups.downloading, layout: layout, width: width) { item, list, dense in
+                                cell(item, list: list, dense: dense)
+                            }
+                        }
+                    }
+                    if part != .notInstalled && part != .management {
                     LibrarySectionHeader(title: "Steam", count: installed.count,
                                          collapsed: collapsible ? $hideInstalled : nil) {
                         if steam.refreshing { ProgressView().accessibilityLabel("Refreshing Steam library") }

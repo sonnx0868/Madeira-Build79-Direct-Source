@@ -16,9 +16,10 @@ assert 'SecItemAdd' in access and 'kSecAttrAccessibleWhenUnlockedThisDeviceOnly'
 assert 'token == epoch' in access and 'private(set) var unlocked = false' in access
 assert 'willResignActiveNotification' in access and 'window.windowLevel = .alert + 5' in access
 assert 'LibraryPrivacyShield.shared.cover(); access.background()' in access
-assert 'if LibraryModel.shared.current != nil {' in access
+assert 'LibraryModel.shared.current != nil || (unlocked && LibraryModel.shared.startingJIT != nil)' in access
 assert 'LibraryAccess.shared.unlocked || LibraryModel.shared.current != nil' in access
-assert 'LibraryTitleText(navigationAligned: false)' in library
+assert 'reportsHeaderAlignment = false' in library
+assert 'LibraryScenicBackground(sidebar: true)' in library and 'LibraryScenicBackground().ignoresSafeArea()' in access
 assert 'LibraryInlineSearch(text:' in library and 'sidebar.frame(width: 224)' in library
 
 assert '.onLongPressGesture(minimumDuration: 2)' in library
@@ -66,8 +67,42 @@ final class Model {
 '''
 for signature in ('func isPrivate(', 'func isVisible(', 'func steamVisible(', 'func displayedEntries(', 'func removeSteam('):
     fixture += function(signature) + '\n'
+fixture += '\n}\n'
+# Execute the exact background policy with UIKit-free model/access stubs.
+bg_start = access.index('    func background() {')
+bg_end = access.index('    private func query()', bg_start)
+background = access[bg_start:bg_end].replace('LibraryModel.shared', 'BackgroundModel.shared')
 fixture += r'''
+final class BackgroundModel {
+    static let shared = BackgroundModel()
+    var current: String?
+    var startingJIT: String?
 }
+final class BackgroundAccess {
+    var unlocked = false
+    var epoch = 0
+    var requested = false
+    var afterAccess: (() -> Void)?
+    func lock() { epoch += 1; unlocked = false; requested = false; afterAccess = nil }
+'''
+fixture += background + r'''
+}
+let backgroundAccess = BackgroundAccess()
+backgroundAccess.unlocked = true
+BackgroundModel.shared.current = "private game"
+backgroundAccess.background()
+assert(backgroundAccess.unlocked && backgroundAccess.epoch == 1)
+BackgroundModel.shared.current = nil
+BackgroundModel.shared.startingJIT = "authorized private game"
+backgroundAccess.background()
+assert(backgroundAccess.unlocked && backgroundAccess.epoch == 2)
+backgroundAccess.unlocked = false
+backgroundAccess.background()
+assert(!backgroundAccess.unlocked) // pending JIT cannot grant private access
+BackgroundModel.shared.startingJIT = nil
+backgroundAccess.unlocked = true
+backgroundAccess.background()
+assert(!backgroundAccess.unlocked) // ordinary library leave still locks
 struct Document: Codable { var version: Int; var entries: [LibraryEntry]; var genres: [LibraryGenre]? }
 let old = Data(#"{"version":1,"entries":[{"id":"10000000-0000-0000-0000-000000000001","title":"Public","relativePath":"Games/P/game.exe","bits":64}]}"#.utf8)
 let doc = try JSONDecoder().decode(Document.self, from: old)

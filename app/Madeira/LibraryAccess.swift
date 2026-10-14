@@ -45,7 +45,7 @@ final class LibraryAccess: ObservableObject {
     func background() {
         // Cancel a pending PIN verification, but keep an authorized live game.
         // The switcher snapshot is covered separately. Quit locks the shelf.
-        if LibraryModel.shared.current != nil {
+        if LibraryModel.shared.current != nil || (unlocked && LibraryModel.shared.startingJIT != nil) {
             epoch += 1; requested = false; afterAccess = nil
         } else { lock() }
     }
@@ -118,6 +118,29 @@ final class LibraryAccess: ObservableObject {
     }
 }
 
+enum LibraryTheme {
+    static let background = Color(red: 0.035, green: 0.055, blue: 0.065)
+    static let panel = Color(red: 0.075, green: 0.11, blue: 0.135)
+    static let accent = Color(red: 0.23, green: 0.77, blue: 0.94)
+}
+
+/// One static bundled illustration. No per-frame blur, animation or network fetch.
+struct LibraryScenicBackground: View {
+    var sidebar = false
+    var body: some View {
+        GeometryReader { geometry in
+            Image("LibraryLandscape").resizable().scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading).clipped()
+                .overlay {
+                    if sidebar {
+                        LinearGradient(colors: [LibraryTheme.background, LibraryTheme.background.opacity(0.95),
+                            LibraryTheme.background.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)
+                    }
+                }
+        }.accessibilityHidden(true)
+    }
+}
+
 struct LibraryAccessView: View {
     @ObservedObject private var access = LibraryAccess.shared
     @Environment(\.dismiss) private var dismiss
@@ -158,8 +181,8 @@ struct LibraryAccessView: View {
     }
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(red: 0.08, green: 0.12, blue: 0.18), .black],
-                           startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+            LibraryScenicBackground().ignoresSafeArea()
+            Color.black.opacity(0.34).ignoresSafeArea()
             ViewThatFits(in: .vertical) {
                 keypad.padding(.vertical, 40)
                 ScrollView { keypad.padding(.vertical, 20) }

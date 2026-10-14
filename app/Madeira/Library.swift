@@ -1961,8 +1961,10 @@ final class ReportingSearchController: UISearchController {
     override var searchBar: UISearchBar { reportingBar }
 }
 final class ReportingSearchBar: UISearchBar {
+    var reportsHeaderAlignment = true
     override func layoutSubviews() {
         super.layoutSubviews()
+        guard reportsHeaderAlignment else { return }
         LibraryHeaderAlignment.shared.field = searchTextField
         LibraryHeaderAlignment.shared.update()
     }
@@ -1981,27 +1983,26 @@ final class ReportingSearchBar: UISearchBar {
 struct LibraryInlineSearch: UIViewRepresentable {
     @Binding var text: String
     let placeholder: String
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    // Use the exact controller/bar/delegate from the original library search.
+    // Only its placement and toolbar-title alignment reporting differ.
+    func makeCoordinator() -> LibraryNavSearch.Coordinator {
+        LibraryNavSearch.Coordinator(LibraryNavSearch(text: $text, placeholder: placeholder))
+    }
     func makeUIView(context: Context) -> UISearchBar {
-        let bar = UISearchBar()
-        bar.searchBarStyle = .minimal
-        bar.autocapitalizationType = .none
-        bar.autocorrectionType = .no
-        bar.returnKeyType = .search
-        bar.delegate = context.coordinator
+        let bar = context.coordinator.bar
+        (bar as? ReportingSearchBar)?.reportsHeaderAlignment = false
         return bar
     }
     func updateUIView(_ bar: UISearchBar, context: Context) {
-        context.coordinator.parent = self
-        bar.placeholder = placeholder
+        context.coordinator.parent = LibraryNavSearch(text: $text, placeholder: placeholder)
+        if bar.placeholder != placeholder {
+            if bar.placeholder != nil { context.coordinator.squeeze() }
+            bar.placeholder = placeholder
+        }
         if bar.text != text { bar.text = text }
     }
-    static func dismantleUIView(_ bar: UISearchBar, coordinator: Coordinator) { bar.resignFirstResponder() }
-    final class Coordinator: NSObject, UISearchBarDelegate {
-        var parent: LibraryInlineSearch
-        init(_ parent: LibraryInlineSearch) { self.parent = parent }
-        func searchBar(_ searchBar: UISearchBar, textDidChange text: String) { parent.text = text }
-        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) { searchBar.resignFirstResponder() }
+    static func dismantleUIView(_ bar: UISearchBar, coordinator: LibraryNavSearch.Coordinator) {
+        bar.resignFirstResponder()
     }
 }
 
@@ -2853,6 +2854,7 @@ struct LibraryView: View {
     @State private var manageGenres = false
     @State private var privatePlaylist = false
     @State private var recentOnly = false
+    @State private var installedProfiles: [LibraryEntry] = []
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var search = ""
     @State private var libraryScrolling = false
@@ -2875,10 +2877,14 @@ struct LibraryView: View {
     @ObservedObject private var steamGames = SteamGamesModel.shared
     @ObservedObject private var steamLibrary = SteamOwnedLibrary.shared
     private var entries: [LibraryEntry] {
-        let source = privatePlaylist ? model.entries : model.displayedEntries(search: search, sort: sort, genre: genre)
+        let installedIDs = Set(steamGames.games.map(\.id))
+        var source = model.entries.filter { entry in
+            entry.desktop != true && (privatePlaylist || entry.steamAppID == nil || installedIDs.contains(entry.steamAppID!))
+        }
+        let recordedIDs = Set(source.compactMap(\.steamAppID))
+        source += installedProfiles.filter { !recordedIDs.contains($0.steamAppID ?? -1) }
         let visible = source.filter {
-            $0.desktop != true && LibraryVisibility.shelfAllows(isPrivate: model.isPrivate($0),
-                unlocked: access.unlocked, privatePlaylist: privatePlaylist) &&
+            LibraryVisibility.shelfAllows(isPrivate: model.isPrivate($0), unlocked: access.unlocked, privatePlaylist: privatePlaylist) &&
             LibraryVisibility.matches($0.genreID, selection: genre, genres: model.genres) &&
             (!recentOnly || $0.lastPlayed != nil) && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search))
         }
@@ -2899,10 +2905,16 @@ struct LibraryView: View {
                 sidebar.frame(width: 224)
                 Divider()
                 VStack(spacing: 0) {
-                    LibraryInlineSearch(text: tab == 0 ? $search : $settingsSearch,
-                        placeholder: tab == 0 ? "Search your library" : "Search settings")
-                        .frame(height: 52).padding(.horizontal, 20).padding(.bottom, 8)
-                    if tab == 0 { library } else { settings }
+                    if tab == 0 { library } else {
+                        HStack {
+                            Text("Settings").font(.title.bold())
+                            Spacer()
+                            Button("Enable JIT", action: enableJIT).disabled(jitState.enabled)
+                        }.padding(.horizontal, 24).padding(.top, 20)
+                        LibraryInlineSearch(text: $settingsSearch, placeholder: "Search settings")
+                            .frame(height: 52).padding(.horizontal, 20)
+                        settings
+                    }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
 
             }
@@ -2942,9 +2954,15 @@ struct LibraryView: View {
         // which iOS 26 draws as a Liquid Glass morph between the two.
         .navigationTitle("")
         .toolbar {
-            if horizontalSizeClass != .regular { LibraryLargeTitle() }
-            if tab == 0 { libraryToolbar } else { settingsToolbar }
+            if horizontalSizeClass != .regular {
+                LibraryLargeTitle()
+                if tab == 0 { libraryToolbar } else { settingsToolbar }
+            }
         }
+        .toolbar(horizontalSizeClass == .regular ? .hidden : .visible, for: .navigationBar)
+        .background(LibraryTheme.background.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .tint(LibraryTheme.accent)
         // On the tab view, not inside one tab's page: an alert attached to the Library
         // page cannot present while Settings is showing, so an error raised there (its
         // Enable JIT, for one) waited until the Library tab came back.
@@ -2954,6 +2972,9 @@ struct LibraryView: View {
             Button("OK", role: .cancel) { model.error = nil }
         } message: { Text(model.error ?? "") }
         .fullScreenCover(isPresented: $onboarding.presented) { OnboardingView() }
+        .task(id: steamGames.games.map { "\($0.id):\($0.library):\($0.installDir)" }) {
+            installedProfiles = steamGames.games.map { model.steamEntry($0) }
+        }
         .onAppear {
             privatePlaylist = access.unlocked
             // An ended desktop session's surface never stays over the library.
@@ -2968,9 +2989,8 @@ struct LibraryView: View {
             if selected == nil, !browser, !onboarding.presented, command == "tab" { switchTab(to: 1 - tab) }
         }
     }
-    @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
+    private var libraryOptions: some View {
+        Menu {
                 Picker("Genre", selection: $genre) {
                     Text("All games").tag(Optional<UUID>.none)
                     Text("Uncategorized").tag(Optional(LibraryGenre.uncategorized))
@@ -2996,12 +3016,33 @@ struct LibraryView: View {
                     Label("Folder size", systemImage: "internaldrive").tag("size")
                 }
             } label: { Label("Library options", systemImage: "line.3.horizontal.decrease") }
-        }
+    }
+    @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) { libraryOptions }
         ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                browser = true
-            } label: { Label("Add executable", systemImage: "plus") }
+            Button { browser = true } label: { Label("Add executable", systemImage: "plus") }
         }
+    }
+    private var shelfActions: some View {
+        HStack(spacing: 12) {
+            libraryOptions.labelStyle(.iconOnly).frame(width: 36, height: 36)
+            Button { browser = true } label: { Image(systemName: "plus").font(.title3) }
+                .frame(width: 38, height: 38).background(.white.opacity(0.08), in: Circle())
+                .accessibilityLabel("Add executable")
+            HStack(spacing: 2) {
+                Button { layout = "cards" } label: { Image(systemName: "square.grid.2x2.fill") }
+                    .frame(width: 34, height: 34)
+                    .background(layout == "cards" || layout == "compact" ? LibraryTheme.accent.opacity(0.3) : .clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel("Poster grid")
+                Button { layout = "list" } label: { Image(systemName: "list.bullet") }
+                    .frame(width: 34, height: 34)
+                    .background(layout == "list" || layout == "compactList" ? LibraryTheme.accent.opacity(0.3) : .clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel("Game list")
+            }.padding(3).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.1)))
+        }.buttonStyle(.plain)
     }
     private func navigationRow(_ title: String, _ icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -3011,13 +3052,20 @@ struct LibraryView: View {
             }.font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).padding(.vertical, 13)
                 .foregroundStyle(selected ? Color.cyan : Color.primary.opacity(0.7))
-                .background(selected ? Color.cyan.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                .background(selected ? LibraryTheme.accent.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(alignment: .leading) {
+                    if selected { Capsule().fill(LibraryTheme.accent).frame(width: 2).padding(.vertical, 8) }
+                }
         }.buttonStyle(.plain)
     }
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LibraryTitleText(navigationAligned: false)
-                .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 28)
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.fill").font(.system(size: 32, weight: .light)).foregroundStyle(LibraryTheme.accent)
+                Text("Madeira").font(.system(size: 22, weight: .semibold))
+            }.contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 2) { access.toggle() }
+                .padding(.horizontal, 12).padding(.top, 26).padding(.bottom, 34)
             navigationRow("Library", "square.grid.2x2.fill", selected: tab == 0 && !privatePlaylist && !recentOnly) {
                 tab = 0; privatePlaylist = false; recentOnly = false; genre = nil
             }
@@ -3025,6 +3073,9 @@ struct LibraryView: View {
                 tab = 0; privatePlaylist = false; recentOnly = true; genre = nil; sort = "played"
             }
             navigationRow("Collections", "folder", selected: manageGenres) { manageGenres = true }
+            navigationRow("Desktop", "desktopcomputer", selected: false) {
+                selected = model.entries.first(where: { $0.desktop == true }) ?? .desktopEntry
+            }.id(LibraryEntry.desktopID)
             navigationRow("Settings", "gearshape", selected: tab == 1) { switchTab(to: 1) }
             if access.unlocked {
                 Divider().padding(.vertical, 12)
@@ -3034,11 +3085,12 @@ struct LibraryView: View {
             }
             Spacer(minLength: 20)
             VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: "mountain.2.fill").font(.system(size: 50)).foregroundStyle(.cyan.opacity(0.18))
-                Text("Your games.\nYour collection.").font(.caption).foregroundStyle(.secondary)
+                Text("Great games\nfind a home here.").font(.caption).foregroundStyle(.secondary)
                 Capsule().fill(.cyan).frame(width: 32, height: 2)
             }.padding(12).padding(.bottom, 20)
-        }.padding(.horizontal, 12).background(Color(uiColor: .secondarySystemGroupedBackground))
+        }.padding(.horizontal, 12)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
+            .background(LibraryScenicBackground(sidebar: true))
     }
     private var recentGames: [LibraryEntry] {
         let installed = Set(steamGames.games.map(\.id))
@@ -3048,30 +3100,45 @@ struct LibraryView: View {
         }.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }.prefix(3))
     }
     private var continuePlaying: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Continue playing").font(.title3.weight(.semibold))
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 16) {
-                    ForEach(recentGames) { entry in
-                        Button { selected = entry } label: {
-                            ZStack(alignment: .bottomLeading) {
-                                LibraryArtwork(entry: entry, backdrop: true).frame(width: 260, height: 148).clipped()
-                                LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .center, endPoint: .bottom)
-                                HStack(alignment: .bottom) {
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(entry.title).font(.headline).lineLimit(1)
-                                        Text("Last played " + (entry.lastPlayed?.formatted(date: .abbreviated, time: .omitted) ?? ""))
-                                            .font(.caption2).foregroundStyle(.white.opacity(0.65))
-                                    }
-                                    Spacer(minLength: 8)
-                                    Image(systemName: "play.fill").font(.caption).padding(12).background(.cyan, in: Capsule())
-                                }.padding(14).foregroundStyle(.white)
-                            }.frame(width: 260, height: 148).clipShape(RoundedRectangle(cornerRadius: 15))
-                        }.buttonStyle(.plain)
-                    }
+        GeometryReader { geometry in
+            let regular = horizontalSizeClass == .regular
+            let cardWidth = regular ? max(180, (geometry.size.width - 28) / 3) : 260
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Text("Continue playing").font(.title3.weight(.semibold))
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                 }
-            }.scrollIndicators(.hidden)
-        }
+                ScrollView(.horizontal) {
+                    HStack(spacing: 14) {
+                        ForEach(recentGames) { entry in
+                            ZStack(alignment: .bottomLeading) {
+                                Button { selected = entry } label: {
+                                    LibraryArtwork(entry: entry, backdrop: true)
+                                        .frame(width: cardWidth, height: 164).clipped()
+                                }.buttonStyle(.plain)
+                                LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .center, endPoint: .bottom)
+                                    .allowsHitTesting(false)
+                                HStack(alignment: .bottom) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(entry.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                        Text(entry.lastPlayed.map { "Last played " + $0.formatted(date: .abbreviated, time: .omitted) } ?? "")
+                                            .font(.caption2).foregroundStyle(.white.opacity(0.65))
+                                    }.allowsHitTesting(false)
+                                    Spacer(minLength: 8)
+                                    Button { play(entry) } label: {
+                                        Label("Play", systemImage: "play.fill").font(.caption.weight(.semibold))
+                                            .padding(.horizontal, 12).padding(.vertical, 8)
+                                            .background(LibraryTheme.accent, in: Capsule())
+                                    }.buttonStyle(.plain)
+                                }.padding(12).foregroundStyle(.white)
+                            }.frame(width: cardWidth, height: 164)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.15)))
+                        }
+                    }
+                }.scrollIndicators(.hidden)
+            }
+        }.frame(height: 208)
     }
     private var genreChips: some View {
         ScrollView(.horizontal) {
@@ -3205,74 +3272,31 @@ struct LibraryView: View {
                     Spacer()
                     if privatePlaylist {
                         Button("Hide", systemImage: "eye.slash") { access.lock() }.buttonStyle(.bordered)
-                    }
+                    } else if horizontalSizeClass == .regular { shelfActions }
+                }
+                if horizontalSizeClass == .regular {
+                    LibraryInlineSearch(text: $search, placeholder: "Search your library").frame(height: 48)
+                }
+                if privatePlaylist {
+                    Button { privatePlaylist = false; recentOnly = false; genre = nil; search = "" } label: {
+                        Label("Library", systemImage: "chevron.left").font(.subheadline)
+                    }.buttonStyle(.plain)
                 }
                 if !privatePlaylist && !recentOnly && !recentGames.isEmpty { continuePlaying }
+                Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
                 genreChips
                 if privatePlaylist {
                     if entries.isEmpty {
                         ContentUnavailableView("Your private playlist", systemImage: "lock", description: Text("Choose games or genres to keep private in Game details."))
                     } else { cells(entries, width: viewport.size.width) }
                 } else {
-                HStack {
-                    Button { selected = model.entries.first(where: { $0.desktop == true }) ?? .desktopEntry } label: {
-                        if liquidMetal.on {
-                            // On the chrome's middle band (dark, or light in light mode), with a soft
-                            // halo of the other tone for the moments a highlight passes under it.
-                            let light = colorScheme == .light
-                            Label("Desktop", systemImage: "desktopcomputer")
-                                .font(.subheadline.weight(.semibold)).foregroundStyle(light ? .black : .white)
-                                .shadow(color: (light ? Color.white : .black).opacity(0.75), radius: 2.5)
-                                .padding(.horizontal, 14).frame(minHeight: 44)
-                                .background(LiquidMetalFill())
-                        } else {
-                            Label("Desktop", systemImage: "desktopcomputer")
-                                .font(.subheadline.weight(.medium)).padding(.horizontal, 14).frame(minHeight: 44)
-                                .background(Color(uiColor: .secondarySystemGroupedBackground), in: Capsule())
-                        }
-                    }.buttonStyle(.plain)
-                        .animation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.4), value: liquidMetal.on)
-                        .id(LibraryEntry.desktopID)
-                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(focused == LibraryEntry.desktopID && controller.connected ? Color.cyan : .clear, lineWidth: 3))
-                }
-                // The library's sections, as in the fork: Steam (installed and downloading
-                // Steam games, then Not installed), then Other games, the games you added.
-                // Steam games start through Madeira Dock (SteamGames.swift); an installed one
-                // opens its Game details page like any library game. Without the Steam
-                // section the games you added are one grid.
-                // Installed Steam games first, then the games you added, then the
-                // account's Not installed games. With nothing installed (or
-                // downloading) the games you added are the top section and the
-                // whole Steam section, sign-in included, follows them.
-                let steamFirst = MadeiraDock.enabled && SteamGamesSection.hasInstalled
-                if steamFirst {
-                    SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
-                        part: .installed, genre: genre, recentOnly: recentOnly, open: { selected = $0 })
-                }
+                if entries.isEmpty {
+                    ContentUnavailableView("Make yourself at home", systemImage: "gamecontroller",
+                        description: Text("Add a game or choose another collection."))
+                } else { cells(entries, width: viewport.size.width) }
                 if SteamGamesSection.shown {
-                    VStack(alignment: .leading, spacing: 14) {
-                        // Games are added with the + in the navigation bar.
-                        LibrarySectionHeader(title: "Other games", count: entries.count,
-                                             collapsed: SteamGamesSection.collapsible ? $hideOthers : nil) { EmptyView() }
-                        if hideOthers && SteamGamesSection.collapsible {
-                            EmptyView()
-                        } else if entries.isEmpty {
-                            Text(search.isEmpty
-                                 ? "Copy a game's folder into Madeira › wine › drive_c with the Files app, then tap + and choose its .exe."
-                                 : "No other games match your search.")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            cells(entries, width: viewport.size.width)
-                        }
-                    }
-                    if MadeiraDock.enabled {
-                        SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
-                                          part: steamFirst ? .notInstalled : .all, genre: genre, recentOnly: recentOnly, open: { selected = $0 })
-                    }
-                } else if model.displayedEntries(search: "", sort: sort, genre: genre).isEmpty {
-                    ContentUnavailableView("Make yourself at home", systemImage: "gamecontroller", description: Text("Copy a game's folder into Madeira › wine › drive_c with the Files app, then tap + and choose its .exe."))
-                } else {
-                    cells(entries, width: viewport.size.width)
+                    SteamGamesSection(search: search, layout: layout, sort: sort, width: viewport.size.width,
+                        part: .management, genre: genre, recentOnly: recentOnly, open: { selected = $0 })
                 }
                 }
             }

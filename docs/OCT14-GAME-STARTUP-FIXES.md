@@ -36,3 +36,38 @@ is implied by compilation; no 60 FPS guarantee is made.
 Steam/Dock profiles are installation folders, so runtime detection now handles
 both directory and executable inputs. GameMaker/Godot/Unity isolation and the
 Godot input policy apply to Steam entries as well as imported games.
+
+## Approved illustration and shelf revision (build intentionally deferred)
+
+User requests: match the approved preview, include the scenic sidebar/passcode
+background, keep the original native search appearance, and do not relock an
+already-authorized private game while switching to StikDebug for JIT.
+
+Asset: app/Madeira/Assets.xcassets/LibraryLandscape.imageset/LibraryLandscape.png.
+Generated with built-in ImageGen. Prompt: cinematic dusk mountain lake, evergreen
+forest silhouettes, tiny warm cottage, deep charcoal/midnight blue/muted teal,
+empty dark upper sky, no text, logo, UI or characters. One static 1536x1024
+illustration is reused by sidebar/passcode without animation or network fetch.
+
+The regular shelf uses a unified installed-game gallery and a separate Steam
+management/download area. Hidden entries are filtered before search/counts.
+Continue-playing uses three artwork cards with independent working Play actions.
+Header offers native search, add, options and grid/list. Sidebar has aligned icon
+columns, cyan selection rail and illustrated lower half. Compact layout keeps
+native navigation search. Both placements use the original ReportingSearchBar,
+UISearchController and delegate (including keyboard dismissal and squeeze).
+
+Background policy keeps existing access only while a game is live or while an
+already-unlocked game is waiting for JIT; a pending JIT request never grants
+access. Otherwise the shelf locks. The switcher remains covered. Quit locks it.
+
+User explicitly requested deferring builds on Oct 14. Bitrise #35/source650 was
+aborted after native clock/pool compilation; no finished IPA/native package or
+update was published. Latest UI needs future Xcode/device validation. Do not
+launch another build until the user finishes their additional feature requests.
+
+Local verification of the final UI revision: tree-sitter Swift reports no new
+syntax errors in Library, LibraryAccess or SteamGames; existing grammar gaps
+in baseline files are unchanged. The C frontend exit/close regression passes.
+The PNG asset is 1536x1024, 1,871,718 bytes, with a valid asset-catalog entry.
+These checks do not type-check UIKit/SwiftUI or render the real iPad screen.
