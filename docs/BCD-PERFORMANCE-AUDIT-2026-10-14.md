@@ -5,10 +5,15 @@
 Read-only BCD checkouts: stable `v0.1.10-bcd` at
 `26f1edd7d816683e3bd4f56fe30161caa307d38f`, test `v0.1.11-pr1-test` at
 `df19c3c3f460e30a2d3def44c4c2cc0e953d12c8`. Both pin FEX `3bec2ac`,
-Wine `257f271`, DXMT `db546ee`. The tester's actual BCD IPA/config remains unknown.
+Wine `257f271`, DXMT `db546ee`. The tester subsequently confirmed the
+0.1.11 test IPA versus Madeira 666 at 1408x648 for Primal Planet; the other
+runtime settings and matching tester logs remain pending.
 Our deployed build 666 consumes native inputs built from source 663; its pins
 are FEX `26859e1`, Wine `4f5b197`, DXMT `35a4db1`, with parent integration patches.
 Checking source alone does not prove which code a downloaded IPA contains.
+Follow-up CPU/input/memory/log implementation and its verification are recorded
+in [CPU-GAME-LIFETIME-FIXES-2026-10-14.md](CPU-GAME-LIFETIME-FIXES-2026-10-14.md).
+The table below records the initial 666 comparison, before those follow-ups.
 
 The published IPAs were also downloaded without executing them and their
 GitHub asset SHA-256 digests verified:

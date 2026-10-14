@@ -59,3 +59,13 @@ and real-device gameplay have not been verified in this source-only stage.
 Native compatibility checks reject caches lacking the CPU, builtin controller,
 guest-arena isolation and process-lifetime changes. No release/update is
 authorized by this verification step; the user requested a changes list before IPA building.
+
+Bitrise #56 succeeded on source `3585dc2` (count 674), including both CPU
+module configurations, selected-process tracking, builtin XInput, guest spill,
+touch state, folder identity and exact raw log boundaries/recovery. Production
+WineProcessBridge.m compiles against the iOS SDK. Evidence:
+`E:/CodexTemp/madeira-ui-preview-674/ui-preview.log`.
+An earlier check caught cached URL file sizes at capture boundaries; both
+begin/end now obtain the live descriptor size. The source and complete ordered
+Wine patch pipeline passed; final native DLL/archive linking and gameplay
+remain outside this verification's scope.
