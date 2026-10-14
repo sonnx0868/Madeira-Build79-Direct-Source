@@ -212,6 +212,8 @@ sources += r'''
             if mode.hasPrefix("library") {
                 searchChecks[mode] = ["nativeSearchBars":bars.count,
                     "metalLayers":bars.reduce(0) { $0 + skinCount($1.layer) },
+                    "metalDeviceAvailable":MTLCreateSystemDefaultDevice() != nil,
+                    "metalLibraryAvailable":(try? MTLCreateSystemDefaultDevice()?.makeDefaultLibrary(bundle: .main)) != nil,
                     "setting":LiquidMetalSetting.shared.on]
                 if mode == "library-metal", let bar=bars.first {
                     var layerNames:[String]=[]

@@ -156,9 +156,16 @@ final class GlassSkin: NSObject {
 
     private func preparePipeline() -> Bool {
         if pipeline != nil { return true }
-        guard let device = MTLCreateSystemDefaultDevice(), let library = device.makeDefaultLibrary(),
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            LogStore.shared.log("[glass-skin] Metal device unavailable; keeping native controls")
+            return false
+        }
+        guard let library = device.makeDefaultLibrary(),
               let vertex = library.makeFunction(name: "liquidMetalSkinVertex"),
-              let fragment = library.makeFunction(name: "liquidMetalSkinFragment") else { return false }
+              let fragment = library.makeFunction(name: "liquidMetalSkinFragment") else {
+            LogStore.shared.log("[glass-skin] Metal skin library unavailable; keeping native controls")
+            return false
+        }
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment
