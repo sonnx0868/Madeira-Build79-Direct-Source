@@ -43,6 +43,7 @@ struct EpicGameCard: View {
     var list = false
     var dense = false
     @ObservedObject private var installer = EpicInstaller.shared
+    @Environment(\.libraryCardPressed) private var cardPressed
 
     /// Neither installed nor downloading.
     private var notDownloaded: Bool { installer.installed[game.appName] == nil && !installer.isDownloading(game.appName) }
@@ -82,10 +83,10 @@ struct EpicGameCard: View {
                         .overlay { overlay(download) }
                         .overlay { if notDownloaded { notDownloadedFace(.largeTitle) } }
                         .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .modifier(LibraryCardArtworkPress { pressed, bounds in
-                            AmbientGlowItem(id: "epic-\(game.appName)", seed: game.appName.hashValue, art: .epic(game.artworkURL),
-                                            dimmed: notDownloaded, pressed: pressed, bounds: bounds)
-                        })
+                        .scaleEffect(cardPressed ? LibraryCardArtworkPress.pressedScale : 1)
+                        .animation(UIAccessibility.isReduceMotionEnabled ? nil :
+                            (cardPressed ? .spring(response: 0.26, dampingFraction: 0.86) :
+                                           .spring(response: 0.42, dampingFraction: 0.58)), value: cardPressed)
                     Text(game.title).font(.subheadline.weight(.semibold)).lineLimit(2)
                     pills
                 }.padding(4)
