@@ -10,6 +10,21 @@ Our deployed build 666 consumes native inputs built from source 663; its pins
 are FEX `26859e1`, Wine `4f5b197`, DXMT `35a4db1`, with parent integration patches.
 Checking source alone does not prove which code a downloaded IPA contains.
 
+The published IPAs were also downloaded without executing them and their
+GitHub asset SHA-256 digests verified:
+
+- BCD 0.1.10: `17aaeaa211925e68dc8c5934d86b6da65ab1e79104e62e6689fd2427e9c5c403`.
+- BCD 0.1.11 test: `cd5ab4135ec9f4b9f7daac533d38cac5c5966f993bedf3320c7c1ed61f9c3af6`.
+- Madeira 666: `43b2f2a10c04bd93b5163689ed699d87289647acf202a936943c3bec75bc2bf2`.
+
+Both BCD IPAs contain `commitBeforePresent=` in ARM64EC d3d11.dll,
+`ml1178` in the linked native app and `ml1231`/`LRCPC2=` in xtajit64.dll.
+Our published 666 contains none of those markers. Thus these are actual
+packaged differences, although markers do not prove their runtime setting or
+the size of any FPS gain. BCD 0.1.10 has no `winios-gl` native app marker;
+the 0.1.11 test does. Full binary hashes/markers are in the local evidence
+`E:/CodexTemp/madeira-bcd-performance-20261014/ipa-comparison.json`.
+
 ## Findings and decisions
 
 | Area | BCD implementation | Our status and action |
@@ -65,6 +80,14 @@ The production CPU-cache helper passes concurrent Windows C fixtures. The
 patched ARM64EC D3D11 swapchain passes the real compiler with shader payload
 placeholders; this is a compile check, not a final linked DLL or GPU test.
 Mac Swift policy/input/privacy checks run in the simulator verification workflow.
+
+Bitrise verification #53 succeeded on source `489d75f` (source count 670):
+production Globe gap/save-stall/focus fixtures, FPS policy, private library/PIN
+fixtures and Godot argument/detection fixtures pass. The iOS Objective-C GPU
+adapter/Swift bridge compile; visible native search renders Metal and the
+hidden library submits zero frames. Evidence is stored locally at
+`E:/CodexTemp/madeira-ui-preview-670/ui-preview.log` and `search-checks.json`.
+This workflow does not link the release Wine/DXMT app or run a Windows game.
 
 Future native builds must rebuild D3D11 plus the Metal archive. The compatibility
 checker rejects cached bundles lacking present-order and cache-mapping markers.
