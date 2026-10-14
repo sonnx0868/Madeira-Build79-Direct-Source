@@ -47,6 +47,24 @@ compile_one() {
     fi
 }
 
+# Rebuild the consumer paired with FEX's LRCPC2 emitter without rebuilding
+# unrelated native dependencies. Never archive an object after compile failure.
+if [[ "${1:-all}" = signal-only ]]; then
+    test -s "$APP_LIB"
+    test -s "$WINE_BUILD/include/config.h"
+    compile_one "$BUILD_DIR/signal_arm64_ios.c" signal_arm64
+    [[ "$FAILED" = 0 ]] || exit 1
+    candidate="$OBJ_DIR/libntdll_signal_refresh.a"
+    cp "$APP_LIB" "$candidate"
+    xcrun ar r "$candidate" "$OBJ_DIR/signal_arm64.o"
+    xcrun ranlib "$candidate"
+    python3 "$REPO_ROOT/tools/ntdll-signal-bundle.py" --stamp --archive "$candidate" --base "$APP_LIB"
+    mv "$candidate" "$APP_LIB"
+    echo 'Refreshed signal_arm64.o with LDAPUR/STLUR support; all other objects unchanged'
+    exit 0
+fi
+[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|signal-only' >&2; exit 2; }
+
 # iOS-Madeira 2026-07-05 (Steam S0): compile a DLL's unix side into
 # libntdll_unix.a. Args: src, obj-name, funcs-prefix, extra flags...
 # The __wine_unix_call_funcs tables are renamed per-lib (they'd collide
@@ -245,4 +263,5 @@ for symbol in bcrypt_unix_call_funcs bcrypt_unix_call_wow64_funcs \
     fi
 done
 echo "libntdll_unix.a: $(wc -c < "$APP_LIB" | tr -d ' ') bytes"
+python3 "$REPO_ROOT/tools/ntdll-signal-bundle.py" --stamp
 echo "Done!"

@@ -1296,6 +1296,7 @@ static void madeira_seed_winsxs_amd64_vc90(NSFileManager *fm, NSString *prefix, 
  * asks and passes the answers in FEX_MADEIRA_HOSTPROBE. The upstream CPU
  * feature implementation reads it in both modules; LRCPC2 is enabled only
  * for an explicit positive answer. "?" never enables LRCPC2. */
+extern const char *ios_rcpc2_alias_decoder(void);
 static void madeira_publish_host_probe(void)
 {
     static const struct { const char *key, *sysctl; } probes[] = {
@@ -1313,6 +1314,10 @@ static void madeira_publish_host_probe(void)
     };
     char buf[256];
     size_t len = 0;
+    const char *decoder = ios_rcpc2_alias_decoder();
+    int aliasReady = decoder && strcmp(decoder, "lrcpc2-alias-v1") == 0;
+
+    dprintf(STDERR_FILENO, "[WineProc] FEX alias decoder: %s\n", decoder ? decoder : "missing");
 
     buf[0] = 0;
     for (size_t i = 0; i < sizeof(probes) / sizeof(probes[0]); i++)
@@ -1320,6 +1325,7 @@ static void madeira_publish_host_probe(void)
         int32_t v = 0;
         size_t sz = sizeof(v);
         const char *val = sysctlbyname(probes[i].sysctl, &v, &sz, NULL, 0) == 0 ? (v ? "1" : "0") : "?";
+        if (strcmp(probes[i].key, "LRCPC2") == 0 && !aliasReady) val = "0";
         len += snprintf(buf + len, sizeof(buf) - len, "%s%s=%s", i ? "," : "", probes[i].key, val);
         if (len >= sizeof(buf)) return;
     }

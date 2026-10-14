@@ -33,7 +33,9 @@ elif [[ "${1:-}" = --refresh-renpy-gl ]]; then
   bash "$root/build/win32u-unix/build.sh" renpy-gl-only
 elif [[ "${1:-}" = --refresh-input ]]; then
   bash "$root/build/win32u-unix/build.sh" input-only
+elif [[ "${1:-}" = --refresh-signal ]]; then
+  bash "$root/build/ntdll-unix/build.sh" signal-only
 elif [[ -n "${1:-}" ]]; then
-  echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl|--refresh-input]' >&2; exit 2
+  echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl|--refresh-input|--refresh-signal]' >&2; exit 2
 fi
 bash "$root/scripts/check-ios-build.sh"

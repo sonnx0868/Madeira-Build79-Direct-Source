@@ -17,6 +17,34 @@ app:
     - JOBS: '4'
 
 workflows:
+  madeira-v016-signal-refresh:
+    title: Madeira 0.1.6 LRCPC2 signal consumer and IPA
+    description: Rebuild signal_arm64.o, verify every other archive object is unchanged, and build the app.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          title: Refresh LRCPC2 alias decoder, check app and build IPA
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh signal-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-v016-ui-preview:
     title: Madeira production SwiftUI screenshots
     description: Render the current library and PIN views on iPad Simulator with fixture data.

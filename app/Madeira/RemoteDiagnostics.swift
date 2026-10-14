@@ -319,13 +319,14 @@ enum DiagnosticEvents {
         LogStore.shared.log("[diagnostics] phase=\(phase) uptime=\(String(format: "%.3f", ProcessInfo.processInfo.systemUptime)) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)")
     }
     static func begin(_ entry: LibraryEntry) {
-        let gpuTiming = entry.title.lowercased().contains("replaced") ||
-            entry.relativePath.lowercased().contains("replaced") ||
+        let identity = (entry.title + " " + entry.relativePath).lowercased()
+        let investigatingPerformance = ["replaced", "hollow knight", "silksong", "silver pines", "sliver pines", "primal planet"]
+            .contains { identity.contains($0) }
+        let gpuTiming = investigatingPerformance ||
             MadeiraConfig.flag("MADEIRA_GPU_TIMING", fallback: false)
         madeira_gpu_diagnostics_enable(gpuTiming ? 1 : 0)
-        // Target the requested REPLACED load/save investigation. Ordinary
-        // game sessions keep their existing quiet diagnostics.
-        if entry.title.lowercased().contains("replaced") || entry.relativePath.lowercased().contains("replaced") {
+        // Bounded passive samples for the games with reported FPS regressions.
+        if investigatingPerformance {
             madeira_stall_monitor_begin()
         } else { madeira_stall_monitor_end() }
         LogStore.shared.recordTest(entry)

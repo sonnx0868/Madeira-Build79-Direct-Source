@@ -186,3 +186,4 @@ diagnostics-downloads/
 build/translation-lab/out/
 app/Madeira/translation-lab/
 build/bitrise/
+build/ntdll-unix/lrcpc2-alias.json
