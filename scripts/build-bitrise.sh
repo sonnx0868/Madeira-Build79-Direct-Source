@@ -187,6 +187,7 @@ checks() {
   python3 tests/host/check-controller-refresh.py --require-swift
   python3 tests/host/check-touch-gamepad.py
   python3 tests/host/check-control-presets.py
+  python3 tests/host/check-runtime-preparation.py --require-swift
   python3 tests/host/check-gameplay-performance.py --require-tools --require-objc
   python3 tests/host/check-startup-performance.py --require-tools
   python3 tests/host/check-silksong-startup.py --require-tools --require-swift

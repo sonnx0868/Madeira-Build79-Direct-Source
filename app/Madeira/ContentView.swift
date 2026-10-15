@@ -1248,6 +1248,7 @@ struct ContentView: View {
     /// Play without JIT: the start that waits for Enable JIT (jitReadyForLaunch).
     @State private var launchAfterJIT: (() -> Void)?
     @State private var dockLaunchPreparing = false
+    @State private var preparingComponents: UUID?
     @State private var entitlements: EntitlementStatus?
     @State private var debuggerAttached = isDebuggerAttached()
     @ObservedObject private var input = InputSettings.shared
@@ -2480,8 +2481,32 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        launchPreparedLibraryEntry(entry, componentsReady: false)
+    }
+
+    private func launchPreparedLibraryEntry(_ entry: LibraryEntry, componentsReady: Bool) {
         guard library.isVisible(entry) else { libraryAccess.request(); return }
         guard !dockLaunchPreparing else { return }
+        if !componentsReady, entry.desktop != true, entry.temporarySession != true,
+           (try? LibraryModel.executable(entry.launchRelativePath)) != nil {
+            guard preparingComponents == nil else { return }
+            guard library.current == nil, wine_process_is_running() == 0 || GameRuntime.shared.hasEngine else {
+                library.error = "A game is already running."; return
+            }
+            preparingComponents = entry.id
+            Task { @MainActor in
+                do {
+                    _ = try await GameComponentPreparation.shared.prepare(entry)
+                    preparingComponents = nil
+                    guard library.isVisible(entry), library.current == nil else { return }
+                    launchPreparedLibraryEntry(entry, componentsReady: true)
+                } catch {
+                    preparingComponents = nil
+                    library.error = "Could not prepare this game's components. " + error.localizedDescription
+                }
+            }
+            return
+        }
         if GameRuntime.shared.hasEngine {
             guard library.current == nil else { library.error = "A game is already running."; return }
             guard GameRuntime.supports(entry) else {

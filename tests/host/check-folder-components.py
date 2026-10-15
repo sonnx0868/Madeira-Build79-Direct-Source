@@ -58,7 +58,7 @@ require('Button("Choose installer…"' in library and 'Button("Open Wine configu
         "the UI must expose installer import and winecfg")
 require('Button("Import app-local DLLs…"' in library and "allowsMultipleSelection: true" in library,
         "the UI must expose bounded multi-DLL app-local import")
-require("remember: entry.temporarySession != true" in content,
+require("remember: savedEntry.temporarySession != true" in content,
         "utility sessions must not become library entries")
 require("Components and installers" in docs and "C:\\madeira-installers" in docs and "Import app-local DLLs" in docs,
         "user-visible behavior and staging location must be documented")

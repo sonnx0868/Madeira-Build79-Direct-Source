@@ -1,0 +1,1813 @@
+{
+  "revision": 1,
+  "packages": [
+    {
+      "id": "directx",
+      "url": "https://download.microsoft.com/download/8/4/a/84a35bf1-dafe-4ae8-82af-ad2ae20b6b14/directx_Jun2010_redist.exe",
+      "sha256": "053f76dcbb28802e23341b6a787e3b0791c0fa5c8d4d011b1044172dbf89c73b",
+      "bytes": 100275120,
+      "family": "directx",
+      "bits": 0,
+      "files": [
+        {
+          "name": "d3dcompiler_37.dll",
+          "bits": 32,
+          "sha256": "715876d15b590936e4d32602a764d810650eec134922b32eea742e2fa71791c1",
+          "bytes": 1420824
+        },
+        {
+          "name": "d3dcompiler_38.dll",
+          "bits": 32,
+          "sha256": "ddcaadbdd47bcba02c8d1880d456acc20732d21554977338ae507987ed04046e",
+          "bytes": 1491992
+        },
+        {
+          "name": "d3dcompiler_39.dll",
+          "bits": 32,
+          "sha256": "b99b655abc4ec45851cc2acdb7a348e739687200a4fe3be9c35d6738dd61112f",
+          "bytes": 1493528
+        },
+        {
+          "name": "d3dcompiler_40.dll",
+          "bits": 32,
+          "sha256": "f0a6f156d13150de6ebb094233e5ff78581fbdb77bd0ff8d083698c42bc8e13b",
+          "bytes": 2036576
+        },
+        {
+          "name": "d3dcompiler_41.dll",
+          "bits": 32,
+          "sha256": "69ddadf8f5be24f10382706480b55e2492008d102001779f976608e880c65aab",
+          "bytes": 1846632
+        },
+        {
+          "name": "d3dcompiler_42.dll",
+          "bits": 32,
+          "sha256": "6c976311406c23aa71018d274da0ecdef43b6e3a3b0b01e941a5e8e4e974386c",
+          "bytes": 1974616
+        },
+        {
+          "name": "d3dcompiler_43.dll",
+          "bits": 32,
+          "sha256": "2f23182ec6f4889397ac4bf03d62536136c5bdba825c7d2c4ef08c827f3a8a1c",
+          "bytes": 2106216
+        },
+        {
+          "name": "d3dx10_33.dll",
+          "bits": 32,
+          "sha256": "b04e2b089656eae01a0071359f9d7fb040dea804c1b9d2379431864174259c2d",
+          "bytes": 443752
+        },
+        {
+          "name": "d3dx10_34.dll",
+          "bits": 32,
+          "sha256": "330e120d745e1132252df81800362a7ae0b61a9060afc800165ba8a1d55d3fb3",
+          "bytes": 443752
+        },
+        {
+          "name": "d3dx10_35.dll",
+          "bits": 32,
+          "sha256": "db775655fd923e29509402556f86002dd9aea062cdcdba7073e1057a67b5ce50",
+          "bytes": 444776
+        },
+        {
+          "name": "d3dx10_36.dll",
+          "bits": 32,
+          "sha256": "aee0248f18dfef8194451a22c69adda1cca38c03ae9aa776114da9d8851d4c38",
+          "bytes": 444776
+        },
+        {
+          "name": "d3dx10_37.dll",
+          "bits": 32,
+          "sha256": "61aaf973712f848b24c3e769e3252248ece96db63f206de0ca7ff43d9ed87a51",
+          "bytes": 462864
+        },
+        {
+          "name": "d3dx10_38.dll",
+          "bits": 32,
+          "sha256": "bf463b7ee2235f351309b5fd790f514acf2b55a4a1f90222f7479024cc28fc34",
+          "bytes": 467984
+        },
+        {
+          "name": "d3dx10_39.dll",
+          "bits": 32,
+          "sha256": "613afdb8b44bb3bed945279229d9604a3cd553f8c2b9b091235cbab8cd00de61",
+          "bytes": 467984
+        },
+        {
+          "name": "d3dx10_40.dll",
+          "bits": 32,
+          "sha256": "c05787cbf3aa4527baae96a425ceac910090ef48809990a450c33f3cda0e4767",
+          "bytes": 452440
+        },
+        {
+          "name": "d3dx10_41.dll",
+          "bits": 32,
+          "sha256": "9f4c15e1f68795727eded4737acc5a1aa85f896cd9e6924fddc9128b48f1bbd6",
+          "bytes": 453456
+        },
+        {
+          "name": "d3dx10_42.dll",
+          "bits": 32,
+          "sha256": "46429c4affe041b08a7acfda0e9162ba42de966acb2cbcaf09ef976232073b51",
+          "bytes": 453456
+        },
+        {
+          "name": "d3dx10_43.dll",
+          "bits": 32,
+          "sha256": "56fcd13650fd1f075743154e8c48465dd68a236ab8960667d75373139d2631bf",
+          "bytes": 470880
+        },
+        {
+          "name": "d3dx11_42.dll",
+          "bits": 32,
+          "sha256": "8c8fa8dce19e2f43e82cecd73a268e831a5ce0a16023845f7fa7fcb597772e85",
+          "bytes": 235344
+        },
+        {
+          "name": "d3dx11_43.dll",
+          "bits": 32,
+          "sha256": "492e960cb3ccfc8c25fc83f7c464ba77c86a20411347a1a9b3e5d3e8c9180a8d",
+          "bytes": 248672
+        },
+        {
+          "name": "d3dx9_24.dll",
+          "bits": 32,
+          "sha256": "94ec67763f67932dd4273ef5cc12889a5cef090ffea3ee78a80c7b530272b1b5",
+          "bytes": 2222800
+        },
+        {
+          "name": "d3dx9_25.dll",
+          "bits": 32,
+          "sha256": "4c54df27ce84d21b2924e64ff79b13e7876ce85d8e0c9c1d0abd8da73888187a",
+          "bytes": 2337488
+        },
+        {
+          "name": "d3dx9_26.dll",
+          "bits": 32,
+          "sha256": "8ea96fe01c3c86a36fcb3795ae03eb12034003e335ef475571efaeda17c5bc78",
+          "bytes": 2297552
+        },
+        {
+          "name": "d3dx9_27.dll",
+          "bits": 32,
+          "sha256": "a70d571cd675c97c9eeb4a234dba1d667ffb54ec3bb14defb36b3e2f605ae257",
+          "bytes": 2319568
+        },
+        {
+          "name": "d3dx9_28.dll",
+          "bits": 32,
+          "sha256": "f3e391b5f1c1f9637cabf2b812b6f5d65e4776c89d779f506f6b643cc563176d",
+          "bytes": 2323664
+        },
+        {
+          "name": "d3dx9_29.dll",
+          "bits": 32,
+          "sha256": "c5e21c18f8c79bc517da59e3192c39ea73bdcaf85867628187f6b3cca07dd21f",
+          "bytes": 2332368
+        },
+        {
+          "name": "d3dx9_30.dll",
+          "bits": 32,
+          "sha256": "5edeed79f2359527a55b8189cfa8b9b121cd608d44eead905a0f3436938ad532",
+          "bytes": 2388176
+        },
+        {
+          "name": "d3dx9_31.dll",
+          "bits": 32,
+          "sha256": "e2065619fe6eb0034833b1dc0369deb4a6edc3110e38a1132eeafcf430c578a5",
+          "bytes": 2414360
+        },
+        {
+          "name": "d3dx9_32.dll",
+          "bits": 32,
+          "sha256": "e96693794daa05a75a83c11df2e7b42f2de61567c6ad0b69e353b50f6c88119f",
+          "bytes": 3426072
+        },
+        {
+          "name": "d3dx9_33.dll",
+          "bits": 32,
+          "sha256": "c6b7b2ad7742dde5dd8d1a35fdc1c185e586e551ad9c74d3fb21759cd8ca4da8",
+          "bytes": 3495784
+        },
+        {
+          "name": "d3dx9_34.dll",
+          "bits": 32,
+          "sha256": "b6f77f06518d35345fb61172b6a13159125ed60c469d28b1a2e07970e9ddf81d",
+          "bytes": 3497832
+        },
+        {
+          "name": "d3dx9_35.dll",
+          "bits": 32,
+          "sha256": "2198022938156b790e9cfb0f7997494b66a11a1ad49b395be58251d635b66b26",
+          "bytes": 3727720
+        },
+        {
+          "name": "d3dx9_36.dll",
+          "bits": 32,
+          "sha256": "c12f0ab0338eb5031d3d04beaf7208ac848f7e037d21ff963d2af90221cbe935",
+          "bytes": 3734536
+        },
+        {
+          "name": "d3dx9_37.dll",
+          "bits": 32,
+          "sha256": "c2ccb84c672a9d8966e82a28005a4269886ee304972ac3590c0b8a9c1622a3d8",
+          "bytes": 3786760
+        },
+        {
+          "name": "d3dx9_38.dll",
+          "bits": 32,
+          "sha256": "743e77a228e7d75442263ad70051e44534f7972c6326fd34b505a9c2c245894b",
+          "bytes": 3850760
+        },
+        {
+          "name": "d3dx9_39.dll",
+          "bits": 32,
+          "sha256": "5d29988cad858f754ecc62c3d30de555f82cc21b5b26c448b890295e9b7bee82",
+          "bytes": 3851784
+        },
+        {
+          "name": "d3dx9_40.dll",
+          "bits": 32,
+          "sha256": "16fd909aeb68d0d1aca8529dc7f78880b97d6649d70ce8d03a2c858bc28e216b",
+          "bytes": 4379984
+        },
+        {
+          "name": "d3dx9_41.dll",
+          "bits": 32,
+          "sha256": "6ac4df203af419d3f3b7d9a99e14a3490ea3ad307c474bfe36baea642b1421f6",
+          "bytes": 4178264
+        },
+        {
+          "name": "d3dx9_42.dll",
+          "bits": 32,
+          "sha256": "f8b9cfab7fffbc8f98e41aa439d72921dc180634a1febca2a9d41a0df35d3472",
+          "bytes": 1892184
+        },
+        {
+          "name": "d3dx9_43.dll",
+          "bits": 32,
+          "sha256": "0b28546be22c71834501f7d7185ede5d79742457331c7ee09efc14490dd64f5f",
+          "bytes": 1998168
+        },
+        {
+          "name": "x3daudio1_0.dll",
+          "bits": 32,
+          "sha256": "228dfece2b4555a243a73e7bf461036f1e53951977625651ff5a59deaeaf4b88",
+          "bytes": 14032
+        },
+        {
+          "name": "x3daudio1_1.dll",
+          "bits": 32,
+          "sha256": "ff15f14174a5543f028fa49cca745582fe4cacf3bbe490749cf43444690ab359",
+          "bytes": 15128
+        },
+        {
+          "name": "x3daudio1_2.dll",
+          "bits": 32,
+          "sha256": "1ae37d90d39c36c142a51ab9fef7230788ff95080f2bc47734737bf82d3c2c9b",
+          "bytes": 18280
+        },
+        {
+          "name": "x3daudio1_3.dll",
+          "bits": 32,
+          "sha256": "74ec3e6b253af1b68252e62a5c08479453b3341d49c606adcf36913fe9ed9717",
+          "bytes": 25608
+        },
+        {
+          "name": "x3daudio1_4.dll",
+          "bits": 32,
+          "sha256": "799b38139523a3b30d26e21798ee705375c61eed8ae2434fddb52fde51f4bb78",
+          "bytes": 25608
+        },
+        {
+          "name": "x3daudio1_5.dll",
+          "bits": 32,
+          "sha256": "315944bb2a1959c8a4bd2677ed415363e1611c7351ce55319dc98fd2aac83f87",
+          "bytes": 23376
+        },
+        {
+          "name": "x3daudio1_6.dll",
+          "bits": 32,
+          "sha256": "574d14ab9a641c6cbadd78f2cd6c088b64b59c3646057952e63cad7d2778e1c3",
+          "bytes": 22360
+        },
+        {
+          "name": "x3daudio1_7.dll",
+          "bits": 32,
+          "sha256": "288c701bdedf1d45c63dd0b7d424a752f8819f90feb5088c582f76bc98970ba3",
+          "bytes": 22360
+        },
+        {
+          "name": "xactengine2_0.dll",
+          "bits": 32,
+          "sha256": "cfd1c2d34feb7d94f282e97bf762a99bfa7309dc7353d96dfe4aadc187d26c67",
+          "bytes": 230096
+        },
+        {
+          "name": "xactengine2_1.dll",
+          "bits": 32,
+          "sha256": "666cef7d27a38f709063c9c581fd95e6b3fa27167bff4beff484dba2dc922a2b",
+          "bytes": 229584
+        },
+        {
+          "name": "xactengine2_2.dll",
+          "bits": 32,
+          "sha256": "4f996edb65022e33ae9c9f7acf7232c8d444f75c50c72894f6d3173b55404ebe",
+          "bytes": 230168
+        },
+        {
+          "name": "xactengine2_3.dll",
+          "bits": 32,
+          "sha256": "ca20cf8e4034719a46bf67c6009486c2c1cfc2da10ffed3a67dcae677b4f6793",
+          "bytes": 236824
+        },
+        {
+          "name": "xactengine2_4.dll",
+          "bits": 32,
+          "sha256": "1e0e09fc077bdeee3de065c663b83f6717d39d56778833f030955077d490d000",
+          "bytes": 237848
+        },
+        {
+          "name": "xactengine2_5.dll",
+          "bits": 32,
+          "sha256": "ec68b5163cbb5f15e2fbe37fdf5fcb0d01dffbe53a460cb2cf668f31f0127ad5",
+          "bytes": 251672
+        },
+        {
+          "name": "xactengine2_6.dll",
+          "bits": 32,
+          "sha256": "be45aef0889b03e2243282a912f41580e8566db666a782c26a1d4d7988799d03",
+          "bytes": 255848
+        },
+        {
+          "name": "xactengine2_7.dll",
+          "bits": 32,
+          "sha256": "a43c92af3fbe91dfe2a1d415342631fe64e18c7dd3e16e93b6c78947b68e7bd6",
+          "bytes": 261480
+        },
+        {
+          "name": "xactengine2_8.dll",
+          "bits": 32,
+          "sha256": "15d82e89bea30bf82de6ba0cfbe97eeaf05d1e06bc0133f0d1ee8d0cc41f51f6",
+          "bytes": 266088
+        },
+        {
+          "name": "xactengine2_9.dll",
+          "bits": 32,
+          "sha256": "93a0d8fc38e4e9a301d9e721afbeedc5af40becc0b11a6e7e8e38f08f366ff6e",
+          "bytes": 267112
+        },
+        {
+          "name": "xactengine3_0.dll",
+          "bits": 32,
+          "sha256": "887329745c479ce8d3023c969adf66780dd7e51ab536f0a08550ba4c77066c20",
+          "bytes": 238088
+        },
+        {
+          "name": "xactengine3_1.dll",
+          "bits": 32,
+          "sha256": "088999560171c60129c95f9b541852392602561dce43e4c61a453d48065f52ca",
+          "bytes": 238088
+        },
+        {
+          "name": "xactengine3_2.dll",
+          "bits": 32,
+          "sha256": "e6a34c1f068f89d6515cb460eed3b4dbb53522c5579e6c75741482f0d40d9f99",
+          "bytes": 238088
+        },
+        {
+          "name": "xactengine3_3.dll",
+          "bits": 32,
+          "sha256": "ef052bc9b7fde596fff3ea2d9c8fc994f3282953dead1b7f5477e7154af67245",
+          "bytes": 235856
+        },
+        {
+          "name": "xapofx1_0.dll",
+          "bits": 32,
+          "sha256": "8b396d275de2550af8ada6a1ff71f0f4870b51c8407e44044c2dde7ad6b754cc",
+          "bytes": 65032
+        },
+        {
+          "name": "xapofx1_1.dll",
+          "bits": 32,
+          "sha256": "5ab63c0f040fdf65e681eba4daa55ed83e89ea10c426dc2fc763da0fc94f3ace",
+          "bytes": 68616
+        },
+        {
+          "name": "xapofx1_2.dll",
+          "bits": 32,
+          "sha256": "d1a55061bcb42f69b7cf35e2985d48e30c7a90f0bc668e90390f465b36bd0161",
+          "bytes": 70992
+        },
+        {
+          "name": "xapofx1_3.dll",
+          "bits": 32,
+          "sha256": "b05ad9417028b9777f69422caa01ae9fd22c7bfe542bc6e7de2649e28a4ea643",
+          "bytes": 69464
+        },
+        {
+          "name": "xapofx1_4.dll",
+          "bits": 32,
+          "sha256": "0aee44b12913a95840ee6431d90518b0d72c54a27392e21ee6995e2151554a06",
+          "bytes": 74072
+        },
+        {
+          "name": "xapofx1_5.dll",
+          "bits": 32,
+          "sha256": "becfdcd6b16523573cb52df87aa7d993f1b345ba903d0618c3b36535c3800197",
+          "bytes": 74072
+        },
+        {
+          "name": "xinput1_1.dll",
+          "bits": 32,
+          "sha256": "69cd725c53e0302e75db20e9a3e4b33f58dceaa2e6ea4938b2733df8bc289a71",
+          "bytes": 62672
+        },
+        {
+          "name": "xinput1_2.dll",
+          "bits": 32,
+          "sha256": "9714d146a785d458f0de8fef387d82c9f8e101c02407a0cbeb06f02a69518eec",
+          "bytes": 62744
+        },
+        {
+          "name": "xinput1_3.dll",
+          "bits": 32,
+          "sha256": "8d540d484ea41e374fd0107d55d253f87ded4ce780d515d8fd59bbe8c98970a7",
+          "bytes": 81768
+        },
+        {
+          "name": "d3dcompiler_37.dll",
+          "bits": 64,
+          "sha256": "425f0d7ee0f2845424266aa56f2cdce3a61541d5e2c7d7813f4373e45df0cb8b",
+          "bytes": 1860120
+        },
+        {
+          "name": "d3dcompiler_38.dll",
+          "bits": 64,
+          "sha256": "1ff6374215e326b72dbdc2fe8af4f9002c5d755358ed8795d781f4a1078af174",
+          "bytes": 1941528
+        },
+        {
+          "name": "d3dcompiler_39.dll",
+          "bits": 64,
+          "sha256": "54f4f734dd149ef9ee8c999cc3d7858082b85c551f17fa08553cde1abdee3c3e",
+          "bytes": 1942552
+        },
+        {
+          "name": "d3dcompiler_40.dll",
+          "bits": 64,
+          "sha256": "bd81cf5c9b127519dbeb284e699e9d7545ee1130e655fd6a4e66b959e9d9aaac",
+          "bytes": 2605920
+        },
+        {
+          "name": "d3dcompiler_41.dll",
+          "bits": 64,
+          "sha256": "f96d915c2d51346fe1a35a7d0b7acef7a3734af2c75579085fce9d1a29e0f2e6",
+          "bytes": 2430312
+        },
+        {
+          "name": "d3dcompiler_42.dll",
+          "bits": 64,
+          "sha256": "4d61e843aa86d8801a60d01b8e872379c5b2503795a2bcbe6141978396ade00b",
+          "bytes": 2582888
+        },
+        {
+          "name": "d3dcompiler_43.dll",
+          "bits": 64,
+          "sha256": "44c3a7e330b54a35a9efa015831392593aa02e7da1460be429d17c3644850e8a",
+          "bytes": 2526056
+        },
+        {
+          "name": "d3dx10_33.dll",
+          "bits": 64,
+          "sha256": "3f0248c3bb9bda2a901b343b3b58172e175a86450d421f0fc4aebbd5a7d11477",
+          "bytes": 506728
+        },
+        {
+          "name": "d3dx10_34.dll",
+          "bits": 64,
+          "sha256": "f7f367df5d0fb5e32113515339d928a51d4253b1c0e21854277f67d0b271fce3",
+          "bytes": 506728
+        },
+        {
+          "name": "d3dx10_35.dll",
+          "bits": 64,
+          "sha256": "2030b7d57c88b653a0eb55ea85ad90c6c8630a00f5a56ea5f9b6985acdda5289",
+          "bytes": 508264
+        },
+        {
+          "name": "d3dx10_36.dll",
+          "bits": 64,
+          "sha256": "6b632dcf9ef779d72855eeb1bb4676ab922ffb9204f7d587475477fa2f51be4a",
+          "bytes": 508264
+        },
+        {
+          "name": "d3dx10_37.dll",
+          "bits": 64,
+          "sha256": "3bb17715d9de0878f65a3a006b8614532a6133f56e12ef5fa392a63337c0c275",
+          "bytes": 529424
+        },
+        {
+          "name": "d3dx10_38.dll",
+          "bits": 64,
+          "sha256": "1274a3902a0a8ce9309d2b636eec3d42048ac90a68a0add0e372027b3f000104",
+          "bytes": 540688
+        },
+        {
+          "name": "d3dx10_39.dll",
+          "bits": 64,
+          "sha256": "1ec45bdb37e9f8bf7b6684deff6799b06d4bc2e2ef72b5f278d6c4b3a7597b13",
+          "bytes": 540688
+        },
+        {
+          "name": "d3dx10_40.dll",
+          "bits": 64,
+          "sha256": "48af3a1834640969660a37899a4cb17677fd499c26185ac940d284a0b4212fb3",
+          "bytes": 519000
+        },
+        {
+          "name": "d3dx10_41.dll",
+          "bits": 64,
+          "sha256": "464653c6c52e16d53b87c1f199c693f748fa48228f7690f086350b0f7bec581d",
+          "bytes": 520544
+        },
+        {
+          "name": "d3dx10_42.dll",
+          "bits": 64,
+          "sha256": "dfb4baaa5f06467183839f14f5d28466e7c6e7eaa90f292c4516ed6926f5da8a",
+          "bytes": 523088
+        },
+        {
+          "name": "d3dx10_43.dll",
+          "bits": 64,
+          "sha256": "9bffa1ea073d79e9954cb398fc91b93ed9dc79ed2205995d4b949f1cc2ad3bd1",
+          "bytes": 511328
+        },
+        {
+          "name": "d3dx11_42.dll",
+          "bits": 64,
+          "sha256": "fedb54eef0fb7a61514fd4273f5f13535de1082f55bfb5f7b05a1016f495dcdb",
+          "bytes": 285024
+        },
+        {
+          "name": "d3dx11_43.dll",
+          "bits": 64,
+          "sha256": "981e42629df751217406e7150477cddc853b79abd6a8568a1566298ed8f7bd59",
+          "bytes": 276832
+        },
+        {
+          "name": "d3dx9_24.dll",
+          "bits": 64,
+          "sha256": "1ec422bd6421c741eef57847260967f215913649901e21dd9c46eb1b3bb10906",
+          "bytes": 3544272
+        },
+        {
+          "name": "d3dx9_25.dll",
+          "bits": 64,
+          "sha256": "10b09474bfe4e2bb395472628646bc5f353fbfbec976575c45eeff49984ebaa6",
+          "bytes": 3823312
+        },
+        {
+          "name": "d3dx9_26.dll",
+          "bits": 64,
+          "sha256": "30b06dbbd202494bae3b87487e7273adcffd17a9d2c29977030fde0570aa841b",
+          "bytes": 3767504
+        },
+        {
+          "name": "d3dx9_27.dll",
+          "bits": 64,
+          "sha256": "f9dd288c9895973f8db1856d172779041c6dee173ad1ef53b1727fc85cb6b75f",
+          "bytes": 3807440
+        },
+        {
+          "name": "d3dx9_28.dll",
+          "bits": 64,
+          "sha256": "a2870f86e2f1b11646ff3f404bdbde10520c481c1400b20d25fdf56e66fb0a17",
+          "bytes": 3815120
+        },
+        {
+          "name": "d3dx9_29.dll",
+          "bits": 64,
+          "sha256": "d496c31a6b0f41398ecad7698987c55c2cb88eb6568976ba9b01a197879dd9dc",
+          "bytes": 3830992
+        },
+        {
+          "name": "d3dx9_30.dll",
+          "bits": 64,
+          "sha256": "7d1374e3b921a70b5028472ab164d9e582e3c3525334235d642664189da9b157",
+          "bytes": 3927248
+        },
+        {
+          "name": "d3dx9_31.dll",
+          "bits": 64,
+          "sha256": "84167b7df7e97c63f0cc15c1d272cdc7bba942f6f36a8801aec9840825891d0d",
+          "bytes": 3977496
+        },
+        {
+          "name": "d3dx9_32.dll",
+          "bits": 64,
+          "sha256": "7c723479e3720a52f286d2e9e044f19ed893a34e6819d53e4de6991048febad1",
+          "bytes": 4398360
+        },
+        {
+          "name": "d3dx9_33.dll",
+          "bits": 64,
+          "sha256": "7338b1d039d0c08e45f24874e4918ffa642ebfe5967c96035f66f509265fa33e",
+          "bytes": 4494184
+        },
+        {
+          "name": "d3dx9_34.dll",
+          "bits": 64,
+          "sha256": "715fa6d4931324cca594c4fdfc60274ed29d296bb4592d102b36bc976c8b8ada",
+          "bytes": 4496232
+        },
+        {
+          "name": "d3dx9_35.dll",
+          "bits": 64,
+          "sha256": "ca195b7ee7aee29e6417acf0e6c1736d9aac76890a622eb62ed137394fc6f2b9",
+          "bytes": 5073256
+        },
+        {
+          "name": "d3dx9_36.dll",
+          "bits": 64,
+          "sha256": "c683e8e543bdd678dfdea0b325a3de04a419eeb053e2f32702d8b472aaf54c6d",
+          "bytes": 5081608
+        },
+        {
+          "name": "d3dx9_37.dll",
+          "bits": 64,
+          "sha256": "8c1d75b01208b59fcabfb389df296e00a58713322f00112fbe80aa7b6221708a",
+          "bytes": 4910088
+        },
+        {
+          "name": "d3dx9_38.dll",
+          "bits": 64,
+          "sha256": "b54e832bd8d7e94772c680f49c31b86f9c5db456f8e5cac66720d533896f1cfe",
+          "bytes": 4991496
+        },
+        {
+          "name": "d3dx9_39.dll",
+          "bits": 64,
+          "sha256": "aecbe2965f7c9aa60257670114c06b21a3de914b03e20ff569c5cb44ec4807fd",
+          "bytes": 4992520
+        },
+        {
+          "name": "d3dx9_40.dll",
+          "bits": 64,
+          "sha256": "8a9ea8bc06786d342af4e7d171abbe6640cf31d9d01afb86dbf63f26302077db",
+          "bytes": 5631312
+        },
+        {
+          "name": "d3dx9_41.dll",
+          "bits": 64,
+          "sha256": "33fd649d5b6e90bd7b7f51d1431ef3501772ae985e320442e5fd750e4368669a",
+          "bytes": 5425496
+        },
+        {
+          "name": "d3dx9_42.dll",
+          "bits": 64,
+          "sha256": "1d6f5aa25ac2f1e55d3fd89cd5b33edd4de3709bf0353c75ab8645cebc087fa5",
+          "bytes": 2475352
+        },
+        {
+          "name": "d3dx9_43.dll",
+          "bits": 64,
+          "sha256": "84b900dbd7fa978d6e0caee26fc54f2f61d92c9c75d10b35f00e3e82cd1d67b4",
+          "bytes": 2401112
+        },
+        {
+          "name": "x3daudio1_0.dll",
+          "bits": 64,
+          "sha256": "77cc09cea6de69f12106e6dd9df1c0446a525a54c3953d69d64711b9394cc38f",
+          "bytes": 16592
+        },
+        {
+          "name": "x3daudio1_1.dll",
+          "bits": 64,
+          "sha256": "fac23787e7c199c1969806850b5a9652f66f6dcac86f48f6f834abc253848a55",
+          "bytes": 17688
+        },
+        {
+          "name": "x3daudio1_2.dll",
+          "bits": 64,
+          "sha256": "b822d7de1253c52676f4e20f9c715e92759b43b69978dfef2527b6101e420ee6",
+          "bytes": 21352
+        },
+        {
+          "name": "x3daudio1_3.dll",
+          "bits": 64,
+          "sha256": "96c2a80a7fa7670d323e584b956cc98f69f2a22e5329ce4a93269468b142de44",
+          "bytes": 28168
+        },
+        {
+          "name": "x3daudio1_4.dll",
+          "bits": 64,
+          "sha256": "e38b62c0946b9e4e1446e0f8c6335fc7328eb20cc587e310983f3f6d6571ac5d",
+          "bytes": 28168
+        },
+        {
+          "name": "x3daudio1_5.dll",
+          "bits": 64,
+          "sha256": "8dd91637f40136f8f941d0b9e8a096964336759a91beb3265a78627e800da85f",
+          "bytes": 25936
+        },
+        {
+          "name": "x3daudio1_6.dll",
+          "bits": 64,
+          "sha256": "0afcf64138aacab2b4a5e110392a7d978694dc545845f89782c07c650f212f3b",
+          "bytes": 24920
+        },
+        {
+          "name": "x3daudio1_7.dll",
+          "bits": 64,
+          "sha256": "9460709339701ad471a5cabe6365355f4d586dc4fcb86507c1331839dc555446",
+          "bytes": 24920
+        },
+        {
+          "name": "xactengine2_0.dll",
+          "bits": 64,
+          "sha256": "a00ad310f3d7b2d4de2f5a4c081359fa443ce0baecc72ebf39d6b30ccf7babce",
+          "bytes": 355536
+        },
+        {
+          "name": "xactengine2_1.dll",
+          "bits": 64,
+          "sha256": "3ca31f274ea55cb966ec0b49addf72e1e21269406ae5fc44de3d5bbc884a6ce4",
+          "bytes": 352464
+        },
+        {
+          "name": "xactengine2_2.dll",
+          "bits": 64,
+          "sha256": "7b4e5938f1f69e5b8aaa8ecb479245b5773786192a47f9fdf6bd8eccfb109b83",
+          "bytes": 354072
+        },
+        {
+          "name": "xactengine2_3.dll",
+          "bits": 64,
+          "sha256": "1cf72300e03b4b6fc48e1d9e79d93c42d657ee1f87153035d1578d1af8616ad5",
+          "bytes": 363288
+        },
+        {
+          "name": "xactengine2_4.dll",
+          "bits": 64,
+          "sha256": "2bfa6e7b793299a306a554b60a39d001e493937e88dca403d9f0dd1ea0de1aa0",
+          "bytes": 364824
+        },
+        {
+          "name": "xactengine2_5.dll",
+          "bits": 64,
+          "sha256": "a737ea87fd5b44343c26da6d47508901b916b83c5f4a508c0b18c56faf8c0329",
+          "bytes": 390424
+        },
+        {
+          "name": "xactengine2_6.dll",
+          "bits": 64,
+          "sha256": "9f4c316be32e4de8c6594c26ff50410d2763b5f3320741b912a81a9ea9b7728e",
+          "bytes": 393576
+        },
+        {
+          "name": "xactengine2_7.dll",
+          "bits": 64,
+          "sha256": "bcf3012a44b448402166bbab661a9fbca7f9e3c11ad17b3f96a54bbbb82bb235",
+          "bytes": 403304
+        },
+        {
+          "name": "xactengine2_8.dll",
+          "bits": 64,
+          "sha256": "43a29c6dae6468ca4163795a7555003a71384b8dbe052be0b3bf1d7d4d19cf24",
+          "bytes": 409960
+        },
+        {
+          "name": "xactengine2_9.dll",
+          "bits": 64,
+          "sha256": "28ee04a1bd08faebf937367e3c3fae4d20980ba08070382497964ec77951b749",
+          "bytes": 411496
+        },
+        {
+          "name": "xactengine3_0.dll",
+          "bits": 64,
+          "sha256": "1c953325e2f9e2033065c9898420453ed8b812eb739a7adda5021114a6fc9074",
+          "bytes": 177672
+        },
+        {
+          "name": "xactengine3_1.dll",
+          "bits": 64,
+          "sha256": "444a0b9836b0116edc50e4226c5b6baedd4f92fc099dab21cfc246aba0c24975",
+          "bytes": 177672
+        },
+        {
+          "name": "xactengine3_2.dll",
+          "bits": 64,
+          "sha256": "7d0d28dfd60a28283846c9b00f26ba8f98af16d95e81ad577ee0e89d56c2ef50",
+          "bytes": 177672
+        },
+        {
+          "name": "xactengine3_3.dll",
+          "bits": 64,
+          "sha256": "2382bdad39eb8a94194ec4d169203067710d044b31e8f9b1c0571fd6ce32f23d",
+          "bytes": 175440
+        },
+        {
+          "name": "xapofx1_0.dll",
+          "bits": 64,
+          "sha256": "671c24f825629381870567d726b7dbc3890d665648043c041eb1100163c49e12",
+          "bytes": 68104
+        },
+        {
+          "name": "xapofx1_1.dll",
+          "bits": 64,
+          "sha256": "cd03a9ef13123c1b9ce3d92b9e9fd9b9682c9f66c167dd8a326e4bd0acff73f2",
+          "bytes": 72200
+        },
+        {
+          "name": "xapofx1_2.dll",
+          "bits": 64,
+          "sha256": "f16e5795fac7a97fc1ffb5d049c011ee5f0dcdc4c6393664b6a9d94f949fdf0f",
+          "bytes": 74576
+        },
+        {
+          "name": "xapofx1_3.dll",
+          "bits": 64,
+          "sha256": "787e10d48d90db50dc155fca53fe8c5c1a383ca24d468733d4b8fe3acf2d0a34",
+          "bytes": 73544
+        },
+        {
+          "name": "xapofx1_4.dll",
+          "bits": 64,
+          "sha256": "d42e7e91eafce25550f08a63240e23fbe3ddd278b852e36e4eab05bc42f5ec7d",
+          "bytes": 78680
+        },
+        {
+          "name": "xapofx1_5.dll",
+          "bits": 64,
+          "sha256": "e47dcf74d50403b376c562e4121e359e5886e42fcc60b3fa8ba53e6826854c49",
+          "bytes": 77656
+        },
+        {
+          "name": "xinput1_1.dll",
+          "bits": 64,
+          "sha256": "87c7f921bbf171fa04f7c2adaf8b25d4bf152d12c6b99771da42f3af07f78987",
+          "bytes": 83664
+        },
+        {
+          "name": "xinput1_2.dll",
+          "bits": 64,
+          "sha256": "77055b6a144c4017acd0a8b34520cf9a84be6b9c75db40f7a708b9f4e38aa138",
+          "bytes": 83736
+        },
+        {
+          "name": "xinput1_3.dll",
+          "bits": 64,
+          "sha256": "756cad002e1553cfa1a91ebe8c1b9380ffabe0b4b1916c4a4db802396ddfbef8",
+          "bytes": 107368
+        }
+      ]
+    },
+    {
+      "id": "vc100-x64",
+      "url": "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x64.exe",
+      "sha256": "f3b7a76d84d23f91957aa18456a14b4e90609e4ce8194c5653384ed38dada6f3",
+      "bytes": 10277328,
+      "family": "vc100",
+      "bits": 64,
+      "files": [
+        {
+          "name": "atl100.dll",
+          "bits": 64,
+          "sha256": "b524543192e78a2c97d3ec9aa0cfcbbaa308439d3a33f9a1f4edfbd3181d7919",
+          "bytes": 158536
+        },
+        {
+          "name": "mfc100.dll",
+          "bits": 64,
+          "sha256": "de96c788ec39a1764ce83790fdcc85717e101b07401b8d36ee97be5246b66b93",
+          "bytes": 5574472
+        },
+        {
+          "name": "mfc100u.dll",
+          "bits": 64,
+          "sha256": "39955dbbe00391955fa8313ff1b9c815be7b6aa615d36345e579476e789e91ec",
+          "bytes": 5601616
+        },
+        {
+          "name": "mfcm100.dll",
+          "bits": 64,
+          "sha256": "a99a2de10ae40071852fd63d08d6c2ea9a0f115dafcf7cc4f27fbc9bde0b249d",
+          "bytes": 93008
+        },
+        {
+          "name": "mfcm100u.dll",
+          "bits": 64,
+          "sha256": "311739fee33b091ea55801154c1cb4ac8a9a18fb6ac5f6fbf31d958307b3d0ea",
+          "bytes": 93008
+        },
+        {
+          "name": "msvcp100.dll",
+          "bits": 64,
+          "sha256": "5bb420fbe28315f2117376052bb8488ce84a3398dda65005b8ae1f792017e9a8",
+          "bytes": 608080
+        },
+        {
+          "name": "msvcr100.dll",
+          "bits": 64,
+          "sha256": "1d1a1ae540ba132f998d60d3622f0297b6e86ae399332c3b47462d7c0f560a36",
+          "bytes": 829264
+        },
+        {
+          "name": "vcomp100.dll",
+          "bits": 64,
+          "sha256": "67c5d600c0564dd201377fd06bc1a4b07befdfd30cf7fa410bd5b5c16d5d2ce4",
+          "bytes": 57168
+        }
+      ]
+    },
+    {
+      "id": "vc100-x86",
+      "url": "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x86.exe",
+      "sha256": "99dce3c841cc6028560830f7866c9ce2928c98cf3256892ef8e6cf755147b0d8",
+      "bytes": 8993744,
+      "family": "vc100",
+      "bits": 32,
+      "files": [
+        {
+          "name": "atl100.dll",
+          "bits": 32,
+          "sha256": "f54fe6535538174c139b1b0cb2ac0753b2e34412153a443482ccae53ffbc4dc6",
+          "bytes": 138056
+        },
+        {
+          "name": "mfc100.dll",
+          "bits": 32,
+          "sha256": "496e1a21645abaa90fa544c025e6f0de1cbcbd5d060007a8a9e2fb5787655d0e",
+          "bytes": 4397384
+        },
+        {
+          "name": "mfc100u.dll",
+          "bits": 32,
+          "sha256": "24bb6838defd491df5460a88bed2d70b903a2156c49fb63e214e2c77251eca71",
+          "bytes": 4422992
+        },
+        {
+          "name": "mfcm100.dll",
+          "bits": 32,
+          "sha256": "f7e920ab186d9f5f8218a012f9d6e603bf351c047cbfb6c4bf41850d50373a0b",
+          "bytes": 81744
+        },
+        {
+          "name": "mfcm100u.dll",
+          "bits": 32,
+          "sha256": "d159d2ae0a3f73fd7489960320df92adee9b481027785bc8b82f8a10c2e66808",
+          "bytes": 81744
+        },
+        {
+          "name": "msvcp100.dll",
+          "bits": 32,
+          "sha256": "d769fafa2b3232de9fa7153212ba287f68e745257f1c00fafb511e7a02de7adf",
+          "bytes": 421200
+        },
+        {
+          "name": "msvcr100.dll",
+          "bits": 32,
+          "sha256": "60c06e0fa4449314da3a0a87c1a9d9577df99226f943637e06f61188e5862efa",
+          "bytes": 773968
+        },
+        {
+          "name": "vcomp100.dll",
+          "bits": 32,
+          "sha256": "887c58e0b5e315f2d9714bd4d0f8126ef615d5792baaae4c7b75409fdecb5c45",
+          "bytes": 51024
+        }
+      ]
+    },
+    {
+      "id": "vc110-x64",
+      "url": "https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x64.exe",
+      "sha256": "681be3e5ba9fd3da02c09d7e565adfa078640ed66a0d58583efad2c1e3cc4064",
+      "bytes": 7186992,
+      "family": "vc110",
+      "bits": 64,
+      "files": [
+        {
+          "name": "atl110.dll",
+          "bits": 64,
+          "sha256": "873d57e5cd660d49b403780685e91b6e3bc9e65b6e59435e0c5a5dfa1de0422c",
+          "bytes": 192584
+        },
+        {
+          "name": "mfc110.dll",
+          "bits": 64,
+          "sha256": "18fca73cf08bd9d27511b2da1ec6573c352ee7d00bc5f2504a8ff56b28a73551",
+          "bytes": 5592648
+        },
+        {
+          "name": "mfc110u.dll",
+          "bits": 64,
+          "sha256": "49559ea7183464f3564c562e7d216ce78ef1e66ac9dea2ece32dae00905f385c",
+          "bytes": 5619784
+        },
+        {
+          "name": "mfcm110.dll",
+          "bits": 64,
+          "sha256": "8d8e108ab7b57de812db4736811311595e1b785deebff1868dea739720290b84",
+          "bytes": 90184
+        },
+        {
+          "name": "mfcm110u.dll",
+          "bits": 64,
+          "sha256": "4fd4dad2f823aae2f65f0ade89b22bba24edd35e0bac685c91ab3be0efa104e9",
+          "bytes": 90192
+        },
+        {
+          "name": "msvcp110.dll",
+          "bits": 64,
+          "sha256": "27f394ae01d12f851f1dee3632dee3c5afa1d267f7a96321d35fd43105b035ad",
+          "bytes": 661456
+        },
+        {
+          "name": "msvcr110.dll",
+          "bits": 64,
+          "sha256": "ae996edb9b050677c4f82d56092efdc75f0addc97a14e2c46753e2db3f6bd732",
+          "bytes": 849360
+        },
+        {
+          "name": "vcamp110.dll",
+          "bits": 64,
+          "sha256": "b26ddd1aeaf3f81edcc5a55a1938357a466ea2b0652560c4999faa92960f6190",
+          "bytes": 385488
+        },
+        {
+          "name": "vccorlib110.dll",
+          "bits": 64,
+          "sha256": "f5f635c0cf8252b81c8283ae7063e5bdbc7d608ee8798ec6064707b489339d5d",
+          "bytes": 354264
+        },
+        {
+          "name": "vcomp110.dll",
+          "bits": 64,
+          "sha256": "30dbc138c12eca9cd0721c2208fd8c657090ac39b1cb7d20f1aa19935cdd946d",
+          "bytes": 138208
+        }
+      ]
+    },
+    {
+      "id": "vc110-x86",
+      "url": "https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x86.exe",
+      "sha256": "b924ad8062eaf4e70437c8be50fa612162795ff0839479546ce907ffa8d6e386",
+      "bytes": 6554576,
+      "family": "vc110",
+      "bits": 32,
+      "files": [
+        {
+          "name": "atl110.dll",
+          "bits": 32,
+          "sha256": "c7e81fce9d5f071361774f3755690a8cfefdcff714bc1debdb35066f64bccce0",
+          "bytes": 164424
+        },
+        {
+          "name": "mfc110.dll",
+          "bits": 32,
+          "sha256": "8809265003cc78cc7bfe708d0140f4045c86b2379b49b1b772eb25df1a27e1be",
+          "bytes": 4421192
+        },
+        {
+          "name": "mfc110u.dll",
+          "bits": 32,
+          "sha256": "33f631c0b561199b5feb9020faa99e50efa9f421d7484ffa640c5561494726da",
+          "bytes": 4456520
+        },
+        {
+          "name": "mfcm110.dll",
+          "bits": 32,
+          "sha256": "fefdf1d62ecd884bb30a177961bdf1f40d46a984d0a6dc9de765db4725d0e1d2",
+          "bytes": 83016
+        },
+        {
+          "name": "mfcm110u.dll",
+          "bits": 32,
+          "sha256": "7ac7a362646a8c8f7fa9b76086d93c876ebbb4085dd2ab1834b34f6bd5ef7223",
+          "bytes": 83024
+        },
+        {
+          "name": "msvcp110.dll",
+          "bits": 32,
+          "sha256": "c8d5572ca8d7624871188f0acabc3ae60d4c5a4f6782d952b9038de3bc28b39a",
+          "bytes": 535008
+        },
+        {
+          "name": "msvcr110.dll",
+          "bits": 32,
+          "sha256": "b30160e759115e24425b9bcdf606ef6ebce4657487525ede7f1ac40b90ff7e49",
+          "bytes": 875472
+        },
+        {
+          "name": "vcamp110.dll",
+          "bits": 32,
+          "sha256": "d46f958fe08fcd31f87f34c17a752fc148ffc9a1ec062522cb5712c56a96aa37",
+          "bytes": 320976
+        },
+        {
+          "name": "vccorlib110.dll",
+          "bits": 32,
+          "sha256": "0f4a9f6976c0b7fb34e362cc5220b70da32d3420771fbfcac70981da3b505d08",
+          "bytes": 252400
+        },
+        {
+          "name": "vcomp110.dll",
+          "bits": 32,
+          "sha256": "225a40104f94dc247ea62de47f600eac74c7c6b1f5964aeebeac2670e2eea878",
+          "bytes": 125904
+        }
+      ]
+    },
+    {
+      "id": "vc120-x64",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/10912041/cee5d6bca2ddbcd039da727bf4acb48a/vcredist_x64.exe",
+      "sha256": "a4bba7701e355ae29c403431f871a537897c363e215cafe706615e270984f17c",
+      "bytes": 7200744,
+      "family": "vc120",
+      "bits": 64,
+      "files": [
+        {
+          "name": "mfc120.dll",
+          "bits": 64,
+          "sha256": "fb83e940b281947cc8659611ef6afa75c21a6626b1e70565d0a573f22a48b55e",
+          "bytes": 5608096
+        },
+        {
+          "name": "mfc120u.dll",
+          "bits": 64,
+          "sha256": "d822ec4e09fdf5446e62c09cf5819146f09a4670f77aaa81e4133b912592f1f9",
+          "bytes": 5634720
+        },
+        {
+          "name": "mfcm120.dll",
+          "bits": 64,
+          "sha256": "431e7373dee1eee2ab86588dea061394edf14a364c026dd47582d982befb1d78",
+          "bytes": 91808
+        },
+        {
+          "name": "mfcm120u.dll",
+          "bits": 64,
+          "sha256": "f0cfcc1a9cd9b246b53fe14fa2f77975763a6de5fbb3a98cf5ea622be0c62cea",
+          "bytes": 91816
+        },
+        {
+          "name": "msvcp120.dll",
+          "bits": 64,
+          "sha256": "3b92e964404e3f94531e7d7c4c7419561d9eca6accd98dc3979c9e3596db444c",
+          "bytes": 659624
+        },
+        {
+          "name": "msvcr120.dll",
+          "bits": 64,
+          "sha256": "753ac30c30aae62415cc225e3d057b8b6254afe280696e0a43f1a7c3132632a6",
+          "bytes": 963240
+        },
+        {
+          "name": "vcamp120.dll",
+          "bits": 64,
+          "sha256": "096a72b8aced30f604b0dff52be3dd1c7354c0d6a528e3060e9f62696fcd843e",
+          "bytes": 481952
+        },
+        {
+          "name": "vccorlib120.dll",
+          "bits": 64,
+          "sha256": "5a357a9f10d55b70e50a04b0b6716263e678e877e0934f536cc82aa1c3072c25",
+          "bytes": 356528
+        },
+        {
+          "name": "vcomp120.dll",
+          "bits": 64,
+          "sha256": "7fd73132d9579eebb2e6ee202babc6a49b3744de84c9b34fede0b3be95ec98bb",
+          "bytes": 137888
+        }
+      ]
+    },
+    {
+      "id": "vc120-x86",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/10912113/5da66ddebb0ad32ebd4b922fd82e8e25/vcredist_x86.exe",
+      "sha256": "53b605d1100ab0a88b867447bbf9274b5938125024ba01f5105a9e178a3dcdbd",
+      "bytes": 6510136,
+      "family": "vc120",
+      "bits": 32,
+      "files": [
+        {
+          "name": "mfc120.dll",
+          "bits": 32,
+          "sha256": "e7647532a382d3aa6a07fd45844d90fa29cd1d3905fdc893e7ac5d0063d09276",
+          "bytes": 4424864
+        },
+        {
+          "name": "mfc120u.dll",
+          "bits": 32,
+          "sha256": "138e487e3cab825984e031f1fc5444bbb1eb708d79ec2d9c66514f2f5f0edba2",
+          "bytes": 4450464
+        },
+        {
+          "name": "mfcm120.dll",
+          "bits": 32,
+          "sha256": "a31da455d0d22f882b9273ec83059fef966df347115f96b0d71dbfe4454cc407",
+          "bytes": 83104
+        },
+        {
+          "name": "mfcm120u.dll",
+          "bits": 32,
+          "sha256": "3ecec41ddc94a3155b1577eb84a8d117ff366dfcd9f9a26659b5d21a3efaba1e",
+          "bytes": 83104
+        },
+        {
+          "name": "msvcp120.dll",
+          "bits": 32,
+          "sha256": "0e535e147d253fc645ccb9406c888aee374ab1f3f9d99dc057a2b19cf401458b",
+          "bytes": 454976
+        },
+        {
+          "name": "msvcr120.dll",
+          "bits": 32,
+          "sha256": "82225ec7e2da43a7a72a3d523698747512523afa488767ca6839c63a7a5706fa",
+          "bytes": 971072
+        },
+        {
+          "name": "vcamp120.dll",
+          "bits": 32,
+          "sha256": "51d835efc3ee4dea0d824b2d6bc3d548f9cc39ec1c6f1ae912ccb6adb88d9bf7",
+          "bytes": 339624
+        },
+        {
+          "name": "vccorlib120.dll",
+          "bits": 32,
+          "sha256": "8fff79ae09aaebe11f4b352f32f16659fd49e71691796fdddb4f8e75f0ee9c98",
+          "bytes": 247984
+        },
+        {
+          "name": "vcomp120.dll",
+          "bits": 32,
+          "sha256": "11eefb5ae4d0b237ae08aabd46674fef76593af0992f48588174c5bb28dab053",
+          "bytes": 119968
+        }
+      ]
+    },
+    {
+      "id": "vc14-x64",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/ebdab8e5-1d7b-4d9f-a11b-cbb1720c3b12/843068991DAAA1F73AD9F6239BCE4D0F6A07A51F18C37EA2A867E9BECA71295C/VC_redist.x64.exe",
+      "sha256": "843068991daaa1f73ad9f6239bce4d0f6a07a51f18c37ea2a867e9beca71295c",
+      "bytes": 18731856,
+      "family": "vc14",
+      "bits": 64,
+      "files": [
+        {
+          "name": "concrt140.dll",
+          "bits": 64,
+          "sha256": "54716f0738af891f283d213b5c8d11b25896bb8ee3097d301eae718560cf974e",
+          "bytes": 374200
+        },
+        {
+          "name": "mfc140.dll",
+          "bits": 64,
+          "sha256": "b784303d86232a1b316c79839aa78bf631b4fc182e55d9d947688adb066dff26",
+          "bytes": 5563320
+        },
+        {
+          "name": "mfc140u.dll",
+          "bits": 64,
+          "sha256": "fc5848eb58982e193cdfe73f1f26cd04fce4e196f717f42b89ae27315cd52f6f",
+          "bytes": 5597112
+        },
+        {
+          "name": "mfcm140.dll",
+          "bits": 64,
+          "sha256": "f557dc0683bd9bc7fee24a78909230100ae6157e5f683f7c552830946d4ef7c7",
+          "bytes": 96184
+        },
+        {
+          "name": "mfcm140u.dll",
+          "bits": 64,
+          "sha256": "f5078a1e61b7086abc56993016009a219788aa7c3f5f05e916e759db4b8cd4f0",
+          "bytes": 96184
+        },
+        {
+          "name": "msvcp140.dll",
+          "bits": 64,
+          "sha256": "7c26614e1d733892c2deac7e245ce115504b1d80592dd0a01b08e3e5a55f89ca",
+          "bytes": 643512
+        },
+        {
+          "name": "msvcp140_1.dll",
+          "bits": 64,
+          "sha256": "206c931bf90fdad8816de3b5e2ef80b2bcaa9406c89ecc05fe6fddffe251e982",
+          "bytes": 35768
+        },
+        {
+          "name": "msvcp140_2.dll",
+          "bits": 64,
+          "sha256": "d50d7883f20d1dc6191768d3746f52dd9cac89c346ffaed5be1f110c2f34a838",
+          "bytes": 274872
+        },
+        {
+          "name": "msvcp140_atomic_wait.dll",
+          "bits": 64,
+          "sha256": "3d0cbfaa1bf3eecf5a3f4491d2960ee803cb994f30292c6adc4a07c498f60e2b",
+          "bytes": 57792
+        },
+        {
+          "name": "msvcp140_codecvt_ids.dll",
+          "bits": 64,
+          "sha256": "8a65c7596ef2e6938731f5a1058e7e40145b6d97967cc649231a076b9a608d78",
+          "bytes": 31160
+        },
+        {
+          "name": "vcamp140.dll",
+          "bits": 64,
+          "sha256": "dc283ffb87e9b82e687ed4e899ae062a209aa338207abfc9a89d61407d678bd4",
+          "bytes": 417728
+        },
+        {
+          "name": "vccorlib140.dll",
+          "bits": 64,
+          "sha256": "09f93d5ff96ae09767f3e1af3cdd43a5a58f2598654fc63089429bb6f9f4737f",
+          "bytes": 350648
+        },
+        {
+          "name": "vcomp140.dll",
+          "bits": 64,
+          "sha256": "95d4ce4a6802d1e18b5e0e1722cc30ea72ca7e033f83828f05c0b7b993fe7cbf",
+          "bytes": 212920
+        },
+        {
+          "name": "vcruntime140.dll",
+          "bits": 64,
+          "sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7",
+          "bytes": 178616
+        },
+        {
+          "name": "vcruntime140_1.dll",
+          "bits": 64,
+          "sha256": "60c70e34e2e156f8bd214b92c2125c252e17d86ac8a25799ea1a4ecabde1d97c",
+          "bytes": 53600
+        },
+        {
+          "name": "vcruntime140_threads.dll",
+          "bits": 64,
+          "sha256": "40f39e8cee5f5a531b4010e18b807e8fe265b908dc58f959ecb7ebc6ea6cb11a",
+          "bytes": 38840
+        }
+      ]
+    },
+    {
+      "id": "vc14-x86",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6ad63323-a427-4c58-8464-9f1f19f62359/F0BAB33A302B3CDB2E11113760D016F54FD3D2632C65BA7834FAC4F0ABD7F1A3/VC_redist.x86.exe",
+      "sha256": "f0bab33a302b3cdb2e11113760d016f54fd3d2632c65ba7834fac4f0abd7f1a3",
+      "bytes": 6941536,
+      "family": "vc14",
+      "bits": 32,
+      "files": [
+        {
+          "name": "concrt140.dll",
+          "bits": 32,
+          "sha256": "63de7cc3187265b1b1871b84a11b8a91d8f249018dcfb34e910bf3eb2a193d11",
+          "bytes": 314816
+        },
+        {
+          "name": "mfc140.dll",
+          "bits": 32,
+          "sha256": "32650fb886bf4a721a55883140fdaba285fb3829b91f3e4940e56fb8d2023410",
+          "bytes": 4855744
+        },
+        {
+          "name": "mfc140u.dll",
+          "bits": 32,
+          "sha256": "c5822d9f3965a6982623c2d691df397f3e71c35f1b552f74dc24e5e7e40f07ff",
+          "bytes": 4882368
+        },
+        {
+          "name": "mfcm140.dll",
+          "bits": 32,
+          "sha256": "15a3438baa505f61cb0817ad03be202199f6cb5e173b4bb5ae036dd505e1cb93",
+          "bytes": 86976
+        },
+        {
+          "name": "mfcm140u.dll",
+          "bits": 32,
+          "sha256": "6bd9de73c4471b8e5c9223d020cde010c052f849ea3f279fe785c9e2602b9d50",
+          "bytes": 86976
+        },
+        {
+          "name": "msvcp140.dll",
+          "bits": 32,
+          "sha256": "f0cda2a0cf1fe6fbbf579b9098462329d3aaa7513a207af2e0f33b01456e388a",
+          "bytes": 618944
+        },
+        {
+          "name": "msvcp140_1.dll",
+          "bits": 32,
+          "sha256": "b08edd7954ae9954d24eb344a8b0116a980c60179ff1b92d5219639e21028cc2",
+          "bytes": 33728
+        },
+        {
+          "name": "msvcp140_2.dll",
+          "bits": 32,
+          "sha256": "5e3c52721f03d5f546d64dfdfa38302b1fc3eb79dc44a1ec7a3af69abb9653fe",
+          "bytes": 261056
+        },
+        {
+          "name": "msvcp140_atomic_wait.dll",
+          "bits": 32,
+          "sha256": "e1142584f337b9b650d6d888652cb24f7b16a7dd93476840a050047bb00f0463",
+          "bytes": 57272
+        },
+        {
+          "name": "msvcp140_codecvt_ids.dll",
+          "bits": 32,
+          "sha256": "d4874db10c63990323696984eb2e2e799d952a1846437924c92153065b7259e4",
+          "bytes": 30648
+        },
+        {
+          "name": "vcamp140.dll",
+          "bits": 32,
+          "sha256": "80ce7e8ef6a31b4beb725b408104da91f7db53891ce024554e3b21196492958f",
+          "bytes": 379320
+        },
+        {
+          "name": "vccorlib140.dll",
+          "bits": 32,
+          "sha256": "d50aab1e201dfb268d6010d4c3b5bf7a3fb8dd1f38296135b43c9e29821e5586",
+          "bytes": 287160
+        },
+        {
+          "name": "vcomp140.dll",
+          "bits": 32,
+          "sha256": "da9157373ab71f97f8920688f3d6f4057e3eb2ddd32895379ab9c15e69d598cd",
+          "bytes": 186304
+        },
+        {
+          "name": "vcruntime140.dll",
+          "bits": 32,
+          "sha256": "2fa6efc053203460a23d3a25158f227d895d2dadc63acc1a372da97c3a4281c3",
+          "bytes": 123328
+        },
+        {
+          "name": "vcruntime140_threads.dll",
+          "bits": 32,
+          "sha256": "7c372b0547fb45abd06e4bbdf5475cc99c3a915c998ef7e5c263de4762944e3b",
+          "bytes": 36280
+        }
+      ]
+    },
+    {
+      "id": "vc80-x64",
+      "url": "https://download.microsoft.com/download/8/b/4/8b42259f-5d70-43f4-ac2e-4b208fd8d66a/vcredist_x64.EXE",
+      "sha256": "4487570bd86e2e1aac29db2a1d0a91eb63361fcaac570808eb327cd4e0e2240d",
+      "bytes": 3179000,
+      "family": "vc80",
+      "bits": 64,
+      "files": [
+        {
+          "name": "atl80.dll",
+          "bits": 64,
+          "sha256": "9a306e9c79df259187839ec74b7a9f2fcebfa5ee54184bb46c48e605b4120c36",
+          "bytes": 113664
+        },
+        {
+          "name": "mfc80.dll",
+          "bits": 64,
+          "sha256": "22b9a40cce2c79d2dfa42b653ce02b7b2d78faf15a0762a00b6b7d8bb6d4cf51",
+          "bytes": 1658368
+        },
+        {
+          "name": "mfc80u.dll",
+          "bits": 64,
+          "sha256": "1181542d9cfd63fb00c76242567446513e6773ea37db6211545629ba2ecf26a1",
+          "bytes": 1654784
+        },
+        {
+          "name": "mfcm80.dll",
+          "bits": 64,
+          "sha256": "c15707cd0df5c35a4a1a7e74330df4ce27668c6d95d35cc72664efcb08d5dde0",
+          "bytes": 65024
+        },
+        {
+          "name": "mfcm80u.dll",
+          "bits": 64,
+          "sha256": "51df1ca5507ac1525baf2727abb6e2ee10f9354ca98089d75448dec86967087e",
+          "bytes": 63488
+        },
+        {
+          "name": "microsoft.vc80.atl.manifest",
+          "bits": 64,
+          "sha256": "2533db8081d4e5ad6a398b30f111a7b9a2ec4845e50a83b9ea1a59ee109e8720",
+          "bytes": 468,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc80.crt.manifest",
+          "bits": 64,
+          "sha256": "166a9aab866eff598cc4f351741255bb7d9995c5dc2328b818bcedb03eab9b4e",
+          "bytes": 1872,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc80.mfc.manifest",
+          "bits": 64,
+          "sha256": "864b736f4a81101d4d11ba0785c0d71c1b8ac2bcfe07114f0d55790762985a1c",
+          "bytes": 2374,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc80.mfcloc.manifest",
+          "bits": 64,
+          "sha256": "ae42f6cb2fc2cf833a3fb68c0a0dd37b5aa5f53c4ff28dec310fe7f246368e06",
+          "bytes": 1242,
+          "kind": "manifest"
+        },
+        {
+          "name": "msvcm80.dll",
+          "bits": 64,
+          "sha256": "835195907e9f3731a07e590e4bf15a3ebce17f53d3bb6cd6ef7cfb26fbde1f55",
+          "bytes": 515072
+        },
+        {
+          "name": "msvcp80.dll",
+          "bits": 64,
+          "sha256": "40f6502679cee0b657b0005278fbe7213bdda6deaacf868058e17737c182e1b4",
+          "bytes": 1068368
+        },
+        {
+          "name": "msvcr80.dll",
+          "bits": 64,
+          "sha256": "690f12c490bee2bf17ab7b6804e6e9b96f51c304350ccde80fe5c7eefa89720e",
+          "bytes": 802640
+        }
+      ]
+    },
+    {
+      "id": "vc80-x86",
+      "url": "https://download.microsoft.com/download/8/b/4/8b42259f-5d70-43f4-ac2e-4b208fd8d66a/vcredist_x86.EXE",
+      "sha256": "8648c5fc29c44b9112fe52f9a33f80e7fc42d10f3b5b42b2121542a13e44adfd",
+      "bytes": 2710520,
+      "family": "vc80",
+      "bits": 32,
+      "files": [
+        {
+          "name": "atl80.dll",
+          "bits": 32,
+          "sha256": "fcab2130fab57b6728c50d5b9e9924f001c43538de4f675de03537ff0d9b84bd",
+          "bytes": 97280
+        },
+        {
+          "name": "mfc80.dll",
+          "bits": 32,
+          "sha256": "8204dbcc054c1e54b6065bacb78c55716681ad91759e25111b4e4797e51d0aa3",
+          "bytes": 1101824
+        },
+        {
+          "name": "mfc80u.dll",
+          "bits": 32,
+          "sha256": "52d1a8aa992af2f727da4b16522d604648d700997b1620ccb67d05838c127674",
+          "bytes": 1093120
+        },
+        {
+          "name": "mfcm80.dll",
+          "bits": 32,
+          "sha256": "be1faa17b466e56da8259cdc1f1b02ee0deb4c5e022e6eb3b82643ef508c8bea",
+          "bytes": 69632
+        },
+        {
+          "name": "mfcm80u.dll",
+          "bits": 32,
+          "sha256": "ab8bb84e0131a72114b3eb399f120b9cedd0250fb91a6cd528b4e3e98ef913cd",
+          "bytes": 57856
+        },
+        {
+          "name": "microsoft.vc80.atl.manifest",
+          "bits": 32,
+          "sha256": "d00269babdb5f3eb1cdd535260124b4b5fa599f2af8605ba468949d64f6eacbf",
+          "bytes": 466,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc80.crt.manifest",
+          "bits": 32,
+          "sha256": "aa8e944adfeed4b29cc9262c63f43ed752f8ef44d52fd868e41bdf1ea974d1b0",
+          "bytes": 1870,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc80.mfc.manifest",
+          "bits": 32,
+          "sha256": "e424ef35e909c5863c2668b34f316e9ba507a29c924dfd0970219b0f1898c619",
+          "bytes": 2372,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc80.mfcloc.manifest",
+          "bits": 32,
+          "sha256": "7fdc0b814cae706a97f75df902e07d5e95a2da216dad20d3cb5a2be8d248468e",
+          "bytes": 1240,
+          "kind": "manifest"
+        },
+        {
+          "name": "msvcm80.dll",
+          "bits": 32,
+          "sha256": "7dcb3c45938d31854e46b5e5b0e16d538e29230d1bc81086d40c8db3bdf510bc",
+          "bytes": 479232
+        },
+        {
+          "name": "msvcp80.dll",
+          "bits": 32,
+          "sha256": "372af797353f9335915cd06d4076bab8410775dcaf2dac0593197d7c41bbffb2",
+          "bytes": 554832
+        },
+        {
+          "name": "msvcr80.dll",
+          "bits": 32,
+          "sha256": "c3ac989c8489a23bb96400b1856f5325ffc67e844f04651ea5d61bc20a991c6d",
+          "bytes": 632656
+        }
+      ]
+    },
+    {
+      "id": "vc90-x64",
+      "url": "https://download.microsoft.com/download/5/D/8/5D8C65CB-C849-4025-8E95-C3966CAFD8AE/vcredist_x64.exe",
+      "sha256": "c5e273a4a16ab4d5471e91c7477719a2f45ddadb76c7f98a38fa5074a6838654",
+      "bytes": 5211080,
+      "family": "vc90",
+      "bits": 64,
+      "files": [
+        {
+          "name": "atl90.dll",
+          "bits": 64,
+          "sha256": "a3bb9203ba7b31a9e419f03c8902c656b0597b312b4e58a2b2d0163ecc9cee67",
+          "bytes": 176456
+        },
+        {
+          "name": "mfc90.dll",
+          "bits": 64,
+          "sha256": "8db1eb12ae13e0699fbbe9fde717465c8b3df9e760a74e1b0ba2f7f1ad46b9e4",
+          "bytes": 5086536
+        },
+        {
+          "name": "mfc90u.dll",
+          "bits": 64,
+          "sha256": "c29901a0e404d9943921cdf8fee4d627994c7643baf08c5e299aca6efbf30d36",
+          "bytes": 5104968
+        },
+        {
+          "name": "mfcm90.dll",
+          "bits": 64,
+          "sha256": "adc945fbd0daeb2619bec2c300ce0e35ee186e69da6a84c73b402a64983fbf22",
+          "bytes": 67072
+        },
+        {
+          "name": "mfcm90u.dll",
+          "bits": 64,
+          "sha256": "89a65c7222221a3cb00aa24f6c926745dbd25604b2b7d5073068cd86ac597190",
+          "bytes": 67072
+        },
+        {
+          "name": "microsoft.vc90.atl.manifest",
+          "bits": 64,
+          "sha256": "68ee9652573c43792996a13d5268ba794e99e46af95317fa3b02972d22d6c121",
+          "bytes": 858,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc90.crt.manifest",
+          "bits": 64,
+          "sha256": "ebdc380c42f68788f5b85aa4e5879c6dd395a58dc33ca7608148c0b1fa563979",
+          "bytes": 1862,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc90.mfc.manifest",
+          "bits": 64,
+          "sha256": "2fe8d6d1b7156082f8451717b953dd1d83e7afa06c8fd69aa3fc6b1e32d16eb4",
+          "bytes": 2359,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc90.mfcloc.manifest",
+          "bits": 64,
+          "sha256": "a2366d6253bebdf84a95468fc42f8c14464d9920e37a542f86ea062e06fbcfbf",
+          "bytes": 5884,
+          "kind": "manifest"
+        },
+        {
+          "name": "msvcm90.dll",
+          "bits": 64,
+          "sha256": "47b4e80f1173532365fceedaeeb495bdaefac4d362eb62bb92f4fea589d2c104",
+          "bytes": 245760
+        },
+        {
+          "name": "msvcp90.dll",
+          "bits": 64,
+          "sha256": "b3f4fda27430acc6d6bc1c3cbd518b9cae5ba0f22ab8917578a7f16270f94c8b",
+          "bytes": 853328
+        },
+        {
+          "name": "msvcr90.dll",
+          "bits": 64,
+          "sha256": "5330682ae9c08e5f2e30c5e256b91028389bbbddaa8c38950df76616fca854ff",
+          "bytes": 641360
+        },
+        {
+          "name": "vcomp90.dll",
+          "bits": 64,
+          "sha256": "eea76d9dff3d55a3dedd959d25e2eff5741c9b33777fd13b5b4ce5379658a4d3",
+          "bytes": 56656
+        }
+      ]
+    },
+    {
+      "id": "vc90-x86",
+      "url": "https://download.microsoft.com/download/5/D/8/5D8C65CB-C849-4025-8E95-C3966CAFD8AE/vcredist_x86.exe",
+      "sha256": "8742bcbf24ef328a72d2a27b693cc7071e38d3bb4b9b44dec42aa3d2c8d61d92",
+      "bytes": 4483040,
+      "family": "vc90",
+      "bits": 32,
+      "files": [
+        {
+          "name": "atl90.dll",
+          "bits": 32,
+          "sha256": "81521b27f6de4f2451c5441dfa93781b6687ee8f9ae62a8fe76d61de7965e6ef",
+          "bytes": 159048
+        },
+        {
+          "name": "mfc90.dll",
+          "bits": 32,
+          "sha256": "a1a6f3e18b097ab046e8771a01f8b727a44348b28b82b5beb15ee311ad27cdd6",
+          "bytes": 3766600
+        },
+        {
+          "name": "mfc90u.dll",
+          "bits": 32,
+          "sha256": "0ea4cd410da764916ea201c0c1e16752e0d3dc9d8571510782af4aae62509af7",
+          "bytes": 3781960
+        },
+        {
+          "name": "mfcm90.dll",
+          "bits": 32,
+          "sha256": "4e1455f9f205a501ad0079b4b918943a752cd3f3bfece8b36397e5700c9f09f1",
+          "bytes": 59904
+        },
+        {
+          "name": "mfcm90u.dll",
+          "bits": 32,
+          "sha256": "06d0444c7c7c84b9dfbb231245368f04529c505daefe4fb52cc459e487838008",
+          "bytes": 59904
+        },
+        {
+          "name": "microsoft.vc90.atl.manifest",
+          "bits": 32,
+          "sha256": "4e86fc96e5fa63966fd9cb34136d22a4a7a5e3107ba9dcf38089399f1d7c3f7d",
+          "bytes": 856,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc90.crt.manifest",
+          "bits": 32,
+          "sha256": "0c838c4262f99f27495a7c2a1bf4ec8f482d1c9bc2493c3c19b9360f1a06b8eb",
+          "bytes": 1860,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc90.mfc.manifest",
+          "bits": 32,
+          "sha256": "fe3f3fb142a2ed91c5fa5950002b616ed14ef853c739ac908c846c16179e34b2",
+          "bytes": 2357,
+          "kind": "manifest"
+        },
+        {
+          "name": "microsoft.vc90.mfcloc.manifest",
+          "bits": 32,
+          "sha256": "04fbcbf2a9dd6bddff4104d8c062d3dbec52bcffc68d75452ecdbe28a173a830",
+          "bytes": 5882,
+          "kind": "manifest"
+        },
+        {
+          "name": "msvcm90.dll",
+          "bits": 32,
+          "sha256": "7a74da389fbd10a710c294c2e914dc6f18e05f028f07958a2fa53ac44f0e4b90",
+          "bytes": 225280
+        },
+        {
+          "name": "msvcp90.dll",
+          "bits": 32,
+          "sha256": "06918cf99ad26cd6cf106881c0d5bdb212dc0bac4549805c9f5906e3d03d152c",
+          "bytes": 569680
+        },
+        {
+          "name": "msvcr90.dll",
+          "bits": 32,
+          "sha256": "8e7fe1a1f3550c479ffd86a77bc9d10686d47f8727025bb891d8f4f0259354c8",
+          "bytes": 653136
+        },
+        {
+          "name": "vcomp90.dll",
+          "bits": 32,
+          "sha256": "9140efe26252b6329da254201219fc2d17a3f651e1591e32ae04c86a27e35bb2",
+          "bytes": 51024
+        }
+      ]
+    }
+  ]
+}

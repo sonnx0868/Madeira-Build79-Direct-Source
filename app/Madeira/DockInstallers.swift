@@ -923,7 +923,7 @@ enum FolderComponents {
 
     private static func bundleNames(bits: Int, resource: URL?) -> Set<String> {
         guard let resource else { return [] }
-        var folders = bits == 32 ? ["i386-windows", "aarch64-windows"] : ["arm64ec-windows", "aarch64-windows", "x86_64-vcruntime"]
+        var folders = bits == 32 ? ["i386-windows"] : ["arm64ec-windows", "aarch64-windows", "x86_64-vcruntime"]
         if bits == 0 { folders += ["i386-windows"] }
         var result = Set<String>()
         for folder in folders {

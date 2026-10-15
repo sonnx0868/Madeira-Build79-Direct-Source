@@ -160,6 +160,16 @@
 		B1000786 /* EpicInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000786 /* EpicInstaller.swift */; };
 		D1100710 /* GameLogArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100710 /* GameLogArchive.swift */; };
 		D1100711 /* GOGStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100711 /* GOGStore.swift */; };
+		D1710001 /* RuntimePreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1720001; };
+		D1710002 /* RuntimePreparationUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1720002; };
+		D1710003 /* RuntimeCabinet.c in Sources */ = {isa = PBXBuildFile; fileRef = D1720003; };
+		D1710004 /* RuntimeMono.m in Sources */ = {isa = PBXBuildFile; fileRef = D1720004; };
+		D1710005 /* vendor/mspack/system.c in Sources */ = {isa = PBXBuildFile; fileRef = D1720005; };
+		D1710006 /* vendor/mspack/cabd.c in Sources */ = {isa = PBXBuildFile; fileRef = D1720006; };
+		D1710007 /* vendor/mspack/mszipd.c in Sources */ = {isa = PBXBuildFile; fileRef = D1720007; };
+		D1710008 /* vendor/mspack/lzxd.c in Sources */ = {isa = PBXBuildFile; fileRef = D1720008; };
+		D1710009 /* vendor/mspack/qtmd.c in Sources */ = {isa = PBXBuildFile; fileRef = D1720009; };
+		D171000A /* RuntimeCatalog.json in Resources */ = {isa = PBXBuildFile; fileRef = D172000A; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -366,6 +376,16 @@
 		B2000786 /* EpicInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Epic/EpicInstaller.swift; sourceTree = "<group>"; };
 		D2100710 /* GameLogArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLogArchive.swift; sourceTree = "<group>"; };
 		D2100711 /* GOGStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GOG/GOGStore.swift; sourceTree = "<group>"; };
+		D1720001 /* RuntimePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RuntimePreparation.swift"; sourceTree = "<group>"; };
+		D1720002 /* RuntimePreparationUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RuntimePreparationUI.swift"; sourceTree = "<group>"; };
+		D1720003 /* RuntimeCabinet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "RuntimeCabinet.c"; sourceTree = "<group>"; };
+		D1720004 /* RuntimeMono.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "RuntimeMono.m"; sourceTree = "<group>"; };
+		D1720005 /* vendor/mspack/system.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "vendor/mspack/system.c"; sourceTree = "<group>"; };
+		D1720006 /* vendor/mspack/cabd.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "vendor/mspack/cabd.c"; sourceTree = "<group>"; };
+		D1720007 /* vendor/mspack/mszipd.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "vendor/mspack/mszipd.c"; sourceTree = "<group>"; };
+		D1720008 /* vendor/mspack/lzxd.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "vendor/mspack/lzxd.c"; sourceTree = "<group>"; };
+		D1720009 /* vendor/mspack/qtmd.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "vendor/mspack/qtmd.c"; sourceTree = "<group>"; };
+		D172000A /* RuntimeCatalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "RuntimeCatalog.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -482,6 +502,16 @@
 				A200060D /* SteamLibraryFetcher.swift */,
 				A2000522 /* SteamKeyValues.swift */,
 				A2000523 /* SteamRuntime.swift */,
+				D1720001 /* RuntimePreparation.swift */,
+				D1720002 /* RuntimePreparationUI.swift */,
+				D1720003 /* RuntimeCabinet.c */,
+				D1720004 /* RuntimeMono.m */,
+				D1720005 /* vendor/mspack/system.c */,
+				D1720006 /* vendor/mspack/cabd.c */,
+				D1720007 /* vendor/mspack/mszipd.c */,
+				D1720008 /* vendor/mspack/lzxd.c */,
+				D1720009 /* vendor/mspack/qtmd.c */,
+				D172000A /* RuntimeCatalog.json */,
 				A2000524 /* DockInstallers.swift */,
 				A2000510 /* SteamSignIn.swift */,
 				A2000511 /* SteamSignInView.swift */,
@@ -725,6 +755,7 @@
 				A10000D2 /* licenses in Resources */,
 				C1000E04 /* gl in Resources */,
 				D1100721 /* mono in Resources */,
+				D171000A /* RuntimeCatalog.json in Resources */,
 				A1000081 /* x86_64-vcruntime in Resources */,
 				A1000040 /* prefix-template.tar.gz in Resources */,
 				A1000094 /* cacert.pem in Resources */,
@@ -823,6 +854,15 @@
 				A100060D /* SwiftSteam/Library/SteamLibraryFetcher.swift in Sources */,
 				A1000522 /* SteamKeyValues.swift in Sources */,
 				A1000523 /* SteamRuntime.swift in Sources */,
+				D1710001 /* RuntimePreparation.swift in Sources */,
+				D1710002 /* RuntimePreparationUI.swift in Sources */,
+				D1710003 /* RuntimeCabinet.c in Sources */,
+				D1710004 /* RuntimeMono.m in Sources */,
+				D1710005 /* vendor/mspack/system.c in Sources */,
+				D1710006 /* vendor/mspack/cabd.c in Sources */,
+				D1710007 /* vendor/mspack/mszipd.c in Sources */,
+				D1710008 /* vendor/mspack/lzxd.c in Sources */,
+				D1710009 /* vendor/mspack/qtmd.c in Sources */,
 				A1000524 /* DockInstallers.swift in Sources */,
 				A1000510 /* SwiftSteam/SteamSignIn.swift in Sources */,
 				A1000511 /* SwiftSteam/SteamSignInView.swift in Sources */,
@@ -968,6 +1008,7 @@
 				DEVELOPMENT_TEAM = V8NU3FX3TL;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Madeira/vendor/mspack",
 					"$(inherited)",
 					"$(SRCROOT)/../FEX/FEXCore/include",
 					"$(SRCROOT)/../FEX/FEXHeaderUtils",
@@ -1019,6 +1060,7 @@
 				DEVELOPMENT_TEAM = V8NU3FX3TL;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Madeira/vendor/mspack",
 					"$(inherited)",
 					"$(SRCROOT)/../FEX/FEXCore/include",
 					"$(SRCROOT)/../FEX/FEXHeaderUtils",

@@ -3488,6 +3488,7 @@ struct LibraryView: View {
         .sheet(isPresented: $browser) {
             NavigationStack { ExecutableBrowser(folder: LibraryModel.drive) { entry in
                 model.save(entry); browser = false; selected = entry
+                GameComponentPreparation.shared.enqueue(entry)
             } }
         }
         .sheet(isPresented: $manageGenres) { LibraryGenresView() }
@@ -3511,7 +3512,8 @@ struct LibraryView: View {
                 // Not while Play is still enabling JIT: the session's start, an error, or
                 // JIT setup closes the page then.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
-                    if selected?.id == entry.id, model.startingJIT != entry.id { selected = nil }
+                    if selected?.id == entry.id, model.startingJIT != entry.id,
+                       GameComponentPreparation.shared.status[entry.id]?.busy != true { selected = nil }
                 }
             })
         }
@@ -3666,6 +3668,7 @@ struct LibraryDetail: View {
     var play: (LibraryEntry) -> Void
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var model = LibraryModel.shared
+    @ObservedObject private var componentPreparation = GameComponentPreparation.shared
     @State private var importCover = false
     @State private var findCover = false
     @State private var remove = false
@@ -3814,7 +3817,10 @@ struct LibraryDetail: View {
                             Button(action: start) {
                                 HStack(spacing: 10) {
                                     // Enabling JIT can take seconds with nothing else on screen.
-                                    if model.startingJIT == entry.id {
+                                    if componentPreparation.status[entry.id]?.busy == true {
+                                        ProgressView().tint(.white)
+                                        Text("Preparing components").fontWeight(.semibold)
+                                    } else if model.startingJIT == entry.id {
                                         ProgressView().tint(.white)
                                         Text("Starting JIT").fontWeight(.semibold)
                                     } else {
@@ -3849,6 +3855,9 @@ struct LibraryDetail: View {
                 if let epic = entry.epicAppName {
                     EpicEntrySection(appName: epic, run: { prerequisite in leaving = true; play(prerequisite) },
                         leave: { leaving = true; dismiss() })
+                }
+                if entry.desktop != true && entry.temporarySession != true {
+                    GameComponentPreparationSection(entry: entry)
                 }
                 if entry.desktop != true && entry.steamAppID == nil {
                     ExternalSteamSessionSection(entry: $entry)
@@ -3910,7 +3919,7 @@ struct LibraryDetail: View {
                             Text(componentMessage).font(.caption).foregroundStyle(.green).textSelection(.enabled)
                         }
                     } header: { Text("Components & installers") } footer: {
-                        Text("Installers run in a Wine virtual desktop and use this app run's single Wine session. Restart Madeira before launching the game. Dependency status comes from PE imports; Madeira never downloads or copies a Windows System32 DLL automatically.")
+                        Text("Automatic components are prepared before JIT. Optional installers selected here run in a Wine desktop and use a Wine session; restart Madeira afterward. Existing game DLLs are preserved.")
                     }
                 }
                 Section("Display") {

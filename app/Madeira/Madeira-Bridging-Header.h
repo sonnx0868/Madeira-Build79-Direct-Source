@@ -9,6 +9,8 @@
 #import "SwiftSteam/lzma_shim.h"
 // On-device remote pairing for Built-in StikJIT (build/rppairing-ios, JITPairing.swift).
 #import "MadeiraRPPairing.h"
+#import "RuntimeCabinet.h"
+int madeira_runtime_prepare_mono(const char *bundle, const char *prefix);
 
 // Wine file-based logging (server_ios.c)
 void wine_log_set_file(const char *path);
