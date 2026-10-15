@@ -63,11 +63,18 @@ counters remain available to verify the deployed behavior.
 
 `check-guest-main-qos.py` extracts the production creation block and QoS
 probe into a C program, then runs actual pthread/Mach APIs on macOS. It first
-reproduces the old fixed-priority thread and its failed QoS promotion. It then
+reproduces the old fixed-scheduling attributes and failed QoS promotion. It then
 requires the production pthread to start with USER_INTERACTIVE even before
-self-promotion, accept that promotion, and have native priority above 20.
+self-promotion, accept that promotion, and have native priority above the
+legacy thread on that host.
 The IPA workflow requires this Darwin check. Windows explicitly skips it;
 a Windows source check is not a substitute for the runtime result.
+
+Bitrise #67 reproduced EPERM and unspecified QoS for the old attributes, but
+macOS reported inherited priority 31 rather than the iPad's observed 20. Its
+overly specific legacy-priority assertion failed before the production thread
+ran; no IPA from that run was released. The fixture now compares observed
+priorities on the same host and retains the exact EPERM/QoS requirements.
 
 The QoS request does not pin a core or bypass iOS power/thermal policy. This
 corrects a demonstrated scheduling mismatch, but an FPS gain and stable 60

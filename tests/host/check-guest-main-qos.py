@@ -37,8 +37,9 @@ fixture = r'''
 #include <unistd.h>
 '''+function('static void madeira_guest_main_qos(void)')+r'''
 static pthread_t g_wine_thread;
-static int legacy;
+static int legacy, legacyPriority;
 static void *wine_process_thread(void *unused) {
+    (void)unused;
     qos_class_t before = QOS_CLASS_UNSPECIFIED, after = QOS_CLASS_UNSPECIFIED;
     int relative = 0;
     assert(pthread_get_qos_class_np(pthread_self(), &before, &relative) == 0);
@@ -53,11 +54,14 @@ static void *wine_process_thread(void *unused) {
            legacy ? "legacy" : "production", before, setStatus, after, relative, ext.pth_priority);
     if (legacy) {
         assert(before == QOS_CLASS_UNSPECIFIED && after == QOS_CLASS_UNSPECIFIED);
-        assert(setStatus == EPERM && ext.pth_priority == 20);
+        assert(setStatus == EPERM);
+        // macOS may inherit priority 31 despite the attribute requesting 20;
+        // iPad build 685 actually reports 20. Both lose the QoS class.
+        legacyPriority = ext.pth_priority;
     } else {
         // The new pthread must have QoS even before its first self-promotion.
         assert(before == QOS_CLASS_USER_INTERACTIVE && after == QOS_CLASS_USER_INTERACTIVE);
-        assert(setStatus == 0 && relative == 0 && ext.pth_priority > 20);
+        assert(setStatus == 0 && relative == 0 && ext.pth_priority > legacyPriority);
     }
     return NULL;
 }
