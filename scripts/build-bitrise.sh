@@ -88,6 +88,7 @@ else
   xcrun -sdk macosx metal -v >/dev/null
   timed submodules git submodule update --init FEX wine dxmt madeira-dock
   timed wine-patches bash scripts/apply-wine-patches.sh
+  timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
   if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = query-refresh || "$mode" = loader-refresh ]]; then
