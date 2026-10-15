@@ -3622,6 +3622,40 @@ private struct LibraryPlayStyle: ButtonStyle {
     }
 }
 
+private struct ExternalSteamSessionSection: View {
+    @Binding var entry: LibraryEntry
+    @ObservedObject private var library = SteamOwnedLibrary.shared
+
+    private var enabled: Binding<Bool> {
+        Binding<Bool>(get: { entry.externalSteamAppID != nil }, set: { value in
+            guard value else { entry.externalSteamAppID = nil; return }
+            let executable = LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)
+            let detected = FolderSteamIdentity.appID(executable: executable)
+            entry.externalSteamAppID = detected ?? entry.steamID ?? 0
+        })
+    }
+    private var selection: Binding<Int> {
+        Binding<Int>(get: { entry.externalSteamAppID ?? 0 }, set: { entry.externalSteamAppID = $0 })
+    }
+    private var appIDText: Binding<String> {
+        Binding<String>(get: { String(entry.externalSteamAppID ?? 0) }, set: { entry.externalSteamAppID = Int($0) ?? 0 })
+    }
+    var body: some View {
+        Section("Steam session") {
+            Toggle("Run with signed-in Steam", isOn: enabled)
+            if entry.externalSteamAppID != nil {
+                Picker("Game in Steam", selection: selection) {
+                    Text("Choose a game").tag(0)
+                    ForEach(library.owned) { game in Text(game.name).tag(game.id) }
+                }
+                TextField("Steam App ID", text: appIDText).keyboardType(.numberPad)
+                Text("Steam signs in and checks this game's license, then Madeira starts this EXE with its saved arguments. Sign in under Settings › Steam first.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 struct LibraryDetail: View {
     @State var entry: LibraryEntry
     var play: (LibraryEntry) -> Void
@@ -3812,22 +3846,7 @@ struct LibraryDetail: View {
                         leave: { leaving = true; dismiss() })
                 }
                 if entry.desktop != true && entry.steamAppID == nil {
-                    Section("Steam session") {
-                        Toggle("Run with signed-in Steam", isOn: Binding(
-                            get: { entry.externalSteamAppID != nil },
-                            set: { entry.externalSteamAppID = $0 ? (FolderSteamIdentity.appID(executable: LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)) ?? entry.steamID ?? 0) : nil }))
-                        if entry.externalSteamAppID != nil {
-                            Picker("Game in Steam", selection: Binding(get: { entry.externalSteamAppID ?? 0 }, set: { entry.externalSteamAppID = $0 })) {
-                                Text("Choose a game").tag(0)
-                                ForEach(SteamOwnedLibrary.shared.owned) { game in Text(game.name).tag(game.id) }
-                            }
-                            TextField("Steam App ID", text: Binding(get: { entry.externalSteamAppID.map(String.init) ?? "" },
-                                set: { entry.externalSteamAppID = Int($0) ?? 0 }))
-                                .keyboardType(.numberPad)
-                            Text("Steam signs in and checks this game's license, then Madeira starts this EXE with its saved arguments. Sign in under Settings › Steam first.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
+                    ExternalSteamSessionSection(entry: $entry)
                     Section {
                         if componentsLoading {
                             HStack { ProgressView(); Text("Scanning PE dependencies…").foregroundStyle(.secondary) }
