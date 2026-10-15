@@ -6,6 +6,7 @@ mode="${1:-cached}"
 # Allow the existing stored Bitrise workflow to request this source refresh.
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_SIGNAL_REFRESH:-0}" = 1 ]]; then mode=signal-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_PACING_REFRESH:-0}" = 1 ]]; then mode=pacing-refresh; fi
+if [[ "$mode" = cached && "${MADEIRA_D3D11_QUERY_REFRESH:-0}" = 1 ]]; then mode=query-refresh; fi
 case "$mode" in
   cached) ipa=Madeira-v0.1.6-source.ipa ;;
   bootstrap) ipa=Madeira-v0.1.6-source-bootstrap.ipa ;;
@@ -14,6 +15,7 @@ case "$mode" in
   input-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   signal-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   pacing-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh|input-refresh|signal-refresh|pacing-refresh' >&2; exit 2 ;;
 esac
 
@@ -86,12 +88,13 @@ else
   timed wine-patches bash scripts/apply-wine-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh ]]; then
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = query-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
     [[ "$mode" != signal-refresh ]] || refresh=--refresh-signal
     [[ "$mode" != pacing-refresh ]] || refresh=--refresh-pacing
+    [[ "$mode" != query-refresh ]] || refresh=--refresh-query
     timed native-restore bash scripts/restore-native-deps.sh "$refresh"
     timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
     shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
@@ -117,7 +120,9 @@ checks() {
   echo 'PASS: production Wine bridge and REPLACED metrics compile against iPhoneOS SDK'
   python3 tests/host/check-wow64-restore.py
   python3 tests/host/check-present-pacing.py
+  python3 tests/host/check-d3d11-query-park.py
   python3 tools/dxmt-pacing-bundle.py --root "$root"
+  python3 tools/dxmt-query-bundle.py --root "$root"
   python3 tests/host/check-pe-launch.py
   python3 tests/host/check-unity-folder-profile.py
   python3 tests/host/check-game-process.py --require-objc

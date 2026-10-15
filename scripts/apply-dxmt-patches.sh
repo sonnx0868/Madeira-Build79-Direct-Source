@@ -7,7 +7,7 @@ for name in patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.
             build/dxmt-ios/pipeline-cache.patch patches/dxmt-metal-public-atomic.patch \
             build/dxmt-ios/pipeline-warmup.patch patches/dxmt-gpu-foreground.patch \
             patches/dxmt-submit-before-present.patch patches/dxmt-cached-cpu-mappings.patch \
-            patches/dxmt-producer-pacing.patch; do
+            patches/dxmt-producer-pacing.patch patches/dxmt-query-park.patch; do
     patch="$root/$name"
     if git -C "$root/dxmt" apply --reverse --check "$patch" >/dev/null 2>&1; then
         echo "DXMT patch already applied: $name"

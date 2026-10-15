@@ -36,3 +36,4 @@ done
 grep -a -q 'compiler-workers=v1' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
 grep -a -q 'commitBeforePresent=' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
 python3 "$root/tools/patch-dxmt-query-log.py" --check
+python3 "$root/tools/dxmt-query-bundle.py" --root "$root" --stamp

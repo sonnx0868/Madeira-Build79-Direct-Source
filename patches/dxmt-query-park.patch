@@ -1,0 +1,81 @@
+Bound repeated iOS D3D11 event-query polling with the existing Metal shared-event wait.
+
+diff --git a/src/d3d11/d3d11_query.hpp b/src/d3d11/d3d11_query.hpp
+--- a/src/d3d11/d3d11_query.hpp
++++ b/src/d3d11/d3d11_query.hpp
+@@ -124,6 +124,7 @@
+ struct MTLD3D11EventQuery : public ID3D11Query {
+   virtual void Issue(uint64_t current_seq_id) = 0;
+   virtual EventState CheckEventState(uint64_t coherent_seq_id) = 0;
++  virtual uint64_t PendingEventSeqId() const = 0;
+ };
+ 
+ template <typename DataType>
+@@ -139,6 +140,8 @@
+     should_be_signaled_at = current_seq_id;
+     stall_counter = 0;
+   }
++
++  uint64_t PendingEventSeqId() const override { return should_be_signaled_at; }
+ 
+   EventState CheckEventState(uint64_t coherent_seq_id) override {
+     if (state == QueryState::Undefined)
+diff --git a/src/dxmt/dxmt_command_queue.hpp b/src/dxmt/dxmt_command_queue.hpp
+--- a/src/dxmt/dxmt_command_queue.hpp
++++ b/src/dxmt/dxmt_command_queue.hpp
+@@ -264,6 +264,14 @@
+     return event.signaledValue();
+   };
+ 
++  // A bounded, event-driven alternative to millions of GetData retries.
++  // Metal returns as soon as this exact GPU event value is signaled; a
++  // timeout leaves the query pending. Never claims completion itself.
++  void WaitEventSlice(uint64_t value) {
++    if (event.signaledValue() < value)
++      event.waitUntilSignaledValue(value, 1); // maximum one millisecond
++  }
++
+   obj_handle_t GetSharedEventListener() {
+     return shared_event_listener;
+   }
+diff --git a/src/d3d11/d3d11_context_imm.cpp b/src/d3d11/d3d11_context_imm.cpp
+--- a/src/d3d11/d3d11_context_imm.cpp
++++ b/src/d3d11/d3d11_context_imm.cpp
+@@ -393,6 +393,9 @@
+       return E_INVALIDARG;
+ 
+     HRESULT hr = S_FALSE;
++#if defined(DXMT_IOS)
++    uint64_t wait_event = 0;
++#endif
+ 
+     D3D11_QUERY_DESC desc;
+     ((ID3D11Query *)pAsync)->GetDesc(&desc);
+@@ -404,6 +407,9 @@
+       case EventState::Pending:
+         break;
+       case EventState::Stall:
++#if defined(DXMT_IOS)
++        wait_event = static_cast<MTLD3D11EventQuery *>(pAsync)->PendingEventSeqId();
++#endif
+         GetDataFlags &= ~D3D11_ASYNC_GETDATA_DONOTFLUSH;
+         break;
+       case EventState::Signaled:
+@@ -459,6 +465,17 @@
+     if (hr == S_FALSE && (GetDataFlags & D3D11_ASYNC_GETDATA_DONOTFLUSH) == 0) {
+       cmd_queue.CurrentFrameStatistics().event_stall++;
+       Flush();
++#if defined(DXMT_IOS)
++      if (wait_event) {
++        // Preserve S_FALSE and output data; the next GetData must recheck the
++        // actual GPU watermark. Flush has released the device mutex before
++        // this bounded wait, so the encode/finish threads can make progress.
++        static std::atomic<bool> announced{false};
++        if (!announced.exchange(true, std::memory_order_relaxed))
++          Logger::info("[query-park-v1] repeated GPU event polling parks for at most 1ms; query completion is rechecked");
++        cmd_queue.WaitEventSlice(wait_event);
++      }
++#endif
+     }
+     return hr;
+   }
