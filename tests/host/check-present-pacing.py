@@ -29,6 +29,7 @@ fixture=r'''
 #include <string.h>
 #include "present_pacing.h"
 #define STDERR_FILENO 2
+#undef TARGET_OS_IOS
 #define TARGET_OS_IOS 1
 #ifdef _WIN32
 #define dprintf(fd,...) fprintf(stderr,__VA_ARGS__)
@@ -115,6 +116,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-present-pacing-') as tmp:
 #include <mach/mach_time.h>
 #include <sys/resource.h>
 #include "present_pacing.h"
+#undef TARGET_OS_IOS
 #define TARGET_OS_IOS 1
 static _Atomic int g_madeira_vsync_mode=1,g_madeira_panel_hz=120;
 static _Atomic uint64_t g_madeira_pacing_generation=1;
