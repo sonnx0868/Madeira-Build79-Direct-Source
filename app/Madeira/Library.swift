@@ -183,6 +183,8 @@ struct LibraryEntry: Codable, Identifiable {
     /// Session menu shows it and an edit is written back to it; nil for controls
     /// no layout holds. Older files have none.
     var controlLayout: String?
+    /// Nil identifies profiles made before Xbox became the session default.
+    var controlLayoutRevision: Int?
     var lastPlayed: Date?
     var graphicsAPI: String?
     var gameEngine: String?
@@ -1603,16 +1605,11 @@ final class LibraryModel: ObservableObject {
         fpsMode = entry.fpsMode; sessionMessage = "Starting…"
         opacity = min(max(entry.controlOpacity ?? 0.7, 0.15), 1)
         let controls = TouchControlsModel.shared
+        ControlPresetsModel.shared.applyDefaultIfNeeded(screen: ControlPresetsModel.currentScreen())
         savedControls = controls.controls; savedVisible = controls.visible; savedSize = controls.sizeScale
         savedLayout = controls.layoutID
-        if let profile = entry.controls {
-            controls.controls = profile
-            // The game's controls come with the layout they were loaded from (if that
-            // layout still exists), so a later edit is not written to another game's.
-            if ControlPresetsModel.enabled {
-                controls.layoutID = ControlPresetsModel.shared.store.resolvedID(entry.controlLayout)
-            }
-        }
+        ControlPresetsModel.shared.prepareSession(controls: entry.controls, layout: entry.controlLayout,
+                                                  revision: entry.controlLayoutRevision)
         controls.visible = entry.touchControls
         controls.sizeScale = min(max(entry.controlSize ?? 1, 0.5), 2)
         controllerBinds = GamepadInput.keyboardMouseAvailable ? (entry.controllerBinds ?? [:]) : [:]
@@ -1789,7 +1786,12 @@ final class LibraryModel: ObservableObject {
         let controls = TouchControlsModel.shared
         if let id = current, var entry = entries.first(where: { $0.id == id }) {
             entry.controls = controls.controls
-            if ControlPresetsModel.enabled { entry.controlLayout = controls.layoutID }
+            if ControlPresetsModel.enabled {
+                entry.controlLayout = controls.layoutID
+                if ControlPresetsModel.xboxDefaultsEnabled {
+                    entry.controlLayoutRevision = ControlPresetLayout.defaultRevision
+                }
+            }
             entry.touchControls = controls.visible
             entry.fpsMode = fpsMode; entry.performance = performance
             entry.overlayFields = overlayFields

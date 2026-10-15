@@ -71,11 +71,11 @@ controls** (`docs/LIBRARY.md`). Either one lists:
 - **Delete** for the active custom layout (confirmed first). The deleted
   layout's controls are replaced by the built-in, when it is available.
 
-A library game remembers the layout its controls were loaded from (an optional
-`controlLayout` field of its library entry, so older files still load; a layout
-deleted since is treated as none), and the session restores the shared layout
-when it ends. A game with no saved controls of its own draws the shared working
-copy, as before.
+A library game remembers its explicitly selected layout. New and legacy game
+profiles now start with **Xbox controller**; `controlLayoutRevision` marks the
+one-time migration from the old keyboard/custom default. Custom selections made
+after migration are retained. A deleted layout falls back to Xbox. Ending a
+session restores the shared working layout.
 
 The two key sticks, WASD and Arrows, draw a small symbol on the knob in the
 middle of the stick (a keyboard, and four arrows) so they can be told apart; the
@@ -90,11 +90,12 @@ shipped: the edited controls become unsaved controls. Choosing another layout
 while unsaved controls are on screen asks first and offers to keep them as the
 next custom layout, so an existing hand-made layout is never lost.
 
-The built-in is applied once by default when Touch controls are first shown and
-no `madeira-controls.json` exists. This makes the first touch-controller launch
-usable without opening the editor and mapping eighteen controls. It is never
-applied over an existing controls file, even an intentionally empty one;
-`env.MADEIRA_CONTROLS_XBOX_DEFAULT = 0` disables the automatic seed.
+The working Xbox layout is selected once per app start, before Wine can
+enumerate controllers. This also replaces the old default when a controls file
+already exists. Old unnamed working controls are retained as a custom preset;
+named user presets remain available from the menu. An unreadable controls file
+is left intact while the in-memory default can still be used.
+`env.MADEIRA_CONTROLS_XBOX_DEFAULT = 0` retains the old default-selection policy.
 
 The editor shows **Done** in place of the checkmark and hides the show/hide
 glyph while editing; **+** still adds a control. Menus and confirmation dialogs
@@ -110,8 +111,8 @@ would never see a pad.
 
 This is **on by default**; `env.MADEIRA_PAD_EARLY_SLOT = 0` restores the old
 late-enumeration behaviour. When a Wine session starts with visible touch
-controller mappings (or the built-in about to be applied by
-`MADEIRA_CONTROLS_XBOX_DEFAULT = 1`) or with a paired controller, slot 0 is
+controller mappings (the default Xbox layout is installed before this check)
+or with a paired controller, slot 0 is
 published as connected with neutral input. Live touch or physical input takes
 it over. Hiding the controls or disconnecting the pad then leaves player 1
 connected at rest until the app exits. A physical pad used in **Keyboard and
@@ -207,7 +208,7 @@ can be rolled back independently with `0`:
 | `MADEIRA_CONTROL_PRESETS` | on | `0`: no layout menu, no write-back |
 | `MADEIRA_CONTROLS_EDITOR_DONE` | on | `0`: the checkmark and show/hide glyph while editing |
 | `MADEIRA_CONTROLLER_AUTO_PREFS` | **on** | `0`: do not seed known in-game controller preferences before launch |
-| `MADEIRA_CONTROLS_XBOX_DEFAULT` | **on** | `0`: do not seed the built-in Xbox layout for a user with no controls file |
+| `MADEIRA_CONTROLS_XBOX_DEFAULT` | **on** | `0`: retain the old working/session defaults instead of selecting Xbox before startup |
 | `MADEIRA_PAD_EARLY_SLOT` | **on** | `0`: restore late controller enumeration; otherwise player 1 is reserved at session start when a controller source exists (see above) |
 
 `[controls-layout] ml1970` logs layout loads, saves, creation and deletion
@@ -276,8 +277,8 @@ merge, rebuild the paired components and test:
 - Hold then hide, edit, remap, remove, rotate, background or interrupt the app;
   no input should remain stuck, and fresh touches should work afterward.
 - Both rollback flags, saved layouts, and existing keyboard/mouse controls.
-- Layouts: without a controls file the built-in Xbox layout is applied once by
-  default; an existing file is never replaced. The same built-in also loads
+- Layouts: the working Xbox default is selected before startup, including old
+  control files and game profiles; later explicit custom choices are kept. The same built-in also loads
   from the menu (the overlay's button, and in a library session the Session menu's Controller layout row); switching away from unsaved controls
   asks first; create, edit with Done, relaunch and reload a custom layout;
   delete it; the layout menu and its dialogs respond anywhere on screen; each

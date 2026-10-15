@@ -24,8 +24,8 @@ import UIKit
 //
 // Switches (Documents/madeira.cfg `env.NAME = value`, or the environment):
 //   MADEIRA_CONTROL_PRESETS=0        no layout menu, no write-back (default on)
-//   MADEIRA_CONTROLS_XBOX_DEFAULT=0  do not seed the built-in Xbox layout for
-//                                    a user with no controls file (default ON)
+//   MADEIRA_CONTROLS_XBOX_DEFAULT=0  retain the old working/session defaults
+//                                    instead of Xbox (default ON)
 // ============================================================================
 
 // MARK: - Pure preset state (also compiled by the host regression test)
@@ -62,6 +62,7 @@ struct ControlPresetScreen: Equatable {
 enum ControlPresetLayout {
     static let xboxID = "builtin.xbox"
     static let xboxName = "Xbox controller"
+    static let defaultRevision = 1
     /// Mirrors `TouchControlsModel.baseDiameter`.
     static let baseDiameter = 64.0
 
@@ -203,6 +204,15 @@ struct ControlPresetStore: Equatable {
     /// have been deleted since, and controls that no layout holds are unsaved.
     func resolvedID(_ id: String?) -> String? { id.flatMap { preset($0)?.id } }
 
+    /// Existing profiles predate the Xbox default and may hold the old
+    /// keyboard editor. Migrate them once; later explicit custom choices stay.
+    func launchID(_ id: String?, revision: Int?, hasControls: Bool, xboxDefault: Bool) -> String? {
+        guard xboxDefault else { return resolvedID(id) }
+        guard revision == ControlPresetLayout.defaultRevision else { return ControlPresetLayout.xboxID }
+        if id == nil && hasControls { return nil } // an explicitly edited, unsaved layout
+        return resolvedID(id) ?? ControlPresetLayout.xboxID
+    }
+
     static func clean(_ name: String) -> String {
         String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxNameLength))
     }
@@ -305,9 +315,8 @@ struct ControlPresetStore: Equatable {
 final class ControlPresetsModel: ObservableObject {
     static let shared = ControlPresetsModel()
     static let enabled = GamepadInput.flag("MADEIRA_CONTROL_PRESETS")
-    /// Default on: selecting Touch controls should produce a complete gamepad,
-    /// not an empty editor that requires eighteen manual mappings. Existing
-    /// control files (including an intentionally empty one) are never replaced.
+    /// Xbox is the working default on app start and the default for new and
+    /// legacy game profiles. Named user layouts remain available in the menu.
     static let xboxDefault = GamepadInput.flag("MADEIRA_CONTROLS_XBOX_DEFAULT")
 
     @Published private(set) var store = ControlPresetStore()
@@ -333,6 +342,7 @@ final class ControlPresetsModel: ObservableObject {
 
     /// The controller built-in needs touch XInput; without it its buttons are inert.
     private static var touchPad: Bool { MainActor.assumeIsolated { GamepadInput.touchEnabled } }
+    static var xboxDefaultsEnabled: Bool { enabled && xboxDefault && touchPad }
 
     /// What the layout menu lists.
     var available: [ControlPreset] {
@@ -347,10 +357,9 @@ final class ControlPresetsModel: ObservableObject {
         return m.layoutID == nil && !m.controls.isEmpty
     }
 
-    /// With MADEIRA_CONTROLS_XBOX_DEFAULT=1, a user with no madeira-controls.json gets the controller layout the
-    /// first time the landscape overlay appears.
+    /// Applied before Wine starts, or when the overlay first appears.
     var defaultPending: Bool {
-        TouchControlsModel.shared.needsDefaultLayout && Self.enabled && Self.xboxDefault && Self.touchPad
+        TouchControlsModel.shared.needsDefaultLayout && Self.xboxDefaultsEnabled
     }
 
     private func log(_ line: String) {
@@ -382,14 +391,45 @@ final class ControlPresetsModel: ObservableObject {
         return s.landscape
     }
 
-    /// Never over a layout the user already has: only when no controls file existed.
+    /// Select Xbox once per app start, including old keyboard working copies.
     func applyDefaultIfNeeded(screen: ControlPresetScreen) {
         let m = TouchControlsModel.shared
         guard m.needsDefaultLayout else { return }
-        let apply = defaultPending && m.controls.isEmpty
+        let apply = defaultPending
         m.needsDefaultLayout = false
         guard apply else { return }
-        load(ControlPresetLayout.xboxID, screen: screen, reason: "new-user-default")
+        if m.layoutID == nil { preserveLegacy(m.controls) }
+        load(ControlPresetLayout.xboxID, screen: screen, reason: "startup-xbox-default")
+    }
+
+    /// The library applies this before reserving the first XInput slot. An old
+    /// per-game keyboard snapshot must not replace the newly selected Xbox.
+    func prepareSession(controls saved: [TouchControl]?, layout: String?, revision: Int?) {
+        let m = TouchControlsModel.shared
+        let xbox = Self.xboxDefaultsEnabled
+        let id = store.launchID(layout, revision: revision, hasControls: saved != nil, xboxDefault: xbox)
+        if xbox && revision != ControlPresetLayout.defaultRevision && layout == nil, let saved {
+            preserveLegacy(saved)
+        }
+        if let id, Self.enabled {
+            if !ControlPresetStore.isBuiltIn(id), let saved {
+                m.selected = nil; m.controls = saved; m.layoutID = id
+            } else {
+                load(id, screen: Self.currentScreen(), reason: "session-layout")
+            }
+        } else if let saved {
+            m.controls = saved
+            if Self.enabled { m.layoutID = id }
+        }
+    }
+
+    private func preserveLegacy(_ controls: [TouchControl]) {
+        guard !readOnly, !controls.isEmpty, !store.user.contains(where: { $0.controls == controls }) else { return }
+        var saved = store
+        guard case .created = saved.save(name: saved.nextCustomName(), controls: controls) else { return }
+        store = saved
+        persist()
+        log("kept previous working controls before Xbox default controls=\(controls.count)")
     }
 
     /// Replace the on-screen layout with this one.

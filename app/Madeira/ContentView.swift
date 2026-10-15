@@ -2607,6 +2607,7 @@ struct ContentView: View {
         MadeiraConfig.migrateLegacy { self.logStore.log($0) }
         MadeiraConfig.deleteLegacyFiles { self.logStore.log($0) }   /* ml1096: the old files go once the cfg exists */
         /* ml1990: player 1 exists before the game enumerates XInput. */
+        ControlPresetsModel.shared.applyDefaultIfNeeded(screen: ControlPresetsModel.currentScreen())
         GamepadInput.shared.reserveSessionSlot(touchControls: TouchControlsModel.shared.offersControllerInput)
         if MadeiraConfig.present {
             let cfg = MadeiraConfig.all().sorted { $0.key < $1.key }
@@ -3753,8 +3754,8 @@ final class TouchControlsModel: ObservableObject {
     /// ml1970: the named layout (TouchControlPresets.swift) these controls were
     /// loaded from; nil for controls no layout holds.
     @Published var layoutID: String?            { didSet { save() } }
-    /// ml1970: no controls file existed at launch, so the built-in controller
-    /// layout may be applied once (ControlPresetsModel.applyDefaultIfNeeded).
+    /// Select the working Xbox default once per app start, before Wine can
+    /// enumerate controllers. Explicit per-game choices are applied after it.
     var needsDefaultLayout = false
     private var editBaseline: [TouchControl] = []
 
@@ -3773,6 +3774,7 @@ final class TouchControlsModel: ObservableObject {
     static func size(_ c: TouchControl) -> CGSize { c.action.controlSize(diameter: diameter(c)) }
 
     private var loading = false
+    private var canPersist = true
     private static var url: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("madeira-controls.json")
@@ -3783,18 +3785,21 @@ final class TouchControlsModel: ObservableObject {
 
     private init() {
         loading = true
-        if let d = try? Data(contentsOf: Self.url),
-           let s = try? JSONDecoder().decode(Saved.self, from: d) {
-            controls = s.controls
-            visible  = s.visible
-            layoutID = s.layout
+        if FileManager.default.fileExists(atPath: Self.url.path) {
+            if let d = try? Data(contentsOf: Self.url), let s = try? JSONDecoder().decode(Saved.self, from: d) {
+                controls = s.controls
+                visible = s.visible
+                layoutID = s.layout
+            } else {
+                canPersist = false
+            }
         }
-        needsDefaultLayout = !FileManager.default.fileExists(atPath: Self.url.path)
+        needsDefaultLayout = true
         loading = false
     }
 
     private func save() {
-        guard !loading else { return }
+        guard !loading && canPersist else { return }
         guard let d = try? JSONEncoder().encode(Saved(controls: controls, visible: visible, layout: layoutID))
         else { return }
         try? d.write(to: Self.url, options: .atomic)
@@ -3976,8 +3981,8 @@ struct TouchControlsOverlay: View {
         GamepadInput.shared.configureTouch(controls: Set(ids))
     }
 
-    /// ml1970: with MADEIRA_CONTROLS_XBOX_DEFAULT=1, a user with no controls file gets the built-in controller
-    /// layout on the first landscape overlay, laid out for this screen (never over an existing controls file).
+    /// Fit the working Xbox default on the first landscape overlay if launch
+    /// preparation has not already selected it before Wine starts.
     private func applyDefaultLayout(_ geo: GeometryProxy) {
         guard m.needsDefaultLayout, geo.size.width > geo.size.height else { return }
         let i = geo.safeAreaInsets

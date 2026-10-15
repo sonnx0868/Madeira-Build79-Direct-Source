@@ -11,7 +11,7 @@ The preset is checked as data: its name, id and its 18 bindings, each an XInput
 mapping that produces a non-neutral pad sample; and the key sticks' glyphs.
 
 Part B checks the UI wiring in the same files: kill switches, the write-back
-on the end of an edit, the default for new users only, and the session slot.
+on the end of an edit, legacy-profile Xbox migration, and the session slot.
 Set SWIFTC if Swift is not on PATH.
 """
 from pathlib import Path
@@ -121,6 +121,24 @@ let one = ControlPresetStore(user: [ControlPreset(id: "u", name: "Mine", control
 require(one.resolvedID(ControlPresetLayout.xboxID) == ControlPresetLayout.xboxID && one.resolvedID("u") == "u",
         "a game's remembered built-in or custom layout resolves")
 require(one.resolvedID("gone") == nil && one.resolvedID(nil) == nil, "a deleted or absent layout resolves to none")
+let xbox = ControlPresetLayout.xboxID, revision = ControlPresetLayout.defaultRevision
+let oldIDs: [String?] = [nil, "u", "gone", xbox]
+for oldID in oldIDs {
+    require(one.launchID(oldID, revision: nil, hasControls: true, xboxDefault: true) == xbox,
+            "legacy profile starts with Xbox even with a saved keyboard/custom layout")
+}
+require(one.launchID(nil, revision: nil, hasControls: false, xboxDefault: true) == xbox,
+        "a newly added game uses Xbox before its first controller enumeration")
+require(one.launchID("u", revision: revision, hasControls: true, xboxDefault: true) == "u",
+        "a later explicit custom selection stays selected")
+require(one.launchID(nil, revision: revision, hasControls: true, xboxDefault: true) == nil,
+        "a later explicit unsaved edit keeps its saved controls")
+require(one.launchID("gone", revision: revision, hasControls: true, xboxDefault: true) == xbox &&
+        one.launchID(nil, revision: revision, hasControls: false, xboxDefault: true) == xbox,
+        "deleted and missing layouts fall back to Xbox")
+require(one.launchID("u", revision: nil, hasControls: true, xboxDefault: false) == "u" &&
+        one.launchID(nil, revision: nil, hasControls: true, xboxDefault: false) == nil,
+        "the explicit Xbox-default opt-out retains old profile selection")
 
 // --- The key sticks carry a glyph that tells them apart; nothing else does.
 require(ControlAction.joystickWASD.stickGlyph == "keyboard", "the WASD stick's glyph is the keyboard")
@@ -210,23 +228,23 @@ def function(source, start):
 gamepad = (app / 'GamepadInput.swift').read_text()
 for flag, where in (('MADEIRA_CONTROL_PRESETS', presets), ('MADEIRA_CONTROLS_EDITOR_DONE', content)):
     assert f'.flag("{flag}")' in where, flag + ' is a kill switch'
-# A new touch user gets a complete controller automatically; existing files
-# remain protected by needsDefaultLayout. Both behaviours have kill switches.
+# Xbox is selected before startup enumeration, including old keyboard files.
 assert '.flag("MADEIRA_CONTROLS_XBOX_DEFAULT")' in presets and '.optIn("MADEIRA_CONTROLS_XBOX_DEFAULT")' not in presets
 assert '.flag("MADEIRA_PAD_EARLY_SLOT")' in gamepad and '.optIn("MADEIRA_PAD_EARLY_SLOT")' not in gamepad
 assert '!= "0"' in function(gamepad, 'static func flag('), 'only "0" disables'
 assert '== "1"' in function(gamepad, 'static func optIn('), 'only "1" enables'
-assert 'Self.xboxDefault' in function(presets, 'var defaultPending: Bool {'), 'the automatic built-in honours its kill switch'
+assert 'Self.xboxDefaultsEnabled' in function(presets, 'var defaultPending: Bool {'), 'the automatic built-in honours its kill switch'
 
 model = content[content.index('final class TouchControlsModel'):content.index('/// Click-through EXCEPT')]
 assert 'if oldValue && !editing { ControlPresetsModel.shared.editingEnded(baseline: editBaseline) }' in model
-assert 'needsDefaultLayout = !FileManager.default.fileExists(atPath: Self.url.path)' in model, 'default only without a file'
+assert 'needsDefaultLayout = true' in model, 'each app start selects the Xbox working default'
+assert 'guard !loading && canPersist' in model, 'an unreadable existing control file is not overwritten'
 assert 'var layout: String?' in model, 'older controls files still decode'
 ended = function(presets, 'func editingEnded(baseline: [TouchControl]) {')
 assert ended.index('guard Self.enabled else { return }') < ended.index('s.overwrite(id: id'), 'write-back is switchable'
 default = function(presets, 'func applyDefaultIfNeeded(screen: ControlPresetScreen) {')
-assert 'm.controls.isEmpty' in default and 'm.needsDefaultLayout = false' in default, 'applied once, never over controls'
-assert 'Self.touchPad' in function(presets, 'var defaultPending: Bool {'), 'no controller default without touch XInput'
+assert 'm.needsDefaultLayout = false' in default and 'preserveLegacy(m.controls)' in default, 'applied once and old unnamed controls remain recoverable'
+assert 'touchPad' in function(presets, 'static var xboxDefaultsEnabled: Bool {'), 'no controller default without touch XInput'
 overlay = function(content, 'struct TouchControlsOverlay: View {')
 assert 'ControlPresetsModel.enabled && m.visible && !m.editing' in overlay, 'menu only while touch controls are shown'
 assert 'if m.editing && Self.editorDone {' in overlay and 'Text("Done")' in overlay
@@ -235,11 +253,12 @@ window = function(content, 'final class ControlsWindow: UIWindow {')
 assert window.index('if m.editing {') < window.index('!hit.isDescendant(of: root)') \
     < window.index('guard m.hitsInteractive('), 'menu and dialog presentations take their touches in play mode'
 reserve = function(gamepad, '@MainActor func reserveSessionSlot(touchControls: Bool) {')
-assert reserve.index('guard Self.enabled, Self.flag("MADEIRA_PAD_EARLY_SLOT")') < reserve.index('touchState.reserved = true')
+assert reserve.index('guard Self.enabled, Self.flag("MADEIRA_PAD_EARLY_SLOT")') < reserve.index('touchState.reserved = touch')
 assert '!keyboardMouseOn && !GCController.controllers().isEmpty' in reserve, 'keyboard/mouse mode must not expose the physical pad through XInput'
 assert 'queue.sync' in reserve and 'queue.async' not in reserve, 'player 1 must be published before Wine can enumerate XInput'
 run = function(content, 'private func runWineFullSequence(profile: LibraryEntry? = nil) {')
 assert run.index('GamepadInput.shared.reserveSessionSlot(') < run.index('DispatchQueue.global'), 'reserved before Wine starts'
+assert run.index('ControlPresetsModel.shared.applyDefaultIfNeeded(') < run.index('GamepadInput.shared.reserveSessionSlot('), 'Xbox working layout selected before the synchronous reservation'
 
 # The built-in reaches a library session: LibraryHUD replaces the overlay's top bar there, so the
 # Session menu carries the same menu, and a game remembers the layout it was loaded from.
@@ -260,9 +279,10 @@ entry = function(lib, 'struct LibraryEntry: Codable, Identifiable {')
 assert 'var controlLayout: String?' in entry, 'optional, so older library files decode'
 model_lib = function(lib, 'final class LibraryModel: ObservableObject {')
 begin = function(model_lib, 'func begin(_ entry: LibraryEntry')
-assert 'store.resolvedID(entry.controlLayout)' in begin and 'savedLayout = controls.layoutID' in begin
-assert begin.index('if let profile = entry.controls') < begin.index('resolvedID'), "the layout follows the game's own controls only"
+assert 'prepareSession(controls: entry.controls, layout: entry.controlLayout' in begin and 'savedLayout = controls.layoutID' in begin
+assert begin.index('applyDefaultIfNeeded(') < begin.index('savedLayout = controls.layoutID') < begin.index('prepareSession('), 'a migrated working Xbox is restored after the session, and explicit per-game layouts apply after it'
 assert 'entry.controlLayout = controls.layoutID' in function(model_lib, 'func saveCurrentProfile()')
+assert 'entry.controlLayoutRevision = ControlPresetLayout.defaultRevision' in function(model_lib, 'func saveCurrentProfile()'), 'an explicit later choice is distinguished from the legacy default'
 fin = function(model_lib, 'private func finish()')
 assert fin.index('saveCurrentProfile()') < fin.index('controls.layoutID = savedLayout'), 'the session restores the shared layout after saving'
 
@@ -272,4 +292,4 @@ assert 'var glyph: String?' in face and 'Image(systemName: g)' in face, 'the sti
 assert 'glyph: control.action.stickGlyph' in function(content, 'struct TouchControlButton: View {'), 'the overlay stick passes its glyph'
 assert 'JoystickFace(held: s.held, dir: s.dir)' in content and 'JoystickFace(held: false, dir: -1)' in content, 'the portrait pad passes none, drawn as before'
 assert '.opacity(glyph == nil || expanded ? 1 : 0)' in face, 'no glyph: the knob is always drawn'
-print('PASS: switches (opt-in built-in default and session slot), edit write-back, layout menu, session-menu layout choice and stick glyph wiring')
+print('PASS: Xbox startup/default migration, early virtual slot, later custom choices, edit write-back and layout wiring')

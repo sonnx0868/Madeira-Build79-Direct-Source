@@ -428,9 +428,12 @@ let forked = try? JSONDecoder().decode(LibraryEntry.self, from: Data(fork.utf8))
 expect(forked?.displayMode == .aspect && forked?.resolution == "1560x720", "display mode and resolution decode")
 expect(forked?.controlOpacity == 0.4 && forked?.controlSize == 1.5, "control opacity and size decode")
 expect(forked?.controlLayout == nil, "older files: no remembered controller layout")
+expect(forked?.controlLayoutRevision == nil, "older profiles remain eligible for the Xbox default migration")
 var picked = forked!; picked.controlLayout = "builtin.xbox"
+picked.controlLayoutRevision = 1
 let pickedBack = (try? JSONEncoder().encode(picked)).flatMap { try? JSONDecoder().decode(LibraryEntry.self, from: $0) }
 expect(pickedBack?.controlLayout == "builtin.xbox", "a game remembers its controller layout")
+expect(pickedBack?.controlLayoutRevision == 1, "later explicit layout choices survive profile encoding")
 var odd = forked!; odd.display = "sideways"
 expect(odd.displayMode == .fit, "an unknown display mode falls back to Fit")
 let saved = try? JSONEncoder().encode(forked!)
