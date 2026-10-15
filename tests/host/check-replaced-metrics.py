@@ -59,13 +59,25 @@ fixture=r'''
 #include <assert.h>
 #include <unistd.h>
 extern int proc_pid_rusage(int,int,void *);
+extern int proc_pidinfo(int,int,uint64_t,void *,int);
+int fixture_proc_pidinfo(int,int,uint64_t,void *,int);
+static int mock_counts, mock_short;
 static dispatch_queue_t stall_queue(void) {
     static dispatch_queue_t queue;static dispatch_once_t once;
     dispatch_once(&once,^{queue=dispatch_queue_create("madeira.metrics.fixture",DISPATCH_QUEUE_SERIAL);});
     return queue;
 }
 static uint32_t replaced_metrics_target_pid(void) {return 32;}
+#define proc_pidinfo fixture_proc_pidinfo
 #include "ReplacedMetrics.h"
+#undef proc_pidinfo
+static RMThreadCounts injected;
+int fixture_proc_pidinfo(int pid,int flavor,uint64_t tid,void *buffer,int size) {
+    if (!mock_counts) return proc_pidinfo(pid,flavor,tid,buffer,size);
+    assert(pid==getpid() && flavor==34 && size>=(int)sizeof(injected));
+    memcpy(buffer,&injected,sizeof(injected));
+    return mock_short ? 16 : 8+injected.len*40;
+}
 static void u32(unsigned char *p,uint32_t x) {memcpy(p,&x,4);}
 static void u64(unsigned char *p,uint64_t x) {memcpy(p,&x,8);}
 int main(void) { @autoreleasepool {
@@ -111,10 +123,27 @@ int main(void) { @autoreleasepool {
         rm_sync_sample(32,1,CACurrentMediaTime(),1);assert(!rm_previous_sync_valid);
     });
     madeira_replaced_metrics_prepare(0);
+    mock_counts=1;injected.len=2;
+    injected.counts[0]=(RMRawCounts){1000,1000,100,100,1};
+    injected.counts[1]=(RMRawCounts){2000,2000,200,200,2};
+    madeira_replaced_metrics_prepare(1);
+    madeira_replaced_metrics_thread(32,0x24,peb);
+    dispatch_sync(stall_queue(),^{assert(rm_count==1 && rm_threads[0].previous_valid);});
+    injected.counts[0]=(RMRawCounts){11000,6000,1100,1100,101};
+    injected.counts[1]=(RMRawCounts){22000,12000,2200,2200,202};
+    dispatch_sync(stall_queue(),^{
+        replaced_metrics_snapshot(CACurrentMediaTime(),30);
+        assert(rm_threads[0].delta[0].valid && rm_threads[0].delta[0].rate_valid);
+        assert(rm_threads[0].delta[0].million_instructions==0.01);
+        assert(rm_threads[0].delta[1].million_instructions==0.02);
+        mock_short=1;replaced_metrics_snapshot(CACurrentMediaTime(),30);
+        assert(!rm_threads[0].previous_valid && !rm_threads[0].delta[0].rate_valid);
+    });
+    madeira_replaced_metrics_prepare(0);
     madeira_replaced_metrics_thread(32,0x24,peb);
     dispatch_sync(stall_queue(),^{assert(rm_count==0 && !rm_active);});
     free(image);free(peb);free(ldr);free(entry);
-    puts("PASS: live Darwin collector, exact threadcounts ABI, safe PE data export, malformed pointers, duplicate attach and lifecycle reset");
+    puts("PASS: live Darwin collector, supported/unavailable/truncated thread counters, safe PE data export, duplicate attach and lifecycle reset");
 } }
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-replaced-live-') as tmp:

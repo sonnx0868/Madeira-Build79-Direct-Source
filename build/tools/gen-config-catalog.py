@@ -112,6 +112,8 @@ OVERLAY = {
                 "note": "Diagnostic only. Suspends and samples Wine/FEX threads to produce thread-sample, rip-profile, xprobe and wprof reports. Keep off while playing; it can create multi-second frame gaps."},
     "env.MADEIRA_LUAJIT_GC64": {"title": "LOVE 11.5 LuaJIT GC64 compatibility", "category": "Memory & JIT pool",
                 "note": "On by default for detected LOVE 11.5 games (including Balatro). Redirects the low-address LuaJIT runtime to the pinned official GC64 lua51.dll without modifying game files."},
+    "env.MADEIRA_REPLACED_METRICS": {"title": "REPLACED passive CPU and lock metrics", "category": "Wine core (ntdll)", "kind": "bool", "default": "1",
+        "note": "For REPLACED only, collects bounded five-second CPU performance-level counters and completed critical-section wait times. Does not suspend threads. Unsupported hardware counters are explicit; frequency is a window average from cycles/running time."},
     "env.MADEIRA_OPENGL_ANGLE": {"title": "OpenGL ES through ANGLE and DXMT", "category": "Direct3D 9/10/11 (DXMT)",
                 "note": "On by default for detected LOVE and SDL games. Routes OpenGL ES through ANGLE D3D11, then DXMT to Metal. Turn off only when a game supplies a better EGL/GLES route."},
     "dxmt": {"title": "DXMT options (a=b;c=d)"},
@@ -198,6 +200,8 @@ def scan():
                         key = "env." + name
                     else:
                         key = name
+                    if key == "env.":       # dynamic env-prefix lookup, not an actual setting
+                        continue
                     ln = txt.count("\n", 0, m.start())
                     kind = "bool" if reader in BOOL_READERS else "int" if reader in INT_READERS else "text"
                     dflt = ""

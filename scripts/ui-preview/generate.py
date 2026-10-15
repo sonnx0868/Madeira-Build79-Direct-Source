@@ -266,7 +266,7 @@ struct LibraryEntry {
     enum Display:String { case fit }; var displayMode=Display.fit
 }
 enum MadeiraConfig {
-    static func flag(_ key:String,fallback:Bool)->Bool { fallback }
+    static func flag(_ key:String,fallback:Bool = true)->Bool { fallback }
     static func get(_ key:String)->String? { nil }
 }
 final class LogStore {
@@ -282,6 +282,7 @@ final class HardwareInput {
     enum Mouse:String { case none };var mousePath=Mouse.none
 }
 func madeira_stall_monitor_begin() {}
+func madeira_replaced_metrics_prepare(_ enabled:Int32) {}
 func madeira_stall_monitor_end() {}
 func madeira_frame_count()->UInt64 { 0 }
 func madeira_get_vsync_locked()->Int32 { 1 }

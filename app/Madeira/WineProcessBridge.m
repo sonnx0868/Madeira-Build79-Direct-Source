@@ -648,7 +648,7 @@ void wine_presented_process_track(uint32_t pid) {
     if (!pid || __atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE)) return;
     __atomic_store_n(&g_presented_pid, pid, __ATOMIC_RELEASE);
 }
-static uint32_t replaced_metrics_target_pid(void) {
+static uint32_t __attribute__((unused)) replaced_metrics_target_pid(void) {
     uint32_t pid=__atomic_load_n(&g_game_pid,__ATOMIC_ACQUIRE);
     return pid ? pid : __atomic_load_n(&g_launched_pid,__ATOMIC_ACQUIRE);
 }

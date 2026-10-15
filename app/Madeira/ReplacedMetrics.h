@@ -39,6 +39,7 @@ static int rm_previous_valid;
 static double rm_previous_uptime;
 static uint64_t rm_session_energy;
 static uint64_t rm_sync_address, rm_sync_peb;
+static uint32_t rm_sync_span;
 static RMSyncCounters rm_previous_sync;
 static int rm_previous_sync_valid;
 
@@ -74,6 +75,7 @@ static uint64_t rm_sync_export(uint64_t base, uint32_t image_size) {
             !rm_rva(base,image_size,table[7]+(uint32_t)ordinal*4,&fr,4)) return 0;
         if (fr>=er && (uint64_t)fr<(uint64_t)er+es) return 0; /* forwarded export */
         if (fr>=image_size || sizeof(RMSyncCounters)>image_size-fr) return 0;
+        rm_sync_span=image_size-fr;
         return base+fr;
     }
     return 0;
@@ -147,7 +149,7 @@ static MadeiraPerfCounters rm_usage_p(const struct rusage_info_v6 *u) {
 }
 static void rm_sync_sample(uint32_t pid,uint64_t peb,double uptime,double seconds) {
     if (!peb) {fprintf(stderr,"[replaced-sync-v1] uptime=%.3f pid=%04x available=0 reason=no-game-peb\n",uptime,pid);return;}
-    if (peb!=rm_sync_peb) {rm_sync_peb=peb;rm_sync_address=0;rm_previous_sync_valid=0;}
+    if (peb!=rm_sync_peb) {rm_sync_peb=peb;rm_sync_address=0;rm_sync_span=0;rm_previous_sync_valid=0;}
     if (!rm_sync_address) rm_sync_address=rm_find_sync(peb);
     RMSyncCounters now={0};
     if (!rm_sync_address || !rm_read(rm_sync_address,&now,sizeof(now)) ||
@@ -165,6 +167,30 @@ static void rm_sync_sample(uint32_t pid,uint64_t peb,double uptime,double second
             (unsigned long long)(now.histogram[0]-old->histogram[0]),(unsigned long long)(now.histogram[1]-old->histogram[1]),
             (unsigned long long)(now.histogram[2]-old->histogram[2]),(unsigned long long)(now.histogram[3]-old->histogram[3]),
             (unsigned long long)(now.histogram[4]-old->histogram[4]),(unsigned long long)(now.histogram[5]-old->histogram[5]));
+        uint64_t ring[1024];
+        if (now.ring_index>=old->ring_index && rm_sync_span>=sizeof(now)+sizeof(ring) &&
+            rm_read(rm_sync_address+sizeof(now),ring,sizeof(ring))) {
+            uint64_t available=now.ring_index/4-old->ring_index/4;
+            unsigned take=(unsigned)(available<128?available:128),used=0;
+            struct {uint64_t address;unsigned count;} top[128]={0};
+            for(unsigned j=0;j<take;++j) {
+                uint64_t address=ring[(now.ring_index/4-j)&1023];
+                if(!address) continue;
+                unsigned k;for(k=0;k<used && top[k].address!=address;++k) {}
+                if(k==used) {top[used++].address=address;}
+                ++top[k].count;
+            }
+            for(unsigned n=0;n<3;++n) {
+                int best=-1;for(unsigned k=0;k<used;++k) if(top[k].count && (best<0 || top[k].count>top[best].count)) best=(int)k;
+                if(best<0) break;
+                uint64_t owner=0;int32_t lock[2]={0};
+                int readable=rm_read(top[best].address+8,lock,sizeof(lock)) && rm_read(top[best].address+16,&owner,8);
+                fprintf(stderr,"[replaced-sync-lock-v1] uptime=%.3f pid=%04x address=%#llx sampled_calls=%u samples_considered=%u truncated=%d owner_now=%04llx lock_count_now=%d recursion_now=%d readable=%d\n",
+                    uptime,pid,(unsigned long long)top[best].address,top[best].count,take,available>take,
+                    (unsigned long long)owner,lock[0],lock[1],readable);
+                top[best].count=0;
+            }
+        }
     } else fprintf(stderr,"[replaced-sync-v1] uptime=%.3f pid=%04x available=1 baseline=1\n",uptime,pid);
     rm_previous_sync=now;rm_previous_sync_valid=1;
 }
@@ -179,10 +205,15 @@ static void replaced_metrics_snapshot(double uptime,double fps) {
         MadeiraPerfDelta p=madeira_perf_delta(p0,p1,tb.numer,tb.denom),e={.ghz=-1,.ipc=-1};
         int valid=madeira_perf_subtract(rm_usage_total(&rm_previous_usage),p0,&e0) && madeira_perf_subtract(rm_usage_total(&usage),p1,&e1);
         if(valid) e=madeira_perf_delta(e0,e1,tb.numer,tb.denom);
+        MadeiraPerfDelta total=madeira_perf_delta(rm_usage_total(&rm_previous_usage),rm_usage_total(&usage),tb.numer,tb.denom);
+        // Some CI/virtual devices accept rusage v6 but expose no hardware
+        // counters. Zero P time there is not evidence that all work ran on E.
+        int partitionAvailable=valid && p.valid && e.valid && total.rate_valid;
         double energy=usage.ri_energy_nj>=rm_previous_usage.ri_energy_nj ? (double)(usage.ri_energy_nj-rm_previous_usage.ri_energy_nj)/1e6 : -1;
         double runnable=usage.ri_runnable_time>=rm_previous_usage.ri_runnable_time ? (double)(usage.ri_runnable_time-rm_previous_usage.ri_runnable_time)*tb.numer/tb.denom/1e6 : -1;
-        fprintf(stderr,"[replaced-cpu-v1] uptime=%.3f window_ms=%.0f fps=%.1f scope=app valid=%d P_ms=%.2f E_ms=%.2f P_GHz=%.3f E_GHz=%.3f P_rate_valid=%d E_rate_valid=%d P_IPC=%.3f E_IPC=%.3f runnable_ms=%.2f energy_est_mJ=%.2f power_est_W=%.3f session_energy_est_J=%.3f energy_available=%d thermal=%ld low_power=%d\n",
-            uptime,seconds*1000,fps,valid&&p.valid&&e.valid,p.cpu_ms,e.cpu_ms,p.ghz,e.ghz,p.rate_valid,e.rate_valid,p.ipc,e.ipc,runnable,
+        fprintf(stderr,"[replaced-cpu-v1] uptime=%.3f window_ms=%.0f fps=%.1f scope=app valid=%d cpu_ms=%.2f partition_available=%d P_ms=%.2f E_ms=%.2f P_GHz=%.3f E_GHz=%.3f P_rate_valid=%d E_rate_valid=%d P_IPC=%.3f E_IPC=%.3f runnable_ms=%.2f energy_est_mJ=%.2f power_est_W=%.3f session_energy_est_J=%.3f energy_available=%d thermal=%ld low_power=%d\n",
+            uptime,seconds*1000,fps,total.valid,total.cpu_ms,partitionAvailable,
+            partitionAvailable?p.cpu_ms:-1,partitionAvailable?e.cpu_ms:-1,p.ghz,e.ghz,p.rate_valid,e.rate_valid,p.ipc,e.ipc,runnable,
             energy,energy>=0?energy/1000/seconds:-1,usage.ri_energy_nj>=rm_session_energy?(double)(usage.ri_energy_nj-rm_session_energy)/1e9:-1,
             usage.ri_energy_nj>0,(long)NSProcessInfo.processInfo.thermalState,NSProcessInfo.processInfo.lowPowerModeEnabled);
     } else fprintf(stderr,"[replaced-cpu-v1] uptime=%.3f available=0 rusage_rc=%d baseline=%d\n",uptime,usageStatus,rm_previous_valid);
