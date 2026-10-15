@@ -97,6 +97,11 @@ else
   fi
 fi
 
+if [[ "${MADEIRA_WOW64_ADDON_ONLY:-0}" = 1 ]]; then
+  timed wow64-addon bash scripts/build-wow64-addon.sh
+  exit 0
+fi
+
 checks() {
   local metrics_sdk
   metrics_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
