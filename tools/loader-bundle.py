@@ -10,9 +10,11 @@ def main():
     inputs=['wine/dlls/ntdll/loader.c','patches/wine-module-path.patch',
             'patches/madeira-dock-external-launch.patch','build/madeira-dock/build.sh']
     binaries={}
-    for folder,machine in [('i386-windows',0x14c),('arm64ec-windows',0xa641),('aarch64-windows',0xaa64)]:
+    # Wine's hybrid EC ntdll uses the AMD64 PE header, as do the verified
+    # existing EC farm and execute-callback receipt. The build targets EC.
+    for folder,machines in [('i386-windows',(0x14c,)),('arm64ec-windows',(0xa641,0x8664)),('aarch64-windows',(0xaa64,))]:
         name='app/Madeira/'+folder+'/ntdll.dll';data=(root/name).read_bytes();off=struct.unpack_from('<I',data,60)[0]
-        if data[:2]!=b'MZ' or struct.unpack_from('<H',data,off+4)[0]!=machine or b'module-path-v1' not in data:
+        if data[:2]!=b'MZ' or struct.unpack_from('<H',data,off+4)[0] not in machines or b'module-path-v1' not in data:
             raise SystemExit('Missing current PE module recovery: '+name)
         binaries[name]=sha(name)
     name='app/Madeira/arm64ec-windows/dockhost.exe';data=(root/name).read_bytes();off=struct.unpack_from('<I',data,60)[0]
