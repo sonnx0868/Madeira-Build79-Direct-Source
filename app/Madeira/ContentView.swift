@@ -3243,8 +3243,8 @@ struct ContentView: View {
             }
             Thread.sleep(forTimeInterval: 2.0)
 
-            // Step 6: Detach debugger — main thread should have zero accumulated hang time
-            logStore.log("Detaching debugger...")
+            // Step 6: only a newly attached/live debugger needs another request.
+            // The helper skips the breakpoint after the early detach above.
             StikJITHelper.detachDebugger()
 
             DispatchQueue.main.async {

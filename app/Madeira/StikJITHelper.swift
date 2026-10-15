@@ -877,13 +877,38 @@ enum StikJITHelper {
         return rw
     }
 
-    /// Detach the debugger. Call this after Wine is done loading PE DLLs.
+    private static let detachLock = NSLock()
+
+    /// Request detach only while a live debugger can consume the breakpoint.
+    /// CS_DEBUGGED remains set after detach and cannot authorize another BRK.
     static func detachDebugger() {
+        detachLock.lock()
+        defer { detachLock.unlock() }
+        switch debuggerAttachment() {
+        case .detached:
+            setenv("MADEIRA_DETACHED", "1", 1)
+            LogStore.shared.log("[jit-detach-v2] skipped: no live debugger; JIT remains enabled")
+            return
+        case .unavailable:
+            unsetenv("MADEIRA_DETACHED")
+            LogStore.shared.log("[jit-detach-v2] skipped: debugger attachment query unavailable", level: .error)
+            return
+        case .attached:
+            break
+        }
+        unsetenv("MADEIRA_DETACHED")
         LogStore.shared.log("Detaching debugger...")
         jit26_detach()
         // task #34: signal in-process waiters (share-probe poller). CS_DEBUGGED
         // is sticky post-detach, so an env flag is the reliable signal.
-        setenv("MADEIRA_DETACHED", "1", 1)
-        LogStore.shared.log("Debugger detached.", level: .success)
+        switch debuggerAttachment() {
+        case .detached:
+            setenv("MADEIRA_DETACHED", "1", 1)
+            LogStore.shared.log("[jit-detach-v2] debugger detached", level: .success)
+        case .attached:
+            LogStore.shared.log("[jit-detach-v2] request returned but debugger remains attached", level: .error)
+        case .unavailable:
+            LogStore.shared.log("[jit-detach-v2] request returned; detach could not be confirmed", level: .error)
+        }
     }
 }
