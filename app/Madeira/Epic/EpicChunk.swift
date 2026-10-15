@@ -4,6 +4,7 @@
 
 import Foundation
 import zlib
+import CommonCrypto
 
 enum EpicContentError: LocalizedError {
     case invalid(String)
@@ -64,46 +65,27 @@ struct EpicReader {
 
 /// Incremental SHA-1 keeps file verification independent of file size.
 struct EpicSHA1 {
-    private var state: [UInt32] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0]
-    private var tail = [UInt8]()
-    private var length: UInt64 = 0
+    private var context = CC_SHA1_CTX()
+
+    init() { CC_SHA1_Init(&context) }
 
     mutating func update(_ data: Data) {
-        length += UInt64(data.count)
-        for byte in data {
-            tail.append(byte)
-            if tail.count == 64 { compress(tail); tail.removeAll(keepingCapacity: true) }
-        }
-    }
-    private func rotate(_ x: UInt32, _ n: UInt32) -> UInt32 { (x << n) | (x >> (32 - n)) }
-    private mutating func compress(_ block: [UInt8]) {
-        var words = [UInt32](repeating: 0, count: 80)
-        for i in 0..<16 {
-            let p = i * 4
-            words[i] = UInt32(block[p]) << 24 | UInt32(block[p + 1]) << 16 | UInt32(block[p + 2]) << 8 | UInt32(block[p + 3])
-        }
-        for i in 16..<80 { words[i] = rotate(words[i - 3] ^ words[i - 8] ^ words[i - 14] ^ words[i - 16], 1) }
-        var a = state[0], b = state[1], c = state[2], d = state[3], e = state[4]
-        for i in 0..<80 {
-            let f: UInt32, k: UInt32
-            switch i {
-            case 0..<20: f = (b & c) | (~b & d); k = 0x5A827999
-            case 20..<40: f = b ^ c ^ d; k = 0x6ED9EBA1
-            case 40..<60: f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC
-            default: f = b ^ c ^ d; k = 0xCA62C1D6
+        data.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return }
+            var offset = 0
+            while offset < bytes.count {
+                let size = min(bytes.count - offset, Int(CC_LONG.max))
+                CC_SHA1_Update(&context, base.advanced(by: offset), CC_LONG(size))
+                offset += size
             }
-            let t = rotate(a, 5) &+ f &+ e &+ k &+ words[i]
-            e = d; d = c; c = rotate(b, 30); b = a; a = t
         }
-        state[0] &+= a; state[1] &+= b; state[2] &+= c; state[3] &+= d; state[4] &+= e
     }
     mutating func finish() -> Data {
-        let bits = length * 8
-        tail.append(0x80)
-        while tail.count % 64 != 56 { tail.append(0) }
-        for shift in stride(from: 56, through: 0, by: -8) { tail.append(UInt8(truncatingIfNeeded: bits >> shift)) }
-        for start in stride(from: 0, to: tail.count, by: 64) { compress(Array(tail[start..<start + 64])) }
-        return Data(state.flatMap { word in [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: word >> $0) } })
+        var digest = Data(count: Int(CC_SHA1_DIGEST_LENGTH))
+        digest.withUnsafeMutableBytes { bytes in
+            _ = CC_SHA1_Final(bytes.bindMemory(to: UInt8.self).baseAddress, &context)
+        }
+        return digest
     }
     static func hash(_ data: Data) -> Data { var hash = Self(); hash.update(data); return hash.finish() }
     static func file(_ url: URL) throws -> Data {

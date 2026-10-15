@@ -4,6 +4,7 @@
 
 import Foundation
 import Combine
+import Darwin
 
 struct EpicInstalledGame: Codable {
     var game: EpicGame
@@ -247,11 +248,12 @@ private actor EpicInstallWorker {
     }
     func run(_ job: EpicInstaller.Pending, catalog: String, token: String,
              progress: @escaping @Sendable (SteamDownloadProgress) async -> Void) async throws -> EpicInstalledGame {
-        let (manifest, base) = try await EpicManifest.fetch(namespace: job.game.namespace, catalogItemID: catalog,
+        let (manifest, bases) = try await EpicManifest.fetch(namespace: job.game.namespace, catalogItemID: catalog,
                                                          appName: job.game.appName, token: token)
-        return try await assemble(job, manifest: manifest, base: base, progress: progress)
+        guard let base = bases.first else { throw EpicContentError.invalid("Epic did not return a content server.") }
+        return try await assemble(job, manifest: manifest, base: base, alternateBases: Array(bases.dropFirst()), progress: progress)
     }
-    func assemble(_ job: EpicInstaller.Pending, manifest: EpicManifest, base: URL,
+    func assemble(_ job: EpicInstaller.Pending, manifest: EpicManifest, base: URL, alternateBases: [URL] = [],
                   fetch: @escaping @Sendable (URL, EpicManifest.Chunk) async throws -> Data = { url, chunk in
                       try await EpicManifest.download(URLRequest(url: url), limit: chunk.fileSize)
                   },
@@ -318,67 +320,106 @@ private actor EpicInstallWorker {
         let start = Date()
         LogStore.shared.log("[epic-install] start files=\(manifest.files.count) reused=\(reused) chunks=\(remaining.count) download-bytes=\(total) write-bytes=\(required)")
         await progress(status)
-        var cache: [String: Data] = [:], lru: [String] = []
-        for file in files {
+        // One download supplies every file slice that references a chunk. Scatter
+        // verified data into private staging files, rather than evicting an 8 MB
+        // cache and fetching shared chunks again as later files are assembled.
+        struct Destination { let file: Int; let offset: UInt64; let part: EpicManifest.Part }
+        var destinations: [String: [Destination]] = [:], order: [String] = []
+        var outstanding = files.map { $0.parts.count }
+        for (index, file) in files.enumerated() {
+            guard file.size <= UInt64(Int64.max) else { throw EpicContentError.invalid("Epic file is too large.") }
+            var offset: UInt64 = 0
+            for part in file.parts {
+                if destinations[part.guid] == nil { order.append(part.guid) }
+                destinations[part.guid, default: []].append(Destination(file: index, offset: offset, part: part))
+                offset += UInt64(part.size)
+            }
+        }
+        // At most 64 MB of decoded chunks in flight, and at most 16 open files.
+        // A normal 1 MB Epic chunk allows 16 concurrent requests. Large chunks
+        // reduce the width instead of growing memory with the game's size.
+        let largest = order.compactMap { chunks[$0]?.windowSize }.max() ?? 1
+        let concurrency = min(16, max(1, 64 * 1024 * 1024 / largest - 1))
+        let source = EpicInstallChunkSource(bases: [base] + alternateBases, featureLevel: manifest.meta.featureLevel, fetch: fetch)
+        var handles: [Int: FileHandle] = [:], openOrder: [Int] = [], created = Set<Int>()
+        defer { for handle in handles.values { try? handle.close() } }
+        func temporary(_ index: Int) -> URL { staging.appendingPathComponent("\(index).part") }
+        func writable(_ index: Int) throws -> FileHandle {
+            openOrder.removeAll { $0 == index }; openOrder.append(index)
+            if let handle = handles[index] { return handle }
+            if handles.count >= 16, let oldest = openOrder.first {
+                try handles.removeValue(forKey: oldest)?.close()
+                openOrder.removeFirst()
+            }
+            let url = temporary(index)
+            if created.insert(index).inserted {
+                guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+                    throw EpicContentError.invalid("Could not stage an Epic game file.")
+                }
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            handles[index] = handle
+            try handle.truncate(atOffset: files[index].size)
+            return handle
+        }
+        func finish(_ index: Int) throws {
             try Task.checkCancellation()
-            let target = try safeURL(file.filename, under: root)
+            let handle = try writable(index), source = temporary(index)
+            guard try EpicSHA1.file(source) == files[index].sha else {
+                throw EpicContentError.invalid("Epic file SHA-1 mismatch. Resume to retry.")
+            }
+            try handle.synchronize(); try handle.close()
+            handles.removeValue(forKey: index); openOrder.removeAll { $0 == index }
+            try Task.checkCancellation()
+            let target = try safeURL(files[index].filename, under: root)
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            // Publish only a verified file; a pause discards at most this file's unfinished data.
-            let temporary = staging.appendingPathComponent("file.part")
-            FileManager.default.createFile(atPath: temporary.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: temporary)
-            do {
-                var hash = EpicSHA1()
-                for (index, part) in file.parts.enumerated() {
-                    try Task.checkCancellation()
-                    if cache[part.guid] == nil {
-                        var wanted: [EpicManifest.Chunk] = [], seen = Set<String>()
-                        for next in file.parts[index..<min(file.parts.count, index + 4)] where cache[next.guid] == nil && seen.insert(next.guid).inserted {
-                            wanted.append(chunks[next.guid]!)
-                        }
-                        let downloaded = try await withThrowingTaskGroup(of: (String, Data, Int).self) { group in
-                            for chunk in wanted {
-                                let url = base.appendingPathComponent(try chunk.path(featureLevel: manifest.meta.featureLevel))
-                                group.addTask {
-                                    let bytes = try await fetch(url, chunk)
-                                    try Task.checkCancellation()
-                                    return (chunk.guid, try EpicChunk.parse(bytes, expected: chunk), bytes.count)
-                                }
-                            }
-                            var result: [(String, Data, Int)] = []
-                            for try await item in group { result.append(item) }
-                            return result
-                        }
-                        // Bound retained data before adding at most four freshly downloaded chunks.
-                        while cache.values.reduce(0, { $0 + $1.count }) > 8 * 1024 * 1024, let oldest = lru.first {
-                            cache.removeValue(forKey: oldest); lru.removeFirst()
-                        }
-                        for (guid, data, bytes) in downloaded {
-                            cache[guid] = data; lru.removeAll { $0 == guid }; lru.append(guid)
-                            received += UInt64(bytes)
-                            if fetched.insert(guid).inserted { status.doneBytes += UInt64(bytes) }
+            // Each file replaces the previous version only after its whole hash
+            // passes. A pause keeps finished files; unfinished staging is removed.
+            guard rename(source.path, target.path) == 0 else {
+                throw EpicContentError.invalid("Could not finalize an Epic game file.")
+            }
+        }
+        for index in files.indices where outstanding[index] == 0 { try finish(index) }
+        var lastProgress = ProcessInfo.processInfo.systemUptime
+        LogStore.shared.log("[epic-install-v2] pipeline workers=\(concurrency) unique-chunks=\(order.count) decoded-budget=64MB hash=CommonCrypto")
+        try await withThrowingTaskGroup(of: (String, Data, Int).self) { group in
+            var next = 0
+            func enqueue(_ guid: String) {
+                let chunk = chunks[guid]!
+                group.addTask {
+                    let (data, received) = try await source.download(chunk)
+                    return (guid, data, received)
+                }
+            }
+            while next < min(concurrency, order.count) { enqueue(order[next]); next += 1 }
+            while let (guid, data, bytes) = try await group.next() {
+                try Task.checkCancellation()
+                for destination in destinations[guid] ?? [] {
+                    let handle = try writable(destination.file), part = destination.part
+                    try data.withUnsafeBytes { buffer in
+                        var written = 0
+                        while written < part.size {
+                            try Task.checkCancellation()
+                            let result = pwrite(handle.fileDescriptor, buffer.baseAddress!.advanced(by: part.offset + written),
+                                                part.size - written, off_t(destination.offset + UInt64(written)))
+                            if result < 0, errno == EINTR { continue }
+                            guard result > 0 else { throw EpicContentError.invalid("Could not write an Epic game file (errno \(errno)).") }
+                            written += result
                         }
                     }
-                    guard let data = cache[part.guid] else { throw EpicContentError.invalid("Missing Epic chunk.") }
-                    let bytes = data.subdata(in: part.offset..<part.offset + part.size)
-                    try handle.write(contentsOf: bytes); hash.update(bytes)
-                    remaining[part.guid, default: 0] -= 1
-                    lru.removeAll { $0 == part.guid }
-                    if remaining[part.guid] == 0 { cache.removeValue(forKey: part.guid) } else { lru.append(part.guid) }
-                    while cache.values.reduce(0, { $0 + $1.count }) > 8 * 1024 * 1024, let oldest = lru.first {
-                        cache.removeValue(forKey: oldest); lru.removeFirst()
-                    }
+                    outstanding[destination.file] -= 1
+                    if outstanding[destination.file] == 0 { try finish(destination.file) }
+                }
+                received += UInt64(bytes); fetched.insert(guid); status.doneBytes += UInt64(bytes)
+                // Replace the completed request immediately. A slow request no
+                // longer holds an entire batch or a small-file boundary idle.
+                if next < order.count { enqueue(order[next]); next += 1 }
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - lastProgress >= 0.2 || next == order.count && fetched.count == order.count {
+                    lastProgress = now
                     status.bytesPerSecond = Double(received) / max(0.1, Date().timeIntervalSince(start))
                     await progress(status)
                 }
-                guard hash.finish() == file.sha else { throw EpicContentError.invalid("Epic file SHA-1 mismatch. Resume to retry.") }
-                try handle.synchronize(); try handle.close()
-                try Task.checkCancellation()
-                // POSIX rename replaces atomically on the same volume, including an old partial install.
-                guard rename(temporary.path, target.path) == 0 else { throw EpicContentError.invalid("Could not finalize an Epic game file.") }
-            } catch {
-                try? handle.close(); try? FileManager.default.removeItem(at: temporary)
-                throw error
             }
         }
         status.phase = .finishing; await progress(status)
@@ -386,5 +427,44 @@ private actor EpicInstallWorker {
         return EpicInstalledGame(game: job.game, appName: job.game.appName, installDir: job.installDir,
                                  buildVersion: manifest.meta.buildVersion, launchExe: launch, launchCommand: manifest.meta.launchCommand,
                                  prereqName: manifest.meta.prereqName, prereqPath: manifest.meta.prereqPath, prereqArgs: manifest.meta.prereqArgs)
+    }
+}
+
+/// Health is scoped to one install, and contains no account credentials. Use
+/// the other official bases when a CDN times out, refuses or corrupts a chunk.
+private actor EpicInstallChunkSource {
+    let bases: [URL]
+    let featureLevel: Int
+    let fetch: @Sendable (URL, EpicManifest.Chunk) async throws -> Data
+    private var failures: [URL: Int] = [:]
+
+    init(bases: [URL], featureLevel: Int, fetch: @escaping @Sendable (URL, EpicManifest.Chunk) async throws -> Data) {
+        self.bases = bases; self.featureLevel = featureLevel; self.fetch = fetch
+    }
+
+    func download(_ chunk: EpicManifest.Chunk) async throws -> (Data, Int) {
+        let path = try chunk.path(featureLevel: featureLevel)
+        var last: Error = EpicContentError.invalid("Epic did not return a content server.")
+        for attempt in 0..<4 {
+            try Task.checkCancellation()
+            let healthy = bases.filter { failures[$0, default: 0] < 4 }
+            let pool = healthy.isEmpty ? bases : healthy
+            guard !pool.isEmpty else { throw last }
+            let base = pool[attempt % pool.count]
+            do {
+                let bytes = try await fetch(base.appendingPathComponent(path), chunk)
+                try Task.checkCancellation()
+                let data = try EpicChunk.parse(bytes, expected: chunk)
+                failures[base] = 0
+                return (data, bytes.count)
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                try Task.checkCancellation()
+                failures[base, default: 0] += 1
+                LogStore.shared.log("[epic-install-v2] chunk retry attempt=\(attempt + 1) host=\(base.host ?? "unknown")")
+                last = error
+            }
+        }
+        throw last
     }
 }

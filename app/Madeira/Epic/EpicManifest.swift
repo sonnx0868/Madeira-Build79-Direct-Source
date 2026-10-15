@@ -230,7 +230,7 @@ struct EpicManifest {
         return match?["appName"] as? String
     }
 
-    static func fetch(namespace: String, catalogItemID: String, appName: String, token: String) async throws -> (Self, URL) {
+    static func fetch(namespace: String, catalogItemID: String, appName: String, token: String) async throws -> (Self, [URL]) {
         func assetURL(_ app: String) -> URL {
             var url = URL(string: launcherHost + "/v2/platform/Windows/namespace")!
             for part in [namespace, "catalogItem", catalogItemID, "app", app, "label", "Live"] { url.appendPathComponent(part) }
@@ -249,6 +249,14 @@ struct EpicManifest {
               let element = (json["elements"] as? [[String: Any]])?.first,
               let manifests = element["manifests"] as? [[String: Any]], !manifests.isEmpty
         else { throw EpicContentError.invalid("Epic did not return a Windows manifest.") }
+        var bases: [URL] = []
+        for manifest in manifests {
+            guard let uri = manifest["uri"] as? String, let url = URL(string: uri),
+                  url.scheme == "https", url.host != nil,
+                  var base = URLComponents(url: url.deletingLastPathComponent(), resolvingAgainstBaseURL: false) else { continue }
+            base.query = nil; base.fragment = nil
+            if let url = base.url, !bases.contains(url) { bases.append(url) }
+        }
         // Epic lists the same manifest on several CDNs, each with its own signed query.
         // One often refuses a given game (403/404): try them in order, as Legendary
         // does, and keep the base of the one that answered for the chunks.
@@ -271,14 +279,26 @@ struct EpicManifest {
             }
             var base = URLComponents(url: original.deletingLastPathComponent(), resolvingAgainstBaseURL: false)!
             base.query = nil; base.fragment = nil
-            return (try parse(bytes), base.url!)
+            let preferred = base.url!
+            return (try parse(bytes), [preferred] + bases.filter { $0 != preferred })
         }
         throw lastError
     }
 
-    /// URLSession spools responses to disk so a bad CDN response cannot fill RAM.
+    private static let contentSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpMaximumConnectionsPerHost = 16
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 180
+        return URLSession(configuration: configuration)
+    }()
+
+    /// Reuse connections without the shared URL cache. Spool responses to disk
+    /// so a bad CDN response cannot fill RAM, then enforce the manifest's bound.
     static func download(_ request: URLRequest, limit: Int) async throws -> Data {
-        let (file, response) = try await URLSession.shared.download(for: request)
+        let (file, response) = try await contentSession.download(for: request)
         defer { try? FileManager.default.removeItem(at: file) }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw EpicContentError.httpStatus(status) }

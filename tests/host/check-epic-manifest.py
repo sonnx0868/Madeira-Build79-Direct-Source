@@ -116,6 +116,33 @@ legacy = {
     'CustomFields': {'InstallLocation': 'Example', 'hello': 'world'},
 }
 
+# A shared chunk used again beyond the old 8 MB LRU, plus enough unique
+# requests to detect fixed batches and assembly in arrival order.
+pipeline = json.loads(json.dumps(legacy))
+pipeline_payloads = [bytes([i + 1]) * (1024 * 1024) for i in range(20)]
+pipeline_chunks = []
+pipeline_guids = ['%032X' % (i + 100) for i in range(20)]
+for i, payload in enumerate(pipeline_payloads):
+    wire = zlib.compress(payload)
+    guid = struct.pack('<4I', *(int(pipeline_guids[i][p:p+8], 16) for p in range(0, 32, 8)))
+    pipeline_chunks.append(struct.pack('<4I', 0xB1FE3AA2, 3, 66, len(wire)) + guid
+                           + struct.pack('<Q', i + 1) + b'\1' + sha(payload) + b'\3' + u32(len(payload)) + wire)
+pipeline['ChunkFilesizeList'] = {g: blob(struct.pack('<Q', len(c))) for g, c in zip(pipeline_guids, pipeline_chunks)}
+pipeline['ChunkHashList'] = {g: blob(struct.pack('<Q', i + 1)) for i, g in enumerate(pipeline_guids)}
+pipeline['ChunkShaList'] = {g: sha(p).hex() for g, p in zip(pipeline_guids, pipeline_payloads)}
+pipeline['DataGroupList'] = {g: blob(b'\1') for g in pipeline_guids}
+pipeline['LaunchExeString'] = 'game.exe'
+pipeline_data = b''.join(pipeline_payloads) + pipeline_payloads[0]
+pipeline['FileManifestList'] = [{
+    'Filename': 'game.exe', 'FileHash': blob(sha(pipeline_data)), 'FileChunkParts': [
+        {'Guid': g, 'Offset': blob(u32(0)), 'Size': blob(u32(1024 * 1024))}
+        for g in pipeline_guids + [pipeline_guids[0]]]}]
+for i in range(24):
+    pipeline['FileManifestList'].append({'Filename': f'shared/{i}.bin', 'FileHash': blob(sha(pipeline_payloads[0][3:35])),
+                                       'FileChunkParts': [{'Guid': pipeline_guids[0], 'Offset': blob(u32(3)), 'Size': blob(u32(32))}]})
+hash_vectors = [{'size': n, 'sha': sha(bytes(i % 251 for i in range(n))).hex()}
+                for n in [0, 1, 55, 56, 63, 64, 65, 127, 128, 129, 4097, 1048593]]
+
 MAIN = r'''
 import Foundation
 let folder = URL(fileURLWithPath: CommandLine.arguments[1])
@@ -161,6 +188,16 @@ for byte in expected { hash.update(Data([byte])) }
 check(hash.finish() == EpicSHA1.hash(expected), "incremental SHA-1")
 check(try EpicSHA1.file(folder.appendingPathComponent("payload.bin")) == EpicSHA1.hash(read("payload.bin")), "streamed file SHA-1")
 check(EpicSHA1.hash(Data()).map { String(format: "%02x", $0) }.joined() == "da39a3ee5e6b4b0d3255bfef95601890afd80709", "SHA-1 empty known vector")
+let vectors = try JSONSerialization.jsonObject(with: read("hash-vectors.json")) as! [[String: Any]]
+for vector in vectors {
+    let size = vector["size"] as! Int, want = vector["sha"] as! String
+    let bytes = Data((0..<size).map { UInt8($0 % 251) })
+    check(EpicSHA1.hash(bytes).map { String(format: "%02x", $0) }.joined() == want, "native SHA-1 Python vector \(size)")
+    var stream = EpicSHA1()
+    let step = size < 8192 ? 3 : 8191
+    for offset in stride(from: 0, to: size, by: step) { stream.update(bytes.subdata(in: offset..<min(offset + step, size))) }
+    check(stream.finish().map { String(format: "%02x", $0) }.joined() == want, "native incremental SHA-1 \(size)")
+}
 var damaged = try read("manifest.bin"); damaged[16] ^= 1
 rejects("manifest hash mismatch") { _ = try EpicManifest.parse(damaged) }
 var badChunk = try read("chunk0.bin"); badChunk[41] ^= 1
@@ -184,6 +221,7 @@ exit(failures == 0 ? 0 : 1)
 
 ASSEMBLY = r'''
 import Foundation
+import Darwin
 struct SteamDownloadProgress: Sendable {
     enum Phase { case preparing, downloading, finishing }
     var phase: Phase = .preparing
@@ -198,6 +236,18 @@ actor FetchCount {
     var count = 0
     func increment() { count += 1 }
     func reset() { count = 0 }
+}
+actor PipelineProbe {
+    var calls: [String: Int] = [:]
+    var active = 0, peak = 0
+    var firstDone = false, lateBeforeFirst = false
+    var progress: [SteamDownloadProgress] = []
+    func start(_ guid: String, index: Int) {
+        calls[guid, default: 0] += 1; active += 1; peak = max(peak, active)
+        if index >= 16 && !firstDone { lateBeforeFirst = true }
+    }
+    func end(_ index: Int) { active -= 1; if index == 0 { firstDone = true } }
+    func record(_ value: SteamDownloadProgress) { progress.append(value) }
 }
 '''
 ASSEMBLY_MAIN = r'''
@@ -275,6 +325,44 @@ check(!FileManager.default.fileExists(atPath: target.path), "interruption never 
 let staged = try FileManager.default.contentsOfDirectory(at: support.appendingPathComponent("Epic Staging"), includingPropertiesForKeys: nil)
 check(staged.isEmpty, "failure and cancellation clean up staging")
 _ = try await worker.assemble(job, manifest: manifest, base: base, fetch: { try await fetch($0, $1) }, progress: { _ in })
+let pipelineManifest = try EpicManifest.parse(Data(contentsOf: fixtures.appendingPathComponent("pipeline.json")))
+let pipelineJob = EpicInstaller.Pending(game: game, installDir: "Program Files/Epic Games/Pipeline-test")
+let pipelineRoot = drive.appendingPathComponent(pipelineJob.installDir)
+let probe = PipelineProbe()
+let pipelineFetch: @Sendable (URL, EpicManifest.Chunk) async throws -> Data = { _, chunk in
+    let index = Int(chunk.hash) - 1
+    await probe.start(chunk.guid, index: index)
+    try await Task.sleep(nanoseconds: index == 0 ? 400_000_000 : 5_000_000)
+    let data = try Data(contentsOf: fixtures.appendingPathComponent("pipeline-\(index).chunk"))
+    await probe.end(index)
+    return data
+}
+_ = try await worker.assemble(pipelineJob, manifest: pipelineManifest, base: base, fetch: pipelineFetch,
+                            progress: { await probe.record($0) })
+check(try Data(contentsOf: pipelineRoot.appendingPathComponent("game.exe")) == Data(contentsOf: fixtures.appendingPathComponent("pipeline-file.bin")),
+      "out-of-order chunks and distant repeated chunk preserve complete file order")
+let requests = await probe.calls
+check(requests.count == 20 && requests.values.allSatisfy { $0 == 1 }, "each unique chunk fetched once across all files beyond the old cache size")
+let peak = await probe.peak
+check(peak > 4 && peak <= 16, "bounded concurrent requests exceed the old four-chunk batches")
+check(await probe.lateBeforeFirst, "completed request refills while the first request is still pending")
+for i in 0..<24 {
+    check(try Data(contentsOf: pipelineRoot.appendingPathComponent("shared/\(i).bin")) == Data(repeating: 1, count: 32), "shared chunk destination \(i)")
+}
+let progress = await probe.progress
+let total = UInt64(pipelineManifest.chunks.reduce(0) { $0 + $1.fileSize })
+check(progress.last?.doneBytes == total && progress.allSatisfy { $0.doneBytes <= $0.totalBytes }, "progress counts unique wire bytes once")
+await count.reset()
+let repairedFetch: @Sendable (URL, EpicManifest.Chunk) async throws -> Data = { url, chunk in
+    await count.increment()
+    if url.host == "example.invalid" { throw EpicContentError.httpStatus(403) }
+    let index = manifest.chunks.firstIndex { $0.guid == chunk.guid }!
+    return try Data(contentsOf: fixtures.appendingPathComponent("chunk\(index).bin"))
+}
+try FileManager.default.removeItem(at: target)
+_ = try await worker.assemble(job, manifest: manifest, base: base, alternateBases: [URL(string: "https://alternate.invalid/game")!],
+                            fetch: repairedFetch, progress: { _ in })
+check(try await count.count == 4 && Data(contentsOf: target) == expected, "CDN refusal retries verified chunks on the alternate base")
 try await worker.remove(job.installDir)
 check(!FileManager.default.fileExists(atPath: root.path) && FileManager.default.fileExists(atPath: outside.path), "uninstall removes only the managed game folder")
 exit(failures == 0 ? 0 : 1)
@@ -283,10 +371,14 @@ exit(failures == 0 ? 0 : 1)
 with tempfile.TemporaryDirectory(prefix='madeira-epic-') as directory:
     folder = Path(directory)
     for name, data in [('manifest.bin', manifest()), ('raw.bin', manifest(False)), ('v5.bin', manifest(feature=22)),
-                       ('legacy.json', json.dumps(legacy).encode()), ('file.bin', file_data), ('payload.bin', payloads[0])]:
+                       ('legacy.json', json.dumps(legacy).encode()), ('file.bin', file_data), ('payload.bin', payloads[0]),
+                       ('pipeline.json', json.dumps(pipeline).encode()), ('pipeline-file.bin', pipeline_data),
+                       ('hash-vectors.json', json.dumps(hash_vectors).encode())]:
         (folder / name).write_bytes(data)
     for i, data in enumerate(chunks):
         (folder / f'chunk{i}.bin').write_bytes(data)
+    for i, data in enumerate(pipeline_chunks):
+        (folder / f'pipeline-{i}.chunk').write_bytes(data)
     for version in range(1, 5):
         for compressed in [False, True]:
             (folder / f'v{version}-{str(compressed).lower()}.chunk').write_bytes(chunk(0, version, compressed))

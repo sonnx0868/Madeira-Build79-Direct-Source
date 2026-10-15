@@ -187,6 +187,23 @@ try Data("unrelated log\n".utf8).write(to: otherGame.appendingPathComponent("log
 let otherSelected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
                                               executableRelativePath: "Games/Other/game.exe")
 assert(Set(otherSelected.map(\.name)) == Set(logs.map(\.name)))
+let legacyUnity = drive.appendingPathComponent("Games/Sundered/Sundered_Data/output_log.txt")
+try FileManager.default.createDirectory(at: legacyUnity.deletingLastPathComponent(), withIntermediateDirectories: true)
+try Data("legacy Unity startup failure\n".utf8).write(to: legacyUnity)
+try FileManager.default.setAttributes([.modificationDate: recent], ofItemAtPath: legacyUnity.path)
+let unitySelected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                               executableRelativePath: "Games/Sundered/Sundered.exe")
+assert(unitySelected.contains { $0.name == "Games/Sundered/Sundered_Data/output_log.txt" })
+assert(!DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                    executableRelativePath: "Games/Other/game.exe").contains { $0.name.hasSuffix("output_log.txt") })
+try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 800)], ofItemAtPath: legacyUnity.path)
+assert(!DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                    executableRelativePath: "Games/Sundered/Sundered.exe").contains { $0.name.hasSuffix("output_log.txt") })
+let unityLink = drive.appendingPathComponent("Games/Other/game_Data")
+try FileManager.default.createSymbolicLink(at: unityLink, withDestinationURL: legacyUnity.deletingLastPathComponent())
+try FileManager.default.setAttributes([.modificationDate: recent], ofItemAtPath: legacyUnity.path)
+assert(!DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+                                    executableRelativePath: "Games/Other/game.exe").contains { $0.name.hasSuffix("output_log.txt") })
 let klei=drive.appendingPathComponent("users/mobile/Documents/Klei/DoNotStarveTogether/123456789")
 try FileManager.default.createDirectory(at:klei,withIntermediateDirectories:true)
 let client=klei.appendingPathComponent("client_log.txt")

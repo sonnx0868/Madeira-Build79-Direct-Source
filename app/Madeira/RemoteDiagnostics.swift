@@ -137,13 +137,22 @@ enum DiagnosticCompanionLogs {
             let name = String(url.path.dropFirst(root.path.count + 1))
             found.append(Source(url: url, name: name))
         }
-        // Only the selected Ren'Py installation, known diagnostic filenames
+        // Only the selected installation, known diagnostic filenames
         // and this test's timestamps. Never enumerate scripts or game saves.
         if let relative = executableRelativePath, !relative.isEmpty, relative.utf16.count <= 2048,
            !relative.hasPrefix("/"), !relative.hasPrefix("\\"),
            !relative.replacingOccurrences(of: "\\", with: "/").split(separator: "/").contains("..") {
             let executable = root.appendingPathComponent(relative.replacingOccurrences(of: "\\", with: "/"))
             var folder = executable.deletingLastPathComponent()
+            // Older Unity players (Sundered) embed the engine in the EXE and
+            // write beside the game instead of LocalLow/Company/Product.
+            // Probe the exact selected EXE's data folder; never scan game data.
+            if inside(executable), (try? folder.resourceValues(forKeys: keys).isSymbolicLink) != true {
+                let data = folder.appendingPathComponent(executable.deletingPathExtension().lastPathComponent + "_Data", isDirectory: true)
+                if (try? data.resourceValues(forKeys: keys).isSymbolicLink) != true {
+                    add(data.appendingPathComponent("output_log.txt"))
+                }
+            }
             if inside(executable),
                (try? folder.resourceValues(forKeys: keys).isSymbolicLink) != true,
                GameEngineDetection.detect(executable) == "Ren'Py" {
