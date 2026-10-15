@@ -109,6 +109,10 @@ func wine_executable_requires_wow64(_ path: String) -> Int32 { fixtureRequiresWO
 enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
+dock_source = (root/'app/Madeira/MadeiraDock.swift').read_text(encoding='utf-8')
+swift += block(dock_source, 'struct DockGame: Identifiable') + '\n'
+swift += block(dock_source, 'struct DockExternalProgram: Equatable') + '\n'
+swift += 'enum MadeiraDock { static func validAppID(_ value: Int) -> Bool { value > 0 && UInt64(value) < UInt64(UInt32.max) } }\n'
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
 swift += block(lib, 'enum GameMemorySettings') + '\n'
 swift += block(lib, 'enum GameExitReport') + '\n'

@@ -1,0 +1,262 @@
+--- a/src/launch.c
++++ b/src/launch.c
+@@ -7,6 +7,7 @@
+ #include "launch.h"
+ #include "scm.h"
+ #include "validation.h"
++#include "external.h"
+ #include <stdio.h>
+ #include <string.h>
+ #include <wchar.h>
+@@ -171,10 +172,15 @@
+               int32_t pipe, int32_t user, uint64_t steamid, uint32_t appid,
+               const struct dock_client_layout *layout)
+ {
++    bool external = sh_external_requested();
++    void *manager = NULL;
++    if (external) {
++        if (!sh_external_validate()) return 50;
++    } else {
+     if (!layout || !method_is(module, engine, 43, layout->engine_manager) ||
+         !method_is(module, engine, 33, layout->engine_result) ||
+         !method_is(module, client_user, 67, layout->running)) return 40;
+-    void *manager = ((get_manager_fn)(*(void ***)engine)[43])(engine, user, pipe);
++    manager = ((get_manager_fn)(*(void ***)engine)[43])(engine, user, pipe);
+     if (!method_is(module, manager, 2, layout->launch) ||
+         !method_is(module, manager, 5, layout->install_dir)) return 40;
+     static char actual_utf8[32768];
+@@ -191,6 +197,7 @@
+         return 41;
+     }
+     o->event("launch-install-directory-verified", 1);
++    }
+     HKEY active = NULL, machine = NULL;
+     int result = 42;
+     struct saved_value values[3] = {0};
+@@ -199,7 +206,7 @@
+      * the manifest's CheckGuid block. Failure never launches the game.
+      * MADEIRA_DOCK_CEG=0 restores the previous direct LaunchApp.
+      */
+-    if (wide_flag(L"MADEIRA_STEAM_HOST_CEG", L'1')) {
++    if (!external && wide_flag(L"MADEIRA_STEAM_HOST_CEG", L'1')) {
+         if (wide_flag(L"MADEIRA_DOCK_CEG", L'0')) o->event("ceg-disabled", 1);
+         else {
+             /* ml2000: Valve's client reaches its own client service through
+@@ -229,6 +236,10 @@
+         !publish(&values[1], (DWORD)steamid) || !publish(&values[2], GetCurrentProcessId())) goto done;
+     o->event("launch-client-discovery-published", 1);
+     SetConsoleCtrlHandler(on_control, TRUE);
++    if (external) {
++        result = sh_external_launch(api, o, pipe, appid);
++        goto done;
++    }
+     uint64_t gameid = appid;
+     uint64_t call = ((launch_fn)(*(void ***)manager)[2])(manager, &gameid, 0, 0, "");
+     o->event("launch-request-submitted", call != 0);
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,22 @@
+ # Madeira Dock
++
++## External executable integration
++
++The parent Madeira integration adds an opt-in external-program adapter. It
++uses the same consumed App-ID-bound native sign-in and Valve subscription-list
++gate as installed games. After genuine client discovery is registered, it
++starts the explicitly selected EXE with `CreateProcessW`, a child-only Steam
++identity, the EXE's working directory and the saved Windows arguments. The
++host pumps the real client's callbacks until the launched job and descendants
++end. No undocumented shortcut interface is added, and neither game libraries
++nor client authentication results are replaced. Installed games retain
++`LaunchApp` and their existing install-directory checks.
++
++The adapter has Windows fixture coverage for Unicode arguments, environment
++isolation, process descendants and error exits. Live authentication and
++external-game compatibility on iOS need device verification. An executable
++that explicitly requests a Steam relaunch can still ask Valve to open the
++installed Steam copy.
+ 
+ Madeira Dock is a headless host for Valve's genuine Steam client, used by the
+ Madeira app to launch a user's own purchased games with real Steam
+--- a/docs/HANDOFF.md
++++ b/docs/HANDOFF.md
+@@ -1,4 +1,19 @@
+ # Madeira Dock — implementation handoff, ml2000 (2026-09-25)
++
++## Parent integration: external executable sessions (2026-10-15)
++
++The parent carries `patches/madeira-dock-external-launch.patch` against the
++pinned submodule. `external.c` is reached only from `sh_launch`, after the
++existing genuine sign-in, handoff App ID binding and subscription-list gate.
++Installed launches still use the existing manager ABI and install-directory
++verification. An explicit external launch starts its exact C-drive EXE with
++its own directory/arguments, inherits no handoff path or host launch settings,
++and receives Steam identity only in its child environment. A Windows job
++tracks descendants while the host pumps client callbacks and owns discovery.
++Errors restore discovery through the same cleanup path. No private ABI was
++added. Parent `tests/host/check-external-steam.py` exercises the process adapter
++with synthetic EXEs, not an authenticated Steam session. iOS external-game
++launch and the Wine job-object path remain device test requirements.
+ 
+ ## A manager that answers counts as started (2026-09-29)
+ 
+diff --git a/src/external.c b/src/external.c
+new file mode 100644
+--- /dev/null
++++ b/src/external.c
+@@ -0,0 +1,137 @@
++/* SPDX-License-Identifier: GPL-3.0-or-later
++ * Copyright 2026 125hz
++ * Madeira Converter Exception: see LICENSE-EXCEPTION.md */
++#include "external.h"
++#include <stdlib.h>
++#include <string.h>
++#include <wchar.h>
++
++bool sh_external_requested(void)
++{
++    wchar_t value[2];
++    return GetEnvironmentVariableW(L"MADEIRA_STEAM_HOST_EXTERNAL", value, 2) == 1 && value[0] == L'1';
++}
++
++static wchar_t program[32768], directory[32768], command[32768];
++
++bool sh_external_validate(void)
++{
++    wchar_t normalized[32768], arguments[32768];
++    DWORD size = GetEnvironmentVariableW(L"MADEIRA_STEAM_HOST_PROGRAM", program, 32768);
++    if (!size || size >= 32768 || size < 8 || program[0] != L'C' || program[1] != L':' ||
++        program[2] != L'\\' || wcschr(program, L'"') || wcschr(program, L'/') ||
++        _wcsicmp(program + size - 4, L".exe")) return false;
++    DWORD full = GetFullPathNameW(program, 32768, normalized, NULL);
++    if (!full || full >= 32768 || _wcsicmp(normalized, program)) return false;
++    DWORD attrs = GetFileAttributesW(program);
++    if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) return false;
++    wcscpy(directory, program);
++    wchar_t *last = wcsrchr(directory, L'\\');
++    if (!last || last == directory + 2) return false;
++    *last = 0;
++    SetLastError(ERROR_SUCCESS);
++    DWORD count = GetEnvironmentVariableW(L"MADEIRA_STEAM_HOST_ARGUMENTS", arguments, 32768);
++    if (count >= 32768 || (!count && GetLastError() != ERROR_SUCCESS &&
++                          GetLastError() != ERROR_ENVVAR_NOT_FOUND)) return false;
++    if (!count) arguments[0] = 0;
++    if ((size_t)size + count + (count ? 4 : 3) > 32768) return false;
++    command[0] = L'"';
++    memcpy(command + 1, program, size * sizeof(wchar_t));
++    command[size + 1] = L'"';
++    command[size + 2] = 0;
++    if (count) { command[size + 2] = L' '; wcscpy(command + size + 3, arguments); }
++    return true;
++}
++
++static bool omit(const wchar_t *entry)
++{
++    const wchar_t *keys[] = {L"SteamAppId=", L"SteamGameId=", L"SteamAppPath=",
++                            L"MADEIRA_STEAM_HOST_", L"MADEIRA_DOCK_AUTH_FILE="};
++    for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
++        if (!_wcsnicmp(entry, keys[i], wcslen(keys[i]))) return true;
++    return false;
++}
++static int compare_entries(const void *a, const void *b)
++{
++    return _wcsicmp(*(const wchar_t *const *)a, *(const wchar_t *const *)b);
++}
++static wchar_t *child_environment(uint32_t appid)
++{
++    wchar_t identity[2][48], path[32768];
++    _snwprintf(identity[0], 48, L"SteamAppId=%u", appid);
++    _snwprintf(identity[1], 48, L"SteamGameId=%u", appid);
++    if (wcslen(directory) + 14 >= 32768) return NULL;
++    wcscpy(path, L"SteamAppPath=");wcscat(path, directory);
++    wchar_t *parent = GetEnvironmentStringsW(), *out = NULL;
++    if (!parent) return NULL;
++    size_t entries = 3, units = 1;
++    for (const wchar_t *p = parent; *p; p += wcslen(p) + 1)
++        if (!omit(p)) ++entries;
++    const wchar_t **list = calloc(entries, sizeof(*list));
++    if (!list) goto done;
++    size_t at = 0;
++    for (const wchar_t *p = parent; *p; p += wcslen(p) + 1)
++        if (!omit(p)) list[at++] = p;
++    list[at++] = identity[0];list[at++] = identity[1];list[at++] = path;
++    qsort(list, entries, sizeof(*list), compare_entries);
++    for (size_t i = 0; i < entries; ++i) {
++        size_t n = wcslen(list[i]) + 1;
++        if (n > 32767 || units > 32767 - n) goto done;
++        units += n;
++    }
++    out = calloc(units, sizeof(wchar_t));
++    if (out) {
++        wchar_t *p = out;
++        for (size_t i = 0; i < entries; ++i) {
++            size_t n = wcslen(list[i]) + 1;memcpy(p, list[i], n * sizeof(wchar_t));p += n;
++        }
++    }
++done:
++    free(list);FreeEnvironmentStringsW(parent);return out;
++}
++
++int sh_external_launch(const struct sh_api *api, const struct sh_observer *o, int32_t pipe, uint32_t appid)
++{
++    /* Recheck the selected executable after authentication yielded. The App ID
++     * was already bound to the consumed handoff and checked by Valve. */
++    if (!sh_external_validate()) return 50;
++    int result = 51;
++    HANDLE job = CreateJobObjectW(NULL, NULL);
++    wchar_t *environment = child_environment(appid);
++    PROCESS_INFORMATION child = {0};
++    STARTUPINFOW startup = {.cb = sizeof(startup)};
++    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {0};
++    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
++    if (!job || !environment || !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) goto done;
++    if (!CreateProcessW(program, command, NULL, NULL, FALSE,
++                        CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, environment, directory, &startup, &child)) goto done;
++    if (!AssignProcessToJobObject(job, child.hProcess) || ResumeThread(child.hThread) == (DWORD)-1) {
++        TerminateProcess(child.hProcess, 1);goto done;
++    }
++    o->event("external-process-started", 1);
++    result = 52;
++    for (;;) {
++        for (unsigned batch = 0; batch < 64; ++batch) {
++            struct sh_callback cb = {0};
++            if (!api->get_callback(pipe, &cb)) break;
++            bool valid = cb.id > 0 && cb.size >= 0 && (!cb.size || cb.data);
++            api->free_callback(pipe);
++            if (!valid) { result = SH_CALLBACK_INVALID;goto done; }
++        }
++        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting = {0};
++        if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), NULL)) goto done;
++        if (!accounting.ActiveProcesses) {
++            DWORD status;
++            if (!GetExitCodeProcess(child.hProcess, &status)) goto done;
++            o->event("external-process-exit", (int32_t)status);
++            result = status ? 53 : 0;break;
++        }
++        o->sleep_ms(20);
++    }
++done:
++    if (result) o->event("external-launch-error", (int32_t)GetLastError());
++    if (child.hThread) CloseHandle(child.hThread);
++    if (child.hProcess) CloseHandle(child.hProcess);
++    if (job) CloseHandle(job);
++    free(environment);return result;
++}
+diff --git a/src/external.h b/src/external.h
+new file mode 100644
+--- /dev/null
++++ b/src/external.h
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: GPL-3.0-or-later
++ * Copyright 2026 125hz
++ * Madeira Converter Exception: see LICENSE-EXCEPTION.md */
++#ifndef MADEIRA_DOCK_EXTERNAL_H
++#define MADEIRA_DOCK_EXTERNAL_H
++#include "probe.h"
++#include <windows.h>
++bool sh_external_requested(void);
++bool sh_external_validate(void);
++/* Called only after the normal genuine-client authentication/subscription
++ * checks and discovery registration. Never creates a replacement Steam API. */
++int sh_external_launch(const struct sh_api *, const struct sh_observer *, int32_t pipe, uint32_t appid);
++#endif

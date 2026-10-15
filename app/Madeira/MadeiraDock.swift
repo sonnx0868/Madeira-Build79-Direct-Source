@@ -33,10 +33,25 @@ struct DockGame: Identifiable, Equatable, Sendable {
     let library: String         // drive-relative steamapps folder
     let installed: Bool         // StateFlags has "fully installed"
     let customExecutables: Bool // the install record lists per-user executables (CheckGuid)
+    var external: DockExternalProgram? = nil
 
     /// Windows path of the game's folder, which Dock requires Valve's client to resolve to.
     var windowsInstallPath: String {
-        "C:\\" + (library + "/common/" + installDir).replacingOccurrences(of: "/", with: "\\")
+        if let external { return external.directory }
+        return "C:\\" + (library + "/common/" + installDir).replacingOccurrences(of: "/", with: "\\")
+    }
+}
+
+struct DockExternalProgram: Equatable, Sendable {
+    let path: String
+    let arguments: String
+    var directory: String { path.lastIndex(of: "\\").map { String(path.prefix(upTo: $0)) } ?? "" }
+
+    static func validPath(_ path: String) -> Bool {
+        guard path.hasPrefix("C:\\"), path.lowercased().hasSuffix(".exe"),
+              !path.contains("/"), !path.contains("\""), !path.contains("\0") else { return false }
+        let parts = path.dropFirst(3).split(separator: "\\", omittingEmptySubsequences: false)
+        return parts.count > 1 && parts.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains(":") }
     }
 }
 
@@ -132,11 +147,23 @@ enum MadeiraDock {
     /// Everything a launch needs, checked before any sign-in is handed over.
     static func validate(_ game: DockGame, drive: URL, bundled: Bool = MadeiraDock.bundled) throws {
         guard bundled else { throw DockError.message("Madeira Dock is not built into this app. Run build/madeira-dock/build.sh.") }
-        guard validAppID(game.id), validFolderName(game.installDir) else {
+        guard validAppID(game.id), game.external != nil || validFolderName(game.installDir) else {
             throw DockError.message("This game's Steam install record is invalid.")
         }
         guard FileManager.default.fileExists(atPath: drive.appendingPathComponent(SteamRuntimeFiles.relativeRoot + "/steamclient64.dll").path) else {
             throw DockError.message("Steam's client files are missing. Download Valve's client components first.")
+        }
+        if let external = game.external {
+            guard DockExternalProgram.validPath(external.path), !external.arguments.contains("\0"),
+                  external.path.utf16.count + external.arguments.utf16.count + 4 <= 32768 else {
+                throw DockError.message("This external program's Steam launch path or arguments are invalid.")
+            }
+            let url = drive.appendingPathComponent(String(external.path.dropFirst(3)).replacingOccurrences(of: "\\", with: "/"))
+            guard url.resolvingSymlinksInPath().path.hasPrefix(drive.resolvingSymlinksInPath().path + "/"),
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                throw DockError.message("The selected external program is missing from Madeira's drive.")
+            }
+            return
         }
         var isFolder: ObjCBool = false
         guard game.installed,
@@ -214,6 +241,9 @@ enum MadeiraDock {
                     : "Steam did not finish signing in. Check the connection and try again."
             }
             if result == 35 { return "Steam did not confirm a license for this game on the signed-in account." }
+            if result == 50 { return "The external program's path or arguments changed or are invalid. Choose its EXE again." }
+            if result == 51 || result == 52 { return "Steam signed in, but the external program could not be started or tracked. Export the diagnostic log." }
+            if result == 53 { return "The external program exited with an error. Export the diagnostic log to see its Windows exit code." }
             if result == 37 {
                 if fields["session-native-handoff-app-mismatch"] == "1" {
                     return "Madeira Dock received a sign-in transfer for a different launch. Close the session and try again."
@@ -288,6 +318,7 @@ enum MadeiraDock {
         "ceg-request", "ceg-request-result", "ceg-request-busy", "ceg-server-result", "ceg-job-result",
         "ceg-finished-jobs", "ceg-result", "ceg-disabled", "ceg-unsupported-client",
         "ceg-scm", "ceg-scm-started", "ceg-scm-error", "ceg-service-registered", "ceg-service-install", "ceg-service-stop", "ceg-scm-stopped",
+        "external-process-started", "external-process-exit", "external-launch-error",
         "shutdown-begin", "shutdown-complete", "probe-result"]
     /// The host's report rounds (madeira-dock src/main.c).
     static let reportRounds: Set<String> = ["ml1820", "ml1830", "ml1860", "ml1870", "ml1970", "ml1990", "ml2000", "ml2011", "ml2015"]
@@ -391,6 +422,12 @@ enum MadeiraDock {
 
     /// The host's environment for one launch.
     static func configure(_ game: DockGame) {
+        for key in ["MADEIRA_STEAM_HOST_EXTERNAL", "MADEIRA_STEAM_HOST_PROGRAM", "MADEIRA_STEAM_HOST_ARGUMENTS"] { unsetenv(key) }
+        if let external = game.external {
+            setenv("MADEIRA_STEAM_HOST_EXTERNAL", "1", 1)
+            setenv("MADEIRA_STEAM_HOST_PROGRAM", external.path, 1)
+            setenv("MADEIRA_STEAM_HOST_ARGUMENTS", external.arguments, 1)
+        }
         for key in ["MADEIRA_STEAM_HOST_PROBE", "MADEIRA_STEAM_HOST_SESSION", "MADEIRA_STEAM_HOST_LOGIN", "MADEIRA_STEAM_HOST_LAUNCH"] {
             setenv(key, "1", 1)
         }

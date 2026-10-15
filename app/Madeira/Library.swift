@@ -271,6 +271,9 @@ struct LibraryEntry: Codable, Identifiable {
     /// Dock, the default; "game" is the game's own program in Wine, without Steam
     /// (SteamDirectStart).
     var steamStart: String?
+    /// An imported EXE may use the signed-in genuine Steam client without
+    /// becoming an installed Steam-library entry. Nil keeps direct launch.
+    var externalSteamAppID: Int?
     /// "The game": the program, relative to the install folder ("bin/game.exe"), its
     /// arguments, and its working folder (relative to the install folder; nil: the
     /// program's own folder, "": the install folder), from Steam's launch configuration
@@ -327,6 +330,13 @@ struct LibraryEntry: Codable, Identifiable {
 
     /// A Steam game that starts as its own program ("Start with: The game").
     var startsSteamGameDirectly: Bool { steamAppID != nil && steamStart == "game" }
+    var usesSteamSession: Bool { (steamAppID != nil && !startsSteamGameDirectly) || externalSteamAppID != nil }
+    var externalSteamGame: DockGame? {
+        guard steamAppID == nil, desktop != true, let id = externalSteamAppID else { return nil }
+        var game = DockGame(id: id, name: title, installDir: "", library: "", installed: false, customExecutables: false)
+        game.external = DockExternalProgram(path: launchWindowsPath, arguments: launchArguments)
+        return game
+    }
     /// What a launch starts, relative to drive_c: "The game"'s program inside the
     /// install folder, else `relativePath`.
     var launchRelativePath: String {
@@ -359,6 +369,9 @@ struct LibraryEntry: Codable, Identifiable {
     }
 
     func validate() throws {
+        if let externalSteamAppID, !MadeiraDock.validAppID(externalSteamAppID) {
+            throw LibraryError.message("Choose the game's Steam App ID in Game details › Steam session.")
+        }
         if let swapMB, !GameMemorySettings.swapChoices.contains(swapMB) {
             throw LibraryError.message("Choose a supported swap capacity or inherit the global setting.")
         }
@@ -445,7 +458,7 @@ struct LibraryEntry: Codable, Identifiable {
         // injected overlay adds a large x64 DLL, hooks XInput and cannot present
         // a useful desktop overlay here. Keep it out of Dock games by default;
         // env.MADEIRA_STEAM_OVERLAY=1 is the escape hatch.
-        let dockGame = steamAppID != nil && !startsSteamGameDirectly
+        let dockGame = usesSteamSession
         let steamOverlay = MadeiraConfig.bool("env.MADEIRA_STEAM_OVERLAY", default: false)
         if dockGame && !steamOverlay {
             setenv("_MADEIRA_STEAM_OVERLAY_OFF", "1", 1)
@@ -476,14 +489,15 @@ struct LibraryEntry: Codable, Identifiable {
         // reads and clears them); every other launch starts without them.
         unsetenv("MADEIRA_STEAM_APPID"); unsetenv("MADEIRA_STEAM_APPPATH"); unsetenv("MADEIRA_WORKDIR")
         unsetenv("MADEIRA_FOLDER_COMPAT")
-        if steamAppID != nil {
+        if usesSteamSession {
             // A Steam game through Madeira Dock: Dock has set what starts (ContentView.startDock);
             // the virtual monitor follows this entry's Resolution, as below. "The game" starts
             // its own program below, like any library game.
-            if !startsSteamGameDirectly {
-                GuestDisplay.configureSessionDefault(view: CGSize(width: 1280, height: 720), knob: resolution)
-                return
+            if externalSteamAppID != nil, MadeiraConfig.get("env.MADEIRA_FOLDER_COMPAT") != "0" {
+                setenv("MADEIRA_FOLDER_COMPAT", "1", 1)
             }
+            GuestDisplay.configureSessionDefault(view: CGSize(width: 1280, height: 720), knob: resolution)
+            return
         }
         setenv("MADEIRA_EXE", desktop == true ? "explorer.exe" : launchWindowsPath, 1)
         setenv("MADEIRA_ARGS", launchArguments, 1)
@@ -3798,6 +3812,22 @@ struct LibraryDetail: View {
                         leave: { leaving = true; dismiss() })
                 }
                 if entry.desktop != true && entry.steamAppID == nil {
+                    Section("Steam session") {
+                        Toggle("Run with signed-in Steam", isOn: Binding(
+                            get: { entry.externalSteamAppID != nil },
+                            set: { entry.externalSteamAppID = $0 ? (FolderSteamIdentity.appID(executable: LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)) ?? entry.steamID ?? 0) : nil }))
+                        if entry.externalSteamAppID != nil {
+                            Picker("Game in Steam", selection: Binding(get: { entry.externalSteamAppID ?? 0 }, set: { entry.externalSteamAppID = $0 })) {
+                                Text("Choose a game").tag(0)
+                                ForEach(SteamOwnedLibrary.shared.owned) { game in Text(game.name).tag(game.id) }
+                            }
+                            TextField("Steam App ID", text: Binding(get: { entry.externalSteamAppID.map(String.init) ?? "" },
+                                set: { entry.externalSteamAppID = Int($0) ?? 0 }))
+                                .keyboardType(.numberPad)
+                            Text("Steam signs in and checks this game's license, then Madeira starts this EXE with its saved arguments. Sign in under Settings › Steam first.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Section {
                         if componentsLoading {
                             HStack { ProgressView(); Text("Scanning PE dependencies…").foregroundStyle(.secondary) }

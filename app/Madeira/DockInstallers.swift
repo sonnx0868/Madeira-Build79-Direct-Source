@@ -628,6 +628,7 @@ enum DockInstallers {
                         has32Bit: Bool = DockInstallers.bundleHas32Bit, hasMsiexec: Bool = DockInstallers.bundleHasMsiexec,
                         fusionSource: URL? = Bundle.main.resourceURL?.appendingPathComponent("i386-windows/fusion.dll")) async {
         script = nil; serverSync = false; note = nil; finishedAt = nil; logged = []
+        guard game.external == nil else { return }
         let options = PreparationOptions(enabled: enabled, defaultKey: flag("MADEIRA_INSTALL_DEFAULT_KEY"),
             choiceOn: flag("MADEIRA_DOCK_INSTALL_CHOICE"), serverSync: flag("MADEIRA_DOCK_INSTALL_SERVER_SYNC"),
             services: flag("MADEIRA_DOCK_INSTALL_SCM"), fusion: flag("MADEIRA_DOTNET_FUSION"), madsync: madsyncConfigured,

@@ -119,7 +119,7 @@ final class GameRuntime: ObservableObject {
         // lifecycle. Never quietly bypass it to make this generic route work.
         enabled && entry.desktop != true && entry.temporarySession != true &&
         !requiresDirectLaunch(entry) &&
-        (entry.steamAppID == nil || entry.startsSteamGameDirectly) &&
+        !entry.usesSteamSession &&
         !(entry.bits == 32 && MadeiraConfig.get("d3d9") == "native") &&
         (MadeiraConfig.get("env.DXMT_REMOTE_METAL") ?? ProcessInfo.processInfo.environment["DXMT_REMOTE_METAL"] ?? "").isEmpty &&
         !MadeiraConfig.bool("d3d12", default: false)

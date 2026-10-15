@@ -88,3 +88,13 @@ else
     echo "Wine source does not match the native boot clock patch" >&2
     exit 1
 fi
+
+patch="$root/patches/wine-module-path.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine loaded-module sibling recovery already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the module-path recovery patch" >&2
+    exit 1
+fi

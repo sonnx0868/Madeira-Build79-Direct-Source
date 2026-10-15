@@ -11,6 +11,7 @@ rm -f "$output"
   build/wine-pe/controller-pe.version \
   build/wine-pe/exec-callback-pe.version \
   build/wine-pe/exec-callback-pe.json \
+  build/wine-pe/module-loader.json \
   build/wine-pe/opengl-pe.version \
   build/ntdll-unix/lrcpc2-alias.json \
   app/Madeira/libwineserver.a app/Madeira/libntdll_unix.a \

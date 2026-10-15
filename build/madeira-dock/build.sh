@@ -24,6 +24,15 @@ CC="$MINGW/x86_64-w64-mingw32-clang"
 OUT="$REPO_ROOT/app/Madeira/arm64ec-windows"
 
 [ -f "$SRC/src/main.c" ] || { echo "madeira-dock is missing: git submodule update --init madeira-dock" >&2; exit 1; }
+PATCH="$REPO_ROOT/patches/madeira-dock-external-launch.patch"
+if git -C "$SRC" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
+    echo "Dock external-program adapter already applied"
+elif git -C "$SRC" apply --check "$PATCH"; then
+    git -C "$SRC" apply "$PATCH"
+else
+    echo "Dock source does not match the external-program integration" >&2
+    exit 1
+fi
 [ -x "$CC" ] || { echo "missing cross compiler: $CC (set LLVM_MINGW)" >&2; exit 1; }
 
 if [ "${1:-}" = "--check" ]; then
@@ -45,6 +54,8 @@ section() { printf '\n\n==== %s ====\n\n' "$1"; }
     cat "$SRC/LICENSE"
     printf '\nCorresponding source: https://github.com/125hz/madeira-dock (commit %s)\n' \
         "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+    printf 'External-program integration: https://github.com/sonnx0868/Madeira-Build79-Direct-Source (commit %s), patches/madeira-dock-external-launch.patch\n' \
+        "$(git -C "$REPO_ROOT" rev-parse HEAD)"
     section 'LICENSE-EXCEPTION.md (Madeira Converter Exception)'
     cat "$SRC/LICENSE-EXCEPTION.md"
     section 'COPYING (GNU General Public License, version 3)'

@@ -1,0 +1,122 @@
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -3889,6 +3889,109 @@
+  *
+  * Find the file (or already loaded module) for a given dll name.
+  */
++/* A few plugins append a DLL to their own module filename instead of its
++ * directory, sometimes dropping the module extension's final character.
++ * Build only the exact loaded-module path and its immediate sibling. */
++static BOOL module_path_ends_with( const WCHAR *name, SIZE_T length, const WCHAR *suffix )
++{
++    SIZE_T size = wcslen( suffix ), i;
++    if (length <= size) return FALSE;
++    for (i = 0; i < size; ++i)
++    {
++        WCHAR ch = name[length - size + i];
++        if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
++        if (ch != suffix[i]) return FALSE;
++    }
++    return TRUE;
++}
++
++static BOOL module_sibling_paths( const UNICODE_STRING *name, WCHAR *module, WCHAR *sibling )
++{
++    const WCHAR *text = name->Buffer;
++    SIZE_T length = name->Length / sizeof(WCHAR), leaf, end, start, i;
++    WCHAR missing = 0;
++    if (!text || name->Length % sizeof(WCHAR) || length < 12 ||
++        text[0] != '\\' || text[1] != '?' || text[2] != '?' || text[3] != '\\' ||
++        !((text[4] >= 'A' && text[4] <= 'Z') || (text[4] >= 'a' && text[4] <= 'z')) ||
++        text[5] != ':' || text[6] != '\\') return FALSE;
++    for (i = 0; i < length; ++i)
++        if (!text[i] || text[i] == '/' || (text[i] == ':' && i != 5)) return FALSE;
++    /* Refuse traversal even if a caller has not canonicalized its NT name. */
++    for (i = 7; i < length;)
++    {
++        SIZE_T at = i;
++        while (i < length && text[i] != '\\') ++i;
++        if ((i - at == 1 && text[at] == '.') ||
++            (i - at == 2 && text[at] == '.' && text[at + 1] == '.')) return FALSE;
++        if (i < length) ++i;
++    }
++    for (leaf = length; leaf && text[leaf - 1] != '\\'; --leaf);
++    if (leaf == length || !module_path_ends_with( text + leaf, length - leaf, L".dll" )) return FALSE;
++    for (end = leaf; end && text[end - 1] == '\\'; --end);
++    for (start = end; start && text[start - 1] != '\\'; --start);
++    if (start < 7 || end <= start) return FALSE;
++    if (module_path_ends_with( text + start, end - start, L".dll" ) ||
++        module_path_ends_with( text + start, end - start, L".exe" )) missing = 0;
++    else if (module_path_ends_with( text + start, end - start, L".dl" )) missing = 'l';
++    else if (module_path_ends_with( text + start, end - start, L".ex" )) missing = 'e';
++    else return FALSE;
++    memcpy( module, text, end * sizeof(WCHAR) );
++    if (missing) module[end++] = missing;
++    module[end] = 0;
++    memcpy( sibling, text, start * sizeof(WCHAR) );
++    memcpy( sibling + start, text + leaf, (length - leaf) * sizeof(WCHAR) );
++    sibling[start + length - leaf] = 0;
++    return TRUE;
++}
++
++static NTSTATUS open_module_sibling( UNICODE_STRING *nt_name, WINE_MODREF **pwm, HANDLE *mapping,
++                                    SECTION_IMAGE_INFORMATION *image_info, struct file_id *id )
++{
++    static const WCHAR optionW[] = L"MADEIRA_FOLDER_COMPAT";
++    WCHAR enabled[2], *paths, *module_path, *sibling_path;
++    UNICODE_STRING option, value = {0, sizeof(enabled), enabled}, module, replacement = {0};
++    OBJECT_ATTRIBUTES attr;
++    FILE_BASIC_INFORMATION info;
++    WINE_MODREF *owner;
++    NTSTATUS status = STATUS_DLL_NOT_FOUND, probe;
++    SIZE_T capacity;
++
++    RtlInitUnicodeString( &option, optionW );
++    if (RtlQueryEnvironmentVariable_U( NULL, &option, &value ) ||
++        value.Length != sizeof(WCHAR) || enabled[0] != '1' || !nt_name->Buffer) return status;
++    InitializeObjectAttributes( &attr, nt_name, OBJ_CASE_INSENSITIVE, 0, NULL );
++    probe = NtQueryAttributesFile( &attr, &info );
++    if (probe != STATUS_OBJECT_NAME_NOT_FOUND && probe != STATUS_OBJECT_PATH_NOT_FOUND &&
++        probe != STATUS_NOT_A_DIRECTORY) return status;
++    capacity = nt_name->Length / sizeof(WCHAR) + 2;
++    if (!(paths = RtlAllocateHeap( GetProcessHeap(), 0, 2 * capacity * sizeof(WCHAR) ))) return STATUS_NO_MEMORY;
++    module_path = paths;
++    sibling_path = paths + capacity;
++    if (!module_sibling_paths( nt_name, module_path, sibling_path )) goto done;
++    RtlInitUnicodeString( &module, module_path );
++    if (!(owner = find_fullname_module( &module )) || owner->system ||
++        (owner->ldr.Flags & LDR_WINE_INTERNAL)) goto done;
++    attr.ObjectName = &module;
++    if (NtQueryAttributesFile( &attr, &info ) || (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)) goto done;
++    RtlInitUnicodeString( &replacement, sibling_path );
++    attr.ObjectName = &replacement;
++    if (NtQueryAttributesFile( &attr, &info ) || (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)) goto done;
++    replacement.Buffer = NULL;
++    if (!RtlCreateUnicodeString( &replacement, sibling_path )) { status = STATUS_NO_MEMORY; goto done; }
++    status = open_dll_file( &replacement, pwm, mapping, image_info, id );
++    if (!status)
++    {
++        ERR( "module-path-v1: %s -> %s\n", debugstr_us(nt_name), debugstr_us(&replacement) );
++        RtlFreeUnicodeString( nt_name );
++        *nt_name = replacement;
++        replacement.Buffer = NULL;
++    }
++    RtlFreeUnicodeString( &replacement );
++done:
++    RtlFreeHeap( GetProcessHeap(), 0, paths );
++    return status;
++}
++
+ static NTSTATUS find_dll_file( const WCHAR *load_path, const WCHAR *libname, UNICODE_STRING *nt_name,
+                                WINE_MODREF **pwm, HANDLE *mapping, SECTION_IMAGE_INFORMATION *image_info,
+                                struct file_id *id, BOOL *redirected, BOOL find_loaded )
+@@ -3941,6 +4044,9 @@
+     }
+     else if (!(status = RtlDosPathNameToNtPathName_U_WithStatus( libname, nt_name, NULL, NULL )))
+         status = open_dll_file( nt_name, pwm, mapping, image_info, id );
++
++    if (status == STATUS_DLL_NOT_FOUND && !find_loaded && nt_name->Buffer)
++        status = open_module_sibling( nt_name, pwm, mapping, image_info, id );
+ 
+     if (status == STATUS_NOT_SUPPORTED) status = STATUS_INVALID_IMAGE_FORMAT;
+ 

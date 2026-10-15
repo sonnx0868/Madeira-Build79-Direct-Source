@@ -222,6 +222,21 @@ func jwt(_ claims: String) -> String {
         unsetenv("MADEIRA_IMAGE_MAP_GUARD"); setenv("MADEIRA_DOCK_IMAGE_MAP_GUARD", "0", 1); MadeiraDock.configure(alpha)
         require(env("MADEIRA_IMAGE_MAP_GUARD") == "0", "MADEIRA_DOCK_IMAGE_MAP_GUARD=0 preserves an explicit opt-out from the shared default")
         unsetenv("MADEIRA_DOCK_IMAGE_MAP_GUARD")
+        var imported = alpha
+        let relative = "Games/Imported Title/game.exe"
+        let fixture = drive.appendingPathComponent(relative)
+        try FileManager.default.createDirectory(at: fixture.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0]).write(to: fixture)
+        imported.external = DockExternalProgram(path: "C:\\Games\\Imported Title\\game.exe", arguments: "-arg \"two words\"")
+        try MadeiraDock.validate(imported, drive: drive, bundled: true)
+        MadeiraDock.configure(imported)
+        require(env("MADEIRA_STEAM_HOST_EXTERNAL") == "1" && env("MADEIRA_STEAM_HOST_PROGRAM") == imported.external?.path &&
+                env("MADEIRA_STEAM_HOST_ARGUMENTS") == "-arg \"two words\"", "external Steam launch preserves the selected EXE and Windows arguments")
+        require(imported.windowsInstallPath == "C:\\Games\\Imported Title", "external game's working folder is its own directory")
+        require(!DockExternalProgram.validPath("C:\\Games\\..\\game.exe") && !DockExternalProgram.validPath("C:\\Games\\bad\".exe"), "external path rejects traversal and embedded quotes")
+        MadeiraDock.configure(alpha)
+        require(env("MADEIRA_STEAM_HOST_EXTERNAL") == nil && env("MADEIRA_STEAM_HOST_PROGRAM") == nil && env("MADEIRA_STEAM_HOST_ARGUMENTS") == nil,
+                "installed Steam launch clears the previous external command")
         require(MadeiraDock.launchArguments(width: 1280, height: 720) == "/desktop=madeira,1280x720 C:\\windows\\system32\\dockhost.exe", "explorer desktop runs the host")
         require(!MadeiraDock.launchArguments(width: 1280, height: 720).contains("\""), "no quotes: MADEIRA_ARGS is split at spaces and passed on as is")
         require(!MadeiraDock.executable.contains(" "), "the host path has no spaces")

@@ -10,6 +10,7 @@ for requirement in 'app/Madeira/libntdll_unix.a:presented-exit-v1' 'app/Madeira/
   fi
 done
 python3 "$root/tools/check-compatibility-binaries.py" --root "$root" || missing=1
+python3 "$root/tools/loader-bundle.py" --root "$root" || missing=1
 need() { if [[ ! -s "$root/$1" ]]; then echo "MISSING: $1"; missing=1; fi; }
 
 python3 "$root/tools/patch-dxmt-query-log.py" --check || missing=1

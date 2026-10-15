@@ -1,5 +1,21 @@
 # Madeira Dock
 
+## Imported EXEs with a Steam session
+
+Game details for imported EXEs now include **Steam session → Run with signed-in
+Steam**. Select the matching game from the signed-in library or enter its Steam
+App ID. The original imported EXE, launch arguments and its directory are kept;
+no installed-game manifest is generated for it. Dock authenticates and checks
+the selected App ID with Valve before starting the external executable. It
+keeps the client alive and pumps callbacks until the process job and its
+descendants end. Ordinary EXE launches keep this off unless explicitly chosen.
+
+The parent applies `patches/madeira-dock-external-launch.patch` when building
+Dock. Process, Unicode argument, environment and descendant handling have been
+tested on Windows with synthetic executables. Device authentication/gameplay
+still require verification. Games that explicitly request Valve to restart
+the App ID can open Steam's installed copy instead.
+
 Madeira Dock starts a Steam game that Steam's client has installed in the
 prefix, through **Valve's genuine Windows Steam client**, without the Steam
 desktop window, its Chromium web helper or its library UI.
