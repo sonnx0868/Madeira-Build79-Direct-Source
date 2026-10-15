@@ -98,6 +98,11 @@ else
 fi
 
 checks() {
+  local metrics_sdk
+  metrics_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+  xcrun --sdk iphoneos clang -fobjc-arc -fmodules -fblocks \
+    -target arm64-apple-ios17.0 -isysroot "$metrics_sdk" -fsyntax-only app/Madeira/WineProcessBridge.m
+  echo 'PASS: production Wine bridge and REPLACED metrics compile against iPhoneOS SDK'
   python3 tests/host/check-pe-launch.py
   python3 tests/host/check-unity-folder-profile.py
   python3 tests/host/check-game-process.py --require-objc

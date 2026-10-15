@@ -44,10 +44,11 @@ static RMSyncCounters rm_previous_sync;
 static int rm_previous_sync_valid;
 
 static int rm_read(uint64_t address, void *out, size_t size) {
-    mach_vm_size_t got = 0;
+    _Static_assert(sizeof(vm_address_t)==8 && sizeof(vm_size_t)==8,"64-bit Mach VM addresses required");
+    vm_size_t got = 0;
     if (!address || address > UINT64_MAX-size) return 0;
-    return mach_vm_read_overwrite(mach_task_self(), address, size,
-        (mach_vm_address_t)out, &got) == KERN_SUCCESS && got == size;
+    return vm_read_overwrite(mach_task_self(), (vm_address_t)address, (vm_size_t)size,
+        (vm_address_t)out, &got) == KERN_SUCCESS && got == size;
 }
 static uint32_t rm_u32(const unsigned char *p) {
     return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;

@@ -36,7 +36,6 @@
 #include <sys/sysctl.h>
 #include <sys/resource.h>
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
 #include <mach/arm/thread_status.h>
 #include <mach/mach_time.h>
 #include <dlfcn.h>
