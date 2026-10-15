@@ -23,6 +23,8 @@ void madeira_stall_monitor_end(void);
 int wine_runtime_native_host_available(void);
 // PE32 native / CLR 32BITREQUIRED, excluding AnyCPU managed assemblies.
 int wine_executable_requires_wow64(const char *unix_path);
+// Shared Windows quoting, UTF-8 and command length validation. Zero is valid.
+int wine_launch_arguments_status(const char *executable, const char *arguments);
 
 // Session exit report (the library front end). ntdll calls
 // wine_launched_process_did_exit() when the program the app launched (the

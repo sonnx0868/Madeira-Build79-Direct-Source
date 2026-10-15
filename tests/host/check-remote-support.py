@@ -217,6 +217,22 @@ try Data("unrelated log\n".utf8).write(to: otherGame.appendingPathComponent("log
 let otherSelected = DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
                                               executableRelativePath: "Games/Other/game.exe")
 assert(Set(otherSelected.map(\.name)) == Set(logs.map(\.name)))
+let managedError = otherGame.appendingPathComponent("error_log.txt")
+try Data("Engine startup failure\nSteam not found!\n".utf8).write(to: managedError)
+try FileManager.default.setAttributes([.modificationDate: recent], ofItemAtPath: managedError.path)
+assert(DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+    executableRelativePath: "Games/Other/game.exe").contains { $0.name == "Games/Other/error_log.txt" })
+assert(DiagnosticCompanionLogs.startupError(in: drive, since: since, before: before,
+    executableRelativePath: "Games/Other/game.exe")?.contains("Steam not found!") == true)
+assert(DiagnosticCompanionLogs.startupError(in: drive, since: since, before: before,
+    executableRelativePath: "../Other/game.exe") == nil)
+assert(!DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+    executableRelativePath: "Games/VN/VN.exe").contains { $0.name.hasSuffix("error_log.txt") })
+try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 800)], ofItemAtPath: managedError.path)
+assert(!DiagnosticCompanionLogs.find(in: drive, since: since, before: before,
+    executableRelativePath: "Games/Other/game.exe").contains { $0.name.hasSuffix("error_log.txt") })
+assert(DiagnosticCompanionLogs.startupError(in: drive, since: since, before: before,
+    executableRelativePath: "Games/Other/game.exe") == nil)
 let legacyUnity = drive.appendingPathComponent("Games/Sundered/Sundered_Data/output_log.txt")
 try FileManager.default.createDirectory(at: legacyUnity.deletingLastPathComponent(), withIntermediateDirectories: true)
 try Data("legacy Unity startup failure\n".utf8).write(to: legacyUnity)

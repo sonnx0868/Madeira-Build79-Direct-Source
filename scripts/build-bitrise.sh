@@ -125,6 +125,7 @@ checks() {
   python3 tools/dxmt-pacing-bundle.py --root "$root"
   python3 tools/dxmt-query-bundle.py --root "$root"
   python3 tests/host/check-pe-launch.py
+  python3 tests/host/check-windows-arguments.py
   python3 tests/host/check-unity-folder-profile.py
   python3 tests/host/check-game-process.py --require-objc
   python3 tests/host/check-fex-host-features.py

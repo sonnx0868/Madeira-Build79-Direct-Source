@@ -19,10 +19,10 @@ tap **+** and choose its `.exe`. Only x86 and x64 PE executables inside drive_c
 can be added; the library stores the path relative to drive_c, so a changed
 app container path does not break entries. Adding an entry installs nothing.
 
-For a directly added Unity game, Madeira detects `UnityPlayer.dll` beside the
-chosen executable and adds `-force-d3d11` unless the profile already chose a
-renderer. This avoids Unity selecting D3D12 or Vulkan paths that Madeira may
-not implement yet; `env.MADEIRA_UNITY_D3D11 = 0` disables it. The launch scan
+For a directly added Unity game, Madeira detects `UnityPlayer.dll` or the
+selected executable's older `_Data/Managed/UnityEngine.dll` layout. The
+player's renderer is preserved by default. `env.MADEIRA_UNITY_D3D11 = 1`
+explicitly requests DX11 when the profile has not selected a renderer. The launch scan
 also reports a large third-party Steam API replacement, but never modifies it,
 swaps it for the original DLL or bypasses DRM. Such a build may behave
 differently from the same game launched through Madeira Dock and Valve's client.
@@ -33,6 +33,23 @@ size even when Windows reports the selected monitor size. An explicit launch
 option for either dimension takes priority for that dimension;
 `env.MADEIRA_UNITY_RESOLUTION = 0` disables the added screen options. These
 options are included in launch validation, and do not change the game's saves.
+
+### Shared command-line handling
+
+Direct launches and their preflight use the same native Windows argument
+parser (`WindowsArguments.h`). Quoted paths, empty arguments, tabs,
+backslashes before quotes and an open final quote follow Windows C startup
+semantics. Arguments are bounded by the complete command's 32,767 UTF-16
+code-unit limit, including its terminator and executable. The former
+1,024-byte and 16-argument truncation limits are removed. The native loader
+rejects invalid UTF-8 and overlong executable paths before starting Wine;
+it does not run a truncated command. Store arguments keep the existing
+diagnostic redaction. No shell expansion is performed.
+
+An engine can catch its own exception, write `error_log.txt` and exit with
+code zero. Madeira reads a bounded fresh report from the selected game when
+startup ends before a frame and includes that report in diagnostic uploads.
+Other installations, stale files, saves and symbolic-link reports are excluded.
 
 The same resolution compatibility also enables `DXMT_WSI_MODE_TABLE` and
 `DXMT_WSI_MONITOR_IDENTITY` unless explicitly configured. Unity's in-game

@@ -2554,9 +2554,6 @@ struct ContentView: View {
             logStore.log("[launch-preflight] profile validation failed: \(error.localizedDescription)", level: .error)
             return
         }
-        guard entry.launchWindowsPath.utf8.count < 1024, entry.launchArguments.utf8.count < 1024 else {
-            library.error = "The executable path or launch arguments are too long."; return
-        }
         // A direct fallback cannot bootstrap over a live persistent engine.
         // Check before configureLaunch changes the shared process environment.
         if GameRuntime.shared.hasEngine && !GameRuntime.supports(entry) {

@@ -7,6 +7,7 @@
 #import <pthread.h>
 #import "WineProcessBridge.h"
 #include "PELaunch.h"
+#include "WindowsArguments.h"
 #include "WineMonoPrefix.h"
 #include "SlowFrameWindow.h"
 #include "WorkloadDiagnostics.h"
@@ -1029,6 +1030,14 @@ static uint16_t madeira_pe_machine(const char *unix_path)
 int wine_executable_requires_wow64(const char *unix_path)
 {
     return madeira_pe_requires_wow64(unix_path);
+}
+
+int wine_launch_arguments_status(const char *executable, const char *arguments)
+{
+    struct madeira_windows_arguments parsed;
+    int status = madeira_windows_arguments_init(&parsed, executable, arguments);
+    madeira_windows_arguments_dispose(&parsed);
+    return status;
 }
 
 /* The machine of the file the launch below will run, or 0 when it is not
@@ -2159,43 +2168,40 @@ static void *wine_process_thread(void *arg) {
         // (e.g. "C:\\Program Files\\Thumper\\THUMPER_win10.exe"), use it
         // as-is. Otherwise treat it as a bare exe name in system32 (legacy
         // path used by cube/fib/hello tests).
-        char exe_path[512];
+        char exe_path[MADEIRA_LAUNCH_PATH_BYTES];
+        int path_bytes;
         if (strchr(madeira_exe, '\\') || (madeira_exe[0] && madeira_exe[1] == ':')) {
-            snprintf(exe_path, sizeof(exe_path), "%s", madeira_exe);
+            path_bytes = snprintf(exe_path, sizeof(exe_path), "%s", madeira_exe);
         } else if (is_i386_target) {
             /* WoW64: a bare i386 name lives in the syswow64 farm */
-            snprintf(exe_path, sizeof(exe_path), "C:\\windows\\syswow64\\%s", madeira_exe);
+            path_bytes = snprintf(exe_path, sizeof(exe_path), "C:\\windows\\syswow64\\%s", madeira_exe);
         } else {
-            snprintf(exe_path, sizeof(exe_path), "C:\\windows\\system32\\%s", madeira_exe);
+            path_bytes = snprintf(exe_path, sizeof(exe_path), "C:\\windows\\system32\\%s", madeira_exe);
         }
 
-        // Optional MADEIRA_ARGS env var: space-separated args appended to argv.
-        // Tokenized in-place; max 16 extra tokens.
-        static char args_buf[1024];
-        char *extra_argv[16] = {0};
-        int extra_argc = 0;
+        // Parse once using Windows quoting. Wine retains unix_argv for the
+        // Unix image, and child processes may outlive this initial thread:
+        // the successful argv and all its strings have process lifetime.
         const char *madeira_args = runtime_channel && *runtime_channel ? runtime_channel : getenv("MADEIRA_ARGS");
-        if (madeira_args && *madeira_args) {
-            strncpy(args_buf, madeira_args, sizeof(args_buf) - 1);
-            args_buf[sizeof(args_buf) - 1] = 0;
-            char *saveptr = NULL;
-            for (char *tok = strtok_r(args_buf, " ", &saveptr);
-                 tok && extra_argc < 16;
-                 tok = strtok_r(NULL, " ", &saveptr)) {
-                extra_argv[extra_argc++] = tok;
-            }
+        struct madeira_windows_arguments launch_args = {0};
+        int argument_status = path_bytes < 0 || path_bytes >= (int)sizeof(exe_path)
+            ? MADEIRA_ARGUMENT_TOO_LONG : madeira_windows_arguments_init(&launch_args, exe_path, madeira_args);
+        if (argument_status) {
+            dprintf(STDERR_FILENO, "[launch-args-v1] rejected status=%d; no command was truncated\n", argument_status);
+            madeira_windows_arguments_dispose(&launch_args);
+            wine_launched_process_did_exit(argument_status == MADEIRA_ARGUMENT_NO_MEMORY
+                                          ? (int)0xc0000017u : (int)0xc000000du);
+            g_wine_running = 0;
+            wineserver_stop();
+            return NULL;
         }
-
-        char *argv[24];
-        int argc = 0;
-        argv[argc++] = "wine";
-        argv[argc++] = exe_path;
-        for (int i = 0; i < extra_argc; i++) argv[argc++] = extra_argv[i];
-        argv[argc] = NULL;
+        int argc = launch_args.argc;
+        char **argv = launch_args.argv;
+        dprintf(STDERR_FILENO, "[launch-args-v1] Windows quoting argc=%d\n", argc - 2);
         dprintf(STDERR_FILENO, "[WineProc] argv[1] = %s\n", exe_path);
-        for (int i = 0; i < extra_argc; i++) {
-            dprintf(STDERR_FILENO, "[WineProc] argv[%d] = %s\n", 2 + i,
-                    getenv("_MADEIRA_PRIVATE_ARGS") ? "<private store argument>" : extra_argv[i]);
+        for (int i = 2; i < argc; i++) {
+            dprintf(STDERR_FILENO, "[WineProc] argv[%d] = %s\n", i,
+                    getenv("_MADEIRA_PRIVATE_ARGS") ? "<private store argument>" : argv[i]);
         }
 
         /* iOS-Madeira: chdir to the unix path that maps to the exe's Wine

@@ -369,13 +369,15 @@ expect((try? game.validate()) == nil, "required32 is refused when the fixture bu
 fixtureRequiresWOW64 = 0
 expect((try? game.validate()) != nil, "native64 and AnyCPU do not require the x86 farm")
 var bad = game; bad.arguments = "\"unbalanced"
-expect((try? bad.validate()) == nil, "unbalanced quotes refused")
+expect((try? bad.validate()) != nil, "open final quotes follow Windows startup semantics")
 bad = game; bad.arguments = (0..<17).map { "a\($0)" }.joined(separator: " ")
-expect((try? bad.validate()) == nil, "more than the bridge's 16 arguments refused")
-bad.arguments = (0..<16).map { "a\($0)" }.joined(separator: " ")
-expect((try? bad.validate()) != nil, "the bridge's full argument capacity validates")
+expect((try? bad.validate()) != nil, "commands beyond the former 16-argument cap validate")
+bad.arguments = (0..<96).map { "a\($0)" }.joined(separator: " ")
+expect((try? bad.validate()) != nil, "argument count follows command size instead of an unrelated fixed cap")
 bad.arguments = String(repeating: "a", count: 1024)
-expect((try? bad.validate()) == nil, "a command exceeding the bridge's buffer is refused")
+expect((try? bad.validate()) != nil, "long store/engine arguments pass the actual native parser")
+bad.arguments = String(repeating: "日", count: 32767)
+expect((try? bad.validate()) == nil, "the actual C parser rejects a command beyond Windows' UTF-16 size limit")
 bad = game; bad.resolution = "10x10"
 expect((try? bad.validate()) == nil, "invalid size refused")
 bad = game; bad.fpsMode = 7
@@ -592,7 +594,21 @@ with tempfile.TemporaryDirectory() as tmp:
     sp = Path(tmp) / 'frontend.swift'
     sp.write_text(swift)
     if '--c-only' not in sys.argv:
-        r = subprocess.run(['swift', str(sp)], capture_output=True, text=True)
+        # Link the actual production validator, rather than teaching a Swift
+        # mock a second interpretation of Windows arguments or size limits.
+        validator = block(bridge, 'int wine_launch_arguments_status(')
+        native_source = Path(tmp) / 'arguments.c'
+        native_source.write_text('#include "WindowsArguments.h"\n' + validator)
+        native_header = Path(tmp) / 'arguments.h'
+        native_header.write_text(validator.split('{', 1)[0] + ';\n')
+        native_object = Path(tmp) / 'arguments.o'
+        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-I', str(root/'app/Madeira'),
+                        '-c', str(native_source), '-o', str(native_object)], check=True)
+        swift_binary = Path(tmp) / 'frontend'
+        r = subprocess.run(['swiftc', '-import-objc-header', str(native_header), str(sp),
+                            str(native_object), '-o', str(swift_binary)], capture_output=True, text=True)
+        if r.returncode == 0:
+            r = subprocess.run([str(swift_binary)], capture_output=True, text=True)
         sys.stdout.write(r.stdout)
         if r.returncode:
             sys.stdout.write(r.stderr[-4000:])

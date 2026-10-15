@@ -118,6 +118,33 @@ enum DiagnosticSnapshot {
 enum DiagnosticCompanionLogs {
     struct Source { let url: URL; let name: String }
 
+    /// A caught engine exception can exit with code zero. Read a small fresh
+    /// report once, when startup has ended without a frame; never poll files.
+    static func startupError(in drive: URL, since: Date, before: Date,
+                             executableRelativePath: String) -> String? {
+        let relative = executableRelativePath.replacingOccurrences(of: "\\", with: "/")
+        guard !relative.isEmpty, relative.utf16.count <= 2048, !relative.hasPrefix("/"),
+              !relative.split(separator: "/").contains("..") else { return nil }
+        let root = drive.resolvingSymlinksInPath()
+        let folder = root.appendingPathComponent(relative).deletingLastPathComponent()
+        let file = folder.appendingPathComponent("error_log.txt")
+        guard file.resolvingSymlinksInPath().path.hasPrefix(root.path + "/"),
+              (try? folder.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
+              let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]),
+              values.isRegularFile == true, values.isSymbolicLink != true,
+              let modified = values.contentModificationDate, modified >= since, modified <= before,
+              let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        guard let bytes = try? handle.read(upToCount: 4096), !bytes.isEmpty else { return nil }
+        let text: String
+        if bytes.starts(with: [0xff, 0xfe]) || bytes.starts(with: [0xfe, 0xff]) {
+            guard let decoded = String(data: bytes, encoding: .utf16) else { return nil }
+            text = decoded
+        } else { text = String(decoding: bytes, as: UTF8.self) }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(1024))
+    }
+
     /// Unity, Ren'Py and Steam write important errors to their own files,
     /// outside stderr. Include only known log names updated during this test.
     /// Previous-session reports exclude files overwritten by the current run.
@@ -148,6 +175,10 @@ enum DiagnosticCompanionLogs {
             // write beside the game instead of LocalLow/Company/Product.
             // Probe the exact selected EXE's data folder; never scan game data.
             if inside(executable), (try? folder.resourceValues(forKeys: keys).isSymbolicLink) != true {
+                // Managed/XNA and other engines can handle their own failure,
+                // write this conventional report, and exit successfully. It
+                // is diagnostic output even when Wine has no crash to report.
+                add(folder.appendingPathComponent("error_log.txt"))
                 let data = folder.appendingPathComponent(executable.deletingPathExtension().lastPathComponent + "_Data", isDirectory: true)
                 if (try? data.resourceValues(forKeys: keys).isSymbolicLink) != true {
                     add(data.appendingPathComponent("output_log.txt"))

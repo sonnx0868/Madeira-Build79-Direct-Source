@@ -369,16 +369,11 @@ struct LibraryEntry: Codable, Identifiable {
               launchWindowsPath.utf8.count < 1024, (steamWorkingWindowsPath?.utf8.count ?? 0) < 512 else {
             throw LibraryError.message("The saved launch profile contains invalid display or argument values.")
         }
-        var quoted = false, inToken = false, tokens = 0
-        for character in launchArguments {
-            if character == "\"" { quoted.toggle() }
-            if !quoted && (character == " " || character == "\t") { inToken = false }
-            else if !inToken { tokens += 1; inToken = true }
+        // The native launcher and preflight share the same Windows parser.
+        // Include generated engine/store arguments in its Unicode size limit.
+        guard wine_launch_arguments_status(launchWindowsPath, launchArguments) == 0 else {
+            throw LibraryError.message("The launch command contains invalid text or exceeds Windows' 32,767-character limit.")
         }
-        // Match WineProcessBridge's real buffer and token limits, including the
-        // automatic Unity options, so its tokenizer never drops the screen size.
-        guard launchArguments.utf8.count < 1024 else { throw LibraryError.message("The complete launch command is too long.") }
-        guard !quoted, tokens <= 16 else { throw LibraryError.message("Use balanced double quotes and at most 16 launch arguments in total, including automatic Unity options.") }
         if desktop != true, steamAppID == nil || startsSteamGameDirectly {
             let executable = LibraryModel.drive.appendingPathComponent(launchRelativePath)
             if wine_executable_requires_wow64(executable.path) != 0 {
@@ -1167,9 +1162,14 @@ final class LibraryModel: ObservableObject {
         }
         let presented = madeira_frame_count() > launchPresent || winios_surface_present_count() > launchSurface
         let expectsFrame = activeEntry?.desktop != true && activeEntry?.temporarySession != true
+        var attention = launchAttention ?? Self.windowAlert()
+        if attention == nil, expectsFrame, !presented, let activeEntry {
+            attention = DiagnosticCompanionLogs.startupError(in: Self.drive, since: launchStarted,
+                before: Date(), executableRelativePath: activeEntry.launchRelativePath)
+        }
         LogStore.shared.log("[exit-report] status=\(status.map { "0x" + String($0, radix: 16) } ?? "unknown") presented=\(presented ? 1 : 0)")
         return GameExitReport.message(status: status, presented: presented, expectsFrame: expectsFrame,
-                                      startupDialog: launchAttention ?? Self.windowAlert())
+                                      startupDialog: attention)
     }
     private var readOnly = false
     private var metadataInFlight = Set<UUID>()

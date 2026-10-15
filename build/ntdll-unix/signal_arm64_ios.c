@@ -1321,24 +1321,28 @@ static int ios_mach_emulate_cas(uint32_t insn, uintptr_t rw_addr, uint64_t gpr[2
     return 1;
 }
 
-/* Celeste 702: the WoW64 Mono copy loop reaches STR Q16/Q19 with a
- * register offset (3cab4a70 / 3cb84a73). The alias exists, but case 4
- * formerly decoded only the immediate SIMD stores, redelivering the same
- * write forever. Keep the guest SMC protection barrier: a read-only Wine
- * page must first reach the emulator's invalidation callback. Only a
- * logically writable, fully aliased 16-byte span may be written here.
+/* Mono copy loops use register-offset SIMD stores of several widths:
+ * 3cab4a70 / 3cb84a73 (Q) and fc384a70 (D) appear in device reports.
+ * Decode the complete B/H/S/D/Q store family through the same alias path.
+ * Keep the guest SMC protection barrier: a read-only Wine page must first
+ * reach the emulator's invalidation callback. Only a logically writable,
+ * fully aliased span of the instruction's exact width may be written here.
  * No allocation, protection change, register writeback or FEX-core call. */
-static int ios_mach_qreg_store(uint32_t insn, uintptr_t fault_addr,
+static int ios_mach_simd_register_store(uint32_t insn, uintptr_t fault_addr,
                               const uint64_t gpr[29], uint64_t sp,
                               const unsigned char *vectors, int have_neon)
 {
     extern uintptr_t ios_jit_anon_alias_lookup(uintptr_t);
     extern int ios_page_expected_prot(const void *);
-    unsigned rn, rm, option, rt;
+    unsigned rn, rm, option, rt, scale, width;
     uint64_t index, effective;
     uintptr_t rw, end;
     int first_prot, last_prot;
-    if ((insn & 0xffe00c00u) != 0x3ca00800u || !have_neon || !vectors || !gpr) return 0;
+    if (!have_neon || !vectors || !gpr) return 0;
+    if ((insn & 0x3fe00c00u) == 0x3c200800u) scale = insn >> 30; /* B/H/S/D */
+    else if ((insn & 0xffe00c00u) == 0x3ca00800u) scale = 4;    /* Q */
+    else return 0;
+    width = 1u << scale;
     rn = (insn >> 5) & 31;
     rm = (insn >> 16) & 31;
     option = (insn >> 13) & 7;
@@ -1352,16 +1356,16 @@ static int ios_mach_qreg_store(uint32_t insn, uintptr_t fault_addr,
         case 3: case 7: break;                             /* LSL / SXTX */
         default: return 0;
     }
-    if (insn & (1u << 12)) index <<= 4;
+    if (insn & (1u << 12)) index <<= scale;
     effective = (rn == 31 ? sp : gpr[rn]) + index;
-    if (effective > UINTPTR_MAX - 15 || fault_addr < effective || fault_addr - effective >= 16) return 0;
+    if (effective > UINTPTR_MAX - (width - 1) || fault_addr < effective || fault_addr - effective >= width) return 0;
     first_prot = ios_page_expected_prot((const void *)(uintptr_t)effective);
-    last_prot = ios_page_expected_prot((const void *)(uintptr_t)(effective + 15));
+    last_prot = ios_page_expected_prot((const void *)(uintptr_t)(effective + width - 1));
     if (first_prot < 0 || last_prot < 0 || !(first_prot & PROT_WRITE) || !(last_prot & PROT_WRITE)) return 0;
     rw = ios_jit_anon_alias_lookup((uintptr_t)effective);
-    end = ios_jit_anon_alias_lookup((uintptr_t)(effective + 15));
-    if (!rw || rw > UINTPTR_MAX - 15 || end != rw + 15) return 0;
-    memcpy((void *)rw, vectors + rt * 16, 16);
+    end = ios_jit_anon_alias_lookup((uintptr_t)(effective + width - 1));
+    if (!rw || rw > UINTPTR_MAX - (width - 1) || end != rw + width - 1) return 0;
+    memcpy((void *)rw, vectors + rt * 16, width);
     return 1;
 }
 
@@ -3213,20 +3217,22 @@ static void *ios_mach_exception_thread( void *arg )
                             }
                         }
                     }
-                    /* Register-offset Q stores: complete exactly one write
+                    /* Register-offset SIMD stores: complete exactly one write
                      * after the existing guest SMC invalidation has made the
                      * Wine page logically writable. PC advances below through
                      * the same Mach return path as the established decoders. */
-                    else if ((insn & 0xffe00c00u) == 0x3ca00800u)
+                    else if ((insn & 0x3fe00c00u) == 0x3c200800u ||
+                             (insn & 0xffe00c00u) == 0x3ca00800u)
                     {
-                        if (ios_mach_qreg_store(insn, fault_addr, state.__x, state.__sp,
+                        if (ios_mach_simd_register_store(insn, fault_addr, state.__x, state.__sp,
                                                (const unsigned char *)neon_state.__v, have_neon))
                         {
-                            static unsigned qreg_logs;
+                            static unsigned simd_register_logs;
                             emulated = 1;
-                            if (qreg_logs++ < 8)
-                                dprintf(STDERR_FILENO, "[qreg-alias-v1] insn=%08x pc=%llx addr=%llx width=16\n",
-                                        insn, (unsigned long long)fault_pc, (unsigned long long)fault_addr);
+                            if (simd_register_logs++ < 8)
+                                dprintf(STDERR_FILENO, "[simd-register-store-v2] insn=%08x pc=%llx addr=%llx width=%u\n",
+                                        insn, (unsigned long long)fault_pc, (unsigned long long)fault_addr,
+                                        1u << (((insn & 0xffe00c00u) == 0x3ca00800u) ? 4 : insn >> 30));
                         }
                     }
                     /* STR (immediate, unsigned offset, 64-bit): 1111 1001 00 imm12 Rn Rt */
