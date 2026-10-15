@@ -337,6 +337,12 @@ struct LibraryEntry: Codable, Identifiable {
         game.external = DockExternalProgram(path: launchWindowsPath, arguments: launchArguments)
         return game
     }
+    mutating func configureExternalSteam(_ enabled: Bool) {
+        guard enabled else { externalSteamAppID = nil; return }
+        let executable = LibraryModel.drive.appendingPathComponent(launchRelativePath)
+        let detected: Int? = FolderSteamIdentity.appID(executable: executable).map { Int($0) }
+        externalSteamAppID = detected ?? steamID ?? 0
+    }
     /// What a launch starts, relative to drive_c: "The game"'s program inside the
     /// install folder, else `relativePath`.
     var launchRelativePath: String {
@@ -3628,10 +3634,7 @@ private struct ExternalSteamSessionSection: View {
 
     private var enabled: Binding<Bool> {
         Binding<Bool>(get: { entry.externalSteamAppID != nil }, set: { value in
-            guard value else { entry.externalSteamAppID = nil; return }
-            let executable = LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)
-            let detected = FolderSteamIdentity.appID(executable: executable)
-            entry.externalSteamAppID = detected ?? entry.steamID ?? 0
+            entry.configureExternalSteam(value)
         })
     }
     private var selection: Binding<Int> {

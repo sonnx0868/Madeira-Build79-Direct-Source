@@ -146,6 +146,20 @@ expect(published == (1280, 720), "desktop size published to the display shim")
 
 // A direct game: its Windows path and arguments; no desktop state left over.
 var game = LibraryEntry(title: "Game", relativePath: "Games/Some Game/bin/game.exe", bits: 32)
+var importedSteam = LibraryEntry(title: "Imported", relativePath: "Steam Session Fixture/program.exe", bits: 64)
+importedSteam.steamID = 10
+importedSteam.configureExternalSteam(true)
+expect(importedSteam.externalSteamAppID == 10 && importedSteam.usesSteamSession && importedSteam.steamAppID == nil,
+       "imported Steam session keeps manual identity and uses matched metadata")
+let importedFolder = LibraryModel.drive.appendingPathComponent("Steam Session Fixture")
+try FileManager.default.createDirectory(at: importedFolder, withIntermediateDirectories: true)
+try Data("20".utf8).write(to: importedFolder.appendingPathComponent("steam_appid.txt"))
+importedSteam.configureExternalSteam(true)
+expect(importedSteam.externalSteamAppID == 20 && importedSteam.externalSteamGame?.external?.path == importedSteam.launchWindowsPath,
+       "actual folder App ID converts to profile type and keeps the selected EXE")
+importedSteam.configureExternalSteam(false)
+expect(importedSteam.externalSteamAppID == nil && !importedSteam.usesSteamSession, "external Steam opt-out restores direct launch")
+try FileManager.default.removeItem(at: importedFolder)
 expect(!game.cardinalLeftStick, "ordinary games retain analog directions")
 var silkPad = LibraryEntry(title: "Hollow Knight: Silksong", relativePath: "Games/Silksong/Silksong.exe", bits: 64)
 expect(silkPad.cardinalLeftStick, "Silksong defaults to eight-way platformer directions")
