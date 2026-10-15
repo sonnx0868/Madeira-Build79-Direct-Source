@@ -45,7 +45,7 @@ assert "guard !rawMotionLive else" in hardware
 assert "gcLive" not in hardware
 assert "characters: key.characters" in hardware
 assert "return HardwareInput.shared.uikitPressWithoutKey" in view
-menu_fallback = hardware.split("func uikitPressWithoutKey(", 1)[1].split("private func globeKey(", 1)[0]
+menu_fallback = hardware.split("func uikitPressWithoutKey(", 1)[1].split("private func escapeActionKey(", 1)[0]
 assert "keyUsage(0x29" not in menu_fallback  # Controller B/menu is not a keyboard Escape.
 assert "down: true, repeated: true" in view
 assert "globePulse.active" in hardware and "wanted.insert(escape)" in hardware

@@ -321,6 +321,12 @@ enum HardwareKeyMap {
         }
     }
 
+    /// Game-only action keys. Keep the ordinary grave/backtick key map for
+    /// text input; both physical event sources use this before posting keys.
+    static func isEscapeActionUsage(_ usage: Int, characters: String? = nil) -> Bool {
+        usage == 0x29 || usage == 0x35 || usage == 669 || characters == "\u{1b}"
+    }
+
     /// Ctrl+Alt+P toggles pointer lock. It is the way out of the lock while
     /// the pointer cannot reach the app's own buttons, so P is swallowed
     /// (never posted to Windows); Ctrl and Alt are posted normally, because
@@ -1186,8 +1192,8 @@ final class HardwareInput: ObservableObject {
         }
         kb.handlerQueue = .main
         input.keyChangedHandler = { [weak self] _, _, code, pressed in
-            if code.rawValue == 669 || code.rawValue == 0x29 {
-                self?.globeKey(pressed, source: "GCKeyboard")
+            if HardwareKeyMap.isEscapeActionUsage(code.rawValue) {
+                self?.escapeActionKey(pressed, usage: code.rawValue, source: "GCKeyboard")
                 return
             }
             let usage = HardwareKeyMap.canonicalPressUsage(code.rawValue)
@@ -1215,8 +1221,8 @@ final class HardwareInput: ObservableObject {
     /// callers use the return value to keep unknown keys in UIKit's pipeline.
     @discardableResult
     func uikitKey(_ key: UIKey, _ pressed: Bool, repeated: Bool = false) -> Bool {
-        if key.keyCode.rawValue == 669 || key.keyCode.rawValue == 0x29 || key.characters == "\u{1b}" {
-            return globeKey(pressed, source: "UIKit", repeated: repeated)
+        if HardwareKeyMap.isEscapeActionUsage(Int(key.keyCode.rawValue), characters: key.characters) {
+            return escapeActionKey(pressed, usage: Int(key.keyCode.rawValue), source: "UIKit", repeated: repeated)
         }
         let usage = HardwareKeyMap.canonicalPressUsage(Int(key.keyCode.rawValue), characters: key.characters)
         return keyUsage(usage, pressed, source: "UIKit")
@@ -1237,16 +1243,16 @@ final class HardwareInput: ObservableObject {
     }
 
     @discardableResult
-    private func globeKey(_ pressed: Bool, source: String, repeated: Bool = false) -> Bool {
+    private func escapeActionKey(_ pressed: Bool, usage: Int, source: String, repeated: Bool = false) -> Bool {
         guard Self.enabled else { return false }
         guard pressed, !repeated else { return true }
         if !keyboardConnected { keyboardConnected = true }
-        refreshFocus("Globe")
+        refreshFocus("Escape action")
         guard globePulse.press(at: CACurrentMediaTime(), frame: madeira_frame_count(), focused: keyboardFocused) else {
             return true
         }
         syncKeys()
-        log("Globe -> Escape action-pulse-v2 via=\(source) focus=1 queued=\(globePulse.queued) frame=\(madeira_frame_count())")
+        log("Escape action-pulse-v3 via=\(source) usage=0x\(String(usage, radix: 16)) focus=1 queued=\(globePulse.queued) frame=\(madeira_frame_count())")
         if globeReleaseTimer == nil {
             let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
                 guard let self else { timer.invalidate(); return }

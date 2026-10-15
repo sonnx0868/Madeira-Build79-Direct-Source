@@ -70,6 +70,11 @@ assert(HardwareKeyMap.canonicalPressUsage(0x9F) == 0x85)            // Apple Sep
 assert(HardwareKeyMap.canonicalPressUsage(669) == 0x29)             // iPad Globe/Language -> Escape
 assert(HardwareKeyMap.stroke(forHIDUsage: HardwareKeyMap.canonicalPressUsage(669))?.vk == 0x1B)
 assert(HardwareKeyMap.canonicalPressUsage(0x04) == 0x04)
+for usage in [0x29, 0x35, 669] { assert(HardwareKeyMap.isEscapeActionUsage(usage)) }
+for usage in [0x04, 0x28, 0x34, 0x36] { assert(!HardwareKeyMap.isEscapeActionUsage(usage)) }
+assert(HardwareKeyMap.isEscapeActionUsage(0, characters: "\u{1b}"))
+assert(!HardwareKeyMap.isEscapeActionUsage(0, characters: "a"))
+assert(HardwareKeyMap.stroke(forHIDUsage: 0x35)?.vk == 0xc0) // normal text map retained
 for u in [0x00, 0x01, 0x02, 0x03, 0x74, 0x76, 0x78, 0x7E, 0xE8, 0xFF] {
     assert(HardwareKeyMap.vk(forHIDUsage: u) == nil, "usage \(u) must stay unmapped")
 }
@@ -595,6 +600,11 @@ check('winios_post_hardware_key(key.vk, key.scan' in glue and 'duplicateKeyWindo
       'GCKeyboard and UIKit converge on one de-duplicated physical-key route')
 check('HardwareKeyMap.canonicalPressUsage(code.rawValue)' in glue,
       'GCKeyboard canonicalizes Apple-private key usages, including Globe')
+check('HardwareKeyMap.isEscapeActionUsage(code.rawValue)' in glue and
+      'HardwareKeyMap.isEscapeActionUsage(Int(key.keyCode.rawValue), characters: key.characters)' in glue and
+      'escapeActionKey(pressed, usage: code.rawValue, source: "GCKeyboard")' in glue and
+      'escapeActionKey(pressed, usage: Int(key.keyCode.rawValue), source: "UIKit", repeated: repeated)' in glue,
+      'Escape, backtick and Globe use the same focus-gated action pulse through GCKeyboard and UIKit')
 check('if r == .relative { postMotion(dx, -dy) }' in glue, 'GCMouse motion is posted only on the relative route')
 check('let blocked = route == .blocked' in glue, 'the wheel is gated on focus')
 check('let allowed = baseFocused ? want : []' in glue, 'UIKit pointer buttons are gated on focus')

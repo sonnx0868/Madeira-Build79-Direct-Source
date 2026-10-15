@@ -66,10 +66,10 @@ let legacyDrive = LibraryModel.drive.appendingPathComponent(UUID().uuidString)
 try FileManager.default.createDirectory(at: legacyDrive, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: legacyDrive) }
 let legacyPath = legacyDrive.lastPathComponent + "/Sundered.exe"
-let player = legacyDrive.appendingPathComponent("UnityPlayer.dll")
-try Data().write(to: player)
+let legacyPlayer = legacyDrive.appendingPathComponent("UnityPlayer.dll")
+try Data().write(to: legacyPlayer)
 assert(RendererEntry(unity: false, launchRelativePath: legacyDrive.lastPathComponent + "/Modern.exe").launchArguments == "-screen-width 1408 -screen-height 648")
-try FileManager.default.removeItem(at: player)
+try FileManager.default.removeItem(at: legacyPlayer)
 assert(RendererEntry(unity: false, launchRelativePath: legacyPath).launchArguments.isEmpty)
 let legacyData = legacyDrive.appendingPathComponent("SuNdErEd_DaTa")
 try FileManager.default.createDirectory(at: legacyData.appendingPathComponent("Managed"), withIntermediateDirectories: true)
