@@ -108,13 +108,13 @@ int main(void) { @autoreleasepool {
     assert(rm_find_live_sync((uint64_t)peb)==(uint64_t)sync);
     // Match production's separate PE and live DATA copies. The stale PE copy
     // must not supply zero waits, and another process's alias must not match.
-    RMSyncCounters live=*sync;
+    RMSyncCounters *live=calloc(1,sizeof(*live));*live=*sync;
     memset(sync,0,sizeof(*sync));
-    alias_pe=sync;alias_live=&live;alias_owner=peb;
-    assert(rm_find_live_sync((uint64_t)peb)==(uint64_t)&live);
+    alias_pe=sync;alias_live=live;alias_owner=peb;
+    assert(rm_find_live_sync((uint64_t)peb)==(uint64_t)live);
     alias_owner=ldr;assert(!rm_find_live_sync((uint64_t)peb));alias_owner=peb;
-    live.magic=0;assert(!rm_find_live_sync((uint64_t)peb));live.magic=UINT64_C(0x31544e5058444d41);
-    live.frequency=0;assert(!rm_find_live_sync((uint64_t)peb));live.frequency=24000000;
+    live->magic=0;assert(!rm_find_live_sync((uint64_t)peb));live->magic=UINT64_C(0x31544e5058444d41);
+    live->frequency=0;assert(!rm_find_live_sync((uint64_t)peb));live->frequency=24000000;
     RMRawCounts raw={6000,3000,100,200,500};
     MadeiraPerfCounters converted=rm_thread_counters(raw);
     assert(converted.ticks==300 && converted.cycles==3000 && converted.instructions==6000 && converted.energy_nj==500);
@@ -127,12 +127,12 @@ int main(void) { @autoreleasepool {
     (void)sink;
     dispatch_sync(stall_queue(),^{
         replaced_metrics_snapshot(CACurrentMediaTime(),60);
-        assert(rm_previous_sync_valid && rm_sync_address==(uint64_t)&live);
-        live.contended+=8;live.wait_ticks+=24000;live.histogram[5]+=8;
+        assert(rm_previous_sync_valid && rm_sync_address==(uint64_t)live);
+        live->contended+=8;live->wait_ticks+=24000;live->histogram[5]+=8;
         rm_sync_sample(32,(uint64_t)peb,CACurrentMediaTime(),1);
         assert(rm_previous_sync.contended==8 && rm_previous_sync.wait_ticks==24000);
         // Reset/reloaded counters become a new baseline, never a huge unsigned delta.
-        live.contended=0;live.wait_ticks=0;
+        live->contended=0;live->wait_ticks=0;
         rm_sync_sample(32,(uint64_t)peb,CACurrentMediaTime(),1);
         assert(rm_previous_sync.contended==0);
         rm_sync_sample(32,1,CACurrentMediaTime(),1);assert(!rm_previous_sync_valid);
@@ -157,7 +157,7 @@ int main(void) { @autoreleasepool {
     madeira_replaced_metrics_prepare(0);
     madeira_replaced_metrics_thread(32,0x24,peb);
     dispatch_sync(stall_queue(),^{assert(rm_count==0 && !rm_active);});
-    free(image);free(peb);free(ldr);free(entry);
+    free(live);free(image);free(peb);free(ldr);free(entry);
     puts("PASS: live Darwin collector, supported/unavailable/truncated thread counters, safe PE data export, duplicate attach and lifecycle reset");
 } }
 '''
