@@ -3928,7 +3928,7 @@ struct LibraryDetail: View {
                         TextField("Launch arguments", text: $entry.arguments, axis: .vertical).autocorrectionDisabled().textInputAutocapitalization(.never)
                     }
                 } header: { Text("Compatibility & performance") } footer: {
-                    Text("Reduced-precision x87 is off by default. The Unity profile reports four CPU cores unless you choose a count, enables pressure-aware texture and swap policies, and selects Fastsync when the global engine is Wine standard. Turn off Fast synchronization to keep standard sync for this game, or turn off the Unity profile to retain the global engine. Madsync and explicit low-level sync settings take priority. Fast semaphore waits remain experimental and off by default. Settings apply to the next launch.")
+                    Text("Reduced-precision x87 is off by default. Automatic CPU selection inherits the device or global setting; an explicit per-game count takes priority. The Unity profile enables pressure-aware texture and swap policies and selects Fastsync when the global engine is Wine standard. Turn off Fast synchronization to keep standard sync for this game, or turn off the Unity profile to retain the global engine. Madsync and explicit low-level sync settings take priority. Fast semaphore waits remain experimental and off by default. Settings apply to the next launch.")
                 }
                 Section("Memory & thread suspension") {
                     Picker("Swap capacity", selection: Binding(

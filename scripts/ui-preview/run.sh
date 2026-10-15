@@ -14,6 +14,7 @@ python3 "$root/tests/host/check-game-process.py" --require-objc
 python3 "$root/tests/host/check-touch-gamepad.py"
 python3 "$root/tests/host/check-game-log-archive.py"
 python3 "$root/tests/host/check-gpu-lifecycle.py"
+python3 "$root/tests/host/check-workload-diagnostics.py"
 python3 "$root/tests/host/check-game-pointer.py" --require-swift
 python3 "$root/tests/host/check-thermal-pacing.py" --require-swift
 python3 "$root/tests/host/check-library-privacy.py" --require-swift

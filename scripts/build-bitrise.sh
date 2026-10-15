@@ -107,6 +107,7 @@ checks() {
   python3 tests/host/check-guest-spill.py
   python3 tests/host/check-dxmt-cpu-mappings.py
   python3 tests/host/check-gpu-lifecycle.py
+  python3 tests/host/check-workload-diagnostics.py
   python3 tests/host/check-bcd-compatibility.py
   python3 tests/host/check-game-startup-fixes.py
   python3 tests/host/check-game-log-archive.py
