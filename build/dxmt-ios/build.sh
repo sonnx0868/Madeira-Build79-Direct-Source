@@ -365,4 +365,5 @@ done < "$REPO_ROOT/build/llvm-ios/static-libs.txt"
 echo "=== Combining DXMT + LLVM iOS archives ==="
 xcrun -sdk iphoneos libtool -static -o "$COMBINED" "$OUT_LIB" "${LLVM_LIBS[@]}"
 cp "$COMBINED" "$APP_COPY"
+python3 "$REPO_ROOT/tools/dxmt-pacing-bundle.py" --root "$REPO_ROOT" --stamp
 echo "Built: $APP_COPY ($(wc -c < "$APP_COPY" | tr -d ' ') bytes)"

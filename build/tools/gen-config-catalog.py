@@ -43,6 +43,9 @@ INT_READERS = {"madeira_cfg_int", "mad_cfg_int_pe"}
 # Titles, kinds and fixed choices for options with a dedicated Settings row.
 # "choices" are (value, label); the empty value means "remove the key".
 OVERLAY = {
+    "env.MADEIRA_PRESENT_LIMITER": {"title": "Producer frame pacing", "kind": "bool", "default": "1",
+        "category": "Direct3D 9/10/11 (DXMT)",
+        "note": "On by default on iOS. Parks the producer until an absolute 30/60/panel deadline and presents without a second minimum-duration delay. Set to 0 only for the previous display-side pacing path. RAW mailbox skipping is retired."},
     "gl-backend": {"title": "OpenGL renderer", "kind": "choice", "default": "auto", "category": "OpenGL",
         "note": "Automatic keeps ANGLE for detected OpenGL ES games and enables desktop OpenGL through Zink/MoltenVK. A game's renderer choice takes priority. Restart Madeira after changing a native renderer.",
         "choices": [("", "Automatic"), ("zink", "Desktop OpenGL (Zink)"), ("gles", "Native OpenGL ES"), ("angle", "ANGLE (OpenGL ES)")]},

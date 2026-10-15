@@ -1,0 +1,237 @@
+Native producer pacing; every completed frame is presented instead of counting a RAW mailbox skip.
+
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -1,4 +1,5 @@
+ #include <stdatomic.h>
++#include "dxmt-ios/present_pacing.h"
+ #include "../../../../build/madeira_cfg.h"   /* ml1095: one config file */
+ #include <sys/mman.h>
+ #include <mach/vm_statistics.h>
+@@ -2914,105 +2915,79 @@
+  * even for frames provably on glass (the splash), so it carries no signal
+  * for this layer. See project memory for the full postmortem. */
+ 
+-/* iOS-Madeira 2026-07-05: runtime present-pacing mode, read per present
+- * (live-flippable from the Swift UI):
+- *   1 = LOCKED (default): afterMinimumDuration(1/60) — exact 60.
+- *   0 = MAX: present every frame, free-run to the display refresh
+- *       (120Hz ProMotion with CADisableMinimumFrameDurationOnPhone +
+- *       the app-side CADisplayLink intent; thermal governor may cap 60).
+- *   2 = RAW: mailbox/frame-skip — the game runs UNTHROTTLED; a real
+- *       drawable present is submitted at most every 8ms, other frames
+- *       release their drawable unpresented so the pool never blocks.
+- *       Measures raw stack throughput independent of the panel; the
+- *       present COUNTER counts every game present (incl. skipped) so
+- *       the FPS overlay reads true game rate.
+- *   3 = LOCKED30 (2026-09-15, device feedback): same mechanism as mode 1,
+- *       afterMinimumDuration(1/30) — exact 30. A real cap on THIS present
+- *       path, not merely a CADisplayLink hint: the drawable is genuinely
+- *       held until the next 1/30s boundary, same as mode 1 is at 1/60s. */
+-static volatile int g_madeira_vsync_mode = 1;
++/* Producer pacing modes: 1 = 60, 3 = 30, 0 = physical panel maximum.
++ * Saved benchmark mode 2 is an alias of 0. Every frame now obtains a drawable
++ * and is submitted; no skipped frames inflate the game FPS counter. */
++static _Atomic int g_madeira_vsync_mode = 1;
++static _Atomic uint64_t g_madeira_pacing_generation = 1;
+ 
+ /* ml1050: what the PANEL can do, published from Swift (only UIKit knows it).
+  * Nothing branches on these -- they are printed by the [frame] line, because
+  * the panel's refresh IS the grid every presentation snaps to and a log that
+  * does not state it cannot tell "the pipeline is slow" from "the pipeline
+  * missed a vblank by 3 ms". */
+-static volatile int g_madeira_panel_hz = 0;
+-static volatile int g_madeira_intent_hz = 0;
++static _Atomic int g_madeira_panel_hz = 0;
++static _Atomic int g_madeira_intent_hz = 0;
+ void madeira_set_display_max_fps(int panel_hz, int intent_hz) {
+-  g_madeira_panel_hz = panel_hz;
+-  g_madeira_intent_hz = intent_hz;
++  int previous_panel = atomic_exchange_explicit(&g_madeira_panel_hz, panel_hz, memory_order_relaxed);
++  int previous_intent = atomic_exchange_explicit(&g_madeira_intent_hz, intent_hz, memory_order_relaxed);
++  if (previous_panel != panel_hz || previous_intent != intent_hz)
++    atomic_fetch_add_explicit(&g_madeira_pacing_generation, 1, memory_order_relaxed);
+   ios_frame_note_display(panel_hz, intent_hz, g_madeira_vsync_mode);
+   dprintf(STDERR_FILENO, "[iOS DXMT] panel_max=%dHz display_intent=%dHz vsync_mode=%d\n",
+           panel_hz, intent_hz, g_madeira_vsync_mode);
+ }
+ 
+ void madeira_set_vsync_locked(int mode) {
+-  g_madeira_vsync_mode = mode;
++  /* Legacy RAW skipped every other near-60 frame and burned work offscreen.
++   * Treat saved mode 2 as the physical display maximum. */
++  if (mode == 2) mode = 0;
++  if (atomic_exchange_explicit(&g_madeira_vsync_mode, mode, memory_order_relaxed) != mode)
++    atomic_fetch_add_explicit(&g_madeira_pacing_generation, 1, memory_order_relaxed);
+   ios_frame_note_display(g_madeira_panel_hz, g_madeira_intent_hz, mode);
+   dprintf(STDERR_FILENO, "[iOS DXMT] vsync_mode=%d (1=locked60 0=max 2=raw 3=locked30)\n", mode);
+ }
+ int madeira_get_vsync_locked(void) { return g_madeira_vsync_mode; }
+ 
+-/* ml1050: THE PRESENT LIMITER, AND WHY IT IS NOT A SLEEP LADDER.
+- *
+- * Until now the 60 and 30 caps were expressed ONLY as
+- * presentDrawable:afterMinimumDuration:, which is a constraint on when the
+- * DISPLAY may show the frame -- it never holds the producer, and it snaps to
+- * the panel's vblank grid. That is the right primitive for a cap and the
+- * wrong one for pacing, and it is why the 60 cap quantises a 17-25 ms frame
+- * to 33.3 ms on a 60 Hz grid (see FPSOverlay.swift's ProMotionIntent).
+- *
+- * MADEIRA_PRESENT_LIMITER=1 adds the other half, opt-in, for A/B against the
+- * min-duration behaviour: hold the PRODUCER to an exact deadline with
+- * mach_wait_until and present with no minimum duration at all. mach_wait_until
+- * sleeps to an absolute deadline on the same timebase the scheduler uses, so
+- * it does not accumulate the per-iteration error a relative nanosleep ladder
+- * does and it does not quantise to a timer tick -- the failure mode the brief
+- * calls out, where a limiter sleeping in 16.6 ms quanta turns 45 fps into 30.
+- * The deadline is advanced from the PREVIOUS deadline rather than from "now",
+- * so a frame that ran long is not paid for twice, and it is re-based whenever
+- * it falls more than one period behind so a stall cannot bank credit.
+- *
+- * Default OFF: the min-duration path is what every previous measurement was
+- * taken against, and the [frame] line has to show the limiter's own sleep
+- * (`limiter=`) before it becomes the default. */
++/* Pacing the producer avoids min-duration vblank quantization and stops
++ * loading screens from rendering hundreds of frames that never reach glass.
++ * The old explicit opt-out remains available for compatibility comparisons. */
+ static int madeira_present_limiter_enabled(void) {
+-  static int on = -1;
++  static _Atomic int enabled = -1;
++  int on = atomic_load_explicit(&enabled, memory_order_relaxed);
+   if (on < 0) {
+     const char *e = getenv("MADEIRA_PRESENT_LIMITER");
+-    on = (e && *e && *e != '0') ? 1 : 0;
+-    if (on)
+-      dprintf(STDERR_FILENO, "[iOS DXMT] ml1050 present limiter ON "
+-              "(MADEIRA_PRESENT_LIMITER=1 paces the producer with mach_wait_until "
+-              "instead of afterMinimumDuration)\n");
++    int requested = TARGET_OS_IOS ? (!e || !*e || strcmp(e, "0") != 0)
++                                  : (e && *e && strcmp(e, "0") != 0);
++    int expected = -1;
++    if (atomic_compare_exchange_strong_explicit(&enabled, &expected, requested,
++          memory_order_relaxed, memory_order_relaxed)) {
++      dprintf(STDERR_FILENO, "[iOS DXMT] producer-pacing-v1 enabled=%d no-mailbox-skip=1\n", requested);
++      on = requested;
++    } else on = expected;
+   }
+   return on;
+ }
+ 
+-/* Returns the nanoseconds actually slept. */
+-static unsigned long long madeira_present_limit_to(double period_s) {
+-  static mach_timebase_info_data_t tb;
+-  static uint64_t deadline_abs;      /* encode thread only -- one writer */
+-  uint64_t now_abs, period_abs, slept_abs;
+-
++static void madeira_present_limit_surface(uintptr_t surface) {
++  static _Thread_local MadeiraPresentPacer states[8];
++  static _Thread_local mach_timebase_info_data_t tb;
++  if (!madeira_present_limiter_enabled()) return;
+   if (!tb.denom) mach_timebase_info(&tb);
+-  period_abs = (uint64_t)(period_s * 1e9 * (double)tb.denom / (double)tb.numer);
+-  now_abs = mach_absolute_time();
+-  if (!deadline_abs || now_abs > deadline_abs + period_abs) {
+-    /* First frame, or we fell more than a whole period behind: re-base rather
+-     * than fire a burst of catch-up presents. */
+-    deadline_abs = now_abs + period_abs;
+-    return 0;
+-  }
+-  if (now_abs >= deadline_abs) {
+-    deadline_abs += period_abs;      /* late: no sleep, no accumulated debt */
+-    return 0;
+-  }
+-  slept_abs = deadline_abs - now_abs;
+-  mach_wait_until(deadline_abs);
+-  deadline_abs += period_abs;
+-  return (unsigned long long)slept_abs * tb.numer / tb.denom;
++  unsigned hz = madeira_present_rate(g_madeira_vsync_mode, g_madeira_panel_hz);
++  uint64_t period = (uint64_t)(1e9 * tb.denom / ((double)tb.numer * hz));
++  uint64_t before = mach_absolute_time();
++  MadeiraPresentPacer *state = madeira_present_surface(states, surface);
++  uint64_t deadline = madeira_present_deadline(state, before, period, surface,
++      atomic_load_explicit(&g_madeira_pacing_generation, memory_order_relaxed));
++  uint64_t now = before;
++  while (now < deadline) {
++    kern_return_t rc = mach_wait_until(deadline);
++    now = mach_absolute_time();
++    if (rc != KERN_SUCCESS && rc != KERN_ABORTED) break;
++  }
++  if (madeira_frame_hooks_on())
++    ios_frame_limiter((unsigned long long)((double)(now - before) * tb.numer / tb.denom));
+ }
+ 
+ static NTSTATUS
+@@ -3029,30 +3004,20 @@
+   /* ml1050: this call IS the frame boundary on the encode thread. */
+   if (madeira_frame_hooks_on())
+     ios_frame_encode_present(0);
+-  if ((mode == 1 || mode == 3) && madeira_present_limiter_enabled()) {
+-    /* Opt-in precise pacing: hold the producer to the deadline and then ask
+-     * for the next vblank with no minimum duration, so the cap is the
+-     * limiter's and the only quantisation left is the panel's own. */
+-    ios_frame_limiter(madeira_present_limit_to(mode == 3 ? (1.0 / 30.0) : (1.0 / 60.0)));
+-    madeira_log_present_cadence(mode == 3 ? "presentLimited30" : "presentLimited60", 0.0);
++  if (madeira_present_limiter_enabled()) {
++    /* The producer already waited at nextDrawable. Never add a second
++     * afterMinimumDuration constraint to the display's vblank grid. */
++    madeira_log_present_cadence("presentProducerPaced", 0.0);
+     [(id<MTLCommandBuffer>)params->handle presentDrawable:(id<MTLDrawable>)params->arg];
+   } else if (mode == 1) {
+     madeira_log_present_cadence("presentDrawable60", 0.0);
+     [(id<MTLCommandBuffer>)params->handle presentDrawable:(id<MTLDrawable>)params->arg
+                                      afterMinimumDuration:(1.0 / 60.0)];
+   } else if (mode == 3) {
+-    /* Device feedback (2026-09-15): a real 30fps cap, exact same mechanism
+-     * as the mode-1 60fps cap just above -- afterMinimumDuration holds the
+-     * drawable on THIS present path, so this is a genuine cap independent
+-     * of whatever CADisplayLink/ProMotionIntent is doing on the Swift side. */
++    /* Compatibility opt-out only: retain the previous display-side cap. */
+     madeira_log_present_cadence("presentDrawable30", 0.0);
+     [(id<MTLCommandBuffer>)params->handle presentDrawable:(id<MTLDrawable>)params->arg
+                                      afterMinimumDuration:(1.0 / 30.0)];
+-  } else if (mode == 2) {
+-    /* Frame-skip gating lives in _MetalLayer_nextDrawable (nil return);
+-     * only real, ≥18ms-spaced frames reach here. */
+-    madeira_log_present_cadence("presentRaw", 0.0);
+-    [(id<MTLCommandBuffer>)params->handle presentDrawable:(id<MTLDrawable>)params->arg];
+   } else {
+     madeira_log_present_cadence("presentDrawable", 0.0);
+     [(id<MTLCommandBuffer>)params->handle presentDrawable:(id<MTLDrawable>)params->arg];
+@@ -3372,33 +3337,10 @@
+     }
+     return STATUS_SUCCESS;
+   }
+-  /* iOS-Madeira 2026-07-05 RAW mode (mode 2): the mailbox skip lives HERE,
+-   * before any drawable is consumed. First attempt gated at the
+-   * presentDrawable thunk — too late: every game frame had already
+-   * acquired a drawable, and PRESENTED drawables are held until vsync,
+-   * so a hot-capped 60Hz panel exhausted the 3-drawable pool and
+-   * throttled "unlocked" RAW right back to 60 (observed 02:35 run).
+-   * Returning nil here = no drawable touched, no block anywhere; the
+-   * PE side (Presenter::encodeCommands / flushCommands) skips the blit
+-   * and present on nil. Real acquires are spaced ≥18ms so presented
+-   * drawables can never exhaust the pool even on a 60Hz-capped panel.
+-   * Skipped frames tick the present counter so the FPS overlay shows
+-   * TRUE game rate. */
+-  if (g_madeira_vsync_mode == 2) {
+-    static struct timespec last_acquire; /* encode-thread only */
+-    struct timespec now;
+-    double since;
+-    clock_gettime(CLOCK_MONOTONIC, &now);
+-    since = (now.tv_sec - last_acquire.tv_sec) + (now.tv_nsec - last_acquire.tv_nsec) / 1e9;
+-    if (since < 0.018) {
+-      params->ret = 0;
+-      if (madeira_frame_hooks_on())
+-        ios_frame_encode_present(1);   /* ml1050: a frame that reaches no glass */
+-      madeira_log_present_cadence("presentSkipped", 0.0);
+-      return STATUS_SUCCESS;
+-    }
+-    last_acquire = now;
+-  }
++  /* Pace before acquiring a drawable; every completed frame is presented.
++   * State is thread-local and keyed by surface/generation, so another game
++   * window or FPS-mode change cannot inherit this surface's deadline. */
++  madeira_present_limit_surface((uintptr_t)params->handle);
+   /* 2026-07-03: measure blocking time. When queued presentations never
+    * complete (render server not compositing the layer), all 3 pool
+    * drawables stay owned by the presentation queue and this call blocks

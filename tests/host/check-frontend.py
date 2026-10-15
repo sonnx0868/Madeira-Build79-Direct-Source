@@ -358,6 +358,9 @@ ProMotionIntent.has30Cap = false; game.applyEnvironment()
 expect(vsync == 1, "a saved 30 FPS runs as 60 without DXMT's 30 FPS cap")
 ProMotionIntent.has30Cap = true; game.fpsMode = 1; game.applyEnvironment()
 expect(vsync == 1, "60 FPS applied")
+game.fpsMode = 2; game.applyEnvironment()
+expect(vsync == 0 && game.fpsMode == 2, "saved RAW uses display maximum without modifying stored profile metadata")
+game.fpsMode = 1
 
 // Validation.
 expect((try? game.validate()) != nil, "a normal profile validates")

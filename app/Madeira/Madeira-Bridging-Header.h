@@ -31,9 +31,8 @@ int madeira_get_eco(void);
 // The D3D12 runtime applies it at the next Present, for lists that start after that.
 void madeira_set_fence_mode(int mode);
 
-// DXMT vsync-lock toggle (winemetal_unix.c) — 1 = pace presents to 60
-// via afterMinimumDuration, 0 = free-run to display max (120 ProMotion,
-// requires CADisableMinimumFrameDurationOnPhone in Info.plist).
+// DXMT producer pacing (winemetal_unix.c): 1 = 60, 3 = 30, 0 = display max.
+// Legacy mode 2 also means display max; skipped RAW frames are retired.
 // Read per present; safe to flip live mid-game.
 void madeira_set_vsync_locked(int locked);
 int madeira_get_vsync_locked(void);
@@ -42,7 +41,7 @@ int madeira_get_vsync_locked(void);
 // Swift (only UIKit knows) so the native [frame] line can print the
 // quantisation grid every present snaps to. panel_hz = the display's own
 // maximum, intent_hz = the CADisplayLink rate currently requested (0 = no
-// intent armed). Both are diagnostics; nothing branches on them.
+// intent armed). The producer limiter also uses panel_hz as its maximum.
 // Defined by DXMT from willfaust/dxmt#1 on; IOSDisplayShim.m carries a weak
 // no-op fallback, so the app links and runs against main's DXMT too.
 void madeira_set_display_max_fps(int panel_hz, int intent_hz);

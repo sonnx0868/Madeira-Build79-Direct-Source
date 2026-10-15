@@ -45,7 +45,12 @@ elif [[ "${1:-}" = --refresh-input ]]; then
   bash "$root/build/win32u-unix/build.sh" input-only
 elif [[ "${1:-}" = --refresh-signal ]]; then
   bash "$root/build/ntdll-unix/build.sh" signal-only
+elif [[ "${1:-}" = --refresh-pacing ]]; then
+  bash "$root/build/dxmt-ios/refresh-pacing.sh"
 elif [[ -n "${1:-}" ]]; then
-  echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl|--refresh-input|--refresh-signal]' >&2; exit 2
+  echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl|--refresh-input|--refresh-signal|--refresh-pacing]' >&2; exit 2
 fi
 bash "$root/scripts/check-ios-build.sh"
+if [[ -f "$root/build/dxmt-ios/producer-pacing.json" ]]; then
+  python3 "$root/tools/dxmt-pacing-bundle.py" --root "$root"
+fi

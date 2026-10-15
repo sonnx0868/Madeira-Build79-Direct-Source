@@ -170,7 +170,7 @@ struct LibraryEntry: Codable, Identifiable {
     var resolution = "1920x1080"
     /// How the monitor is scaled to the screen (DisplayMode raw value; nil = Fit).
     var display: String?
-    /// FPS limit: 1 = 60, 3 = 30, 0 = display maximum, 2 = uncapped (madeira_set_vsync_locked).
+    /// FPS limit: 1 = 60, 3 = 30, 0 = display maximum; legacy 2 maps to 0.
     var fpsMode = 1
     /// FEX's X87ReducedPrecision for this game. Off by default, as in FEX; only
     /// an explicit choice exports FEX_X87REDUCEDPRECISION=1.
@@ -346,7 +346,12 @@ struct LibraryEntry: Codable, Identifiable {
 
     /// The vsync mode to apply: a saved 30 FPS limit runs as 60 when DXMT has
     /// no 30 FPS cap (mode 3 would otherwise present uncapped).
-    var effectiveFPSMode: Int32 { fpsMode == 3 && !ProMotionIntent.has30Cap ? 1 : Int32(fpsMode) }
+    var effectiveFPSMode: Int32 {
+        // RAW was an unthrottled benchmark with synthetic skipped presents.
+        // Existing profiles now use the physical display maximum.
+        if fpsMode == 2 { return 0 }
+        return fpsMode == 3 && !ProMotionIntent.has30Cap ? 1 : Int32(fpsMode)
+    }
 
     func validate() throws {
         if let swapMB, !GameMemorySettings.swapChoices.contains(swapMB) {
@@ -4303,14 +4308,15 @@ struct FPSChoice: View {
     @AppStorage(ThermalPacingController.preferenceKey) private var adaptiveCooling = ThermalPacingController.defaultEnabled
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-        HStack { Text("FPS limit"); Spacer(); Picker("FPS limit", selection: $mode) {
+        HStack { Text("FPS limit"); Spacer(); Picker("FPS limit", selection: Binding(
+            get: { mode == 2 ? 0 : mode }, set: { mode = $0 })) {
             // 30 needs DXMT's 30 FPS cap (ProMotionIntent.has30Cap); a saved 30 stays selectable.
             if ProMotionIntent.has30Cap || mode == 3 { Text("30 FPS").tag(3) }
-            Text("60 FPS").tag(1); Text("Display maximum").tag(0); Text("Uncapped").tag(2)
+            Text("60 FPS").tag(1); Text("Display maximum").tag(0)
         }.labelsHidden().pickerStyle(.menu) }
             Toggle("Reduce heat automatically", isOn: $adaptiveCooling)
                 .onChange(of: adaptiveCooling) { _, _ in ThermalPacingController.refresh() }
-            Text("Off by default. When enabled, limits MAX/RAW to 60 FPS while hot and restores your selection after cooling. Your selected 60 or 30 FPS limit is preserved.")
+            Text("Off by default. When enabled, limits Display maximum to 60 FPS while hot and restores your selection after cooling. Your selected 60 or 30 FPS limit is preserved.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

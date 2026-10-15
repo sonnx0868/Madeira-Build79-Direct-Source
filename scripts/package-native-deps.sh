@@ -67,5 +67,8 @@ if [[ -f "$root/app/Madeira/i386-windows/ntdll.dll" ]]; then
   test -s "$root/build/wine-i386/addon-receipt.json"
   (cd "$root" && zip -qry "$output" app/Madeira/i386-windows build/wine-i386/addon-receipt.json)
 fi
+if [[ -f "$root/build/dxmt-ios/producer-pacing.json" ]]; then
+  (cd "$root" && zip -q "$output" build/dxmt-ios/producer-pacing.json)
+fi
 echo "Created $output"
 shasum -a 256 "$output"

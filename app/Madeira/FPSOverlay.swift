@@ -35,7 +35,7 @@ final class ThermalPacingController {
 
     static func request(_ mode: Int32) {
         if !Thread.isMainThread { DispatchQueue.main.async { request(mode) }; return }
-        shared.requested = mode
+        shared.requested = mode == 2 ? 0 : mode
         shared.hasRequest = true
         shared.start()
         shared.update()
@@ -274,18 +274,14 @@ struct FPSOverlay: View {
         .onDisappear { stopTimers() }
     }
 
-    /// Pacing pill, cycles 60 → MAX(n) → RAW → 30 → 60. Shared by the wide
+    /// Pacing pill, cycles 60 → MAX(n) → 30 → 60. Shared by the wide
     /// (portrait) and compact (landscape bar) overlay variants.
     ///   60: presents paced to exactly 60Hz.
     ///   MAX(n): free-run to display refresh; n = current cap
     ///     (120 = ProMotion; 60 = thermal/LPM capped).
-    ///   RAW: game unthrottled (frame-skip mailbox) — FPS readout =
-    ///     raw stack throughput.
     ///   30: presents paced to exactly 30Hz — device feedback (2026-09-15)
     ///     asked for a cap below 60 (thermal/battery headroom); appended
-    ///     rather than reordering the existing three so a saved/expected
-    ///     cycle position never silently changes meaning. Offered only when
-    ///     DXMT has the 30 cap (ProMotionIntent.has30Cap); else RAW → 60.
+    ///     when DXMT has the 30 cap (ProMotionIntent.has30Cap).
     private var pacingPill: some View {
         Text(pillLabel)
             .foregroundColor(pillColor)
@@ -304,8 +300,7 @@ struct FPSOverlay: View {
     private static func nextVsyncMode(_ mode: Int32) -> Int32 {
         switch mode {
         case 1: return 0    // 60 -> MAX
-        case 0: return 2    // MAX -> RAW
-        case 2: return ProMotionIntent.has30Cap ? 3 : 1   // RAW -> 30 (when DXMT has it) or 60
+        case 0, 2: return ProMotionIntent.has30Cap ? 3 : 1
         default: return 1   // 30 -> 60
         }
     }
