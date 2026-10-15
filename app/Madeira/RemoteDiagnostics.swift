@@ -324,6 +324,8 @@ enum DiagnosticEvents {
             .contains { identity.contains($0) }
         let gpuTiming = investigatingPerformance ||
             MadeiraConfig.flag("MADEIRA_GPU_TIMING", fallback: false)
+        madeira_replaced_metrics_prepare(identity.contains("replaced") &&
+            MadeiraConfig.flag("MADEIRA_REPLACED_METRICS") ? 1 : 0)
         madeira_gpu_diagnostics_enable(gpuTiming ? 1 : 0)
         // Bounded passive samples for the games with reported FPS regressions.
         if investigatingPerformance {
@@ -345,7 +347,9 @@ enum DiagnosticEvents {
                     "env.MADEIRA_CTX_FRAME",
                     "env.MADEIRA_MULTI_GAME", "env.DXMT_IOS_CACHE_DIR",
                     "env.DXMT_SHADER_CACHE", "env.DXMT_CACHE_STATS",
-                    "env.MADEIRA_SHADER_WARMUP", "env.MADEIRA_PIPELINE_CACHE"] {
+                    "env.MADEIRA_SHADER_WARMUP", "env.MADEIRA_PIPELINE_CACHE",
+                    "env.MADEIRA_REPLACED_METRICS", "env.FEX_VECTORTSOENABLED",
+                    "env.FEX_MEMCPYSETTSOENABLED", "env.FEX_HALFBARRIERTSOENABLED"] {
             settings[key] = String((MadeiraConfig.get(key) ?? "default").prefix(160))
         }
         if let data = try? JSONSerialization.data(withJSONObject: settings, options: .sortedKeys),

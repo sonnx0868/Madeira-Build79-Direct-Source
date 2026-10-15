@@ -109,6 +109,8 @@ checks() {
   python3 tests/host/check-gpu-lifecycle.py
   python3 tests/host/check-workload-diagnostics.py
   python3 tests/host/check-guest-main-qos.py --require-darwin
+  python3 tests/host/check-replaced-metrics.py --require-darwin
+  python3 tests/host/check-library-recents.py --require-swift
   python3 tests/host/check-jit-detach.py --require-swift
   python3 tests/host/check-bcd-compatibility.py
   python3 tests/host/check-game-startup-fixes.py

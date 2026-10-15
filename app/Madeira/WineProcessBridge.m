@@ -36,6 +36,7 @@
 #include <sys/sysctl.h>
 #include <sys/resource.h>
 #include <mach/mach.h>
+#include <mach/mach_vm.h>
 #include <mach/arm/thread_status.h>
 #include <mach/mach_time.h>
 #include <dlfcn.h>
@@ -66,6 +67,7 @@ static dispatch_queue_t stall_queue(void) {
 }
 static dispatch_source_t stall_timer;
 static unsigned stall_generation;
+#include "ReplacedMetrics.h"
 
 static MadeiraWorkCounters work_counters(const struct rusage_info_v4 *usage) {
     return (MadeiraWorkCounters){ usage->ri_user_time + usage->ri_system_time,
@@ -149,6 +151,8 @@ void madeira_stall_monitor_end(void) {
     dispatch_async(stall_queue(), ^{
         ++stall_generation;
         if (stall_timer) { dispatch_source_cancel(stall_timer); stall_timer = nil; }
+        __atomic_store_n(&rm_active,0,__ATOMIC_RELEASE);
+        rm_clear();
     });
 }
 
@@ -183,6 +187,7 @@ void madeira_stall_monitor_begin(void) {
                 slowBaselineValid = workload_snapshot(now, seconds, fps, windowFrames,
                     &slowBaseline, slowBaselineValid, &next, workloadReports++ < 120);
                 slowBaseline = next;
+                replaced_metrics_snapshot(now, fps);
             }
             if (current != frames) {
                 frames = current; changed = now; hasFrame = YES; inGap = 0;
@@ -642,6 +647,10 @@ int wine_game_process_exit_status(uint32_t *status) {
 void wine_presented_process_track(uint32_t pid) {
     if (!pid || __atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE)) return;
     __atomic_store_n(&g_presented_pid, pid, __ATOMIC_RELEASE);
+}
+static uint32_t replaced_metrics_target_pid(void) {
+    uint32_t pid=__atomic_load_n(&g_game_pid,__ATOMIC_ACQUIRE);
+    return pid ? pid : __atomic_load_n(&g_launched_pid,__ATOMIC_ACQUIRE);
 }
 int wine_presented_process_has_exited(void) {
     return (__atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE) >> 32) != 0;

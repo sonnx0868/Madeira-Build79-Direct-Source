@@ -16,6 +16,8 @@ python3 "$root/tests/host/check-game-log-archive.py"
 python3 "$root/tests/host/check-gpu-lifecycle.py"
 python3 "$root/tests/host/check-workload-diagnostics.py"
 python3 "$root/tests/host/check-guest-main-qos.py" --require-darwin
+python3 "$root/tests/host/check-replaced-metrics.py" --require-darwin
+python3 "$root/tests/host/check-library-recents.py" --require-swift
 python3 "$root/tests/host/check-jit-detach.py" --require-swift
 python3 "$root/tests/host/check-game-pointer.py" --require-swift
 python3 "$root/tests/host/check-thermal-pacing.py" --require-swift

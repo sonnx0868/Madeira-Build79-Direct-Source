@@ -723,6 +723,24 @@ enum GameMemorySettings {
     }
 }
 
+enum LibraryRecents {
+    static func latest(_ a: Date?, _ b: Date?) -> Date? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return max(a, b)
+    }
+    static func games(_ entries: [LibraryEntry], installedSteam: Set<Int>,
+                      isPrivate: (LibraryEntry) -> Bool) -> [LibraryEntry] {
+        Array(entries.filter {
+            $0.desktop != true && $0.temporarySession != true && !isPrivate($0) && $0.lastPlayed != nil &&
+            ($0.steamAppID == nil || installedSteam.contains($0.steamAppID!))
+        }.sorted {
+            if $0.lastPlayed != $1.lastPlayed { return ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }.prefix(12))
+    }
+}
+
 enum ExternalGameCompatibility {
     private static let strictMemory = [("FEX_TSOENABLED", "1"), ("FEX_VECTORTSOENABLED", "1"),
         ("FEX_MEMCPYSETTSOENABLED", "1"), ("FEX_HALFBARRIERTSOENABLED", "0"),
@@ -1188,6 +1206,9 @@ final class LibraryModel: ObservableObject {
             if !LibraryAccess.shared.unlocked && isPrivate(next[i]) {
                 entry.privateGame = next[i].privateGame; entry.genreID = next[i].genreID
             }
+            // Details/import metadata may finish with an entry captured before
+            // Play. Preserve the newest play date for manual and store games.
+            entry.lastPlayed = LibraryRecents.latest(next[i].lastPlayed, entry.lastPlayed)
             // A details sheet may predate an asynchronous metadata refresh.
             if (next[i].metadataChecked ?? .distantPast) > (entry.metadataChecked ?? .distantPast) {
                 entry.folderBytes = next[i].folderBytes; entry.graphicsAPI = next[i].graphicsAPI
@@ -2966,6 +2987,7 @@ struct LibraryView: View {
     @AppStorage("madeiraLibrarySort") private var sort = "played"
     // Collapsed state of the Other games section (MADEIRA_LIBRARY_COLLAPSE=0: no collapsing).
     @AppStorage("madeiraLibraryHideOthers") private var hideOthers = false
+    @AppStorage("madeiraShowContinuePlaying") private var showContinuePlaying = true
     // The sections follow the Steam section's games and sign-in (SteamGames.swift).
     @ObservedObject private var steamGames = SteamGamesModel.shared
     @ObservedObject private var steamLibrary = SteamOwnedLibrary.shared
@@ -3191,11 +3213,7 @@ struct LibraryView: View {
             .background(LibraryScenicBackground(sidebar: true))
     }
     private var recentGames: [LibraryEntry] {
-        let installed = Set(steamGames.games.map(\.id))
-        return Array(model.entries.filter {
-            $0.desktop != true && !model.isPrivate($0) && $0.lastPlayed != nil &&
-            ($0.steamAppID == nil || installed.contains($0.steamAppID!))
-        }.sorted { ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast) }.prefix(3))
+        LibraryRecents.games(model.entries, installedSteam: Set(steamGames.games.map(\.id)), isPrivate: model.isPrivate)
     }
     private var continuePlaying: some View {
         GeometryReader { geometry in
@@ -3307,9 +3325,10 @@ struct LibraryView: View {
             }
             if settingsShow("Epic", "Epic Games", "sign in", "account") { EpicSettingsSection(open: { settingsSheet = $0 }) }
             if settingsShow("GOG", "sign in", "account") { GOGSettingsSection(open: { settingsSheet = $0 }) }
-            if settingsShow("appearance", "liquid metal", "metal", "glass") {
+            if settingsShow("appearance", "liquid metal", "metal", "glass", "continue playing", "recent games") {
                 Section {
                     Toggle("Liquid metal", isOn: $liquidMetal.on)
+                    Toggle("Show Continue Playing", isOn: $showContinuePlaying)
                 } header: { Text("Appearance") } footer: {
                     Text("Flowing chrome on the bars and the Desktop button. Off, they use the system's Liquid Glass.")
                 }
@@ -3384,7 +3403,7 @@ struct LibraryView: View {
                         Label("Library", systemImage: "chevron.left").font(.subheadline)
                     }.buttonStyle(.plain)
                 }
-                if !privatePlaylist && !recentOnly && !recentGames.isEmpty { continuePlaying }
+                if showContinuePlaying && !privatePlaylist && !recentOnly && !recentGames.isEmpty { continuePlaying }
                 Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
                 genreChips
                 if privatePlaylist {
