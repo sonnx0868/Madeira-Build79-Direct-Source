@@ -312,10 +312,15 @@ struct LibraryEntry: Codable, Identifiable {
             return GodotLaunch.angleArguments(original)
         }
         if startsSteamGameDirectly || gogID != nil { return original }
-        if ExternalGameCompatibility.isUnity(self) {
+        let executable = LibraryModel.drive.appendingPathComponent(launchRelativePath)
+        // Legacy players embed Unity in the EXE. They still need the launch
+        // size even though the modern-player performance profile is separate.
+        if ExternalGameCompatibility.isUnity(self) ||
+            (steamAppID == nil && GameEngineDetection.detect(executable) == "Unity") {
             return UnityLaunch.arguments(arguments, resolution: resolution,
                 matchResolution: MadeiraConfig.flag("MADEIRA_UNITY_RESOLUTION"),
-                forceD3D11: MadeiraConfig.flag("MADEIRA_UNITY_D3D11", fallback: false))
+                forceD3D11: MadeiraConfig.flag("MADEIRA_UNITY_D3D11", fallback: false),
+                preferWindowed: executable.lastPathComponent.lowercased() == "sundered.exe")
         }
         return arguments
     }
@@ -662,7 +667,7 @@ enum GodotLaunch {
 
 enum UnityLaunch {
     static func arguments(_ original: String, resolution: String,
-                          matchResolution: Bool, forceD3D11: Bool) -> String {
+                          matchResolution: Bool, forceD3D11: Bool, preferWindowed: Bool = false) -> String {
         var tokens: [String] = [], token = "", quoted = false
         for character in original {
             if character == "\"" { quoted.toggle() }
@@ -682,6 +687,11 @@ enum UnityLaunch {
             if !options.contains("-screen-width") { extra += ["-screen-width", String(width)] }
             if !options.contains("-screen-height") { extra += ["-screen-height", String(height)] }
         }
+        // Sundered/Unity 5.6: device reports 74f0fdac and the corrected
+        // windowed launch reproduce then clear its 0x0 RenderTexture loop.
+        if preferWindowed && !options.contains(where: {
+            ["-screen-fullscreen", "-popupwindow", "-window-mode"].contains($0)
+        }) { extra += ["-screen-fullscreen", "0"] }
         guard !extra.isEmpty else { return original }
         return original + (original.isEmpty ? "" : " ") + extra.joined(separator: " ")
     }

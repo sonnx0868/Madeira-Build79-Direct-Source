@@ -49,6 +49,7 @@ struct RendererEntry {
     var desktopCommand: String? = nil
     var startsSteamGameDirectly = false
     var steamProgramArguments: String? = nil
+    var steamAppID: Int? = nil
     var gogID: Int? = nil
     var gogLaunchCommand: String? = nil
     var arguments = ""
@@ -57,6 +58,35 @@ struct RendererEntry {
     var glBackend: String? = nil
     var launchRelativePath = "fixture-renderer.exe"
 ''' + arguments + '\n}\n' + godot
+
+# The production argument property must recognize a real legacy layout:
+# the mocked modern-player performance predicate intentionally returns false.
+legacy_profile = r'''
+let legacyDrive = LibraryModel.drive.appendingPathComponent(UUID().uuidString)
+try FileManager.default.createDirectory(at: legacyDrive, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: legacyDrive) }
+let legacyPath = legacyDrive.lastPathComponent + "/Sundered.exe"
+let player = legacyDrive.appendingPathComponent("UnityPlayer.dll")
+try Data().write(to: player)
+assert(RendererEntry(unity: false, launchRelativePath: legacyDrive.lastPathComponent + "/Modern.exe").launchArguments == "-screen-width 1408 -screen-height 648")
+try FileManager.default.removeItem(at: player)
+assert(RendererEntry(unity: false, launchRelativePath: legacyPath).launchArguments.isEmpty)
+let legacyData = legacyDrive.appendingPathComponent("SuNdErEd_DaTa")
+try FileManager.default.createDirectory(at: legacyData.appendingPathComponent("Managed"), withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: legacyData.appendingPathComponent("Mono"), withIntermediateDirectories: true)
+try Data().write(to: legacyData.appendingPathComponent("Managed/UnityEngine.dll"))
+assert(RendererEntry(unity: false, launchRelativePath: legacyPath).launchArguments.isEmpty)
+try Data().write(to: legacyData.appendingPathComponent("Mono/mono.dll"))
+let windowed = "-screen-width 1408 -screen-height 648 -screen-fullscreen 0"
+assert(RendererEntry(unity: false, launchRelativePath: legacyPath).launchArguments == windowed)
+assert(RendererEntry(arguments: windowed, unity: false, launchRelativePath: legacyPath).launchArguments == windowed)
+for explicitMode in ["-screen-fullscreen 1", "-screen-fullscreen=1", "-popupwindow", "-window-mode borderless"] {
+    assert(RendererEntry(arguments: explicitMode, unity: false, launchRelativePath: legacyPath).launchArguments == explicitMode + " -screen-width 1408 -screen-height 648")
+}
+assert(RendererEntry(unity: false, launchRelativePath: legacyDrive.lastPathComponent + "/Other.exe").launchArguments.isEmpty)
+assert(RendererEntry(steamAppID: 356400, unity: false, launchRelativePath: legacyPath).launchArguments.isEmpty)
+print("PASS: production legacy Unity launch applies the selected size and Sundered windowed default, preserving explicit modes, native games and Steam policy")
+'''
 fps = (root / "app/Madeira/FPSOverlay.swift").read_text(encoding="utf-8")
 rate_policy = fps[fps.index("    static func maxHz(for mode:"):fps.index("    /// Arms or releases the link")]
 display = "enum TestDisplayPolicy { static var panelMaxFPS = 120\n" + rate_policy + "}\n"
@@ -236,6 +266,6 @@ print("PASS: Unity arguments, update rules, bounded session and companion snapsh
 with tempfile.TemporaryDirectory() as folder:
     source = Path(folder) / "main.swift"
     binary = Path(folder) / "check"
-    source.write_text(update + engines + error + snapshot + unity + renderer_profile + display + checks, encoding="utf-8")
+    source.write_text(update + engines + error + snapshot + unity + renderer_profile + legacy_profile + display + checks, encoding="utf-8")
     subprocess.run([swift, str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
