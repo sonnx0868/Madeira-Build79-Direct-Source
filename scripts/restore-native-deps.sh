@@ -27,6 +27,16 @@ test -s "$root/FEX/External/range-v3/include/range/v3/all.hpp"
 test -s "$root/FEX/External/unordered_dense/include/ankerl/unordered_dense.h"
 bash "$root/build/stage-licenses.sh"
 python3 "$root/tools/patch-dxmt-query-log.py"
+if [[ -n "${MADEIRA_WOW64_ADDON_URL:-}" ]]; then
+  : "${MADEIRA_WOW64_ADDON_SHA256:?WoW64 addon requires a pinned SHA-256}"
+  addon="${CM_TEMP_DIR:-${TMPDIR:-/tmp}}/madeira-wow64-addon.zip"
+  curl --fail --location --retry 3 "$MADEIRA_WOW64_ADDON_URL" --output "$addon"
+  python3 "$root/scripts/restore-wow64-addon.py" --root "$root" --archive "$addon" --sha256 "$MADEIRA_WOW64_ADDON_SHA256"
+fi
+if [[ -f "$root/app/Madeira/i386-windows/ntdll.dll" ]]; then
+  python3 "$root/tools/check-wow64-addon.py" --root "$root" --receipt "$root/build/wine-i386/addon-receipt.json" \
+    --write "${BITRISE_DEPLOY_DIR:-$root/build}/wow64-consumer-validation.json"
+fi
 if [[ "${1:-}" = --refresh-window ]]; then
   bash "$root/build/win32u-unix/build.sh" window-only
 elif [[ "${1:-}" = --refresh-renpy-gl ]]; then

@@ -40,7 +40,7 @@ def pe_info(data):
     return {'machine':machine,'imports':imports}
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True);parser.add_argument('--write',type=Path,required=True)
+    parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True);parser.add_argument('--write',type=Path,required=True);parser.add_argument('--receipt',type=Path)
     args=parser.parse_args();root=args.root.resolve();folder=root/'app/Madeira/i386-windows'
     files={p.name.lower():p for p in folder.iterdir() if p.is_file() and p.name!='.gitkeep'}
     required=['ntdll.dll','kernel32.dll','kernelbase.dll','user32.dll','win32u.dll','gdi32.dll','msvcrt.dll','mscoree.dll',
@@ -67,6 +67,11 @@ def main():
     result={'source_commit':git('rev-parse','HEAD'),'wine_commit':git('-C','wine','rev-parse','HEAD'),
             'fex_commit':git('-C','FEX','rev-parse','HEAD'),'i386':receipt,'arm64_prebuilt':arm,
             'scope':'PE architecture and immediate DLL import closure only; no device or Celeste execution.'}
+    if args.receipt:
+        expected=json.loads(args.receipt.read_text(encoding='utf-8'))
+        for key in ['wine_commit','fex_commit','i386','arm64_prebuilt']:
+            if result[key]!=expected[key]:raise SystemExit('WoW64 producer receipt differs: '+key)
+        result['addon_producer_commit']=expected['source_commit']
     args.write.write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
     print('PASS: '+str(len(receipt))+' i386 PE modules, required renderer/runtime DLLs and immediate import closure')
 

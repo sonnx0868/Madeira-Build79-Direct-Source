@@ -63,5 +63,9 @@ rm -f "$output"
   app/Madeira/licenses/SPIRV-Cross-Apache-2.0.txt \
   app/Madeira/licenses/SPIRV-Tools-Apache-2.0.txt \
   app/Madeira/licenses/cereal-BSD-3-Clause.txt)
+if [[ -f "$root/app/Madeira/i386-windows/ntdll.dll" ]]; then
+  test -s "$root/build/wine-i386/addon-receipt.json"
+  (cd "$root" && zip -qry "$output" app/Madeira/i386-windows build/wine-i386/addon-receipt.json)
+fi
 echo "Created $output"
 shasum -a 256 "$output"

@@ -101,6 +101,10 @@ if [[ "${MADEIRA_WOW64_ADDON_ONLY:-0}" = 1 ]]; then
   timed wow64-addon bash scripts/build-wow64-addon.sh
   exit 0
 fi
+if [[ -n "${MADEIRA_WOW64_ADDON_URL:-}" ]]; then
+  timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
+  shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
+fi
 
 checks() {
   local metrics_sdk
@@ -108,6 +112,7 @@ checks() {
   xcrun --sdk iphoneos clang -fobjc-arc -fmodules -fblocks \
     -target arm64-apple-ios17.0 -isysroot "$metrics_sdk" -fsyntax-only app/Madeira/WineProcessBridge.m
   echo 'PASS: production Wine bridge and REPLACED metrics compile against iPhoneOS SDK'
+  python3 tests/host/check-wow64-restore.py
   python3 tests/host/check-pe-launch.py
   python3 tests/host/check-unity-folder-profile.py
   python3 tests/host/check-game-process.py --require-objc
