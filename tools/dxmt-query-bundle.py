@@ -24,7 +24,7 @@ def main():
     config=at(loadrva,208);chpe=struct.unpack_from('<Q',data,config+200)[0]
     assert chpe>=imagebase,'missing ARM64EC hybrid metadata'
     metadata=at(chpe-imagebase,12);version,codemap,count=struct.unpack_from('<III',data,metadata)
-    assert version==1 and 0<count<=16384,'invalid ARM64EC metadata'
+    assert version in (1,2) and 0<count<=16384,'invalid ARM64EC metadata'
     ranges=at(codemap,count*8)
     assert any(struct.unpack_from('<I',data,ranges+i*8)[0]&3==1 for i in range(count)),'no ARM64EC code range'
 
