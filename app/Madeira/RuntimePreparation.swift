@@ -127,7 +127,19 @@ enum RuntimeScanner {
                 continue
             }
             if file.lastPathComponent.lowercased() == executable.deletingPathExtension().lastPathComponent.lowercased() + ".runtimeconfig.json" {
-                report.modernDotNet = true; watched.insert(file)
+                watched.insert(file)
+                if let size = (try? RuntimeFiles.manager.attributesOfItem(atPath: file.path)[.size]) as? NSNumber,
+                   size.intValue <= 128 * 1024, let data = try? Data(contentsOf: file),
+                   let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                   let options = json["runtimeOptions"] as? [String: Any] {
+                    // Self-contained .NET games list includedFrameworks. A
+                    // framework/frameworks reference requires a shared host.
+                    let shared = options["framework"] != nil || (options["frameworks"] as? [Any])?.isEmpty == false
+                    let local = ["hostfxr.dll", "coreclr.dll"].allSatisfy { name in
+                        RuntimeFiles.named(name, in: root).map { RuntimeFiles.matches($0, bits: bits) } == true
+                    }
+                    report.modernDotNet = shared && !local
+                }
             }
             if file.pathExtension.lowercased() == "dll", modules.count < 512, RuntimeFiles.matches(file, bits: bits) { modules.append(file) }
             else if modules.count >= 512 { report.truncated = true }
@@ -354,13 +366,18 @@ actor RuntimePreparer {
             guard result == 0 else { throw RuntimePreparationError.message("The bundled .NET compatibility runtime could not be prepared (\(result)).") }
         }
         var installed = old?.installed.filter { RuntimeFiles.inside(URL(fileURLWithPath: $0.key), drive) } ?? [:]
-        var packages = [String: RuntimeCatalog.Package]()
-        for missing in report.missing where !missing.wrongArchitecture {
-            if let pin = catalog.package(name: missing.name, bits: missing.bits) { packages[pin.id] = pin }
-        }
+        var preparedPackages = Set<String>()
         var created: [(URL, String)] = []
         do {
-            for pin in packages.values.sorted(by: { $0.id < $1.id }) {
+            // A runtime can introduce another family (e.g. a native plugin's
+            // VC bridge). Resolve the new imports after every install wave.
+            for _ in 0..<16 {
+              var packages = [String: RuntimeCatalog.Package]()
+              for missing in report.missing where !missing.wrongArchitecture {
+                  if let pin = catalog.package(name: missing.name, bits: missing.bits) { packages[pin.id] = pin }
+              }
+              if packages.isEmpty { break }
+              for pin in packages.values.sorted(by: { $0.id < $1.id }) {
                 await progress("Preparing \(pin.title)…")
                 let source = try await package(pin, cache: cache)
                 let requests = report.missing.filter { !$0.wrongArchitecture && catalog.package(name: $0.name, bits: $0.bits)?.id == pin.id }
@@ -389,9 +406,12 @@ actor RuntimePreparer {
                         installed[destination.path] = file.sha256
                     }
                 }
+                preparedPackages.insert(pin.id)
+              }
+              await progress("Verifying components…")
+              report = try RuntimeScanner.scan(executable: executable, bits: bits, drive: drive, bundle: bundle)
             }
             await progress("Verifying components…")
-            report = try RuntimeScanner.scan(executable: executable, bits: bits, drive: drive, bundle: bundle)
             if report.managed {
                 let mono = drive.appendingPathComponent("windows/mono/mono-2.0")
                 for name in ["bin/libmono-2.0-x86.dll", "lib/mono/4.5/mscorlib.dll"] {
@@ -399,10 +419,10 @@ actor RuntimePreparer {
                 }
             }
             // Dependencies of the newly installed runtime are included in the
-            // second scan. Never report success while a known gap remains.
+            // post-install scans. Never report success while a known gap remains.
             let unresolved = report.missing.filter { !$0.wrongArchitecture && catalog.package(name: $0.name, bits: $0.bits) != nil }
             if !unresolved.isEmpty { throw RuntimePreparationError.message("Additional runtime dependencies remain: " + Array(Set(unresolved.map(\.name))).sorted().joined(separator: ", ")) }
-            report.installed = packages.keys.sorted()
+            report.installed = preparedPackages.sorted()
             // Remove stale receipts after an application/game legitimately replaced a DLL.
             installed = installed.filter { (try? RuntimeFiles.hash(URL(fileURLWithPath: $0.key))) == $0.value }
             let receipt = Receipt(version: 1, bundle: bundle.path, catalog: catalogHash, report: report, installed: installed)

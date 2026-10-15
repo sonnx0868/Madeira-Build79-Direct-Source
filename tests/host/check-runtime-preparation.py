@@ -75,12 +75,17 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     game.mkdir(parents=True);(bundle/'arm64ec-windows').mkdir(parents=True)
     (game/'game.exe').write_bytes(pe(imports=['msvcp140.dll']))
     (bundle/'arm64ec-windows/kernel32.dll').write_bytes(pe())
-    payloads={'msvcp140.dll':pe(imports=['vcruntime140.dll']),'vcruntime140.dll':pe(imports=['kernel32.dll'])}
+    payloads={'msvcp140.dll':pe(imports=['vcruntime140.dll']),'vcruntime140.dll':pe(imports=['msvcp120.dll'])}
     archive=b'MZ'+b'\0'*62+cabinet(list(payloads.items()))
     sha=hashlib.sha256(archive).hexdigest()
     package=dict(id='vc14-x64',family='vc14',bits=64,url='https://download.microsoft.com/fixture.exe',sha256=sha,bytes=len(archive),files=[dict(name=n,bits=64,sha256=hashlib.sha256(d).hexdigest(),bytes=len(d)) for n,d in payloads.items()])
-    (bundle/'RuntimeCatalog.json').write_text(json.dumps(dict(revision=1,packages=[package])))
+    other_payload=pe(imports=['kernel32.dll'])
+    other_archive=b'MZ'+b'\0'*62+cabinet([('msvcp120.dll',other_payload)])
+    other_sha=hashlib.sha256(other_archive).hexdigest()
+    other=dict(id='vc120-x64',family='vc120',bits=64,url='https://download.microsoft.com/fixture120.exe',sha256=other_sha,bytes=len(other_archive),files=[dict(name='msvcp120.dll',bits=64,sha256=hashlib.sha256(other_payload).hexdigest(),bytes=len(other_payload))])
+    (bundle/'RuntimeCatalog.json').write_text(json.dumps(dict(revision=1,packages=[package,other])))
     path=cache/'packages'/sha;path.mkdir(parents=True);(path/'official.exe').write_bytes(archive)
+    path=cache/'packages'/other_sha;path.mkdir(parents=True);(path/'official.exe').write_bytes(other_archive)
     source=(app/'Library.swift').read_text(encoding='utf8')
     parser=source[source.index('    static func importNames('):source.index('\n    // MARK: session',source.index('    static func importNames('))]
     dock=(app/'DockInstallers.swift').read_text(encoding='utf8');start=dock.index('    nonisolated static func machine(');end=dock.index('\n    /// Why this build',start)
@@ -95,7 +100,10 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     func run(_ force: Bool = false) async throws -> RuntimeReport {
       try await RuntimePreparer.shared.prepare(executable:exe,bits:64,drive:drive,bundle:bundle,cache:cache,force:force,progress:{ _ in })
     }
-    let first=try await run();assert(!first.cached && first.missing.isEmpty && first.installed==["vc14-x64"])
+    async let a=run();async let b=run()
+    let (first,shared)=try await(a,b)
+    assert((!first.cached || !shared.cached) && first.missing.isEmpty && shared.missing.isEmpty)
+    assert(first.installed==["vc120-x64","vc14-x64"])
     let second=try await run();assert(second.cached)
     try FileManager.default.removeItem(at:game.appendingPathComponent("vcruntime140.dll"))
     let restored=try await run();assert(!restored.cached && restored.missing.isEmpty)
@@ -109,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     let changed=try await run();assert(!changed.cached && changed.missing.contains { $0.name=="game_private.dll" })
     try FileManager.default.removeItem(at:exe)
     do { _ = try await run(); fatalError("Missing executable accepted") } catch {}
-    print("PASS: production automatic install, transitive DLLs, recheck, cache hit, deletion repair, wrong-architecture preservation, directory invalidation and missing EXE")
+    print("PASS: production automatic install, transitive DLLs across runtime families, concurrent request sharing, recheck, cache hit, deletion repair, wrong-architecture preservation, directory invalidation and missing EXE")
  }
 }
 '''

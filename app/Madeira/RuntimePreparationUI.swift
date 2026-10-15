@@ -25,7 +25,7 @@ final class GameComponentPreparation: ObservableObject {
         let drive = LibraryModel.drive
         let cache = LibraryModel.documents.appendingPathComponent("RuntimeCache", isDirectory: true)
         status[entry.id] = Status(busy: true, text: "Checking required components…")
-        let task = Task {
+        let task = Task { [weak self] in
             try await RuntimePreparer.shared.prepare(executable: executable, bits: entry.bits, drive: drive,
                 bundle: bundle, cache: cache, force: force, progress: { [weak self] text in
                     await self?.update(entry.id, text: text)

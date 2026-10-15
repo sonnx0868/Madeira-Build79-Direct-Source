@@ -25,7 +25,7 @@ allowlist, exact download sizes and SHA-256 pins. All package signatures were
 verified as Microsoft Corporation when generating this catalogue. Runtime DLLs
 and VC80/90 assembly manifests also have individual uncompressed SHA-256 pins.
 The app extracts matching files without running setup or processing MSI custom
-actions. The VC80 embedded contiguous CAB is selected only for the pinned
+actions. The VC80 embedded contiguous CABs are selected only for the pinned
 packages audited by tools/runtime-catalog.py. The entire uncompressed output
 is verified, including machine type; CAB member names never become paths.
 
@@ -63,7 +63,7 @@ not included in diagnostics. Diagnostic lines contain only counts/cache state.
 tests/host/check-runtime-preparation.py compiles the production CAB adapter and
 production Swift core. Synthetic PE/CAB fixtures test archive corruption,
 traversal containment, extraction bounds, existing-file preservation, transitive
-runtime installation, post-check, cache reuse, deletion repair, wrong-machine
+runtime installation across families, concurrent request sharing, post-check, cache reuse, deletion repair, wrong-machine
 preservation and directory invalidation. No fixture EXE is executed. Mac CI
 requires the Swift portion; the native portion also runs on Windows.
 
