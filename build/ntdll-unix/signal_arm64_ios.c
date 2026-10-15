@@ -1321,6 +1321,50 @@ static int ios_mach_emulate_cas(uint32_t insn, uintptr_t rw_addr, uint64_t gpr[2
     return 1;
 }
 
+/* Celeste 702: the WoW64 Mono copy loop reaches STR Q16/Q19 with a
+ * register offset (3cab4a70 / 3cb84a73). The alias exists, but case 4
+ * formerly decoded only the immediate SIMD stores, redelivering the same
+ * write forever. Keep the guest SMC protection barrier: a read-only Wine
+ * page must first reach the emulator's invalidation callback. Only a
+ * logically writable, fully aliased 16-byte span may be written here.
+ * No allocation, protection change, register writeback or FEX-core call. */
+static int ios_mach_qreg_store(uint32_t insn, uintptr_t fault_addr,
+                              const uint64_t gpr[29], uint64_t sp,
+                              const unsigned char *vectors, int have_neon)
+{
+    extern uintptr_t ios_jit_anon_alias_lookup(uintptr_t);
+    extern int ios_page_expected_prot(const void *);
+    unsigned rn, rm, option, rt;
+    uint64_t index, effective;
+    uintptr_t rw, end;
+    int first_prot, last_prot;
+    if ((insn & 0xffe00c00u) != 0x3ca00800u || !have_neon || !vectors || !gpr) return 0;
+    rn = (insn >> 5) & 31;
+    rm = (insn >> 16) & 31;
+    option = (insn >> 13) & 7;
+    rt = insn & 31; /* Q31 is a real SIMD register, never XZR. */
+    if ((rn >= 29 && rn != 31) || (rm >= 29 && rm != 31)) return 0;
+    index = rm == 31 ? 0 : gpr[rm];
+    switch (option)
+    {
+        case 2: index = (uint32_t)index; break;             /* UXTW */
+        case 6: index = (uint64_t)(int64_t)(int32_t)index; break; /* SXTW */
+        case 3: case 7: break;                             /* LSL / SXTX */
+        default: return 0;
+    }
+    if (insn & (1u << 12)) index <<= 4;
+    effective = (rn == 31 ? sp : gpr[rn]) + index;
+    if (effective > UINTPTR_MAX - 15 || fault_addr < effective || fault_addr - effective >= 16) return 0;
+    first_prot = ios_page_expected_prot((const void *)(uintptr_t)effective);
+    last_prot = ios_page_expected_prot((const void *)(uintptr_t)(effective + 15));
+    if (first_prot < 0 || last_prot < 0 || !(first_prot & PROT_WRITE) || !(last_prot & PROT_WRITE)) return 0;
+    rw = ios_jit_anon_alias_lookup((uintptr_t)effective);
+    end = ios_jit_anon_alias_lookup((uintptr_t)(effective + 15));
+    if (!rw || rw > UINTPTR_MAX - 15 || end != rw + 15) return 0;
+    memcpy((void *)rw, vectors + rt * 16, 16);
+    return 1;
+}
+
 /* ml938/ml939: defined far below, next to the store emulator they reuse.
  * Declared here because the Mach exception thread is the primary caller and
  * sits earlier in the file. */
@@ -3167,6 +3211,22 @@ static void *ios_mach_exception_thread( void *arg )
                                         (unsigned long long)base_old, (unsigned long long)base_new,
                                         wb ? " (writeback)" : " (no writeback)");
                             }
+                        }
+                    }
+                    /* Register-offset Q stores: complete exactly one write
+                     * after the existing guest SMC invalidation has made the
+                     * Wine page logically writable. PC advances below through
+                     * the same Mach return path as the established decoders. */
+                    else if ((insn & 0xffe00c00u) == 0x3ca00800u)
+                    {
+                        if (ios_mach_qreg_store(insn, fault_addr, state.__x, state.__sp,
+                                               (const unsigned char *)neon_state.__v, have_neon))
+                        {
+                            static unsigned qreg_logs;
+                            emulated = 1;
+                            if (qreg_logs++ < 8)
+                                dprintf(STDERR_FILENO, "[qreg-alias-v1] insn=%08x pc=%llx addr=%llx width=16\n",
+                                        insn, (unsigned long long)fault_pc, (unsigned long long)fault_addr);
                         }
                     }
                     /* STR (immediate, unsigned offset, 64-bit): 1111 1001 00 imm12 Rn Rt */
