@@ -5,6 +5,10 @@
 unsigned runtime_test_self;
 unsigned runtime_test_sleeps, runtime_test_release_after, runtime_test_release_port;
 static unsigned ident_releases;
+static unsigned metrics_attaches;
+void madeira_replaced_metrics_thread(unsigned pid,unsigned tid,void *peb) {
+    assert(pid && tid && peb);++metrics_attaches;
+}
 void ios_proc_ident_release(void *peb) { assert(peb != (void *)0x1000); ++ident_releases; }
 int runtime_test_alive[8192], runtime_test_refs[8192];
 static void attach(unsigned port, unsigned pid, unsigned tid, unsigned parent, uintptr_t peb) {
@@ -12,6 +16,8 @@ static void attach(unsigned port, unsigned pid, unsigned tid, unsigned parent, u
     wine_runtime_thread_attach(pid, tid, parent, (void *)peb);
 }
 int main(int argc, char **argv) {
+    wine_runtime_thread_attach(9,9,0,(void *)0x9000);
+    assert(metrics_attaches==1 && !wine_runtime_is_enabled() && !wine_runtime_live_threads());
     wine_runtime_enable(); assert(wine_runtime_begin_generation(1) == 1);
     attach(1, 1, 1, 0, 0x1000);
     assert(wine_runtime_reuse_ready() == -1); /* no child lifecycle evidence */

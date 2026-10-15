@@ -94,8 +94,8 @@ void wine_runtime_set_processors(unsigned count) { atomic_store(&runtime_process
 unsigned wine_runtime_processors(void) { return atomic_load(&runtime_processors); }
 int wine_runtime_is_enabled(void) { return atomic_load(&runtime_enabled); }
 void wine_runtime_thread_attach(unsigned pid, unsigned tid, unsigned parent, void *peb) {
-    extern void madeira_replaced_metrics_thread(unsigned,unsigned,void *) __attribute__((weak));
-    if (madeira_replaced_metrics_thread) madeira_replaced_metrics_thread(pid,tid,peb);
+    extern void madeira_replaced_metrics_thread(unsigned,unsigned,void *);
+    madeira_replaced_metrics_thread(pid,tid,peb);
     thread_record(pid, tid, parent, peb, 0);
 }
 void wine_runtime_thread_reserve(unsigned pid, unsigned tid, void *peb) { thread_record(pid, tid, 0, peb, 1); }
