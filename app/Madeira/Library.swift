@@ -352,6 +352,26 @@ struct LibraryEntry: Codable, Identifiable {
         return relativePath + "/" + program
     }
     var launchWindowsPath: String { "C:\\" + launchRelativePath.replacingOccurrences(of: "/", with: "\\") }
+
+    /// Verified compatibility recommendations never rewrite the saved choice.
+    /// Store entries can describe a folder while imported entries name an EXE.
+    var automaticThreadSuspensionRule: String? {
+        guard desktop != true, temporarySession != true else { return nil }
+        let drive = LibraryModel.drive.resolvingSymlinksInPath()
+        var executable = drive.appendingPathComponent(launchRelativePath)
+        var directory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: executable.path, isDirectory: &directory), directory.boolValue {
+            if let program = steamProgram, !program.isEmpty { executable.appendPathComponent(program) }
+            else if steamAppID == 504230,
+                    let files = try? FileManager.default.contentsOfDirectory(at: executable, includingPropertiesForKeys: nil),
+                    let file = files.first(where: { $0.lastPathComponent.lowercased() == "celeste.exe" }) { executable = file }
+            else { return nil }
+        }
+        guard executable.lastPathComponent.lowercased() == "celeste.exe",
+              executable.resolvingSymlinksInPath().path.hasPrefix(drive.path + "/") else { return nil }
+        return GameMemorySettings.automaticSuspendRule(executableName: executable.lastPathComponent,
+            managedMachine: GameEngineDetection.managedMachine(executable))
+    }
     /// "The game"'s working folder as a Windows path, or nil for the program's own folder.
     var steamWorkingWindowsPath: String? {
         guard startsSteamGameDirectly, let folder = steamProgramFolder else { return nil }
@@ -460,7 +480,8 @@ struct LibraryEntry: Codable, Identifiable {
         else { setenv("MADEIRA_DINPUT_PAD", "0", 1) }
         let controllerPrefs = ControllerCompatibility.prepare(self)
         let externalCompatibility = ExternalGameCompatibility.prepare(self)
-        GameMemorySettings.apply(swapMB: swapMB, realSuspend: realSuspend)
+        GameMemorySettings.apply(swapMB: swapMB, realSuspend: realSuspend,
+                                 automaticSuspendRule: automaticThreadSuspensionRule)
 
         // Madeira has its own controller, keyboard/mouse and session UI. Valve's
         // injected overlay adds a large x64 DLL, hooks XInput and cannot present
@@ -723,6 +744,13 @@ enum GameMemorySettings {
     private static var previousSuspend: String?
     private static var appliedSuspend: String?
 
+    static func automaticSuspendRule(executableName: String, managedMachine: UInt16?) -> String? {
+        // Device A/B, build715: snapshot-only stalls after DIA/FONT LOAD;
+        // real holds complete loading and continue presenting at ~60 FPS.
+        guard managedMachine == 0x14c, executableName.lowercased() == "celeste.exe" else { return nil }
+        return "celeste-mono32-v1"
+    }
+
     static func clearPrevious() {
         if let appliedSuspend, getenv("MADEIRA_REAL_SUSPEND").map({ String(cString: $0) }) == appliedSuspend {
             if let previousSuspend { setenv("MADEIRA_REAL_SUSPEND", previousSuspend, 1) }
@@ -733,25 +761,33 @@ enum GameMemorySettings {
         unsetenv("_MADEIRA_GAME_REAL_SUSPEND")
     }
 
-    static func apply(swapMB: Int?, realSuspend: Bool?) {
+    static func apply(swapMB: Int?, realSuspend: Bool?, automaticSuspendRule: String? = nil) {
         // Read the shared preference after automatic compatibility has run.
         // An explicit global Off must also override REPLACED's automatic On.
-        if let shared = MadeiraConfig.get("real-suspend") ?? MadeiraConfig.get("env.MADEIRA_REAL_SUSPEND") {
+        let shared = MadeiraConfig.get("real-suspend") ?? MadeiraConfig.get("env.MADEIRA_REAL_SUSPEND")
+        if let shared {
             let value = shared.trimmingCharacters(in: .whitespacesAndNewlines)
             if !value.isEmpty { setenv("MADEIRA_REAL_SUSPEND", value, 1) }
         }
         if let swapMB, swapChoices.contains(swapMB) {
             setenv("_MADEIRA_GAME_SWAP_MB", String(swapMB), 1)
         }
-        if let realSuspend {
+        var source = shared == nil ? "inherit" : "global"
+        var choice = realSuspend
+        if choice == nil, automaticSuspendRule == "celeste-mono32-v1", shared == nil,
+           getenv("MADEIRA_REAL_SUSPEND") == nil {
+            choice = true; source = "compatibility"
+        } else if choice != nil { source = "game" }
+        if let realSuspend = choice {
             previousSuspend = getenv("MADEIRA_REAL_SUSPEND").map { String(cString: $0) }
             let value = realSuspend ? "1" : "0"
             setenv("_MADEIRA_GAME_REAL_SUSPEND", value, 1)
             setenv("MADEIRA_REAL_SUSPEND", value, 1)
             appliedSuspend = value
         }
-        fputs("[game-memory] game-memory-v1 swap=\(swapMB.map(String.init) ?? "inherit") " +
-              "real-suspend=\(realSuspend.map { $0 ? "1" : "0" } ?? "inherit")\n", stderr)
+        fputs("[game-memory] game-memory-v2 swap=\(swapMB.map(String.init) ?? "inherit") " +
+              "real-suspend=\(choice.map { $0 ? "1" : "0" } ?? "inherit") source=\(source) " +
+              "rule=\(automaticSuspendRule ?? "none")\n", stderr)
     }
 }
 
@@ -3683,6 +3719,7 @@ struct LibraryDetail: View {
     @State private var componentMessage: String?
     @State private var cpuCacheClearing = false
     @State private var cpuCacheMessage: String?
+    @State private var automaticSuspendRule: String?
     /// Settings › Sync engine, read when the details open: the fastsync switches
     /// below only apply while it is Fastsync.
     @State private var syncEngine = SyncEngine.current
@@ -4039,9 +4076,13 @@ struct LibraryDetail: View {
                     Picker("Real thread suspension", selection: Binding(
                         get: { entry.realSuspend.map { $0 ? "on" : "off" } ?? "inherit" },
                         set: { entry.realSuspend = $0 == "inherit" ? nil : $0 == "on" })) {
-                        Text("Inherit global setting").tag("inherit")
+                        Text(automaticSuspendRule == nil ? "Inherit global setting" : "Automatic compatibility").tag("inherit")
                         Text("On").tag("on")
                         Text("Off").tag("off")
+                    }
+                    if automaticSuspendRule != nil {
+                        Label("Automatic compatibility enables real thread suspension for this game unless you choose a global or per-game override.", systemImage: "wand.and.stars")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     Text("Inherit uses Settings. Swap uses storage when eligible memory is backed; a larger capacity does not guarantee smoother play. Real thread suspension can help some games and cause others to hang. Restart Madeira after changing either option.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -4139,6 +4180,7 @@ struct LibraryDetail: View {
                 Button("Remove", role: .destructive) { leaving = true; model.remove(entry.id); dismiss() }
             }
             .task {
+                automaticSuspendRule = entry.automaticThreadSuspensionRule
                 if entry.graphicsAPI == nil, entry.desktop != true, let url = try? LibraryModel.executable(entry.relativePath) { entry.graphicsAPI = LibraryModel.graphicsImports(url) }
                 await refreshComponents()
             }

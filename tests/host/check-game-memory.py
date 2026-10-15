@@ -62,6 +62,36 @@ GameMemorySettings.apply(swapMB:nil,realSuspend:nil)
 assert(env("MADEIRA_REAL_SUSPEND")=="0")
 assert(GameMemorySettings.swapChoices==[0,1024,2048,3072,4096])
 print("PASS: production per-game Swift policy inherits shared values, restores game-to-game state, keeps explicit Off and preserves global config")
+
+MadeiraConfig.values=[:]; GameMemorySettings.clearPrevious(); unsetenv("MADEIRA_REAL_SUSPEND")
+let rule=GameMemorySettings.automaticSuspendRule(executableName:"CELESTE.EXE",managedMachine:0x14c)
+assert(rule=="celeste-mono32-v1")
+assert(GameMemorySettings.automaticSuspendRule(executableName:"celeste.exe",managedMachine:nil)==nil)
+assert(GameMemorySettings.automaticSuspendRule(executableName:"celeste.exe",managedMachine:0x8664)==nil)
+assert(GameMemorySettings.automaticSuspendRule(executableName:"other.exe",managedMachine:0x14c)==nil)
+GameMemorySettings.apply(swapMB:nil,realSuspend:nil,automaticSuspendRule:rule)
+assert(env("MADEIRA_REAL_SUSPEND")=="1" && env("_MADEIRA_GAME_REAL_SUSPEND")=="1")
+assert(MadeiraConfig.values.isEmpty)
+GameMemorySettings.clearPrevious()
+assert(env("MADEIRA_REAL_SUSPEND")==nil && env("_MADEIRA_GAME_REAL_SUSPEND")==nil)
+GameMemorySettings.apply(swapMB:nil,realSuspend:nil)
+assert(env("MADEIRA_REAL_SUSPEND")==nil) // following game keeps its original default
+GameMemorySettings.apply(swapMB:nil,realSuspend:false,automaticSuspendRule:rule)
+assert(env("MADEIRA_REAL_SUSPEND")=="0" && env("_MADEIRA_GAME_REAL_SUSPEND")=="0")
+GameMemorySettings.clearPrevious()
+MadeiraConfig.values=["real-suspend":"0"]
+GameMemorySettings.apply(swapMB:nil,realSuspend:nil,automaticSuspendRule:rule)
+assert(env("MADEIRA_REAL_SUSPEND")=="0" && env("_MADEIRA_GAME_REAL_SUSPEND")==nil)
+GameMemorySettings.apply(swapMB:nil,realSuspend:true,automaticSuspendRule:rule)
+assert(env("MADEIRA_REAL_SUSPEND")=="1" && MadeiraConfig.values==["real-suspend":"0"])
+GameMemorySettings.clearPrevious();MadeiraConfig.values=[:];unsetenv("MADEIRA_REAL_SUSPEND")
+setenv("MADEIRA_REAL_SUSPEND","0",1)
+GameMemorySettings.apply(swapMB:nil,realSuspend:nil,automaticSuspendRule:rule)
+assert(env("MADEIRA_REAL_SUSPEND")=="0") // explicit process environment wins too
+unsetenv("MADEIRA_REAL_SUSPEND")
+GameMemorySettings.apply(swapMB:nil,realSuspend:nil,automaticSuspendRule:"unknown")
+assert(env("MADEIRA_REAL_SUSPEND")==nil)
+print("PASS: Celeste managed-x86 automatic suspension, explicit game/global/environment precedence, unchanged preferences and next-game cleanup")
 '''
 c=r'''
 #include <assert.h>

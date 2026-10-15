@@ -6,7 +6,13 @@ enum GameEngineDetection {
     /// A CLR directory selects the managed launch route; it says nothing
     /// about whether the assembly's native dependencies are supported.
     static func isManaged(_ executable: URL) -> Bool {
-        guard let file = try? FileHandle(forReadingFrom: executable) else { return false }
+        managedMachine(executable) != nil
+    }
+
+    /// Machine type of a PE with the validated CLR directory above. Kept
+    /// separate from library metadata, which can describe a store folder.
+    static func managedMachine(_ executable: URL) -> UInt16? {
+        guard let file = try? FileHandle(forReadingFrom: executable) else { return nil }
         defer { try? file.close() }
         func read(_ offset: UInt64, _ size: Int) -> Data {
             guard (try? file.seek(toOffset: offset)) != nil else { return Data() }
@@ -17,16 +23,17 @@ enum GameEngineDetection {
             return (0..<count).reduce(0) { $0 | UInt64(data[offset + $1]) << ($1 * 8) }
         }
         let dos = read(0, 64)
-        guard dos.count == 64, dos.prefix(2) == Data("MZ".utf8) else { return false }
+        guard dos.count == 64, dos.prefix(2) == Data("MZ".utf8) else { return nil }
         let offset = number(dos, 60, 4)
-        guard offset >= 64, offset <= 16 * 1024 * 1024 else { return false }
+        guard offset >= 64, offset <= 16 * 1024 * 1024 else { return nil }
         let coff = read(offset, 24), size = Int(number(coff, 20, 2))
-        guard coff.count == 24, coff.prefix(4) == Data([0x50,0x45,0,0]), size <= 4096 else { return false }
+        guard coff.count == 24, coff.prefix(4) == Data([0x50,0x45,0,0]), size <= 4096 else { return nil }
         let optional = read(offset + 24, size), magic = number(optional, 0, 2)
-        guard optional.count == size, magic == 0x10b || magic == 0x20b else { return false }
+        guard optional.count == size, magic == 0x10b || magic == 0x20b else { return nil }
         let directory = magic == 0x10b ? 96 : 112, clr = directory + 14 * 8
-        return size >= clr + 8 && number(optional, directory - 4, 4) >= 15 &&
-            number(optional, clr, 4) != 0 && number(optional, clr + 4, 4) >= 20
+        guard size >= clr + 8 && number(optional, directory - 4, 4) >= 15 &&
+            number(optional, clr, 4) != 0 && number(optional, clr + 4, 4) >= 20 else { return nil }
+        return UInt16(number(coff, 4, 2))
     }
 
     static func detect(_ executable: URL) -> String? {

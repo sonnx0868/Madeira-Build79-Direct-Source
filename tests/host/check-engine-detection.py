@@ -129,9 +129,11 @@ broken=templatePE("godot.windows.template_release.x86_64.exe");broken[524]=255;b
 try broken.write(to:template);assert(GameEngineDetection.detect(template)==nil) // unterminated section-end name
 for wide in [false,true] {
     var clr=templatePE("ordinary.exe",wide:wide)
+    clr[132]=wide ? 0x64 : 0x4c;clr[133]=wide ? 0x86 : 0x01
     let directory=wide ? 112 : 96, at=152+directory+14*8
     clr[152+directory-4]=15;clr[at+1]=0x10;clr[at+4]=72
     try clr.write(to:template);assert(GameEngineDetection.isManaged(template))
+    assert(GameEngineDetection.managedMachine(template)==(wide ? 0x8664 : 0x14c))
     clr[at+4]=0;try clr.write(to:template);assert(!GameEngineDetection.isManaged(template))
     try Data(clr.prefix(at)).write(to:template);assert(!GameEngineDetection.isManaged(template))
 }

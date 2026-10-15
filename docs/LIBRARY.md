@@ -510,6 +510,17 @@ Runtime format references:
 
 ## Tests
 
+Celeste's managed x86 executable has an automatic real-thread-suspension
+recommendation. Build715 device comparisons showed snapshot-only suspension
+stalling after dialogue/font loading; real suspension completed loading and
+continued presenting at about 60 FPS. The profile checks the executable name
+and CLR/PE machine, including installed Steam programs. It only supplies a
+default when there is no explicit game, global or process-environment choice.
+It never rewrites saved preferences, and its environment is restored before
+another launch. Game details labels the inherited choice as Automatic
+compatibility when this recommendation is available. This result does not
+enable the policy for all Mono games.
+
 `tests/host/check-frontend.py` (profiles incl. resolution and scaling,
 the engine switches a profile exports, the 30 FPS fallback, the display layout
 math, controller commands, the exit hook, and the presence of the details and
