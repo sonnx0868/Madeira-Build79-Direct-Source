@@ -121,20 +121,20 @@ let one = ControlPresetStore(user: [ControlPreset(id: "u", name: "Mine", control
 require(one.resolvedID(ControlPresetLayout.xboxID) == ControlPresetLayout.xboxID && one.resolvedID("u") == "u",
         "a game's remembered built-in or custom layout resolves")
 require(one.resolvedID("gone") == nil && one.resolvedID(nil) == nil, "a deleted or absent layout resolves to none")
-let xbox = ControlPresetLayout.xboxID, revision = ControlPresetLayout.defaultRevision
-let oldIDs: [String?] = [nil, "u", "gone", xbox]
+let defaultXboxID = ControlPresetLayout.xboxID, revision = ControlPresetLayout.defaultRevision
+let oldIDs: [String?] = [nil, "u", "gone", defaultXboxID]
 for oldID in oldIDs {
-    require(one.launchID(oldID, revision: nil, hasControls: true, xboxDefault: true) == xbox,
+    require(one.launchID(oldID, revision: nil, hasControls: true, xboxDefault: true) == defaultXboxID,
             "legacy profile starts with Xbox even with a saved keyboard/custom layout")
 }
-require(one.launchID(nil, revision: nil, hasControls: false, xboxDefault: true) == xbox,
+require(one.launchID(nil, revision: nil, hasControls: false, xboxDefault: true) == defaultXboxID,
         "a newly added game uses Xbox before its first controller enumeration")
 require(one.launchID("u", revision: revision, hasControls: true, xboxDefault: true) == "u",
         "a later explicit custom selection stays selected")
 require(one.launchID(nil, revision: revision, hasControls: true, xboxDefault: true) == nil,
         "a later explicit unsaved edit keeps its saved controls")
-require(one.launchID("gone", revision: revision, hasControls: true, xboxDefault: true) == xbox &&
-        one.launchID(nil, revision: revision, hasControls: false, xboxDefault: true) == xbox,
+require(one.launchID("gone", revision: revision, hasControls: true, xboxDefault: true) == defaultXboxID &&
+        one.launchID(nil, revision: revision, hasControls: false, xboxDefault: true) == defaultXboxID,
         "deleted and missing layouts fall back to Xbox")
 require(one.launchID("u", revision: nil, hasControls: true, xboxDefault: false) == "u" &&
         one.launchID(nil, revision: nil, hasControls: true, xboxDefault: false) == nil,
@@ -256,7 +256,7 @@ reserve = function(gamepad, '@MainActor func reserveSessionSlot(touchControls: B
 assert reserve.index('guard Self.enabled, Self.flag("MADEIRA_PAD_EARLY_SLOT")') < reserve.index('touchState.reserved = touch')
 assert '!keyboardMouseOn && !GCController.controllers().isEmpty' in reserve, 'keyboard/mouse mode must not expose the physical pad through XInput'
 assert 'queue.sync' in reserve and 'queue.async' not in reserve, 'player 1 must be published before Wine can enumerate XInput'
-run = function(content, 'private func runWineFullSequence(profile: LibraryEntry? = nil) {')
+run = function(content, 'private func runWineFullSequence(')
 assert run.index('GamepadInput.shared.reserveSessionSlot(') < run.index('DispatchQueue.global'), 'reserved before Wine starts'
 assert run.index('ControlPresetsModel.shared.applyDefaultIfNeeded(') < run.index('GamepadInput.shared.reserveSessionSlot('), 'Xbox working layout selected before the synchronous reservation'
 
