@@ -1366,13 +1366,20 @@ static void madeira_publish_host_probe(void)
     dprintf(STDERR_FILENO, "[WineProc] FEX host feature probe: %s\n", buf);
 }
 
+static void madeira_guest_main_qos(void) {
+    int setStatus = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    qos_class_t observed = QOS_CLASS_UNSPECIFIED;
+    int relative = 0;
+    int readStatus = pthread_get_qos_class_np(pthread_self(), &observed, &relative);
+    dprintf(STDERR_FILENO, "[main-qos-v2] role=guest-main requested=user-interactive set_rc=%d observed=%#x relative=%d read_rc=%d\n",
+            setStatus, (unsigned)observed, relative, readStatus);
+}
+
 static void *wine_process_thread(void *arg) {
     @autoreleasepool {
-        /* Perf: the guest main thread runs ON this pthread. Promote to
-         * USER_INTERACTIVE so it schedules on P-cores with minimal kernel
-         * timer coalescing (same rationale as start_thread in
-         * thread_ios.c — default QoS costs tens of ms of sleep leeway). */
-        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+        /* Request and verify QoS on the guest's main pthread. Core placement
+         * remains the scheduler's decision; this is not a core affinity. */
+        madeira_guest_main_qos();
         LOG("Wine process thread started");
 
         /* ml588: seeding itself now happens in wineserver_start(), BEFORE the
@@ -2319,14 +2326,17 @@ int wine_process_start(const char *prefix_path) {
     // Inject wineserver side — the event loop will pick this up
     wineserver_inject_client_fd(pair[0]);
 
-    // Lower priority so Wine init doesn't starve the main thread
+    /* Match BCD c2ed421/#162: fixed sched_priority=20 opts the guest's main
+     * pthread out of Darwin QoS. Its later self-promotion then returns EPERM.
+     * Build 685 confirms priority 20 while render/jobs run at 47. Request the
+     * intended class at creation, just as wineserver_start already does. */
     pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    struct sched_param sched = { .sched_priority = 20 };  // lower than default (31)
-    pthread_attr_setschedparam(&attr, &sched);
-
-    int ret = pthread_create(&g_wine_thread, &attr, wine_process_thread, NULL);
-    pthread_attr_destroy(&attr);
+    int ret = pthread_attr_init(&attr);
+    if (ret == 0) {
+        ret = pthread_attr_set_qos_class_np(&attr, QOS_CLASS_USER_INTERACTIVE, 0);
+        if (ret == 0) ret = pthread_create(&g_wine_thread, &attr, wine_process_thread, NULL);
+        pthread_attr_destroy(&attr);
+    }
     if (ret != 0) {
         LOG("Failed to create Wine process thread: %d", ret);
         close(pair[0]);
