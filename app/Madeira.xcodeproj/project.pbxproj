@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        D1100721 /* mono in Resources */ = {isa = PBXBuildFile; fileRef = D2100721 /* mono */; };
         D1100705 /* GameMakerCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100705 /* GameMakerCompatibility.swift */; };
         D1100704 /* LibraryGenreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100704 /* LibraryGenreViews.swift */; };
         D1100703 /* LibraryAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100703 /* LibraryAccess.swift */; };
@@ -196,6 +197,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        D2100721 /* mono */ = {isa = PBXFileReference; lastKnownFileType = folder; path = mono; sourceTree = "<group>"; };
         D2100705 /* GameMakerCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameMakerCompatibility.swift; sourceTree = "<group>"; };
         D2100704 /* LibraryGenreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryGenreViews.swift; sourceTree = "<group>"; };
         D2100703 /* LibraryAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryAccess.swift; sourceTree = "<group>"; };
@@ -547,6 +549,7 @@
 				A20000D1 /* d3d12 */,
 				A20000D2 /* licenses */,
 				C2000E04 /* gl */,
+				D2100721 /* mono */,
 				A2000081 /* x86_64-vcruntime */,
 				A2000040 /* prefix-template.tar.gz */,
 				A2000094 /* cacert.pem */,
@@ -721,6 +724,7 @@
 				A10000D1 /* d3d12 in Resources */,
 				A10000D2 /* licenses in Resources */,
 				C1000E04 /* gl in Resources */,
+				D1100721 /* mono in Resources */,
 				A1000081 /* x86_64-vcruntime in Resources */,
 				A1000040 /* prefix-template.tar.gz in Resources */,
 				A1000094 /* cacert.pem in Resources */,

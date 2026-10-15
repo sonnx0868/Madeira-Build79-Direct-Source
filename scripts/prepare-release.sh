@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ ! -s "$root/app/Madeira/mono/receipt.json" ]]; then
+  python3 "$root/tools/stage-wine-mono.py" --root "$root"
+fi
 # A full history gives a monotonically increasing build for this source line.
 if [[ "$(git -C "$root" rev-parse --is-shallow-repository)" = true ]]; then
   # Historical gitlinks may refer to commits removed from upstream forks. Only

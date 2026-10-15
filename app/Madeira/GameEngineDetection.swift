@@ -3,6 +3,32 @@ import Foundation
 /// Read-only runtime identification. It does not inspect story text, unpack
 /// archives, replace game DLLs or claim that a detected engine is supported.
 enum GameEngineDetection {
+    /// A CLR directory selects the managed launch route; it says nothing
+    /// about whether the assembly's native dependencies are supported.
+    static func isManaged(_ executable: URL) -> Bool {
+        guard let file = try? FileHandle(forReadingFrom: executable) else { return false }
+        defer { try? file.close() }
+        func read(_ offset: UInt64, _ size: Int) -> Data {
+            guard (try? file.seek(toOffset: offset)) != nil else { return Data() }
+            return (try? file.read(upToCount: size)) ?? Data()
+        }
+        func number(_ data: Data, _ offset: Int, _ count: Int) -> UInt64 {
+            guard offset >= 0, offset + count <= data.count else { return 0 }
+            return (0..<count).reduce(0) { $0 | UInt64(data[offset + $1]) << ($1 * 8) }
+        }
+        let dos = read(0, 64)
+        guard dos.count == 64, dos.prefix(2) == Data("MZ".utf8) else { return false }
+        let offset = number(dos, 60, 4)
+        guard offset >= 64, offset <= 16 * 1024 * 1024 else { return false }
+        let coff = read(offset, 24), size = Int(number(coff, 20, 2))
+        guard coff.count == 24, coff.prefix(4) == Data([0x50,0x45,0,0]), size <= 4096 else { return false }
+        let optional = read(offset + 24, size), magic = number(optional, 0, 2)
+        guard optional.count == size, magic == 0x10b || magic == 0x20b else { return false }
+        let directory = magic == 0x10b ? 96 : 112, clr = directory + 14 * 8
+        return size >= clr + 8 && number(optional, directory - 4, 4) >= 15 &&
+            number(optional, clr, 4) != 0 && number(optional, clr + 4, 4) >= 20
+    }
+
     static func detect(_ executable: URL) -> String? {
         let fm = FileManager.default
         // Dock profiles name the install directory; imported profiles name an EXE.
@@ -23,6 +49,20 @@ enum GameEngineDetection {
                header.suffix(4) == Data("GEN8".utf8) { return "GameMaker" }
         }
         if top["unityplayer.dll"] != nil { return "Unity" }
+        // Pre-UnityPlayer.dll exports embed the player in the EXE. Sundered
+        // keeps Mono and UnityEngine beside its assemblies in <exe>_Data;
+        // missing this layout sent it through the unvalidated child route.
+        let dataNames = isFolder ? top.keys.filter { $0.hasSuffix("_data") }.sorted().prefix(32).map { $0 }
+            : [executable.deletingPathExtension().lastPathComponent.lowercased() + "_data"]
+        for name in dataNames {
+            guard let data = top[name] else { continue }
+            let contents = names(data)
+            guard let managed = contents["managed"] else { continue }
+            let assemblies = names(managed)
+            let unity = assemblies["unityengine.dll"] != nil || assemblies["unityengine.coremodule.dll"] != nil
+            let mono = contents["mono"].map { names($0)["mono.dll"] != nil } ?? false
+            if unity && (mono || contents["globalgamemanagers"] != nil || contents["maindata"] != nil) { return "Unity" }
+        }
         if top.keys.contains(where: { $0.hasPrefix("libgodotsteam.windows.") && $0.hasSuffix(".dll") }) {
             return "Godot"
         }

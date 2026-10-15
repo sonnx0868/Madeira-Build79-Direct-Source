@@ -170,6 +170,20 @@ assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "Plain
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", cpuTranslationBudget: 512)))
 try Data().write(to: routeDrive.appendingPathComponent("PlainGame/UnityPlayer.dll"))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
+let legacy = routeDrive.appendingPathComponent("Sundered/Sundered_Data")
+try FileManager.default.createDirectory(at: legacy.appendingPathComponent("Managed"), withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: legacy.appendingPathComponent("Mono"), withIntermediateDirectories: true)
+try Data().write(to: legacy.appendingPathComponent("Managed/UnityEngine.dll"))
+try Data().write(to: legacy.appendingPathComponent("Mono/mono.dll"))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "Sundered/Sundered.exe")))
+let managed = routeDrive.appendingPathComponent("Managed")
+try FileManager.default.createDirectory(at: managed, withIntermediateDirectories: true)
+var clr = Data(repeating:0,count:512)
+clr[0]=0x4d;clr[1]=0x5a;clr[60]=128;clr[128]=0x50;clr[129]=0x45
+clr[148]=224;clr[152]=0x0b;clr[153]=1;clr[244]=15;clr[361]=0x10;clr[364]=72
+try clr.write(to:managed.appendingPathComponent("Celeste.exe"))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "Managed/Celeste.exe")))
+assert(!RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "Managed/native.exe")))
 print("PASS: production launch policy isolates Ren'Py and Godot; ordinary native games retain reuse; Unity and CPU isolation retained")
 '''
     checks = r'''

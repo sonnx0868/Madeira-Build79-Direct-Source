@@ -31,7 +31,7 @@ let fm = FileManager.default
 let base = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try fm.createDirectory(at: base, withIntermediateDirectories: true)
 defer { try? fm.removeItem(at: base) }
-func fixture(_ name: String, files: [String: Data], expected: String?) throws {
+func fixture(_ name: String, files: [String: Data], expected: String?, folderExpected: String? = nil) throws {
     let folder = base.appendingPathComponent(name)
     try fm.createDirectory(at: folder, withIntermediateDirectories: true)
     let exe = folder.appendingPathComponent("renamed game.exe")
@@ -43,7 +43,7 @@ func fixture(_ name: String, files: [String: Data], expected: String?) throws {
     }
     let original = try Data(contentsOf: exe)
     assert(GameEngineDetection.detect(exe) == expected, "wrong engine: \(name)")
-    assert(GameEngineDetection.detect(folder) == expected, "wrong Steam folder engine: \(name)")
+    assert(GameEngineDetection.detect(folder) == (folderExpected ?? expected), "wrong Steam folder engine: \(name)")
     assert(try! Data(contentsOf: exe) == original)
 }
 let empty = Data()
@@ -61,6 +61,13 @@ try fixture("gamemaker", files:["data.win":Data("FORM1234GEN8".utf8)], expected:
 try fixture("false-gamemaker", files:["data.win":Data("FORM1234OTHER".utf8)], expected:nil)
 try fixture("renpy", files:["LIB/PY3-WINDOWS-X86_64/LibRenPython.DLL":empty], expected:"Ren'Py")
 try fixture("unity", files:["UnityPlayer.dll":empty], expected:"Unity")
+try fixture("legacy-unity", files:["RENAMED GAME_DATA/Managed/UnityEngine.dll":empty,
+                                   "RENAMED GAME_DATA/Mono/mono.dll":empty], expected:"Unity")
+try fixture("legacy-unity-data", files:["renamed game_Data/Managed/UnityEngine.dll":empty,
+                                        "renamed game_Data/mainData":empty], expected:"Unity")
+try fixture("false-unity-data", files:["renamed game_Data/Managed/Assembly-CSharp.dll":empty], expected:nil)
+try fixture("other-unity-data", files:["Other_Data/Managed/UnityEngine.dll":empty,
+                                       "Other_Data/Mono/mono.dll":empty], expected:nil, folderExpected:"Unity")
 try fixture("tyrano", files:["resources/app/tyrano/tyrano.js":empty], expected:"TyranoScript")
 try fixture("mv", files:["www/index.html":empty,"www/js/rpg_core.js":empty,"www/data/System.json":empty], expected:"RPG Maker MV")
 try fixture("mz", files:["index.html":empty,"js/rmmz_core.js":empty,"data/System.json":empty], expected:"RPG Maker MZ")
@@ -120,6 +127,14 @@ broken=templatePE("godot.windows.template_release.x86_64.exe");broken[134]=255
 try broken.write(to:template);assert(GameEngineDetection.detect(template)==nil)
 broken=templatePE("godot.windows.template_release.x86_64.exe");broken[524]=255;broken[525]=17;broken[1023]=103
 try broken.write(to:template);assert(GameEngineDetection.detect(template)==nil) // unterminated section-end name
+for wide in [false,true] {
+    var clr=templatePE("ordinary.exe",wide:wide)
+    let directory=wide ? 112 : 96, at=152+directory+14*8
+    clr[152+directory-4]=15;clr[at+1]=0x10;clr[at+4]=72
+    try clr.write(to:template);assert(GameEngineDetection.isManaged(template))
+    clr[at+4]=0;try clr.write(to:template);assert(!GameEngineDetection.isManaged(template))
+    try Data(clr.prefix(at)).write(to:template);assert(!GameEngineDetection.isManaged(template))
+}
 print("PASS: renamed executables, case folding, 12 runtime families, false markers, bounded PE resources/exports and unchanged files")
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-engine-check-') as temp:

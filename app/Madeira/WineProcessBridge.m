@@ -7,6 +7,7 @@
 #import <pthread.h>
 #import "WineProcessBridge.h"
 #include "PELaunch.h"
+#include "WineMonoPrefix.h"
 #include "SlowFrameWindow.h"
 #include "WorkloadDiagnostics.h"
 /* AVFoundation: AVAudioSession activation for the Tier-2 audio driver
@@ -1936,6 +1937,9 @@ static void *wine_process_thread(void *arg) {
             NSString *prefix = [NSString stringWithUTF8String:g_prefix_path];
             NSString *sys32Dir = [prefix stringByAppendingPathComponent:@"drive_c/windows/system32"];
             NSFileManager *fm = [NSFileManager defaultManager];
+
+            NSString *monoState = madeira_prepare_mono_prefix(bundlePath, prefix);
+            fprintf(stderr, "[wine-mono-v1] runtime=11.0.0 state=%s\n", monoState.UTF8String);
 
             [fm createDirectoryAtPath:sys32Dir withIntermediateDirectories:YES attributes:nil error:nil];
 

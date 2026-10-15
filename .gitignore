@@ -187,3 +187,5 @@ build/translation-lab/out/
 app/Madeira/translation-lab/
 build/bitrise/
 build/ntdll-unix/lrcpc2-alias.json
+app/Madeira/mono/
+build/wine-mono/cache/

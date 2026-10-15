@@ -107,6 +107,7 @@ if [[ "${MADEIRA_WOW64_ADDON_ONLY:-0}" = 1 ]]; then
   timed wow64-addon bash scripts/build-wow64-addon.sh
   exit 0
 fi
+timed wine-mono python3 tools/stage-wine-mono.py
 if [[ -n "${MADEIRA_WOW64_ADDON_URL:-}" ]]; then
   timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
   shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
@@ -142,6 +143,7 @@ checks() {
   python3 tests/host/check-game-log-archive.py
   python3 tests/host/check-gog-rules.py
   python3 tests/host/check-epic-manifest.py
+  python3 tests/host/check-wine-mono.py --require-objc
   python3 tests/host/check-dock-contract.py
   python3 tests/host/check-version.py
   python3 tests/host/check-native-wrapper.py

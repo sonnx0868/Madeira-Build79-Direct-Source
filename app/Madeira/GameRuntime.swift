@@ -138,6 +138,7 @@ final class GameRuntime: ObservableObject {
         // exception unwinding. Detect the engine even when its performance
         // profile is disabled or the executable is a direct Steam launch.
         let executable = LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)
+        if GameEngineDetection.isManaged(executable) { return true }
         let folder = executable.deletingLastPathComponent()
         let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
             .map { $0.lowercased() })

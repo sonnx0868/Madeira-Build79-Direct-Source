@@ -7,6 +7,12 @@ before any public release.
 
 ## What one built app contains
 
+Wine Mono 11.0.0 is also bundled as unmodified Windows PE runtime DLLs and
+managed class libraries. Its component terms and original copyright/license
+files, together with the exact binary and corresponding-source URLs and
+SHA-256 values, are in `app/Madeira/legal/THIRD-PARTY-NOTICES-WineMono.txt`.
+It is staged by `tools/stage-wine-mono.py` and loaded by Wine's CLR bridge.
+
 Statically linked into the main executable (`Madeira` / `Madeira.debug.dylib`):
 
 | Component | Upstream licence | Madeira changes | Notes |
