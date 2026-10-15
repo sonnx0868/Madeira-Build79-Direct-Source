@@ -1065,7 +1065,12 @@ static uint16_t madeira_target_machine(const char *exe, const char *prefix, NSSt
                 >= (int)sizeof(probe))
             return 0;
     }
-    return madeira_pe_machine(probe);
+    uint16_t machine = madeira_pe_machine(probe);
+    /* Adding the x86 DLL farm must not force IL-only AnyCPU assemblies into
+     * WoW64 merely because their PE container uses IMAGE_FILE_MACHINE_I386.
+     * Keep the native CLR route they used without the farm. */
+    if (machine == MADEIRA_IMAGE_FILE_MACHINE_I386 && !madeira_pe_requires_wow64(probe)) return 0;
+    return machine;
 }
 
 int wine_runtime_native_host_available(void)

@@ -6,6 +6,7 @@
 #include <stddef.h>
 
 extern int proc_pidinfo(int, int, uint64_t, void *, int);
+extern void *ios_jit_translate_addr_for_owner(void *, void *);
 static uint32_t replaced_metrics_target_pid(void);
 enum { RM_MAX_THREADS = 128, RM_MAX_LEVELS = 4 };
 typedef struct { uint64_t instructions,cycles,user_ticks,system_ticks,energy_nj; } RMRawCounts;
@@ -98,6 +99,22 @@ static uint64_t rm_find_sync(uint64_t peb) {
     }
     return 0;
 }
+/* ARM64EC images execute from their JIT-pool copies. PC-relative accesses
+ * update that copy's DATA, while the original PE mapping remains stale.
+ * Use the existing native owner-aware translator, as server_ios.c does;
+ * never execute the PE export or change its counters. */
+static uint64_t rm_find_live_sync(uint64_t peb) {
+    uint64_t pe=rm_find_sync(peb);
+    if (!pe) return 0;
+    uint64_t live=(uint64_t)ios_jit_translate_addr_for_owner((void *)(uintptr_t)pe,(void *)(uintptr_t)peb);
+    RMSyncCounters counters={0};
+    if (!rm_read(live,&counters,sizeof(counters)) ||
+        counters.magic!=UINT64_C(0x31544e5058444d41) || !counters.frequency ||
+        counters.frequency>UINT64_C(10000000000)) return 0;
+    fprintf(stderr,"[replaced-sync-map-v2] peb=%#llx pe=%#llx live=%#llx translated=%d\n",
+        (unsigned long long)peb,(unsigned long long)pe,(unsigned long long)live,pe!=live);
+    return live;
+}
 static void rm_clear(void) {
     for (unsigned i=0;i<rm_count;++i) if(rm_threads[i].port) mach_port_deallocate(mach_task_self(),rm_threads[i].port);
     memset(rm_threads,0,sizeof(rm_threads)); rm_count=rm_dropped=rm_reports=0;
@@ -151,7 +168,7 @@ static MadeiraPerfCounters rm_usage_p(const struct rusage_info_v6 *u) {
 static void rm_sync_sample(uint32_t pid,uint64_t peb,double uptime,double seconds) {
     if (!peb) {fprintf(stderr,"[replaced-sync-v1] uptime=%.3f pid=%04x available=0 reason=no-game-peb\n",uptime,pid);return;}
     if (peb!=rm_sync_peb) {rm_sync_peb=peb;rm_sync_address=0;rm_sync_span=0;rm_previous_sync_valid=0;}
-    if (!rm_sync_address) rm_sync_address=rm_find_sync(peb);
+    if (!rm_sync_address) rm_sync_address=rm_find_live_sync(peb);
     RMSyncCounters now={0};
     if (!rm_sync_address || !rm_read(rm_sync_address,&now,sizeof(now)) ||
         now.magic!=UINT64_C(0x31544e5058444d41) || !now.frequency || now.frequency>UINT64_C(10000000000)) {

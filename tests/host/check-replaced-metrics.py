@@ -62,6 +62,11 @@ extern int proc_pid_rusage(int,int,void *);
 extern int proc_pidinfo(int,int,uint64_t,void *,int);
 int fixture_proc_pidinfo(int,int,uint64_t,void *,int);
 static int mock_counts, mock_short;
+static void *alias_pe, *alias_live, *alias_owner;
+void *ios_jit_translate_addr_for_owner(void *address,void *owner) {
+    if (address==alias_pe && owner==alias_owner) return alias_live;
+    return address;
+}
 static dispatch_queue_t stall_queue(void) {
     static dispatch_queue_t queue;static dispatch_once_t once;
     dispatch_once(&once,^{queue=dispatch_queue_create("madeira.metrics.fixture",DISPATCH_QUEUE_SERIAL);});
@@ -100,6 +105,16 @@ int main(void) { @autoreleasepool {
     u32(image+660,4094);assert(!rm_sync_export((uint64_t)image,4096));u32(image+660,700);
     RMSyncCounters *sync=(RMSyncCounters *)(image+1024);
     sync->magic=UINT64_C(0x31544e5058444d41);sync->frequency=24000000;
+    assert(rm_find_live_sync((uint64_t)peb)==(uint64_t)sync);
+    // Match production's separate PE and live DATA copies. The stale PE copy
+    // must not supply zero waits, and another process's alias must not match.
+    RMSyncCounters live=*sync;
+    memset(sync,0,sizeof(*sync));
+    alias_pe=sync;alias_live=&live;alias_owner=peb;
+    assert(rm_find_live_sync((uint64_t)peb)==(uint64_t)&live);
+    alias_owner=ldr;assert(!rm_find_live_sync((uint64_t)peb));alias_owner=peb;
+    live.magic=0;assert(!rm_find_live_sync((uint64_t)peb));live.magic=UINT64_C(0x31544e5058444d41);
+    live.frequency=0;assert(!rm_find_live_sync((uint64_t)peb));live.frequency=24000000;
     RMRawCounts raw={6000,3000,100,200,500};
     MadeiraPerfCounters converted=rm_thread_counters(raw);
     assert(converted.ticks==300 && converted.cycles==3000 && converted.instructions==6000 && converted.energy_nj==500);
@@ -112,12 +127,12 @@ int main(void) { @autoreleasepool {
     (void)sink;
     dispatch_sync(stall_queue(),^{
         replaced_metrics_snapshot(CACurrentMediaTime(),60);
-        assert(rm_previous_sync_valid && rm_sync_address==(uint64_t)sync);
-        sync->contended+=8;sync->wait_ticks+=24000;sync->histogram[5]+=8;
+        assert(rm_previous_sync_valid && rm_sync_address==(uint64_t)&live);
+        live.contended+=8;live.wait_ticks+=24000;live.histogram[5]+=8;
         rm_sync_sample(32,(uint64_t)peb,CACurrentMediaTime(),1);
         assert(rm_previous_sync.contended==8 && rm_previous_sync.wait_ticks==24000);
         // Reset/reloaded counters become a new baseline, never a huge unsigned delta.
-        sync->contended=0;sync->wait_ticks=0;
+        live.contended=0;live.wait_ticks=0;
         rm_sync_sample(32,(uint64_t)peb,CACurrentMediaTime(),1);
         assert(rm_previous_sync.contended==0);
         rm_sync_sample(32,1,CACurrentMediaTime(),1);assert(!rm_previous_sync_valid);
