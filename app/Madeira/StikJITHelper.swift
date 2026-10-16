@@ -83,7 +83,9 @@ enum StikJITHelper {
                                 completion: @escaping (Result<Void, Error>) -> Void) -> Timer {
         let deadline = Date().addingTimeInterval(timeout)
         let timer = Timer(timeInterval: 0.5, repeats: true) { timer in
-            if ready {
+            // A previous game's pool can serve execution, but cannot prove
+            // that this new enable request has a live debugger attached.
+            if JITRequestGate.debuggerReady(flagged: jit_check_debugged(), attached: isDebuggerAttached()) {
                 timer.invalidate()
                 LogStore.shared.log("JIT enabled and debugger attached.", level: .success)
                 completion(.success(()))

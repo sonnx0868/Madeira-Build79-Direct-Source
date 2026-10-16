@@ -234,10 +234,38 @@ enum JITShortcutFile {
     }
     private var waiting: ((Outcome) -> Void)?
     private var timeout: Timer?
+    private var callbackGate = JITRequestGate()
+    private var checkedStartupRecovery = false
+    private var recovering = false
+    private var recoveryWaiters: [() -> Void] = []
+
+    func afterStartupRecovery(_ completion: @escaping () -> Void) {
+        if recovering { recoveryWaiters.append(completion) } else { completion() }
+    }
+
+    func cancelWaiting() {
+        guard waiting != nil, !recovering else { return }
+        finish(.failed("cancelled"))
+        restoreIfNeeded {}
+    }
 
     /// Runs "start". Pending from before it runs: even a "start" that fails part-way may
     /// have changed something.
     func start(completion: @escaping (Outcome) -> Void) {
+        if recovering {
+            afterStartupRecovery { [weak self] in self?.start(completion: completion) }
+            return
+        }
+        guard waiting == nil else { completion(.failed("another network shortcut is still running")); return }
+        if pending != nil {
+            restoreIfNeeded { [weak self] in
+                guard let self, pending == nil else {
+                    completion(.failed("the previous network setup could not be restored; check the Madeira JIT shortcut")); return
+                }
+                start(completion: completion)
+            }
+            return
+        }
         let cellular = cellularOnly
         let base = cellular ? "done cellular" : "done"
         // LocalDevVPN already connected (its tunnel just does not work over cellular
@@ -255,14 +283,25 @@ enum JITShortcutFile {
 
     /// Runs "done" when "start" ran since the last "done", then calls `completion`.
     func restoreIfNeeded(completion: @escaping () -> Void) {
+        if recovering { recoveryWaiters.append(completion); return }
         guard let input = pending else { completion(); return }
-        pending = nil
-        run(input) { _ in completion() }
+        recovering = true
+        run(input) { [weak self] outcome in
+            guard let self else { completion(); return }
+            // A terminated/failed restore must remain recoverable next launch.
+            if case .done = outcome, pending == input { pending = nil }
+            recovering = false
+            let callbacks = recoveryWaiters; recoveryWaiters.removeAll()
+            completion()
+            callbacks.forEach { $0() }
+        }
     }
 
     /// At launch: a run that ended between "start" and "done" left the device without
     /// cellular data or its VPN; put them back.
     func restoreLeftover() {
+        guard !checkedStartupRecovery else { return }
+        checkedStartupRecovery = true
         guard pending != nil, enabled else { return }
         LogStore.shared.log("[jit-shortcut] an earlier run ended before done: restoring now")
         restoreIfNeeded {}
@@ -282,7 +321,9 @@ enum JITShortcutFile {
     }
 
     private func run(_ input: String, completion: @escaping (Outcome) -> Void) {
-        finish(.failed("superseded"))
+        guard waiting == nil else { completion(.failed("another network shortcut is still running")); return }
+        let identity = callbackGate.begin(pid: getpid(), now: ProcessInfo.processInfo.systemUptime, timeout: 60)
+        let callback = "?request=" + identity.callbackValue
         var c = URLComponents()
         c.scheme = "shortcuts"
         c.host = "x-callback-url"
@@ -291,18 +332,25 @@ enum JITShortcutFile {
             URLQueryItem(name: "name", value: Self.name),
             URLQueryItem(name: "input", value: "text"),
             URLQueryItem(name: "text", value: input),
-            URLQueryItem(name: "x-success", value: "madeira://jit-network/success"),
-            URLQueryItem(name: "x-error", value: "madeira://jit-network/error"),
-            URLQueryItem(name: "x-cancel", value: "madeira://jit-network/cancel")
+            URLQueryItem(name: "x-success", value: "madeira://jit-network/success" + callback),
+            URLQueryItem(name: "x-error", value: "madeira://jit-network/error" + callback),
+            URLQueryItem(name: "x-cancel", value: "madeira://jit-network/cancel" + callback)
         ]
-        guard let url = c.url else { completion(.failed("bad shortcut URL")); return }
+        guard let url = c.url else { callbackGate.finish(identity); completion(.failed("bad shortcut URL")); return }
         LogStore.shared.log("[jit-shortcut] run input=\(input)")
         waiting = completion
-        timeout = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish(.failed("the shortcut did not return within 60 s")) }
+        let timer = Timer(timeInterval: 60, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard self?.callbackGate.accepts(identity) == true else { return }
+                self?.finish(.failed("the shortcut did not return within 60 s"))
+            }
         }
+        timeout = timer; RunLoop.main.add(timer, forMode: .common)
         UIApplication.shared.open(url) { [weak self] opened in
-            if !opened { MainActor.assumeIsolated { self?.finish(.failed("Shortcuts could not be opened")) } }
+            if !opened { MainActor.assumeIsolated {
+                guard self?.callbackGate.accepts(identity) == true else { return }
+                self?.finish(.failed("Shortcuts could not be opened"))
+            } }
         }
     }
 
@@ -312,6 +360,13 @@ enum JITShortcutFile {
         guard url.scheme == "madeira", url.host == "jit-network" else { return false }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let value = { (name: String) in query.first { $0.name == name }?.value ?? "" }
+        guard callbackGate.accepts(callback: value("request")) else {
+            LogStore.shared.log("[jit-shortcut] ignored callback from another request/process")
+            return true
+        }
+        if callbackGate.expired(now: ProcessInfo.processInfo.systemUptime) {
+            finish(.failed("the shortcut did not return within 60 s")); return true
+        }
         switch url.path {
         case "/success": finish(.done(value("result")))
         case "/error":   finish(.failed(value("errorMessage").isEmpty ? "the shortcut failed" : value("errorMessage")))
@@ -325,6 +380,7 @@ enum JITShortcutFile {
         timeout = nil
         guard let waiting else { return }
         self.waiting = nil
+        if let identity = callbackGate.current { callbackGate.finish(identity) }
         switch outcome {
         case .done(let result): LogStore.shared.log("[jit-shortcut] returned output=\(result.isEmpty ? "none" : "a VPN name")")
         case .failed(let why):  LogStore.shared.log("[jit-shortcut] failed: \(why)", level: .error)

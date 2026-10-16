@@ -3866,6 +3866,10 @@ struct LibraryDetail: View {
                                 }.frame(minWidth: 100, minHeight: 30)
                             }
                             .buttonStyle(LibraryPlayStyle(pending: leaving)).disabled(leaving)
+                            if model.startingJIT == entry.id {
+                                Button("Cancel JIT request", role: .cancel) { JITCoordinator.shared.cancelEnable() }
+                                    .font(.caption)
+                            }
                         }
                     }.padding(.vertical, 24)
                         .listRowBackground(
@@ -3875,6 +3879,9 @@ struct LibraryDetail: View {
                                     LinearGradient(colors: [.clear, Color(uiColor: .secondarySystemGroupedBackground)], startPoint: .top, endPoint: .bottom).frame(height: 70)
                                 }.clipped()
                         )
+                }
+                if entry.desktop != true && entry.temporarySession != true {
+                    GameComponentPreparationSection(entry: entry)
                 }
                 if entry.desktop != true { Section("Library details") {
                     TextField("Title", text: $entry.title)
@@ -3892,9 +3899,6 @@ struct LibraryDetail: View {
                 if let epic = entry.epicAppName {
                     EpicEntrySection(appName: epic, run: { prerequisite in leaving = true; play(prerequisite) },
                         leave: { leaving = true; dismiss() })
-                }
-                if entry.desktop != true && entry.temporarySession != true {
-                    GameComponentPreparationSection(entry: entry)
                 }
                 if entry.desktop != true && entry.steamAppID == nil {
                     ExternalSteamSessionSection(entry: $entry)

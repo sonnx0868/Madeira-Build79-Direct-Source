@@ -154,10 +154,11 @@ enum DiagnosticCompanionLogs {
         let root = drive.resolvingSymlinksInPath()
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey]
         var found: [Source] = []
+        var additionalGameLogs: [URL] = []
         var visited = 0
         func inside(_ url: URL) -> Bool { url.resolvingSymlinksInPath().path.hasPrefix(root.path + "/") }
         func add(_ url: URL) {
-            guard found.count < 8, inside(url),
+            guard found.count < 8, !found.contains(where: { $0.url.standardizedFileURL == url.standardizedFileURL }), inside(url),
                   let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true,
                   values.isSymbolicLink != true, let modified = values.contentModificationDate,
                   modified >= since, modified <= before else { return }
@@ -170,7 +171,8 @@ enum DiagnosticCompanionLogs {
            !relative.hasPrefix("/"), !relative.hasPrefix("\\"),
            !relative.replacingOccurrences(of: "\\", with: "/").split(separator: "/").contains("..") {
             let executable = root.appendingPathComponent(relative.replacingOccurrences(of: "\\", with: "/"))
-            var folder = executable.deletingLastPathComponent()
+            let isFolder = (try? executable.resourceValues(forKeys: keys).isDirectory) == true
+            var folder = isFolder ? executable : executable.deletingLastPathComponent()
             // Older Unity players (Sundered) embed the engine in the EXE and
             // write beside the game instead of LocalLow/Company/Product.
             // Probe the exact selected EXE's data folder; never scan game data.
@@ -179,9 +181,26 @@ enum DiagnosticCompanionLogs {
                 // write this conventional report, and exit successfully. It
                 // is diagnostic output even when Wine has no crash to report.
                 add(folder.appendingPathComponent("error_log.txt"))
-                let data = folder.appendingPathComponent(executable.deletingPathExtension().lastPathComponent + "_Data", isDirectory: true)
-                if (try? data.resourceValues(forKeys: keys).isSymbolicLink) != true {
-                    add(data.appendingPathComponent("output_log.txt"))
+                if !isFolder {
+                    let data = folder.appendingPathComponent(executable.deletingPathExtension().lastPathComponent + "_Data", isDirectory: true)
+                    if (try? data.resourceValues(forKeys: keys).isSymbolicLink) != true { add(data.appendingPathComponent("output_log.txt")) }
+                } else if let children = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) {
+                    for data in children.filter({ $0.lastPathComponent.lowercased().hasSuffix("_data") }).prefix(8)
+                        where (try? data.resourceValues(forKeys: keys).isSymbolicLink) != true {
+                        add(data.appendingPathComponent("output_log.txt"))
+                    }
+                }
+                // Games can write their network/session diagnostics beside
+                // the EXE or in Logs. Only this installation, one level, .log
+                // files and the current test's modification window qualify.
+                for logs in [folder, folder.appendingPathComponent("Logs"), folder.appendingPathComponent("Log")] {
+                    guard inside(logs), (try? logs.resourceValues(forKeys: keys).isSymbolicLink) != true,
+                          let children = try? fm.contentsOfDirectory(at: logs, includingPropertiesForKeys: Array(keys), options: .skipsHiddenFiles) else { continue }
+                    let candidates = children.filter { $0.pathExtension.lowercased() == "log" }.sorted {
+                        ((try? $0.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast) >
+                        ((try? $1.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast)
+                    }
+                    additionalGameLogs.append(contentsOf: candidates.prefix(3))
                 }
             }
             if inside(executable),
@@ -230,6 +249,7 @@ enum DiagnosticCompanionLogs {
                 }
             }
         }
+        for file in additionalGameLogs { add(file) }
         return found
     }
 }

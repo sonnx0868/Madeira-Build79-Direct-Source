@@ -118,6 +118,7 @@ private final class HelperRequest {
     private let `extension`: AnyObject   // the NSExtension, kept alive for the request
     private let operation: String
     private var completion: ((Result<MadeiraJITRequest.Response, Error>) -> Void)?
+    private var startTimer: Timer?
 
     init(extension found: AnyObject, operation: String,
          completion: @escaping (Result<MadeiraJITRequest.Response, Error>) -> Void) {
@@ -128,6 +129,12 @@ private final class HelperRequest {
     }
 
     func begin(data: Data, identifier: String, started: @escaping () -> Void) {
+        let timer = Timer(timeInterval: 30, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.end(.failure(Self.error(9, "Madeira's JIT helper did not start within 30 seconds. Try again.")))
+            }
+        }
+        startTimer = timer; RunLoop.main.add(timer, forMode: .common)
         // The blocks can arrive on any queue; everything below runs on the main thread.
         shim.setRequestCompletionBlock { [weak self] _, items in
             let info = (items?.first as? NSExtensionItem)?.userInfo
@@ -149,7 +156,8 @@ private final class HelperRequest {
         item.userInfo = [MadeiraJITRequest.itemKey: data]
         shim.beginExtensionRequest(withInputItems: [item]) { [weak self] uuid in
             DispatchQueue.main.async { MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, completion != nil else { return }
+                startTimer?.invalidate(); startTimer = nil
                 guard let uuid else {
                     self.end(.failure(Self.error(7, "Madeira's JIT helper did not start. Reinstall Madeira, and keep its app extensions if your sideloader asks.")))
                     return
@@ -171,6 +179,7 @@ private final class HelperRequest {
 
     private func end(_ result: Result<MadeiraJITRequest.Response, Error>) {
         guard let completion else { return }   // the first result counts
+        startTimer?.invalidate(); startTimer = nil
         self.completion = nil
         if case .failure(let error) = result {
             LogStore.shared.log("[jit-helper] \(operation): \(error.localizedDescription)", level: .error)

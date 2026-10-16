@@ -5,6 +5,20 @@ before requesting JIT; downloaded games are checked at Play too. Concurrent
 requests share work, with serialized installation transactions. Preparation
 does not execute a Windows installer or consume a Wine session.
 
+Existing installations have **Game check & repair** directly below Play in
+Game details. It forces a runtime recheck. For Madeira-managed Steam installs,
+it first verifies against the current owned content manifests and downloads
+missing/changed chunks, waits for completion, then resolves and checks the
+actual EXE. Paused/failed downloads do not count as a successful repair. The
+Steam session must be closed for content verification. Manually imported
+games get supported runtime repair and findings for game-owned files.
+
+Steam folder profiles use the existing launch metadata/program selection rules
+before JIT. Ambiguous launch programs are reported rather than silently
+replaced; normal Steam launch can still let Valve choose. Known available
+updates are surfaced before entering Wine. A long native-client content wait
+now points to Check & repair instead of claiming a download is progressing.
+
 ## Resolution and installation
 
 The bounded PE scan includes imports, delay imports and matching-architecture

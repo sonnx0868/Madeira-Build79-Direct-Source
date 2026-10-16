@@ -144,6 +144,7 @@ checks() {
   python3 tests/host/check-replaced-metrics.py --require-darwin
   python3 tests/host/check-library-recents.py --require-swift
   python3 tests/host/check-jit-detach.py --require-swift
+  python3 tests/host/check-jit-request-lifecycle.py --require-swift
   python3 tests/host/check-bcd-compatibility.py
   python3 tests/host/check-game-startup-fixes.py
   python3 tests/host/check-game-log-archive.py
@@ -188,6 +189,7 @@ checks() {
   python3 tests/host/check-touch-gamepad.py
   python3 tests/host/check-control-presets.py
   python3 tests/host/check-runtime-preparation.py --require-swift
+  python3 tests/host/check-installed-game-repair.py --require-swift
   python3 tests/host/check-gameplay-performance.py --require-tools --require-objc
   python3 tests/host/check-startup-performance.py --require-tools
   python3 tests/host/check-silksong-startup.py --require-tools --require-swift

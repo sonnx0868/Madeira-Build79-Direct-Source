@@ -1017,6 +1017,35 @@ final class SteamOwnedLibrary: ObservableObject {
         install(appID)
     }
 
+    /// Owner-authorized content verification using Steam's current manifests.
+    /// Wait for the downloader's actual outcome before checking the EXE.
+    func verifyInstalledGame(_ appID: Int, progress: @escaping (String) -> Void) async throws {
+        guard Self.enabled, signedIn else { throw SupportError.message("Sign in to Steam to verify this game's installed files.") }
+        guard !inSession else { throw SupportError.message("Close the running Steam session before checking installed files.") }
+        guard MadeiraDock.games(drive: Self.drive).contains(where: { $0.id == appID && $0.installed && SteamInstallPaths.isManaged(library: $0.library) }) else {
+            throw SupportError.message("This installation is not managed by Madeira's downloader. Use its original installer to repair game files.")
+        }
+        let startedHere = downloads[appID] == nil
+        repair(appID)
+        do {
+            while let item = downloads[appID] {
+                try Task.checkCancellation()
+                switch item.state {
+                case .failed(let message): throw SupportError.message(message)
+                case .paused: throw SupportError.message("File verification was paused. Resume the download and check again.")
+                case .queued: progress("Waiting to verify Steam files…")
+                case .active: progress("Verifying Steam files and downloading missing content…")
+                }
+                try await Task.sleep(nanoseconds: 300_000_000)
+            }
+            try Task.checkCancellation()
+        } catch {
+            if Task.isCancelled && startedHere { pause(appID) }
+            throw error
+        }
+        SteamGamesModel.shared.refresh()
+    }
+
     /// Removes an install that Madeira's downloads own (its library folder is
     /// Madeira Dock's own), with its library entry (its per-game settings).
     func uninstall(_ game: DockGame) {

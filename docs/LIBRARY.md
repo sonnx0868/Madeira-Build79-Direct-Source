@@ -510,6 +510,17 @@ Runtime format references:
 
 ## Tests
 
+JIT enable attempts are scoped to a PID and per-process/request UUID. A
+shortcut callback from a previous attempt or an earlier app process is ignored.
+Pending network restoration remains recoverable after a crash; it completes
+before a new JIT attempt and runs only once on startup. Duplicate Enable
+requests share one operation; a watchdog/cancel action clears the waiting game
+and ignores later results. Built-in helper startup is also bounded. Explicit
+enable readiness requires a live debugger even when an earlier game left a
+usable pool and the sticky CS_DEBUGGED flag. The pool remains valid for normal
+already-authorized execution. This cannot restart or guarantee the health of
+an external StikDebug/debugserver process.
+
 Celeste's managed x86 executable has an automatic real-thread-suspension
 recommendation. Build715 device comparisons showed snapshot-only suspension
 stalling after dialogue/font loading; real suspension completed loading and

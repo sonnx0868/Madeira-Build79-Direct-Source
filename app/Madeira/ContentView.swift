@@ -2487,8 +2487,7 @@ struct ContentView: View {
     private func launchPreparedLibraryEntry(_ entry: LibraryEntry, componentsReady: Bool) {
         guard library.isVisible(entry) else { libraryAccess.request(); return }
         guard !dockLaunchPreparing else { return }
-        if !componentsReady, entry.desktop != true, entry.temporarySession != true,
-           (try? LibraryModel.executable(entry.launchRelativePath)) != nil {
+        if !componentsReady, entry.desktop != true, entry.temporarySession != true {
             guard preparingComponents == nil else { return }
             guard library.current == nil, wine_process_is_running() == 0 || GameRuntime.shared.hasEngine else {
                 library.error = "A game is already running."; return

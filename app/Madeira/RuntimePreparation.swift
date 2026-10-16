@@ -94,7 +94,9 @@ struct RuntimeReport: Codable, Sendable {
     var modernDotNet = false
     var installed: [String] = []
     var cached = false
+    var selectionPending: Bool?
     var summary: String {
+        if selectionPending == true { return "Steam will select this game's program at launch. Choose a program in Game details › Steam › Program to inspect its runtimes." }
         if modernDotNet { return "This game requests a separate .NET Desktop runtime. Review its runtimeconfig.json requirements." }
         if !missing.isEmpty {
             let names = Array(Set(missing.map(\.name))).sorted().prefix(8).joined(separator: ", ")

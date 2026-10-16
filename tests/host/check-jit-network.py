@@ -41,11 +41,11 @@ project = (root / 'app/Madeira.xcodeproj/project.pbxproj').read_text()
 require('/* JITNetwork.swift in Sources */,' in project, 'JITNetwork.swift is built by the Xcode project')
 require('static let address = "10.7.0.1"' in net and 'static let port: UInt16 = 62078' in net,
         "the check targets lockdownd through LocalDevVPN's loopback (10.7.0.1:62078, StikDebug's address)")
-enable = setup[setup.index('    func enable(completion:'):setup.index('    private func enableResolved(')]
-require(enable.index('ensureLoopback') < enable.index('self?.enableResolved'),
+enable = setup[setup.index('    func enable(force:'):setup.index('    private func enableResolved(')]
+require(enable.index('ensureLoopback') < enable.index('enableResolved {'),
         'Enable JIT checks the loopback before any JIT method')
 ensure = enable[enable.index('private func ensureLoopback('):]
-require('guard let self, !probe.reachable, JITNetworkShortcut.shared.enabled else { proceed(false); return }' in ensure,
+require('guard !probe.reachable, JITNetworkShortcut.shared.enabled else { proceed(false); return }' in ensure,
         'the shortcut runs only when the loopback does not answer and the shortcut is turned on')
 require('JITNetworkShortcut.shared.restoreIfNeeded' in enable,
         'a JIT attempt that fails after the shortcut ran puts back what it changed')

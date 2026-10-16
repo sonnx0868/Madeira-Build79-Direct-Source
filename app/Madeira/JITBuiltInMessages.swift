@@ -3,6 +3,33 @@
 
 import Foundation
 
+/// An enable/shortcut response belongs to one attempt in one app process.
+/// Only restoration work survives relaunch; active request identities do not.
+struct JITRequestGate: Sendable {
+    struct Identity: Equatable, Sendable {
+        let run: UUID
+        let request: UUID
+        let pid: Int32
+        var callbackValue: String { run.uuidString + "." + String(pid) + "." + request.uuidString }
+    }
+    private let run = UUID()
+    private(set) var current: Identity?
+    private(set) var deadline: TimeInterval = 0
+    mutating func begin(pid: Int32, now: TimeInterval, timeout: TimeInterval) -> Identity {
+        let value = Identity(run: run, request: UUID(), pid: pid)
+        current = value; deadline = now + timeout
+        return value
+    }
+    func accepts(_ value: Identity) -> Bool { current == value }
+    func accepts(callback: String) -> Bool { current?.callbackValue == callback }
+    func expired(now: TimeInterval) -> Bool { current != nil && now >= deadline }
+    @discardableResult mutating func finish(_ value: Identity) -> Bool {
+        guard current == value else { return false }
+        current = nil; deadline = 0; return true
+    }
+    static func debuggerReady(flagged: Bool, attached: Bool) -> Bool { flagged && attached }
+}
+
 /// Codable messages shared by Madeira and its JIT helper extension. Each travels as JSON
 /// in an extension request's item (userInfo[itemKey]), to the helper and back.
 struct MadeiraJITRequest: Codable, Sendable {

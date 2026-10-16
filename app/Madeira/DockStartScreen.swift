@@ -203,7 +203,9 @@ enum DockStartStatus {
     static func text(_ fields: [String: String], installers: Bool, installerProgress: String?,
                      installsFinished: Bool, waited: Double) -> String {
         if fields["launch-update-wait"] != nil && fields["launch-update-ready"] == nil {
-            return "Steam is installing content this game needs. The game starts when it finishes…"
+            return waited >= 90
+                ? "Steam still requires updated game or dependency content. Quit this session, then open Game details › Check & repair."
+                : "Steam requires updated game or dependency content. Waiting for Steam…"
         }
         // Steam still counts an earlier session as playing (error 35); the Dock asks again.
         if fields["launch-session-wait"] != nil && fields["launch-client-error"] == "35" {

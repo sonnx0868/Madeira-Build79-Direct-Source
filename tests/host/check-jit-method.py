@@ -48,7 +48,7 @@ require('Bundle.main.url(forResource: "madeira-jit", withExtension: "js")' in st
         and "private static let scriptBase64" not in stik,
         "the bundled JavaScript file is the single script source")
 wait = function(stik, "static func waitForDebugger(")
-require("timeout: TimeInterval = 90" in wait and "if ready {" in wait,
+require("timeout: TimeInterval = 90" in wait and "JITRequestGate.debuggerReady" in wait,
         "StikDebug attach has a finite 90-second readiness timeout")
 ready = function(stik, "static var ready: Bool")
 require("jit_check_debugged()" in ready and "isDebuggerAttached()" in ready,
@@ -61,7 +61,7 @@ require("StikJITHelper.isAvailable ? .stikDebug : .builtIn" in resolved,
         "Automatic prefers installed StikDebug, then Built-in StikJIT")
 coordinator_enable = function(setup, "func enable(force:")
 coordinator_route = function(setup, "private func enableResolved(")
-require("ensureLoopback" in coordinator_enable and "self?.enableResolved" in coordinator_enable
+require("ensureLoopback" in coordinator_enable and "enableResolved {" in coordinator_enable
         and "switch resolvedMethod" in coordinator_route
         and "enableBuiltIn(completion: completion)" in coordinator_route
         and setup.count("StikJITHelper.enableJIT") == 1,
