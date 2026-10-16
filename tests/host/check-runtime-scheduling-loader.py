@@ -124,6 +124,7 @@ int main(void){
     file=folder/'dlls/ntdll/unix/sync.c';file.parent.mkdir(parents=True);file.write_bytes(old)
     subprocess.run(['git','-C',str(folder),'apply',str(root/'patches/wine-timed-sleep.patch')],check=True)
     source=file.read_text(encoding='utf-8');start=source.index('NTSTATUS WINAPI NtDelayExecution(')
+    assert '#include "../../../../build/ntdll-unix/ios_scheduler_yield.h"' in source
     delay=source[start:source.index('\n/********',start)]
     start=source.index('NTSTATUS WINAPI NtYieldExecution(')
     yield_body=source[start:source.index('\n/********',start)]
