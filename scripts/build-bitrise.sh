@@ -136,6 +136,7 @@ checks() {
   python3 tests/host/check-d3d11-query-park.py
   python3 tools/dxmt-pacing-bundle.py --root "$root"
   python3 tools/dxmt-query-bundle.py --root "$root"
+  python3 tools/dxmt-swapchain-bundle.py --root "$root"
   python3 tests/host/check-pe-launch.py
   python3 tests/host/check-windows-arguments.py
   python3 tests/host/check-unity-folder-profile.py

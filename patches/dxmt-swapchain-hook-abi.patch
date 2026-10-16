@@ -1,0 +1,57 @@
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -22,6 +22,7 @@
+ #include "wsi_window.hpp"
+ #include "dxmt_info.hpp"
+ #include "dxmt_presenter.hpp"
++#include "../../../build/dxmt-ios/swapchain_hook_abi.h"
+ #include <atomic>
+ #include <cfloat>
+ #include <format>
+@@ -130,6 +131,10 @@
+       hWnd(hWnd),
+       monitor_(wsi::getWindowMonitor(hWnd)),
+       hud(WMT::DeveloperHUDProperties::instance()) {
++
++#if defined(DXMT_IOS) && defined(__arm64ec__)
++    Logger::info("[swapchain-abi] hookable-swapchain-v1 x64 entry points with native ARM64EC bodies");
++#endif
+ 
+     native_view_ = WMT::CreateMetalViewFromHWND((intptr_t)hWnd, pDevice->GetMTLDevice(), layer_weak_);
+ 
+@@ -246,7 +251,7 @@
+ 
+   HRESULT
+   STDMETHODCALLTYPE
+-  Present(UINT sync_interval, UINT flags) final {
++  MADEIRA_SWAPCHAIN_ENTRY Present(UINT sync_interval, UINT flags) final {
+     return Present1(sync_interval, flags, nullptr);
+   };
+ 
+@@ -476,7 +481,7 @@
+ 
+   HRESULT
+   STDMETHODCALLTYPE
+-  ResizeBuffers(UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format,
++  MADEIRA_SWAPCHAIN_ENTRY ResizeBuffers(UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format,
+                 UINT flags) final {
+     /* BufferCount ignored */
+     if (Width == 0 || Height == 0) {
+@@ -731,7 +736,7 @@
+ 
+   HRESULT
+   STDMETHODCALLTYPE
+-  Present1(UINT SyncInterval, UINT PresentFlags,
++  MADEIRA_SWAPCHAIN_ENTRY Present1(UINT SyncInterval, UINT PresentFlags,
+            const DXGI_PRESENT_PARAMETERS *pPresentParameters) final {
+     if (SyncInterval > 4)
+       return DXGI_ERROR_INVALID_CALL;
+@@ -1074,7 +1079,7 @@
+     return 0;
+   }
+ 
+-  HRESULT STDMETHODCALLTYPE ResizeBuffers1(UINT BufferCount, UINT Width, UINT Height,
++  HRESULT STDMETHODCALLTYPE MADEIRA_SWAPCHAIN_ENTRY ResizeBuffers1(UINT BufferCount, UINT Width, UINT Height,
+                          DXGI_FORMAT Format, UINT SwapChainFlags,
+                          const UINT *pCreationNodeMask,
+                          IUnknown *const *ppPresentQueue) override {

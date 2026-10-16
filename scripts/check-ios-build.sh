@@ -225,6 +225,9 @@ if [[ -s "$root/app/Madeira/libdxmt_combined.a" ]]; then
 fi
 
 if [[ -s "$root/app/Madeira/arm64ec-windows/d3d11.dll" ]]; then
+  grep -a -q 'hookable-swapchain-v1' "$root/app/Madeira/arm64ec-windows/d3d11.dll" || {
+    echo "INVALID: d3d11.dll exposes raw ARM64 swapchain hook targets; refresh D3D11"; missing=1;
+  }
   grep -a -q 'color-store-v2' "$root/app/Madeira/arm64ec-windows/d3d11.dll" || {
     echo "INVALID: d3d11.dll lacks reviewed full-clear color stores; refresh GPU dependencies"; missing=1;
   }

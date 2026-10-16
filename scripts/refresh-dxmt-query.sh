@@ -18,6 +18,8 @@ if [[ ! -x "$root/toolchains/$toolchain/bin/arm64ec-w64-mingw32-clang++" ]]; the
   tar -xJf "$archive" -C "$root/toolchains"
 fi
 export PATH="$root/toolchains/$toolchain/bin:$PATH"
+python3 "$root/tests/host/check-swapchain-hook-abi.py" \
+  --compiler "$root/toolchains/$toolchain/bin/arm64ec-w64-mingw32-clang++" --require-tools
 wine_build="$root/wine/build-arm64ec"
 (cd "$wine_build" && bash ./config.status)
 make -C "$wine_build" -j"${JOBS:-4}" tools/winebuild/all tools/widl/all \
@@ -40,4 +42,5 @@ cp "$original" "$out/d3d11-base.dll"
 cp "$out/pe/src/d3d11/d3d11.dll" "$original"
 "$root/toolchains/$toolchain/bin/arm64ec-w64-mingw32-strip" --strip-debug "$original"
 python3 "$root/tools/dxmt-query-bundle.py" --root "$root" --stamp --base "$out/d3d11-base.dll"
+python3 "$root/tools/dxmt-swapchain-bundle.py" --root "$root" --stamp --base "$out/d3d11-base.dll"
 echo 'Refreshed ARM64EC d3d11.dll GPU event polling; native renderer and other DLLs unchanged'

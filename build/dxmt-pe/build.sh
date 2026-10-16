@@ -8,6 +8,7 @@ export PATH="$tc:$PATH"
 jobs="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tests/host/check-dxmt-pe-compile.py" --compiler "$tc/arm64ec-w64-mingw32-clang++" --require-tools
+python3 "$root/tests/host/check-swapchain-hook-abi.py" --compiler "$tc/arm64ec-w64-mingw32-clang++" --require-tools
 make -C "$root/wine/build-arm64ec" -j"$jobs" \
     libs/winecrt0/arm64ec-windows/libwinecrt0.a \
     dlls/ntdll/arm64ec-windows/libntdll.a \
@@ -37,3 +38,4 @@ grep -a -q 'compiler-workers=v1' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
 grep -a -q 'commitBeforePresent=' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
 python3 "$root/tools/patch-dxmt-query-log.py" --check
 python3 "$root/tools/dxmt-query-bundle.py" --root "$root" --stamp
+python3 "$root/tools/dxmt-swapchain-bundle.py" --root "$root" --stamp

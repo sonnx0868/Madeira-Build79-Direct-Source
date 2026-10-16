@@ -94,6 +94,7 @@ def main():
         subprocess.run([sys.executable, str(root / 'tools/ntdll-signal-bundle.py'), '--root', str(root)], check=True)
         subprocess.run([sys.executable, str(root / 'tools/ntdll-runtime-bundle.py'), '--root', str(root)], check=True)
         subprocess.run([sys.executable, str(root / 'tools/dxmt-gpu-bundle.py'), '--root', str(root)], check=True)
+        subprocess.run([sys.executable, str(root / 'tools/dxmt-swapchain-bundle.py'), '--root', str(root)], check=True)
         assert b'madeira_gpu_submit_begin' in (root / 'app/Madeira/libdxmt_combined.a').read_bytes(), 'stale DXMT foreground gate'
         assert b'cache-mappings-v1' in (root / 'app/Madeira/libdxmt_combined.a').read_bytes(), 'stale DXMT CPU mappings'
         assert b'WINE_IOS_JIT_HOLE' in (root / 'app/Madeira/libntdll_unix.a').read_bytes(), 'stale split-pool archive'
