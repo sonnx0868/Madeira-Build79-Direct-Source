@@ -75,6 +75,10 @@ There is no claimed FPS correction until the two actual samples are analyzed.
 Host tests execute the real capture state policy, FPS detector and Objective-C
 controller with a fake Metal destination, plus the ordered source patch
 pipeline. Device capture and replay remain separate required validation.
+On a macOS runner with capture-capable Metal, an additional real API canary
+records two offscreen clear workloads and checks the resulting document with
+Apple's `gpudebug` if available. A runner without GPU capture reports an
+explicit skip. This canary does not substitute for the actual iPad trace.
 
 ## Primary references
 

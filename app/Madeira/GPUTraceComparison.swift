@@ -82,6 +82,7 @@ struct GPUTraceDropPolicy {
         guard eligibleSession, !recording, !busy, foreground else { return }
         generation = UUID(); let token = generation
         busy = true; shareURL = nil; message = "Preparing GPU comparison…"
+        savedFolder = nil; manifest = [:]
         let metadata = LogStore.shared.metadataForUpload(previous: false)
         Task {
             do {
@@ -112,7 +113,7 @@ struct GPUTraceDropPolicy {
                 }
                 persist()
                 LogStore.shared.log("[gpu-trace-pair] armed folder=GPUTraces/\(folder.lastPathComponent) mode=\(fpsMode) baseline-min-fps=50")
-            } catch { if token == generation { busy = false; message = error.localizedDescription } }
+            } catch { if token == generation { busy = false; message = error.localizedDescription; restoreSaved() } }
         }
     }
     private func tick() {
@@ -132,7 +133,7 @@ struct GPUTraceDropPolicy {
         }
         if lastCapture != nil {
             polling = true; let token = generation
-            GPUTraceNative.poll { result in
+            GPUTraceNative.poll { [self] result in
                 guard token == generation, recording, let kind = lastCapture else { return }
                 polling = false
                 if result.0 == 4 || result.0 == 5 {
@@ -164,7 +165,7 @@ struct GPUTraceDropPolicy {
         message = "Recording two complete \(kind == "smooth" ? "smooth" : "low FPS") frames… A brief pause is expected."
         persist()
         let file = folder.appendingPathComponent("\(kind).gputrace")
-        GPUTraceNative.request(file) { accepted, error in
+        GPUTraceNative.request(file) { [self] accepted, error in
             guard token == generation, recording else { return }
             if !accepted { interrupt(error.isEmpty ? "Could not request a GPU trace." : error) }
         }
@@ -208,7 +209,7 @@ struct GPUTraceDropPolicy {
         lastCapture = nil; persist()
         if let folder = savedFolder { GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder) }
         let token = generation
-        GPUTraceNative.cancel { if token == generation { busy = false } }
+        GPUTraceNative.cancel { [self] in if token == generation { busy = false } }
     }
     private func persist() {
         guard let folder = savedFolder else { return }

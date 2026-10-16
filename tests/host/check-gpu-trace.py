@@ -201,6 +201,57 @@ int main(void) { @autoreleasepool {
         subprocess.run(['xcrun','clang','-fobjc-arc','-fblocks','-DMADEIRA_GPU_TRACE_TEST=1','-I',str(root/'app/Madeira'),
                         str(source),str(root/'app/Madeira/GPUTraceCapture.m'),'-framework','Foundation','-framework','Metal','-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=30)
+        source=out/'metal-canary.m';binary=out/'metal-canary'
+        source.write_text(r'''
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
+#include <assert.h>
+#include "GPUTraceCapture.h"
+static void *ptr(id x) { return (__bridge void *)x; }
+int main(void) { @autoreleasepool {
+ id<MTLDevice> device=MTLCreateSystemDefaultDevice();
+ if(!device || ![MTLCaptureManager.sharedCaptureManager supportsDestination:MTLCaptureDestinationGPUTraceDocument]) {
+  puts("SKIP: real Metal GPU trace capture is not available on this macOS runner");return 0;
+ }
+ id<MTLCommandQueue> queue=[device newCommandQueue];assert(queue);
+ MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:64 height:64 mipmapped:NO];
+ td.usage=MTLTextureUsageRenderTarget;id<MTLTexture> texture=[device newTextureWithDescriptor:td];assert(texture);
+ NSString *path=[NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingString:@".gputrace"]];
+ assert(madeira_gpu_trace_request(path.UTF8String));
+ // A logical presentation boundary brackets the test workload. This canary
+ // has no display layer and is not an on-device frame-rate measurement.
+ id<MTLCommandBuffer> boundary=[queue commandBuffer];
+ madeira_gpu_trace_present(ptr(boundary));[boundary commit];madeira_gpu_trace_did_commit(ptr(boundary));
+ for(int frame=0;frame<2;frame++) {
+  uint64_t ticket=madeira_gpu_trace_will_create(ptr(queue));assert(ticket);
+  id<MTLCommandBuffer> cb=[queue commandBuffer];madeira_gpu_trace_did_create(ptr(cb),ticket);
+  MTLRenderPassDescriptor *rp=[MTLRenderPassDescriptor renderPassDescriptor];
+  rp.colorAttachments[0].texture=texture;rp.colorAttachments[0].loadAction=MTLLoadActionClear;
+  rp.colorAttachments[0].storeAction=MTLStoreActionStore;
+  rp.colorAttachments[0].clearColor=MTLClearColorMake(frame,0,1,1);
+  id<MTLRenderCommandEncoder> encoder=[cb renderCommandEncoderWithDescriptor:rp];assert(encoder);[encoder endEncoding];
+  madeira_gpu_trace_present(ptr(cb));[cb commit];madeira_gpu_trace_did_commit(ptr(cb));[cb waitUntilCompleted];
+  assert(cb.status==MTLCommandBufferStatusCompleted);
+ }
+ MadeiraGPUTraceStatus status=madeira_gpu_trace_status();assert(status.phase==4 && status.frames==2 && status.buffers==2);
+ assert([NSFileManager.defaultManager fileExistsAtPath:path]);
+ NSDictionary *attrs=[NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];assert(attrs);
+ printf("PASS: real public Metal API saves a two-workload GPU trace (display/FPS not tested)\n");
+ const char *exportPath=getenv("MADEIRA_GPU_TRACE_CANARY_PATH");
+ if(exportPath) assert([NSFileManager.defaultManager moveItemAtPath:path toPath:[NSString stringWithUTF8String:exportPath] error:nil]);
+ else [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+} }
+''',encoding='utf-8')
+        subprocess.run(['xcrun','clang','-fobjc-arc','-fblocks','-I',str(root/'app/Madeira'),str(source),
+                        str(root/'app/Madeira/GPUTraceCapture.m'),'-framework','Foundation','-framework','Metal','-o',str(binary)],check=True)
+        canary=out/'metal-canary.gputrace'
+        subprocess.run([str(binary)],check=True,timeout=90,env=dict(os.environ,MTL_CAPTURE_ENABLED='1',MADEIRA_GPU_TRACE_CANARY_PATH=str(canary)))
+        probe=subprocess.run(['xcrun','--find','gpudebug'],capture_output=True,text=True)
+        if canary.exists() and probe.returncode==0:
+            result=subprocess.run([probe.stdout.strip(),'--oneshot','-t',str(canary),'-c','list'],capture_output=True,text=True,timeout=90)
+            print('Apple gpudebug canary exit:',result.returncode)
+            print(result.stdout[-4000:]);print(result.stderr[-1000:])
+            assert result.returncode==0,'real captured workload could not be read by Apple gpudebug'
     elif a.require_darwin: raise SystemExit('Darwin required')
     else: print('SKIP: Objective-C/Metal compile and controller execution require macOS; CI must run them')
 
