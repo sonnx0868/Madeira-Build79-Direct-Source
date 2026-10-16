@@ -156,8 +156,8 @@ private final class HelperRequest {
         item.userInfo = [MadeiraJITRequest.itemKey: data]
         shim.beginExtensionRequest(withInputItems: [item]) { [weak self] uuid in
             DispatchQueue.main.async { MainActor.assumeIsolated {
-                guard let self, completion != nil else { return }
-                startTimer?.invalidate(); startTimer = nil
+                guard let self, self.completion != nil else { return }
+                self.startTimer?.invalidate(); self.startTimer = nil
                 guard let uuid else {
                     self.end(.failure(Self.error(7, "Madeira's JIT helper did not start. Reinstall Madeira, and keep its app extensions if your sideloader asks.")))
                     return

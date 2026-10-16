@@ -45,6 +45,6 @@ assert '"?request=" + identity.callbackValue' in net
 assert 'callbackGate.accepts(callback: value("request"))' in net
 assert 'guard !checkedStartupRecovery else { return }' in net
 assert 'afterStartupRecovery' in setup and 'timeout: 180' in setup
-assert 'if enableGate.current != nil { enableWaiters.append(completion); return }' in setup
-assert 'guard enableGate.finish(identity) else { return }' in setup
+assert 'if self.enableGate.current != nil { enableWaiters.append(completion); return }' in setup
+assert 'guard self.enableGate.finish(identity) else { return }' in setup
 print('PASS: shortcut callbacks and coordinator completion are bound to the active process request')

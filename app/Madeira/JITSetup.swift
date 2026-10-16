@@ -218,10 +218,10 @@ final class JITCoordinator: ObservableObject {
     }
 
     func enable(force: Bool = false, completion: @escaping (Result<Void, Error>) -> Void) {
-        if let identity = enableGate.current, enableGate.expired(now: ProcessInfo.processInfo.systemUptime) {
-            finishEnable(identity, result: .failure(CoordinatorError.timedOut))
+        if let identity = self.enableGate.current, self.enableGate.expired(now: ProcessInfo.processInfo.systemUptime) {
+            self.finishEnable(identity, result: .failure(CoordinatorError.timedOut))
         }
-        if enableGate.current != nil { enableWaiters.append(completion); return }
+        if self.enableGate.current != nil { enableWaiters.append(completion); return }
         guard SigningStatus.current.debuggable else {
             completion(.failure(NSError(
                 domain: "MadeiraJIT", code: 11,
@@ -236,44 +236,44 @@ final class JITCoordinator: ObservableObject {
         status = nil
         connectionProblem = nil
         busy = true
-        let identity = enableGate.begin(pid: getpid(), now: ProcessInfo.processInfo.systemUptime, timeout: 180)
+        let identity = self.enableGate.begin(pid: getpid(), now: ProcessInfo.processInfo.systemUptime, timeout: 180)
         enableWaiters = [completion]
         LogStore.shared.log("[jit-request-v1] begin pid=\(getpid()) renewal=\(force ? 1 : 0)")
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, enableGate.accepts(identity), enableGate.expired(now: ProcessInfo.processInfo.systemUptime) else { return }
-                finishEnable(identity, result: .failure(CoordinatorError.timedOut))
+                guard let self, self.enableGate.accepts(identity), self.enableGate.expired(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.finishEnable(identity, result: .failure(CoordinatorError.timedOut))
             }
         }
         enableTimer = timer; RunLoop.main.add(timer, forMode: .common)
         JITNetworkShortcut.shared.afterStartupRecovery { [weak self] in
-          guard let self, enableGate.accepts(identity) else { return }
+          guard let self, self.enableGate.accepts(identity) else { return }
           ensureLoopback(then: { [weak self] restoreOnFailure in
-            guard let self, enableGate.accepts(identity) else { return }
+            guard let self, self.enableGate.accepts(identity) else { return }
             enableResolved { [weak self] result in
-                guard let self, enableGate.accepts(identity) else { return }
+                guard let self, self.enableGate.accepts(identity) else { return }
                 // Nothing will hold the network open now: put back what the shortcut changed.
                 if restoreOnFailure, case .failure = result {
                     JITNetworkShortcut.shared.restoreIfNeeded {}
                 }
-                finishEnable(identity, result: result)
+                self.finishEnable(identity, result: result)
             }
         }, stopped: { [weak self] message in
-            guard let self, enableGate.accepts(identity) else { return }
+            guard let self, self.enableGate.accepts(identity) else { return }
             // The shortcut itself failed: say so (no connect action, which would only run
             // it again), skip a JIT attempt that cannot reach the device, and put back
             // whatever it changed before it stopped.
             status = nil
             error = message
             JITNetworkShortcut.shared.restoreIfNeeded {}
-            finishEnable(identity, result: .failure(NSError(domain: "MadeiraJIT", code: 14,
+            self.finishEnable(identity, result: .failure(NSError(domain: "MadeiraJIT", code: 14,
                                         userInfo: [NSLocalizedDescriptionKey: message])))
         })
         }
     }
 
     private func finishEnable(_ identity: JITRequestGate.Identity, result: Result<Void, Error>) {
-        guard enableGate.finish(identity) else { return }
+        guard self.enableGate.finish(identity) else { return }
         enableTimer?.invalidate(); enableTimer = nil
         busy = false
         if case .failure(let failure) = result { error = failure.localizedDescription; status = nil }
@@ -283,11 +283,11 @@ final class JITCoordinator: ObservableObject {
     }
 
     func cancelEnable() {
-        guard let identity = enableGate.current else { return }
-        finishEnable(identity, result: .failure(CoordinatorError.cancelled))
+        guard let identity = self.enableGate.current else { return }
+        self.finishEnable(identity, result: .failure(CoordinatorError.cancelled))
         JITNetworkShortcut.shared.cancelWaiting()
     }
-    var canCancelEnable: Bool { enableGate.current != nil }
+    var canCancelEnable: Bool { self.enableGate.current != nil }
 
     /// LocalDevVPN's loopback first (milliseconds when it already works). When it does
     /// not answer and the Madeira JIT shortcut is on, the shortcut turns Cellular Data
@@ -295,10 +295,10 @@ final class JITCoordinator: ObservableObject {
     /// while the VPN settles. Either way JIT is then attempted, so a failure still gets
     /// the usual explanation. `proceed`'s argument: the shortcut ran.
     private func ensureLoopback(then proceed: @escaping (Bool) -> Void, stopped: @escaping (String) -> Void) {
-        let identity = enableGate.current
+        let identity = self.enableGate.current
         let vpnWasUp = LoopbackProbe.vpnInterfaceUp
         LoopbackProbe.check { [weak self] probe in
-            guard let self, identity.map({ enableGate.accepts($0) }) != false else { return }
+            guard let self, identity.map({ self.enableGate.accepts($0) }) != false else { return }
             LogStore.shared.log(String(format: "[jit-loopback] %@ in %.0f ms (vpn-interface=%d, %@)",
                                        probe.reachable ? "reachable" : "unreachable", probe.milliseconds,
                                        vpnWasUp ? 1 : 0, probe.detail))
@@ -306,7 +306,7 @@ final class JITCoordinator: ObservableObject {
             guard !probe.reachable, JITNetworkShortcut.shared.enabled else { proceed(false); return }
             status = "Running the \(JITNetworkShortcut.name) shortcut…"
             JITNetworkShortcut.shared.start { [weak self] outcome in
-                guard let self, identity.map({ enableGate.accepts($0) }) != false else { return }
+                guard let self, identity.map({ self.enableGate.accepts($0) }) != false else { return }
                 if case .failed(let why) = outcome {
                     stopped("Your \(JITNetworkShortcut.name) shortcut stopped: \(why) Check its steps in Shortcuts, then try again.")
                     return
@@ -316,7 +316,7 @@ final class JITCoordinator: ObservableObject {
                 status = "Waiting for LocalDevVPN…"
                 let waitStart = CFAbsoluteTimeGetCurrent()
                 LoopbackProbe.waitUntilReachable(within: 15) { [weak self] probe in
-                    guard let self, identity.map({ enableGate.accepts($0) }) != false else { return }
+                    guard let self, identity.map({ self.enableGate.accepts($0) }) != false else { return }
                     LogStore.shared.log(String(format: "[jit-loopback] after the shortcut: %@ after %.1f s (vpn-interface=%d, %@)",
                                                probe.reachable ? "reachable" : "unreachable",
                                                CFAbsoluteTimeGetCurrent() - waitStart,
@@ -355,7 +355,7 @@ final class JITCoordinator: ObservableObject {
     }
 
     private func enableResolved(_ completion: @escaping (Result<Void, Error>) -> Void) {
-        let identity = enableGate.current
+        let identity = self.enableGate.current
         switch resolvedMethod {
         case .automatic:
             assertionFailure("Automatic must resolve to a concrete JIT method")
@@ -371,10 +371,10 @@ final class JITCoordinator: ObservableObject {
             status = "Waiting for StikDebug…"
             StikJITHelper.enableJIT { [weak self] result in
                 Task { @MainActor in
-                    guard let self, identity.map({ enableGate.accepts($0) }) != false else { return }
-                    busy = false
-                    status = (try? result.get()).map { _ in "StikDebug is attached." }
-                    if case .failure(let failure) = result { error = failure.localizedDescription }
+                    guard let self, identity.map({ self.enableGate.accepts($0) }) != false else { return }
+                    self.busy = false
+                    self.status = (try? result.get()).map { _ in "StikDebug is attached." }
+                    if case .failure(let failure) = result { self.error = failure.localizedDescription }
                     completion(result)
                 }
             }
@@ -443,7 +443,7 @@ final class JITCoordinator: ObservableObject {
     }
 
     func enableBuiltIn(completion: @escaping (Result<Void, Error>) -> Void = { _ in }) {
-        let identity = enableGate.current
+        let identity = self.enableGate.current
         guard MadeiraBuiltInJIT.isAvailable else {
             let failure = NSError(
                 domain: "MadeiraJIT", code: 12,
@@ -473,10 +473,10 @@ final class JITCoordinator: ObservableObject {
             .enable(targetPID: getpid(), pairingData: pairing,
                     scriptBase64: script.base64EncodedString()),
             started: { [weak self] in
-                guard let self, identity.map({ enableGate.accepts($0) }) != false else { return }
+                guard let self, identity.map({ self.enableGate.accepts($0) }) != false else { return }
                 status = "Waiting for Madeira's JIT helper to attach…"
                 readinessTimer = StikJITHelper.waitForDebugger { [weak self] result in
-                    guard let self, identity.map({ enableGate.accepts($0) }) != false else { return }
+                    guard let self, identity.map({ self.enableGate.accepts($0) }) != false else { return }
                     guard !readinessFinished else { return }
                     readinessFinished = true
                     self.busy = false
@@ -491,7 +491,7 @@ final class JITCoordinator: ObservableObject {
                 }
             },
             completion: { [weak self] result in
-                guard let self, identity.map({ enableGate.accepts($0) }) != false else { return }
+                guard let self, identity.map({ self.enableGate.accepts($0) }) != false else { return }
                 switch result {
                 case .success(let response):
                     self.txmPresent = response.txmPresent
