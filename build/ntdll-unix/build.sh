@@ -63,7 +63,22 @@ if [[ "${1:-all}" = signal-only ]]; then
     echo 'Refreshed signal_arm64.o with LDAPUR/STLUR support; all other objects unchanged'
     exit 0
 fi
-[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|signal-only' >&2; exit 2; }
+if [[ "${1:-all}" = runtime-only ]]; then
+    test -s "$APP_LIB"
+    test -s "$WINE_BUILD/include/config.h"
+    compile_one "$BUILD_DIR/loader_ios.c" loader
+    compile_one "$WINE_SRC/dlls/ntdll/unix/sync.c" sync
+    [[ "$FAILED" = 0 ]] || exit 1
+    candidate="$OBJ_DIR/libntdll_runtime_refresh.a"
+    cp "$APP_LIB" "$candidate"
+    xcrun ar r "$candidate" "$OBJ_DIR/loader.o" "$OBJ_DIR/sync.o"
+    xcrun ranlib "$candidate"
+    python3 "$REPO_ROOT/tools/ntdll-runtime-bundle.py" --stamp --archive "$candidate" --base "$APP_LIB"
+    mv "$candidate" "$APP_LIB"
+    echo 'Refreshed loader.o and sync.o; every other native object preserved'
+    exit 0
+fi
+[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|signal-only|runtime-only' >&2; exit 2; }
 
 # iOS-Madeira 2026-07-05 (Steam S0): compile a DLL's unix side into
 # libntdll_unix.a. Args: src, obj-name, funcs-prefix, extra flags...
@@ -264,4 +279,5 @@ for symbol in bcrypt_unix_call_funcs bcrypt_unix_call_wow64_funcs \
 done
 echo "libntdll_unix.a: $(wc -c < "$APP_LIB" | tr -d ' ') bytes"
 python3 "$REPO_ROOT/tools/ntdll-signal-bundle.py" --stamp
+python3 "$REPO_ROOT/tools/ntdll-runtime-bundle.py" --stamp
 echo "Done!"

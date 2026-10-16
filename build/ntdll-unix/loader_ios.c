@@ -1692,6 +1692,10 @@ done:
 }
 
 
+#ifdef WINE_IOS
+#include "ios_builtin_pe.h"
+#endif
+
 /***********************************************************************
  *           load_builtin
  *
@@ -1704,16 +1708,25 @@ NTSTATUS load_builtin( const struct pe_image_info *image_info, UNICODE_STRING *n
                        off_t offset )
 {
 #ifdef WINE_IOS
-    /* iOS: still respect WINEDLLOVERRIDES=name= (LO_DISABLED) so users can
-     * refuse to load specific DLLs (e.g. steamclient64 — packed unpacker
-     * blows up Wine's loader). The original short-circuit below skips the
-     * builtin .so search; we keep that, just gate it on the override. */
+    /* Keep the PE-only iOS loader, but honour an explicit builtin preference.
+     * Previously '=b' was silently ignored and a game-local native CRT could
+     * be mixed with an ARM64EC CRT, including imports with no x64 exit thunk. */
     {
         enum loadorder lo = get_load_order( nt_name );
         if (lo == LO_DISABLED)
         {
             TRACE( "iOS: %s disabled by WINEDLLOVERRIDES\n", debugstr_us(nt_name) );
             return STATUS_DLL_NOT_FOUND;
+        }
+        if (!image_info->wine_builtin && (lo == LO_BUILTIN || lo == LO_BUILTIN_NATIVE))
+        {
+            NTSTATUS status = ios_load_builtin_pe( nt_name, machine, info, module, size,
+                                                   limit_low, limit_high, offset );
+            if (status == STATUS_SUCCESS)
+                fprintf( stderr, "[builtin-pe-v1] selected staged Wine PE for %s\n", debugstr_us(nt_name) );
+            if (lo == LO_BUILTIN_NATIVE && (status == STATUS_DLL_NOT_FOUND || status == STATUS_NOT_SUPPORTED))
+                return STATUS_IMAGE_ALREADY_LOADED;
+            return status;
         }
     }
     /* On iOS, all PE DLLs are in the prefix (system32 symlinks to bundle).

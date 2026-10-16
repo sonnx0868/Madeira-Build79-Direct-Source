@@ -14,6 +14,7 @@ rm -f "$output"
   build/wine-pe/module-loader.json \
   build/wine-pe/opengl-pe.version \
   build/ntdll-unix/lrcpc2-alias.json \
+  build/ntdll-unix/runtime-scheduling-loader.json \
   app/Madeira/libwineserver.a app/Madeira/libntdll_unix.a \
   app/Madeira/libwin32u_unix.a app/Madeira/libdxmt_combined.a \
   app/Madeira/libavformat.a app/Madeira/libavcodec.a \

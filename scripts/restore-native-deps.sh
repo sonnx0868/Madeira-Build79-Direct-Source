@@ -51,6 +51,8 @@ elif [[ "${1:-}" = --refresh-query ]]; then
   bash "$root/scripts/refresh-dxmt-query.sh"
 elif [[ "${1:-}" = --refresh-loader ]]; then
   bash "$root/scripts/refresh-module-loader.sh"
+elif [[ "${1:-}" = --refresh-runtime ]]; then
+  bash "$root/build/ntdll-unix/build.sh" runtime-only
 elif [[ -n "${1:-}" ]]; then
   echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl|--refresh-input|--refresh-signal|--refresh-pacing]' >&2; exit 2
 fi

@@ -12,6 +12,16 @@ else
     echo "Wine source does not match builtin XInput selection" >&2
     exit 1
 fi
+
+patch="$root/patches/wine-timed-sleep.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine nonzero timed sleeps already avoid scheduler yield"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the timed-sleep patch" >&2
+    exit 1
+fi
 patch="$root/build/wine-pe/madeira-v0.1.4.patch"
 
 test -s "$patch"

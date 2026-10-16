@@ -1,0 +1,28 @@
+Avoid a scheduler yield before a nonzero timed sleep on iOS.
+
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -3661,10 +3661,23 @@
+             when = now.QuadPart - when;
+         }
+ 
++#ifdef WINE_IOS
++        /* A timed sleep already parks the thread. sched_yield additionally
++         * depresses Darwin scheduling priority, potentially beyond the
++         * requested sleep. Only a zero timeout asks us to yield. */
++        if (!when) return NtYieldExecution();
++        {
++            static int announced;
++            if (!__atomic_load_n( &announced, __ATOMIC_RELAXED ) &&
++                !__atomic_exchange_n( &announced, 1, __ATOMIC_RELAXED ))
++                fprintf( stderr, "[timed-sleep-v1] nonzero sleeps park without a scheduler yield\n" );
++        }
++#else
+         /* Note that we yield after establishing the desired timeout, but
+            we only care about the result of the yield for zero timeouts */
+         status = NtYieldExecution();
+         if (!when) return status;
++#endif
+ 
+         for (;;)
+         {

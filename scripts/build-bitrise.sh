@@ -8,6 +8,7 @@ if [[ "$mode" = cached && "${MADEIRA_NATIVE_SIGNAL_REFRESH:-0}" = 1 ]]; then mod
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_PACING_REFRESH:-0}" = 1 ]]; then mode=pacing-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_D3D11_QUERY_REFRESH:-0}" = 1 ]]; then mode=query-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NTDLL_LOADER_REFRESH:-0}" = 1 ]]; then mode=loader-refresh; fi
+if [[ "$mode" = cached && "${MADEIRA_NATIVE_RUNTIME_REFRESH:-0}" = 1 ]]; then mode=runtime-refresh; fi
 case "$mode" in
   cached) ipa=Madeira-v0.1.6-source.ipa ;;
   bootstrap) ipa=Madeira-v0.1.6-source-bootstrap.ipa ;;
@@ -18,6 +19,7 @@ case "$mode" in
   pacing-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  runtime-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh|input-refresh|signal-refresh|pacing-refresh' >&2; exit 2 ;;
 esac
 
@@ -91,7 +93,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = query-refresh || "$mode" = loader-refresh ]]; then
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
@@ -99,6 +101,7 @@ else
     [[ "$mode" != pacing-refresh ]] || refresh=--refresh-pacing
     [[ "$mode" != query-refresh ]] || refresh=--refresh-query
     [[ "$mode" != loader-refresh ]] || refresh=--refresh-loader
+    [[ "$mode" != runtime-refresh ]] || refresh=--refresh-runtime
     timed native-restore bash scripts/restore-native-deps.sh "$refresh"
     timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
     shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
@@ -125,6 +128,8 @@ checks() {
   echo 'PASS: production Wine bridge and REPLACED metrics compile against iPhoneOS SDK'
   python3 tests/host/check-wow64-restore.py
   python3 tests/host/check-present-pacing.py
+  python3 tests/host/check-runtime-scheduling-loader.py --require-darwin
+  python3 tools/ntdll-runtime-bundle.py --root "$root"
   python3 tests/host/check-d3d11-query-park.py
   python3 tools/dxmt-pacing-bundle.py --root "$root"
   python3 tools/dxmt-query-bundle.py --root "$root"
