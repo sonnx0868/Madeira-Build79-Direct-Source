@@ -70,7 +70,9 @@ xcodebuild -downloadComponent MetalToolchain
 xcrun -sdk macosx metal -v >/dev/null
 bash "$root/scripts/check-metal-shaders.sh"
 python3 "$root/tests/host/check-pipeline-cache.py"
+python3 "$root/tests/host/check-live-pipeline-cache.py"
 python3 "$root/tests/host/check-shader-warmup.py"
+python3 "$root/tests/host/check-color-store.py"
 python3 "$root/tests/host/check-renpy-startup.py"
 
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
@@ -156,6 +158,9 @@ log "Build LLVM and DXMT"
 bash "$root/build/llvm-ios/build.sh"
 bash "$root/build/dxmt-ios/build.sh"
 bash "$root/build/dxmt-pe/build.sh"
+python3 "$root/tools/dxmt-pacing-bundle.py" --root "$root" --stamp
+python3 "$root/tools/dxmt-query-bundle.py" --root "$root" --stamp
+python3 "$root/tools/dxmt-gpu-bundle.py" --root "$root" --stamp
 
 log "Build reusable session host"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/session-host/build.sh"

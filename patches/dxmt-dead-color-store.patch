@@ -1,0 +1,53 @@
+Discard only fully overwritten color stores on iOS ARM64EC; preserve ordering and explicit opt-out.
+
+--- a/src/dxmt/dxmt_context.cpp
++++ b/src/dxmt/dxmt_context.cpp
+@@ -10,6 +10,7 @@
+ #include "dxmt_mem_census.hpp"
+ #include "config/config.hpp"   /* ml754 */
+ #include "util_madeira_switch.hpp"
++#include "../../../build/dxmt-ios/color_store_policy.hpp"
+ #include <algorithm>
+ #include <atomic>
+ 
+@@ -1447,29 +1448,27 @@
+       auto render = reinterpret_cast<RenderEncoderData *>(former);
+       auto clear = reinterpret_cast<ClearEncoderData *>(latter);
+ 
+-      // MADEIRA (ml1190): DXMT_CLEAR_DISCARD_STORE is a Madeira switch
+-      // (util_madeira_switch.hpp), on by default only in the i386 build.
++      // iOS ARM64EC also avoids a store whose complete contents are cleared
++      // before any subsequent use. Keep the existing explicit opt-out.
+       static const bool discardColor = [] {
++#if defined(DXMT_IOS) && defined(__arm64ec__)
++        const auto requested = env::getEnvVar("DXMT_CLEAR_DISCARD_STORE");
++        const bool enabled = requested.empty() || requested != "0";
++#else
+         const bool enabled = madeiraSwitch("DXMT_CLEAR_DISCARD_STORE");
+-        if (enabled)
+-          Logger::info("[clear-store] ml1190 enabled (DXMT_CLEAR_DISCARD_STORE=0 disables)");
++#endif
++        if (enabled) Logger::info("[clear-store] color-store-v2 exact full-clear overwrite enabled");
+         return enabled;
+       }();
+-      // A full clear makes the preceding color store dead. Keep dependency
+-      // tracking intact, and only match the exact view and covered subresource.
+-      // Resolve stores and partial clears must retain their original behavior.
+-      if (discardColor && !clear->clear_dsv && clear->attachment &&
+-          clear->array_length == render->render_target_array_length &&
+-          clear->width == render->render_target_width && clear->height == render->render_target_height) {
++      if (discardColor) {
+         for (unsigned i = 0; i < render->render_target_count; ++i) {
+           auto &color = render->colors[i];
+-          if (color.attachment == clear->attachment && !color.level && !color.slice && !color.depth_plane &&
+-              !color.resolve_attachment && color.store_action == WMTStoreActionStore) {
++          if (madeiraCanDiscardClearedColor(render, clear, color)) {
+             color.store_action = WMTStoreActionDontCare;
+             static std::atomic<uint64_t> saved{0};
+             const auto total = saved.fetch_add(1, std::memory_order_relaxed) + 1;
+             if (total <= 4 || !(total % 4096))
+-              Logger::warn(str::format("[clear-store] ml1190 overwritten color stores skipped=", total));
++              Logger::warn(str::format("[clear-store] color-store-v2 overwritten stores skipped=", total));
+           }
+         }
+       }

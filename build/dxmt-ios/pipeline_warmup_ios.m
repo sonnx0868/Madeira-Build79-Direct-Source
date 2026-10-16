@@ -65,8 +65,14 @@ void madeira_warmup_track_library(id<MTLLibrary> library, dispatch_data_t data) 
     [warmup storeLibrary:copy hash:hash];
 }
 
-static NSDictionary *functionRecipe(id<MTLFunction> fn) { return objc_getAssociatedObject(fn, &functionKey); }
-static NSDictionary *recipe(id descriptor, BOOL compute) {
+static NSDictionary *functionRecipe(id<MTLFunction> fn, BOOL runtime) {
+    if (!fn) return nil;
+    NSDictionary *content = objc_getAssociatedObject(fn, &functionKey);
+    if (content) return content;
+    if (runtime) return @{@"object": [NSString stringWithFormat:@"%p", (__bridge const void *)fn]};
+    return nil;
+}
+static NSDictionary *recipeWithIdentity(id descriptor, BOOL compute, BOOL runtime) {
     if (!objc_getAssociatedObject(descriptor, &allowedKey)) return nil;
     if (compute) {
         // Metal returns internal descriptor implementations; their class
@@ -75,7 +81,7 @@ static NSDictionary *recipe(id descriptor, BOOL compute) {
         if (![descriptor respondsToSelector:@selector(computeFunction)] ||
             ![descriptor respondsToSelector:@selector(buffers)]) return nil;
         MTLComputePipelineDescriptor *d = descriptor;
-        NSDictionary *fn = functionRecipe(d.computeFunction); if (!fn) return nil;
+        NSDictionary *fn = functionRecipe(d.computeFunction, runtime); if (!fn) return nil;
         NSMutableArray *buffers = [NSMutableArray array];
         for (unsigned i = 0; i < 31; ++i) [buffers addObject:@(d.buffers[i].mutability)];
         return @{@"kind": @"compute", @"function": fn, @"buffers": buffers,
@@ -92,7 +98,7 @@ static NSDictionary *recipe(id descriptor, BOOL compute) {
     for (unsigned i = 0; layout && i < 31; ++i)
         if (layout.attributes[i].format != MTLVertexFormatInvalid || layout.layouts[i].stride) return nil;
     if (d.vertexFunction.patchType != MTLPatchTypeNone) return nil;
-    NSDictionary *vs = functionRecipe(d.vertexFunction), *ps = functionRecipe(d.fragmentFunction);
+    NSDictionary *vs = functionRecipe(d.vertexFunction, runtime), *ps = functionRecipe(d.fragmentFunction, runtime);
     if (!vs || (d.fragmentFunction && !ps)) return nil;
     NSMutableArray *colors = [NSMutableArray array], *vb = [NSMutableArray array], *fb = [NSMutableArray array];
     for (unsigned i = 0; i < 8; ++i) {
@@ -108,6 +114,11 @@ static NSDictionary *recipe(id descriptor, BOOL compute) {
                 @(d.alphaToCoverageEnabled), @(d.rasterizationEnabled), @(d.rasterSampleCount),
                 @(d.inputPrimitiveTopology), @(d.tessellationPartitionMode), @(d.tessellationFactorStepFunction),
                 @(d.tessellationOutputWindingOrder), @(d.maxTessellationFactor)]};
+}
+static NSDictionary *recipe(id descriptor, BOOL compute) { return recipeWithIdentity(descriptor, compute, NO); }
+NSString *madeira_pipeline_runtime_key(id descriptor, BOOL compute) {
+    NSData *bytes = json(recipeWithIdentity(descriptor, compute, YES));
+    return bytes.length && bytes.length <= 16384 ? digest(bytes) : nil;
 }
 static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
     if (![value isKindOfClass:NSArray.class] || [value count] != count) return NO;

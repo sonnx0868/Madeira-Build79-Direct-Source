@@ -8,7 +8,7 @@ cache = root / 'build/dxmt-ios/pipeline_cache_ios.m'
 text = cache.read_text(encoding='utf-8')
 assert 'QOS_CLASS_BACKGROUND' in text and 'dispatch_async(state->queue' in text
 assert 'rename(' in text and 'pendingLimit = 128' in text
-assert 'state && state->lookup' in text
+assert 'lookupSnapshot(state)' in text
 patch = (cache.parent / 'pipeline-cache.patch').read_text(encoding='utf-8')
 assert patch.count('+  params->ret_pso = (obj_handle_t)madeira_new_render_pipeline') == 2
 assert 'madeira_new_compute_pipeline' in patch

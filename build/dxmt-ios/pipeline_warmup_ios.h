@@ -10,6 +10,9 @@ NSDictionary *madeira_warmup_constant(const void *value, MTLDataType type, NSUIn
 void madeira_warmup_track_library(id<MTLLibrary> library, dispatch_data_t data);
 void madeira_warmup_track_function(id<MTLLibrary> library, id<MTLFunction> function,
                                   NSString *name, NSArray *constants, BOOL specialized);
+// Process-local key for the fully described ordinary thunk. A cache entry
+// must retain a descriptor copy so function-object addresses cannot be reused.
+NSString *madeira_pipeline_runtime_key(id descriptor, BOOL compute);
 
 @interface MadeiraPipelineWarmup : NSObject
 - (instancetype)initWithDevice:(id<MTLDevice>)device folder:(NSURL *)folder

@@ -211,7 +211,7 @@ if [[ -s "$root/app/Madeira/libwineserver.a" ]]; then
 fi
 
 if [[ -s "$root/app/Madeira/libdxmt_combined.a" ]]; then
-  for marker in async-writer-v1 shader-compiler-content-v1 pipeline-binary-v1 learned-pipeline-replay-v1; do
+  for marker in async-writer-v1 shader-compiler-content-v1 pipeline-binary-v1 learned-pipeline-replay-v1 live-pipeline-v2; do
     grep -a -q "$marker" "$root/app/Madeira/libdxmt_combined.a" || {
       echo "INVALID: libdxmt_combined.a lacks $marker; rebuild source-bootstrap"; missing=1;
     }
@@ -225,6 +225,9 @@ if [[ -s "$root/app/Madeira/libdxmt_combined.a" ]]; then
 fi
 
 if [[ -s "$root/app/Madeira/arm64ec-windows/d3d11.dll" ]]; then
+  grep -a -q 'color-store-v2' "$root/app/Madeira/arm64ec-windows/d3d11.dll" || {
+    echo "INVALID: d3d11.dll lacks reviewed full-clear color stores; refresh GPU dependencies"; missing=1;
+  }
   grep -a -q 'compiler-workers=v1' "$root/app/Madeira/arm64ec-windows/d3d11.dll" || {
     echo "INVALID: d3d11.dll predates bounded shader workers; rebuild source-bootstrap"; missing=1;
   }

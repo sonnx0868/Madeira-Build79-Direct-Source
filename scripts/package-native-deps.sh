@@ -75,5 +75,7 @@ fi
 if [[ -f "$root/build/dxmt-pe/query-park.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-pe/query-park.json)
 fi
+test -s "$root/build/dxmt-ios/gpu-pipeline.json"
+(cd "$root" && zip -q "$output" build/dxmt-ios/gpu-pipeline.json)
 echo "Created $output"
 shasum -a 256 "$output"
