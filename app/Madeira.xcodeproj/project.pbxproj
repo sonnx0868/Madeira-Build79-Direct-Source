@@ -18,6 +18,8 @@
 		D1000594 /* translation-lab in Resources */ = {isa = PBXBuildFile; fileRef = D2000594 /* translation-lab */; };
 		A1000D01 /* AppUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000D01 /* AppUpdate.swift */; };
 		A1000D02 /* RemoteDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000D02 /* RemoteDiagnostics.swift */; };
+		A1000E20 /* GPUTraceComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000E20 /* GPUTraceComparison.swift */; };
+		A1000E21 /* GPUTraceCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000E21 /* GPUTraceCapture.m */; };
 		A1000D03 /* SupportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000D03 /* SupportViews.swift */; };
 		A1000D04 /* GameRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000D04 /* GameRuntime.swift */; };
 		A1000D05 /* GameRuntimeBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000D05 /* GameRuntimeBridge.m */; };
@@ -218,6 +220,8 @@
 		D2000594 /* translation-lab */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "translation-lab"; sourceTree = "<group>"; };
 		A2000D01 /* AppUpdate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdate.swift; sourceTree = "<group>"; };
 		A2000D02 /* RemoteDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDiagnostics.swift; sourceTree = "<group>"; };
+		A2000E20 /* GPUTraceComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPUTraceComparison.swift; sourceTree = "<group>"; };
+		A2000E21 /* GPUTraceCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GPUTraceCapture.m; sourceTree = "<group>"; };
 		A2000D03 /* SupportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportViews.swift; sourceTree = "<group>"; };
 		A2000D04 /* GameRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameRuntime.swift; sourceTree = "<group>"; };
 		A2000D05 /* GameRuntimeBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GameRuntimeBridge.m; sourceTree = "<group>"; };
@@ -535,6 +539,8 @@
 				A2000003 /* LogStore.swift */,
 				A2000D01 /* AppUpdate.swift */,
 				A2000D02 /* RemoteDiagnostics.swift */,
+				A2000E20 /* GPUTraceComparison.swift */,
+				A2000E21 /* GPUTraceCapture.m */,
 				A2000D03 /* SupportViews.swift */,
 				A2000D04 /* GameRuntime.swift */,
 				A2000D05 /* GameRuntimeBridge.m */,
@@ -886,6 +892,8 @@
 				A1000003 /* LogStore.swift in Sources */,
 				A1000D01 /* AppUpdate.swift in Sources */,
 				A1000D02 /* RemoteDiagnostics.swift in Sources */,
+				A1000E20 /* GPUTraceComparison.swift in Sources */,
+				A1000E21 /* GPUTraceCapture.m in Sources */,
 				A1000D03 /* SupportViews.swift in Sources */,
 				A1000D04 /* GameRuntime.swift in Sources */,
 				A1000D05 /* GameRuntimeBridge.m in Sources */,

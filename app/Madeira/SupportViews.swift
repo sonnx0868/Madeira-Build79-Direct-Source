@@ -41,6 +41,7 @@ struct DiagnosticUploadView: View {
                     Text("Sends the selected session log, recent Unity Player.log and Steam network logs, plus build and device details to your private server. Logs are limited to 20 MB total. Your logs stay on this iPad.")
                 }
                 if let status = upload.status { Section { Text(status).textSelection(.enabled) } }
+                Section { GPUTraceComparisonControls() }
                 Section {
                     Button {
                         preparingLab = true

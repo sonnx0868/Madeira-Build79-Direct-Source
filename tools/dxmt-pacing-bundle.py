@@ -40,7 +40,8 @@ def main():
     p.add_argument('--stamp',action='store_true');p.add_argument('--base',type=Path);a=p.parse_args()
     root=a.root.resolve();archive=a.archive or root/'app/Madeira/libdxmt_combined.a'
     record={'archive_sha256':sha_file(archive),'members':members(archive),'sources':{}}
-    for name in ['dxmt/src/winemetal/unix/winemetal_unix.c','build/dxmt-ios/present_pacing.h','patches/dxmt-producer-pacing.patch']:
+    for name in ['dxmt/src/winemetal/unix/winemetal_unix.c','build/dxmt-ios/present_pacing.h',
+                 'patches/dxmt-producer-pacing.patch','patches/dxmt-gpu-foreground.patch','patches/dxmt-gpu-trace.patch']:
         record['sources'][name]=hashlib.sha256((root/name).read_bytes().replace(b'\r\n',b'\n')).hexdigest()
     receipt=root/'build/dxmt-ios/producer-pacing.json'
     if a.stamp:
@@ -51,6 +52,16 @@ def main():
             changed=[new['name'] for old,new in zip(previous,record['members']) if old!=new]
             assert changed==['winemetal_unix.o'],('changed unrelated archive objects',changed)
             record['base_archive_sha256']=sha_file(a.base);record['preserved_members']=len(previous)-1
+            gpu_path=root/'build/dxmt-ios/gpu-pipeline.json'
+            if gpu_path.exists():
+                gpu=json.loads(gpu_path.read_text(encoding='utf-8'))
+                assert gpu['archive_sha256']==sha_file(a.base) and gpu['members']==previous,'stale GPU container receipt'
+                # All pipeline objects and the D3D11 PE keep their original
+                # producer. Only the shared native boundary was recompiled.
+                gpu['archive_sha256']=record['archive_sha256'];gpu['members']=record['members']
+                gpu['boundary_refresh']={'commit':record['producer_commit'],'base_archive_sha256':sha_file(a.base),
+                                         'receipt':'build/dxmt-ios/producer-pacing.json'}
+                gpu_path.write_text(json.dumps(gpu,indent=2)+'\n',encoding='utf-8')
         receipt.write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
         print('PASS: stamped producer pacing; '+str(record.get('preserved_members','all'))+' other DXMT/LLVM objects preserved')
     else:

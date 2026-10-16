@@ -42,6 +42,8 @@
 	<string>v0.1.6-source</string>
 	<key>GCSupportsGameMode</key>
 	<true/>
+	<key>MetalCaptureEnabled</key>
+	<true/>
 	<key>LSSupportsGameMode</key>
 	<true/>
 	<key>LSApplicationCategoryType</key>

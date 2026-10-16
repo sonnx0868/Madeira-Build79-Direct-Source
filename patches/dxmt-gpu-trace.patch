@@ -1,0 +1,31 @@
+Capture complete local DXMT frames through the public app-side Metal capture manager.
+
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -481,7 +481,15 @@
+     wmtr_pool_push(params->ret);   /* ml820: autoreleased natively */
+     return STATUS_SUCCESS;
+   }
++#if TARGET_OS_IOS
++  extern unsigned long long madeira_gpu_trace_will_create(void *);
++  extern void madeira_gpu_trace_did_create(void *, unsigned long long);
++  unsigned long long trace_ticket = madeira_gpu_trace_will_create((void *)params->handle);
++#endif
+   params->ret = (obj_handle_t)[(id<MTLCommandQueue>)params->handle commandBuffer];
++#if TARGET_OS_IOS
++  madeira_gpu_trace_did_create((void *)params->ret, trace_ticket);
++#endif
+   return STATUS_SUCCESS;
+ }
+ 
+@@ -2993,6 +3005,10 @@
+ static NTSTATUS
+ _MTLCommandBuffer_presentDrawable(void *obj) {
+   struct unixcall_generic_obj_obj_noret *params = obj;
++#if TARGET_OS_IOS
++  extern void madeira_gpu_trace_present(void *);
++  if (!wmtr_enabled()) madeira_gpu_trace_present((void *)params->handle);
++#endif
+   if (wmtr_enabled()) {
+     /* Presenting hands the drawable back to the host layer; without this the
+      * pool leaks one a frame and acquisition eventually blocks forever. */

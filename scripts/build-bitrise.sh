@@ -148,6 +148,8 @@ checks() {
   python3 tests/host/check-guest-spill.py
   python3 tests/host/check-dxmt-cpu-mappings.py
   python3 tests/host/check-gpu-lifecycle.py
+  python3 tests/host/check-gpu-trace.py --require-darwin
+  xcrun --find gpudebug || echo 'GPU trace analysis CLI unavailable on this runner; use a Mac with gpudebug for replay'
   python3 tests/host/check-workload-diagnostics.py
   python3 tests/host/check-guest-main-qos.py --require-darwin
   python3 tests/host/check-replaced-metrics.py --require-darwin

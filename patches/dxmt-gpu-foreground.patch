@@ -22,12 +22,14 @@ diff --git a/src/winemetal/unix/winemetal_unix.c b/src/winemetal/unix/winemetal_
    /* ml1140: retirement belongs to the GPU completion, not waitUntilCompleted.
     * The finish thread skips that wait for buffers already completed, so the
     * old subtraction counted them as queued forever and omitted their GPU time. */
-@@ -511,6 +525,9 @@ _MTLCommandBuffer_commit(void *obj) {
+@@ -511,6 +525,11 @@ _MTLCommandBuffer_commit(void *obj) {
      }];
    }
    [(id<MTLCommandBuffer>)params->handle commit];
 +#if TARGET_OS_IOS
 +  madeira_gpu_submit_end();
++  extern void madeira_gpu_trace_did_commit(void *);
++  madeira_gpu_trace_did_commit((void *)params->handle);
 +#endif
    return STATUS_SUCCESS;
  }

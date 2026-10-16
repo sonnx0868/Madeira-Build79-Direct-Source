@@ -10,6 +10,7 @@
 #ifndef IOS_DISPLAY_SHIM_H
 #define IOS_DISPLAY_SHIM_H
 #include <stdint.h>
+#include "GPUTraceCapture.h"
 
 typedef struct {
     uint64_t buffers, timed_buffers, gpu_ns, max_gpu_ns, inflight, max_inflight, errors;

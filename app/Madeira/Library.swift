@@ -4766,6 +4766,7 @@ struct LibraryHUD: View {
         }.ignoresSafeArea()
         .onAppear { model.saveCurrentProfile() }
         .onChange(of: model.menu) { _, open in
+            GPUTraceComparison.shared.setMenuOpen(open)
             LibraryController.shared.configure(enabled: model.enabled, ownsInput: open || model.quitting)
             if !open { bindsPage = false }
             if !open { model.saveCurrentProfile() }
@@ -4970,6 +4971,10 @@ struct LibraryHUD: View {
                 }
                 Button { diagnosticSheet = true } label: {
                     Label("Send diagnostic log", systemImage: "square.and.arrow.up")
+                }
+                if model.activeEntry?.title.localizedCaseInsensitiveContains("replaced") == true {
+                    Divider()
+                    GPUTraceComparisonControls(canStart: true) { model.menu = false }
                 }
                 if let appID = model.activeEntry?.steamAppID, SteamOwnedLibrary.cloudQuitEnabled {
                     Divider()
