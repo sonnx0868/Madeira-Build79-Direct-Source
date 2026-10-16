@@ -100,7 +100,6 @@ enum ProMotionIntent { static var has30Cap = true }
 enum ThermalPacingController { static func request(_ mode: Int32) { madeira_set_vsync_locked(mode) } }
 struct TouchControl: Codable, Equatable { var nx = 0.5 }
 enum ControlAction: Codable, Equatable, Hashable { case none }   // LibraryEntry.controllerBinds
-enum GamepadInput { static let keyboardMouseAvailable = true }   // LibraryEntry's per-game DirectInput choice
 func wineserver_is_running() -> Int32 { 0 }
 // The production file reader is exercised in check-pe-launch.py; this fixture
 // controls its result to exercise LibraryEntry's preflight presentation.
@@ -110,6 +109,8 @@ enum LibraryError: LocalizedError { case message(String) }
 func env(_ name: String) -> String? { getenv(name).map { String(cString: $0) } }
 '''
 dock_source = (root/'app/Madeira/MadeiraDock.swift').read_text(encoding='utf-8')
+swift += 'enum GamepadInput { static let keyboardMouseAvailable = true\n' + block(gamepad, 'static func flag(') + '\n}\n'
+swift += block(gamepad, 'enum SDLGamepadPolicy') + '\n'
 swift += block(dock_source, 'struct DockGame: Identifiable') + '\n'
 swift += block(dock_source, 'struct DockExternalProgram: Equatable') + '\n'
 swift += 'enum MadeiraDock { static func validAppID(_ value: Int) -> Bool { value > 0 && UInt64(value) < UInt64(UInt32.max) } }\n'
