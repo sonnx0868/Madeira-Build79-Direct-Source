@@ -149,6 +149,8 @@ enum RuntimeScanner {
         let system = drive.appendingPathComponent(bits == 32 ? "windows/syswow64" : "windows/system32")
         // Do not count ARM64-only files as a replacement for the i386 farm.
         let farms = (bits == 32 ? ["i386-windows"] : ["arm64ec-windows", "aarch64-windows", "x86_64-vcruntime"]).map { bundle.appendingPathComponent($0) }
+        watched.formUnion(farms)
+        watched.insert(bundle)
         let available = farms.flatMap { (try? RuntimeFiles.manager.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }
         let bundleByName = Dictionary(grouping: available, by: { $0.lastPathComponent.lowercased() })
         var directoryCache: [String: [String: URL]] = [:]
@@ -170,10 +172,19 @@ enum RuntimeScanner {
                 var satisfied = false, wrong = false
                 for folder in folders {
                     watched.insert(folder)
+                    // Before Wine starts, system32/syswow64 can still contain
+                    // links staged for the preceding session's architecture.
+                    // The launch bridge rebuilds these from the app's farms.
+                    // A game-local DLL still shadows them and is checked first.
+                    if folder == system, let shipped = bundleByName[name]?.first(where: {
+                        RuntimeFiles.matches($0, bits: bits, bundled: true)
+                    }) {
+                        watched.insert(shipped); satisfied = true; break
+                    }
                     if let file = localFile(name, folder) {
                         watched.insert(file)
                         if RuntimeFiles.matches(file, bits: bits, bundled: folder == system) { satisfied = true }
-                        else { wrong = true }
+                        else { wrong = folder != system }
                         break // An incompatible local DLL shadows later search paths.
                     }
                 }
@@ -354,7 +365,7 @@ actor RuntimePreparer {
         let catalog = try RuntimeCatalog.load(bundle)
         let catalogHash = try RuntimeFiles.hash(bundle.appendingPathComponent("RuntimeCatalog.json"))
         let old = (try? Data(contentsOf: receiptURL)).flatMap { try? JSONDecoder().decode(Receipt.self, from: $0) }
-        if !force, let old, old.version == 1, old.bundle == bundle.path, old.catalog == catalogHash,
+        if !force, let old, old.version == 2, old.bundle == bundle.path, old.catalog == catalogHash,
            !old.report.truncated,
            old.report.stamps.allSatisfy(\.valid),
            old.installed.allSatisfy({ RuntimeFiles.inside(URL(fileURLWithPath: $0.key), drive) && (try? RuntimeFiles.hash(URL(fileURLWithPath: $0.key))) == $0.value }) {
@@ -427,7 +438,7 @@ actor RuntimePreparer {
             report.installed = preparedPackages.sorted()
             // Remove stale receipts after an application/game legitimately replaced a DLL.
             installed = installed.filter { (try? RuntimeFiles.hash(URL(fileURLWithPath: $0.key))) == $0.value }
-            let receipt = Receipt(version: 1, bundle: bundle.path, catalog: catalogHash, report: report, installed: installed)
+            let receipt = Receipt(version: 2, bundle: bundle.path, catalog: catalogHash, report: report, installed: installed)
             try JSONEncoder().encode(receipt).write(to: receiptURL, options: .atomic)
             return report
         } catch {

@@ -197,6 +197,7 @@ checks() {
   python3 tests/host/check-pe-imports.py --require-swift
   python3 tests/host/check-cdn-routing.py --require-swift
   python3 tests/host/check-controller-refresh.py --require-swift
+  python3 tests/host/check-sdl-gamepad-policy.py --require-swift
   python3 tests/host/check-touch-gamepad.py
   python3 tests/host/check-control-presets.py
   python3 tests/host/check-runtime-preparation.py --require-swift

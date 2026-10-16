@@ -107,6 +107,27 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     let second=try await run();assert(second.cached)
     try FileManager.default.removeItem(at:game.appendingPathComponent("vcruntime140.dll"))
     let restored=try await run();assert(!restored.cached && restored.missing.isEmpty)
+    // The previous 32-bit session's staged Windows DLLs are not game-local
+    // conflicts. The next 64-bit launch stages its verified app farm again.
+    let system=drive.appendingPathComponent("windows/system32")
+    try FileManager.default.createDirectory(at:system,withIntermediateDirectories:true)
+    try FileManager.default.copyItem(at:root.appendingPathComponent("wrong.dll"),to:system.appendingPathComponent("kernel32.dll"))
+    let staged=try await run(true);assert(staged.missing.isEmpty)
+    assert(RuntimeFiles.machine(system.appendingPathComponent("kernel32.dll"))==0x14c)
+    for machine:UInt16 in [0xa641,0xaa64] {
+        let shipped=bundle.appendingPathComponent("arm64ec-windows/kernel32.dll")
+        var data=try Data(contentsOf:shipped);data[132]=UInt8(truncatingIfNeeded:machine);data[133]=UInt8(machine>>8)
+        try data.write(to:shipped)
+        let hybrid=try await run(true);assert(hybrid.missing.isEmpty)
+    }
+    // A correct farm must actually exist: the staged wrong DLL alone cannot
+    // satisfy the import, and it must not be called a bad GAME-owned file.
+    let shipped=bundle.appendingPathComponent("arm64ec-windows/kernel32.dll")
+    let shippedBytes=try Data(contentsOf:shipped)
+    try FileManager.default.removeItem(at:shipped)
+    let absent=try await run(true)
+    assert(absent.missing.contains { $0.name=="kernel32.dll" && !$0.wrongArchitecture })
+    try shippedBytes.write(to:shipped)
     let wrong=root.appendingPathComponent("wrong.dll")
     try FileManager.default.removeItem(at:game.appendingPathComponent("msvcp140.dll"))
     try FileManager.default.copyItem(at:wrong,to:game.appendingPathComponent("msvcp140.dll"))
@@ -117,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     let changed=try await run();assert(!changed.cached && changed.missing.contains { $0.name=="game_private.dll" })
     try FileManager.default.removeItem(at:exe)
     do { _ = try await run(); fatalError("Missing executable accepted") } catch {}
-    print("PASS: production automatic install, transitive DLLs across runtime families, concurrent request sharing, recheck, cache hit, deletion repair, wrong-architecture preservation, directory invalidation and missing EXE")
+    print("PASS: production automatic install, transitive DLLs across runtime families, concurrent request sharing, recheck, cache hit, deletion repair, stale Windows staging with EC/native farms, wrong-architecture preservation, directory invalidation and missing EXE")
  }
 }
 '''

@@ -1938,6 +1938,15 @@ static void *wine_process_thread(void *arg) {
         const char *bundle_subdir = use_arm64ec ? "arm64ec-windows" : "aarch64-windows";
         LOG("Target exe: %{public}s (bundle=%{public}s)", madeira_exe, bundle_subdir);
         dprintf(STDERR_FILENO, "[WineProc] Target exe: %s (bundle=%s)\n", madeira_exe, bundle_subdir);
+        // Record resolved controller hints after log redirection. The Swift
+        // launch policy runs earlier, before stderr belongs to this game log.
+        for (const char **key = (const char *[]){"SDL_XINPUT_ENABLED", "SDL_DIRECTINPUT_ENABLED",
+                "SDL_JOYSTICK_HIDAPI", "SDL_JOYSTICK_RAWINPUT", "SDL_JOYSTICK_WGI",
+                "SDL_JOYSTICK_THREAD", "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", NULL}; *key; ++key) {
+            const char *value = getenv(*key);
+            if (value) dprintf(STDERR_FILENO, "[sdl-pad] sdl-xinput-v1 %s=%s\n", *key,
+                !strcmp(value, "0") ? "0" : !strcmp(value, "1") ? "1" : "custom");
+        }
 
         // Ensure Wine prefix has system32 directory with DLLs from bundle
         {

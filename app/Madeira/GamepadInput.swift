@@ -62,6 +62,9 @@ final class GamepadInput: @unchecked Sendable {
         queue.sync { [self] in
             touchState.reserved = touch
             physicalSlotReserved = paired
+            diagnosticTransitions = 0
+            diagnosticState = [DiagnosticState?](repeating: nil, count: 4)
+            axisDiagnosticAt = 0
             sample()
         }
         LogStore.shared.log("[xinput] ml1990 slot=0 reserved before Wine starts touch=\(touch ? 1 : 0) paired=\(paired ? 1 : 0)")
@@ -392,6 +395,40 @@ final class GamepadInput: @unchecked Sendable {
             }
             winios_gamepad_set_state(Int32(i), &state)
         }
+    }
+}
+
+/// SDL's Windows HID/WGI/RawInput devices are not the iOS controller. Both
+/// GameController and touch controls publish one supported XInput snapshot.
+/// Prefer that transport for SDL2 without changing other engines or user hints.
+enum SDLGamepadPolicy {
+    static let defaults: [(String, String)] = [
+        ("SDL_XINPUT_ENABLED", "1"),
+        ("SDL_DIRECTINPUT_ENABLED", "0"),
+        ("SDL_JOYSTICK_HIDAPI", "0"),
+        ("SDL_JOYSTICK_RAWINPUT", "0"),
+        ("SDL_JOYSTICK_WGI", "0"),
+        ("SDL_JOYSTICK_THREAD", "0"),
+        // This means focus INSIDE Wine. The iOS publisher still neutralizes
+        // all controls when Madeira actually resigns active.
+        ("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1")
+    ]
+    private static var applied: [String: String] = [:]
+    static func clearPrevious() {
+        for (name, value) in applied where getenv(name).map({ String(cString: $0) }) == value {
+            unsetenv(name)
+        }
+        applied.removeAll()
+    }
+    @discardableResult static func apply(detectedSDL2: Bool, hostXInput: Bool) -> Bool {
+        clearPrevious()
+        guard detectedSDL2, hostXInput,
+              (MadeiraConfig.get("env.MADEIRA_NATIVE_XINPUT") ?? getenv("MADEIRA_NATIVE_XINPUT").map { String(cString: $0) }) != "1" else { return false }
+        for (name, value) in defaults {
+            if let explicit = MadeiraConfig.get("env." + name) { setenv(name, explicit, 1) }
+            else if getenv(name) == nil { setenv(name, value, 1); applied[name] = value }
+        }
+        return true
     }
 }
 

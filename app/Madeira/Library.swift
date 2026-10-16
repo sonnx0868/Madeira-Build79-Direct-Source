@@ -845,6 +845,7 @@ enum ExternalGameCompatibility {
     }
     private struct WindowsRuntime {
         var hasSDL = false
+        var hasSDL2 = false
         var hasLove = false
         var hasLove115 = false
     }
@@ -878,6 +879,7 @@ enum ExternalGameCompatibility {
             let hasSDLHere = names.contains("sdl2.dll") || names.contains("sdl3.dll")
             let loveURL = children.first { $0.lastPathComponent.lowercased() == "love.dll" }
             if hasSDLHere { result.hasSDL = true }
+            if names.contains("sdl2.dll") { result.hasSDL2 = true }
             if hasSDLHere, let loveURL {
                 result.hasLove = true
                 // The bundled replacement is from official LÖVE 11.5. Keep
@@ -901,6 +903,7 @@ enum ExternalGameCompatibility {
 
     static func prepare(_ entry: LibraryEntry) -> [String] {
         clearStrictMemory()
+        SDLGamepadPolicy.clearPrevious()
         unsetenv("_MADEIRA_OPENGL_ANGLE_MODE")
         unsetenv("_MADEIRA_LUA51_GC64")
         unsetenv("_MADEIRA_PARTY_COMPAT")
@@ -926,6 +929,9 @@ enum ExternalGameCompatibility {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let drive = docs.appendingPathComponent("wine/drive_c", isDirectory: true)
         let runtime = windowsRuntime(entry, drive: drive)
+        if SDLGamepadPolicy.apply(detectedSDL2: runtime.hasSDL2, hostXInput: GamepadInput.flag("MADEIRA_XINPUT")) {
+            applied.append("sdl-xinput-v1")
+        }
         let detectedEngine = GameEngineDetection.detect(drive.appendingPathComponent(entry.launchRelativePath))
         if let engine = detectedEngine {
             fputs("[game-engine] detected=\(engine)\n", stderr)

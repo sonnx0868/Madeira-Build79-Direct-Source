@@ -108,7 +108,7 @@ struct GameComponentPreparationSection: View {
             if let report = preparation.reports[entry.id] {
                 LabeledContent("Programs and libraries checked", value: String(report.scanned) + (report.truncated ? "+" : ""))
                 if report.missing.contains(where: \.wrongArchitecture) {
-                    Label("Some game libraries have the wrong architecture. Reinstall the matching game files; existing files were preserved.", systemImage: "exclamationmark.triangle")
+                    Label("A DLL in the game folder has the wrong architecture. Use the matching game files; existing files were preserved.", systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
                 }
             }
