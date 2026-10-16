@@ -1,8 +1,48 @@
-Avoid a scheduler yield before a nonzero timed sleep on iOS.
+Use a non-depressing Darwin yield and avoid yielding before nonzero timed sleeps.
 
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
-@@ -3661,10 +3661,23 @@
+@@ -57,6 +57,10 @@
+ #include <time.h>
+ #ifdef __APPLE__
+ # include <mach/mach_time.h>
++# ifdef WINE_IOS
++#  include <mach/mach.h>
++#  include <mach/thread_switch.h>
++# endif
+ #endif
+ #ifdef HAVE_KQUEUE
+ # include <sys/event.h>
+@@ -512,7 +516,7 @@
+  *
+  * We also need this for signal-and-wait. The signal and wait operations aren't
+  * atomic, but we can't perform the signal and then return STATUS_INVALID_HANDLE
+- * for the wait—we need to either do both operations or neither. That means we
++ * for the waitâ€”we need to either do both operations or neither. That means we
+  * need to grab references to both objects, and prevent them from being
+  * destroyed before we're done with them.
+  *
+@@ -3587,7 +3591,7 @@
+             ios_ystreak = madeira_cfg_int( "yield-streak", 256 );
+             ios_ysleep = madeira_cfg_int( "yield-sleep-us", 100 );
+             if (ios_ysleep < 0) ios_ysleep = 0;
+-            fprintf( stderr, "[sync-census] ml1124 adaptive yield: sleep %lld us after %lld back-to-back yields%s\n",
++            fprintf( stderr, "[sync-census] ml1124 adaptive yield: sleep %lld us after %lld back-to-back yields%s; darwin-yield-v1 no priority depression\n",
+                      ios_ysleep, ios_ystreak, ios_ysleep ? "" : " (DISABLED)" );
+         }
+         if (now - ios_last_yield_ns < 2000000ull) ios_yield_streak++; else ios_yield_streak = 0;
+@@ -3601,7 +3605,9 @@
+         }
+     }
+ #endif
+-#ifdef HAVE_SCHED_YIELD
++#if defined(WINE_IOS)
++    return ios_scheduler_yield();
++#elif defined(HAVE_SCHED_YIELD)
+ #ifdef RUSAGE_THREAD
+     struct rusage u1, u2;
+     int ret;
+@@ -3661,10 +3667,23 @@
              when = now.QuadPart - when;
          }
  
@@ -26,3 +66,193 @@ Avoid a scheduler yield before a nonzero timed sleep on iOS.
  
          for (;;)
          {
+@@ -4736,7 +4755,7 @@
+ 
+ /* iOS-Madeira ml400 (task #60): last-64 (from-tid, target-tid) alert pairs.
+  * ml400 caught a thread storming instant-ALERTED on INFINITE waits (webhelper
+- * 00c8) while other threads slept through their wakes — the recycled-tid
++ * 00c8) while other threads slept through their wakes â€” the recycled-tid
+  * theory says a stale threadpool/waiter list in another pseudo-process keeps
+  * alerting a dead thread's tid that now belongs to an innocent bystander.
+  * The ring is written lock-free on every alert; the storming WAITER dumps it,
+@@ -4748,10 +4767,10 @@
+ 
+ /* ml439 (#74): periodic alert-flow dump, called from the monitor thread.
+  * The ml438 stall shows dozens of threads parked in NtWaitForAlertByThreadId
+- * with their alert futexes ALL reading 0 — the wakes were never delivered.
++ * with their alert futexes ALL reading 0 â€” the wakes were never delivered.
+  * Discriminator: if the send-side ring goes STATIC during the stall (pos not
+  * advancing) while waiters accumulate, RtlWakeAddress* is not finding the
+- * waiters at all — the PE-side addr_waiters table is split across ntdll
++ * waiters at all â€” the PE-side addr_waiters table is split across ntdll
+  * copies (per-copy .data, the pseudo-process globals family) and the wake
+  * dies before reaching the unix layer. If the ring KEEPS advancing, delivery
+  * or tid-resolution is at fault instead. */
+@@ -4776,13 +4795,13 @@
+ 
+ /* ml441 (#74): THE FIX for the lost-wake stall.  PE ntdll's RtlWaitOnAddress/
+  * RtlWakeAddress* (which back SRW locks and condition variables too) keep
+- * their waiter lists in `futex_queues[256]` — a static array in each ntdll
++ * their waiter lists in `futex_queues[256]` â€” a static array in each ntdll
+  * COPY's .data.  Our pseudo-processes carry multiple ntdll copies (native +
+  * EC per pseudo-proc), so a waker walking copy B's array never finds a waiter
+  * registered in copy A: the wake dies PE-side, the futex stays 0, the waiter
+  * parks forever (ml440: every >60s parker was an addr=NULL RtlWaitOnAddress
+- * park).  Fix: ONE table in the unix dylib's .data — single copy per real
+- * process by construction — published to every PE copy via a private
++ * park).  Fix: ONE table in the unix dylib's .data â€” single copy per real
++ * process by construction â€” published to every PE copy via a private
+  * NtQuerySystemInformation class (0xf00d, system.c).  Layout mirrors PE
+  * struct futex_queue { struct list queue; LONG lock; } == 24 bytes; sharing
+  * across pseudo-procs is semantically correct because they share one address
+@@ -4800,12 +4819,12 @@
+ }
+ 
+ /* ml445 (#74): DEAD-HOLDER REAPER.  Steam's watchdog TerminateThread()s
+- * threads at arbitrary points ([thr-term] CROSS-TERM, ml444) — a victim
++ * threads at arbitrary points ([thr-term] CROSS-TERM, ml444) â€” a victim
+  * holding FEX's WritePriorityMutex shared (TEB Instrumentation[7]=depth,
+  * [8]=&Futex, stamped by the fork's NoteReadAcquired) leaks the hold and the
+  * whole JIT machinery cascades to a standstill behind it (#74's stall family).
+  * The monitor census spots dead ports whose TEB stamp is still set; when NO
+- * live thread shares that TEB (recycling guard — stamps belong to the live
++ * live thread shares that TEB (recycling guard â€” stamps belong to the live
+  * generation when one exists), repair the lock word directly and deliver the
+  * writer/reader wakes through the ml441 SHARED futex table (single table =
+  * unix side can wake PE waiters).  WPM layout (WritePriorityMutex.h):
+@@ -4871,7 +4890,7 @@
+ }
+ 
+ /* ml446 (#74): reap a DEAD EXCLUSIVE owner of a wine-SRW-backed std::mutex
+- * (FEX's CodeBufferWriteMutex, stamped in TEB Instrumentation[6] while held —
++ * (FEX's CodeBufferWriteMutex, stamped in TEB Instrumentation[6] while held â€”
+  * JIT.cpp).  Mirrors RtlReleaseSRWLockExclusive: owners=0, clear held bit;
+  * wake one exclusive waiter at lock+2 if any remain, else wake-all at lock.
+  * srw_lock layout: {short exclusive_waiters (bit0=held); ushort owners}. */
+@@ -4889,7 +4908,7 @@
+     {
+         old = *word;
+         excl = (unsigned int)old & 0xffff;
+-        if (!(excl & 1)) return;   /* not exclusively held — nothing to reap */
++        if (!(excl & 1)) return;   /* not exclusively held â€” nothing to reap */
+         desired = (LONG)(excl & ~1u);   /* owners := 0, held bit cleared, waiters kept */
+     } while (InterlockedCompareExchange( (LONG *)word, desired, old ) != old);
+     dprintf( 2, "[lock-reap] SRW %#llx dead_teb=%#llx released exclusive (word %08x -> %08x) rev=ml446\n",
+@@ -4900,7 +4919,7 @@
+         ios_shared_futex_wake( (const void *)(ULONG_PTR)lock_addr, 1 );
+ }
+ 
+-/* ml440 (#74): waiter-address registry — name the lock everyone is parked on.
++/* ml440 (#74): waiter-address registry â€” name the lock everyone is parked on.
+  * ml439 proved the parked crowd receives ZERO alerts while a device-poll trio
+  * monopolizes the ring, so the wakes are never SENT for them.  Both surviving
+  * theories (dead SRW-lock holder vs per-ntdll-copy addr_waiters split) are
+@@ -4939,9 +4958,9 @@
+     }
+ }
+ 
+-/* ml443: x-ref for [census-hold] — return a thread's CURRENT alert-wait
++/* ml443: x-ref for [census-hold] â€” return a thread's CURRENT alert-wait
+  * registration even when younger than the 60s dump bar (ml442 showed the
+- * stuck CodeInvalidationMutex holder cycling wake→recheck→re-park, so its
++ * stuck CodeInvalidationMutex holder cycling wakeâ†’recheckâ†’re-park, so its
+  * age never accumulates; the address is the discriminator we need). */
+ int ios_alert_waiter_lookup( unsigned int tid, const void **addr, int *age_s, int *inf )
+ {
+@@ -4978,7 +4997,7 @@
+     /* ml444: an address with >=3 concurrent waiters is a contended lock whose
+      * owning OBJECT we can't name offline (ml443: S=0x7c530f0098, 13 SRW-style
+      * exclusive waiters, neighbor allocation of a GuestToHostMap).  Dump the
+-     * 0x140 bytes around it once per cycle — vtables/pointers inside identify
++     * 0x140 bytes around it once per cycle â€” vtables/pointers inside identify
+      * the object type offline. */
+     {
+         static int hot_dumps;
+@@ -5025,7 +5044,7 @@
+         if (age < 60) continue;
+         shown++;
+         /* safe-probe the lock word: msync rejects unmapped pages (Darwin
+-         * returns ENOMEM).  ml442: read the CONTAINING aligned word — SRW and
++         * returns ENOMEM).  ml442: read the CONTAINING aligned word â€” SRW and
+          * FEX WritePriorityMutex read-waits pass lock+2 (2-aligned), which the
+          * old 4-aligned-only guard refused (ml441's deaddead trio). */
+         if (!((ULONG_PTR)a & 1) && (ULONG_PTR)a > 0x10000 && (ULONG_PTR)a < 0x8000000000ULL)
+@@ -5047,11 +5066,11 @@
+ 
+ /* ml447 (#74): ORPHAN-LOCK detector.  ml446 proved the dead S-owner vanishes
+  * entirely (registry row + TEB recycled) before the census can see the corpse
+- * — so detect the ORPHANED LOCK instead of the dead owner: an SRW-backed
++ * â€” so detect the ORPHANED LOCK instead of the dead owner: an SRW-backed
+  * std::mutex that is (a) held-exclusive, (b) has >=3 parked exclusive waiters
+  * (2-misaligned wait addrs = lock+2), and (c) is stamped by NO LIVE thread's
+  * TEB Instrumentation[6] (every acquire stamps since ml446), for 3 consecutive
+- * monitor cycles, has a dead owner with certainty — reap it.  The live-stamp
++ * monitor cycles, has a dead owner with certainty â€” reap it.  The live-stamp
+  * set is built by the monitor (registry + Mach liveness) and passed in. */
+ void ios_orphan_check( const unsigned long long *live_stamps, int nstamps )
+ {
+@@ -5075,7 +5094,7 @@
+         }
+         if (!(word & 1))
+         {
+-            /* released legitimately — clear any stale suspicion */
++            /* released legitimately â€” clear any stale suspicion */
+             for (j = 0; j < 8; j++)
+                 if (susp[j].lock == lock) { susp[j].lock = 0; susp[j].strikes = 0; }
+             continue;
+@@ -5085,7 +5104,7 @@
+          * (high 16) to exactly 1 and bit0 of exclusive_waiters; parked
+          * exclusive waiters occupy bits 15:1 in steps of 2, so >=3 parked
+          * threads imply a non-empty queue.  The ml467 run reaped 0x40010001
+-         * here — not an SRW at all but a live shared-owned FEX
++         * here â€” not an SRW at all but a live shared-owned FEX
+          * WritePriorityMutex (read-owners=1, write-waiter=1; its read-waiters
+          * park at lock+2 too, the lock-ID-rule trap) held by a running sweep
+          * thread; zeroing it killed the run within a second. */
+@@ -5160,8 +5179,8 @@
+ #ifdef USE_FUTEX
+     {
+         LONG *futex = &entry->futex;
+-        /* iOS-Madeira ml482 (#86): NtAlertThreadByThreadId itself needs no TEB —
+-         * it wakes a TARGET tid — but the two probes below read
++        /* iOS-Madeira ml482 (#86): NtAlertThreadByThreadId itself needs no TEB â€”
++         * it wakes a TARGET tid â€” but the two probes below read
+          * NtCurrentTeb()->ClientId.UniqueThread, i.e. TEB+0x48. Threads created
+          * directly by CEF/FEX have no TEB, so on those the probe (not the
+          * function) null-dereferenced and killed the app at exactly the moment
+@@ -5172,7 +5191,7 @@
+         TEB *self_teb = NtCurrentTeb();
+         unsigned int self_tid = self_teb ? (unsigned int)(ULONG_PTR)self_teb->ClientId.UniqueThread : 0;
+         /* iOS-Madeira ml400 (task #60): ring of recent alerts so a storming
+-         * waiter can name its pounder — see [alert-storm] in
++         * waiter can name its pounder â€” see [alert-storm] in
+          * NtWaitForAlertByThreadId. */
+         LONG pos = InterlockedIncrement( &ios_alert_ring_pos );
+         ios_alert_ring[pos & (IOS_ALERT_RING - 1)] =
+@@ -5244,7 +5263,7 @@
+     /* iOS-Madeira ml406 (task #60): unix-side tap for beacon-marked threads
+      * (TEB->Instrumentation[10] == 'PUMP', stamped by the EC chrome-ipc
+      * wrappers).  The pump entered an alert-wait post-wake WITHOUT hitting
+-     * the EC-side [pump-op] wrapper — native-aarch64-ntdll routes bypass it,
++     * the EC-side [pump-op] wrapper â€” native-aarch64-ntdll routes bypass it,
+      * but every PE route lands here.  Logs which alert-waits the marked
+      * threads actually make, with the futex entry address (maps to a tid
+      * offline: ((addr & 0xffff) / 4 + 1) * 4). */
+@@ -5253,7 +5272,7 @@
+ 
+     /* ml407: remember the marked thread's tid so the ALERT side (which runs on
+      * OTHER threads, possibly against a different PE ntdll copy) can report
+-     * whether anyone ever tries to wake it — the unix lib is the single shared
++     * whether anyone ever tries to wake it â€” the unix lib is the single shared
+      * copy every route passes through. */
+     if (ios_marked) ios_pump_alert_tid = NtCurrentTeb()->ClientId.UniqueThread;
+ 
+@@ -5352,7 +5371,7 @@
+         if (ios_marked && ios_alert_unix_n < 120) { InterlockedIncrement( &ios_alert_unix_n );
+             ERR( "[alert-unix] tid=%04x -> ALERTED\n",
+                  (int)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread ); }
+-        /* iOS-Madeira ml400 (task #60): detect an alert STORM — one thread
++        /* iOS-Madeira ml400 (task #60): detect an alert STORM â€” one thread
+          * getting instant-ALERTED over and over (ml400: webhelper 00c8, 40+
+          * consecutive on INFINITE waits).  Every 16th consecutive hit, dump
+          * the last 16 alert-ring pairs; the from-tids name the pounder.

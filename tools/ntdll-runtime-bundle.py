@@ -16,9 +16,9 @@ def verify(root, archive=None, stamp=False, base=None):
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     objects = helper.members(archive)
-    for marker in (b'builtin-pe-v1', b'timed-sleep-v1'):
+    for marker in (b'builtin-pe-v1', b'timed-sleep-v1', b'darwin-yield-v1'):
         assert marker in archive.read_bytes(), 'native archive predates ' + marker.decode()
-    files = ['build/ntdll-unix/loader_ios.c', 'build/ntdll-unix/ios_builtin_pe.h',
+    files = ['build/ntdll-unix/loader_ios.c', 'build/ntdll-unix/ios_builtin_pe.h', 'build/ntdll-unix/ios_scheduler_yield.h',
              'wine/dlls/ntdll/unix/sync.c', 'patches/wine-timed-sleep.patch']
     expected = {'archive_sha256': sha(archive.read_bytes()),
                 'objects': {name: objects[name] for name in ('loader.o', 'sync.o')},

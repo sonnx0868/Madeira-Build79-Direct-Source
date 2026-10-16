@@ -125,6 +125,10 @@ int main(void){
     subprocess.run(['git','-C',str(folder),'apply',str(root/'patches/wine-timed-sleep.patch')],check=True)
     source=file.read_text(encoding='utf-8');start=source.index('NTSTATUS WINAPI NtDelayExecution(')
     delay=source[start:source.index('\n/********',start)]
+    start=source.index('NTSTATUS WINAPI NtYieldExecution(')
+    yield_body=source[start:source.index('\n/********',start)]
+    assert 'return ios_scheduler_yield();' in yield_body
+    scheduler=(root/'build/ntdll-unix/ios_scheduler_yield.h').read_text()
     common=r'''
 #include <assert.h>
 #include <stdio.h>
@@ -182,6 +186,36 @@ int main(void){
 }
 '''
     run('sleep',fake,['-DWINE_IOS=1'])
+    yield_common=common+r'''
+#include <time.h>
+#include <stdlib.h>
+typedef unsigned int useconds_t;
+static long long ios_xp_yield,ios_xp_yield_slept;
+static long long madeira_cfg_int(const char *key,long long value){(void)key;return value;}
+'''
+    yield_fake=yield_common+r'''
+#define MACH_PORT_NULL 0
+#define SWITCH_OPTION_NONE 0
+#define KERN_SUCCESS 0
+#define STATUS_NO_YIELD_PERFORMED 0x40000024
+static int switches,parks,switch_status;
+static int thread_switch(int port,int option,int timeout){assert(!port&&!option&&!timeout);++switches;return switch_status;}
+static int fake_clock(int clock_id,struct timespec *out){(void)clock_id;out->tv_sec=0;out->tv_nsec=1000;return 0;}
+static int fake_park(useconds_t us){assert(us==100);++parks;return 0;}
+#undef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 1
+#define clock_gettime fake_clock
+#define usleep fake_park
+'''+scheduler+yield_body+r'''
+int main(void){
+ assert(NtYieldExecution()==STATUS_SUCCESS&&switches==1&&!parks);
+ switch_status=1;assert(NtYieldExecution()==STATUS_NO_YIELD_PERFORMED&&switches==2);
+ switch_status=0;for(int i=0;i<300;++i)assert(NtYieldExecution()==STATUS_SUCCESS);
+ assert(parks>0&&ios_xp_yield==302&&ios_xp_yield_slept==parks);
+ puts("PASS: production Windows yield uses Mach SWITCH_OPTION_NONE; failed handoff status and adaptive anti-spin parking preserved");
+}
+'''
+    run('yield',yield_fake,['-DWINE_IOS=1'])
     if sys.platform=='darwin':
         real=common+r'''
 #include <sys/select.h>
@@ -208,5 +242,22 @@ int main(void){
 }
 '''
         run('darwin',real,['-DWINE_IOS=1'])
+        native_yield=yield_common+r'''
+#include <unistd.h>
+#include <mach/mach.h>
+#include <mach/thread_switch.h>
+#include <pthread.h>
+#include <pthread/qos.h>
+#define STATUS_NO_YIELD_PERFORMED 0x40000024
+'''+scheduler+yield_body+r'''
+int main(void){
+ assert(!pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE,0));
+ for(int i=0;i<128;++i)assert(NtYieldExecution()==STATUS_SUCCESS);
+ qos_class_t qos;int rel;assert(!pthread_get_qos_class_np(pthread_self(),&qos,&rel)&&qos==QOS_CLASS_USER_INTERACTIVE);
+ assert(ios_xp_yield==128);
+ puts("PASS: native Darwin production yield executes 128 non-depressing Mach handoffs and retains QoS");
+}
+'''
+        run('darwin-yield',native_yield,['-DWINE_IOS=1'])
     else:
         print('SKIP: real Darwin sleep/QoS execution requires macOS; CI requires it')
