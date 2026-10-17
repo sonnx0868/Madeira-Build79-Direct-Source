@@ -95,6 +95,18 @@ int main(int argc,char **argv) { @autoreleasepool {
     NSData *mapping=[NSJSONSerialization dataWithJSONObject:enumNames options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:&error];
     [mapping writeToFile:[out stringByAppendingString:@"-apple-function-names.json"] atomically:YES];
     NSLog(@"Apple function enum labels=%lu streamBytes=%lu framedEnd=%lu",(unsigned long)enumNames.count,(unsigned long)stream.length,(unsigned long)position);
+    // Inspect the reserved capture metadata for embedded timing/profile data.
+    // No environment or account information is exported.
+    for(NSString *name in @[@"gttrace-dump",@"MTLCaptureDescriptor"]) {
+        uint64_t infoWords[4]={0};
+        SEL selector=NSSelectorFromString(@"getInfo:forFilename:error:");
+        BOOL available=((BOOL(*)(id,SEL,void*,id,NSError**))objc_msgSend)(archive,selector,infoWords,name,&error);
+        NSLog(@"Archive metadata %@ info=%d fields=%llu,%llu,%llu,%llu",name,available,infoWords[0],infoWords[1],infoWords[2],infoWords[3]);
+        if(available && infoWords[0]<8*1024*1024 && infoWords[1]<8*1024*1024) {
+            NSData *blob=[archive copyDataForFilename:name error:&error];
+            if(blob && blob.length<8*1024*1024) [blob writeToFile:[out stringByAppendingFormat:@"-%@.bin",name] atomically:YES];
+        }
+    }
     [archive close];
     return [visitor error]?6:0;
 } }
