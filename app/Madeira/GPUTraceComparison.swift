@@ -312,7 +312,10 @@ enum GPUTraceFiles {
                     let context = object["context"] as? [String: Any]
                     let title = String((context?["gameTitle"] as? String ?? "GPU comparison").prefix(200))
                     let date = (object["createdAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .distantPast
-                    pairs.append(GPUTraceSavedComparison(folder: folder, title: title, created: date))
+                    // Directory enumeration can return URLs relative to a
+                    // base URL. Keep a stable absolute URL for sharing/cache.
+                    let absolute = URL(fileURLWithPath: folder.path, isDirectory: true)
+                    pairs.append(GPUTraceSavedComparison(folder: absolute, title: title, created: date))
                 }
                 pairs.sort { $0.created == $1.created ? $0.id < $1.id : $0.created > $1.created }
                 continuation.resume(returning: pairs)
@@ -320,7 +323,7 @@ enum GPUTraceFiles {
         }
     }
     private static func completeManifest(folder: URL) throws -> [String: Any] {
-        let fm = FileManager.default, manifest = folder.appendingPathComponent("manifest.json")
+        let manifest = folder.appendingPathComponent("manifest.json")
         let values = try manifest.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize, size <= 1024 * 1024 else {
             throw SupportError.message("GPU comparison metadata is invalid.")

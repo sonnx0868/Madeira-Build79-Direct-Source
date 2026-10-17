@@ -117,8 +117,8 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   GPUTraceFiles.writeManifest(["format":"madeira-gpu-comparison-v1","createdAt":"2026-10-17T03:45:00Z"],folder:unfinished)
   var pairs=await GPUTraceFiles.savedComparisons(in:root)
   assert(pairs.count==1 && pairs[0].id==folder.lastPathComponent && pairs[0].title=="REPLACED")
-  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:unfinished.lastPathComponent)?.folder==folder)
-  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:nil)?.folder==folder)
+  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:unfinished.lastPathComponent)?.id==folder.lastPathComponent)
+  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:nil)?.id==folder.lastPathComponent)
   let older=root.appendingPathComponent("00000000-0000-0000-0000-000000000003",isDirectory:true)
   try fm.copyItem(at:folder,to:older)
   var oldManifest=manifest;oldManifest["createdAt"]="2026-10-16T03:43:00Z"
@@ -128,8 +128,8 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   try Data("invalid json".utf8).write(to:malformed.appendingPathComponent("manifest.json"))
   try fm.createSymbolicLink(at:root.appendingPathComponent("00000000-0000-0000-0000-000000000005"),withDestinationURL:folder)
   pairs=await GPUTraceFiles.savedComparisons(in:root)
-  assert(pairs.count==2 && pairs[0].folder==folder && pairs[1].folder==older)
-  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:older.lastPathComponent)?.folder==older)
+  assert(pairs.count==2 && pairs[0].id==folder.lastPathComponent && pairs[1].id==older.lastPathComponent)
+  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:older.lastPathComponent)?.id==older.lastPathComponent)
   let restoredZip=try await GPUTraceFiles.export(folder:GPUTraceSavedComparison.select(from:pairs,preferredID:unfinished.lastPathComponent)!.folder)
   defer {try? fm.removeItem(at:restoredZip)}
   print("PASS: saved GPU comparison discovery recovers complete727 pair behind newer unfinished run, preserves selection, sorts dates and excludes malformed/symlink folders")
@@ -189,16 +189,16 @@ enum GPUTraceNative {
   let model=GPUTraceComparison(documents:docs,preferences:prefs)
   model.restoreSaved()
   for _ in 0..<300 {if !model.findingSaved {break};try await Task.sleep(nanoseconds:10_000_000)}
-  assert(!model.findingSaved && model.savedFolder==original && model.savedComparisons.count==1)
+  assert(!model.findingSaved && model.savedFolder?.lastPathComponent==original.lastPathComponent && model.savedComparisons.count==1)
   assert(prefs.string(forKey:"madeira.gpuTrace.latest")==original.lastPathComponent)
   model.session(title:"REPLACED");model.start()
   for _ in 0..<300 {if !model.busy {break};try await Task.sleep(nanoseconds:10_000_000)}
-  assert(model.recording && model.savedFolder==original)
+  assert(model.recording && model.savedFolder?.lastPathComponent==original.lastPathComponent)
   assert(prefs.string(forKey:"madeira.gpuTrace.latest")==original.lastPathComponent)
   model.interrupt("Fixture stops new incomplete run")
-  assert(!model.recording && model.savedFolder==original)
-  let zip=try await model.export(folder:original);defer {try? fm.removeItem(at:zip)}
-  let cached=try await model.export(folder:original);assert(zip==cached && !model.exporting)
+  assert(!model.recording && model.savedFolder?.lastPathComponent==original.lastPathComponent)
+  let zip=try await model.export(folder:model.savedFolder!);defer {try? fm.removeItem(at:zip)}
+  let cached=try await model.export(folder:model.savedFolder!);assert(zip==cached && !model.exporting)
   let metadataAfter=try Data(contentsOf:original.appendingPathComponent("manifest.json"))
   assert(metadataAfter==originalMetadata)
   let logAfter=try String(contentsOf:original.appendingPathComponent("session.txt"),encoding:.utf8)
