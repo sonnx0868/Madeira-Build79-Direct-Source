@@ -83,7 +83,7 @@ try plain.write(to:URL(fileURLWithPath:CommandLine.arguments[2]))
         subprocess.run(['xcrun', 'swiftc', str(decrypt), '-o', str(work / 'decrypt')], check=True)
         archive = work / 'input.zip'
         subprocess.run([str(work / 'decrypt'), str(encrypted), str(archive)], check=True, timeout=120)
-        folder = work / 'comparison'; folder.mkdir()
+        folder = (work / 'comparison').resolve(); folder.mkdir()
         with zipfile.ZipFile(archive) as z:
             assert len(z.infolist()) <= 10000 and sum(i.file_size for i in z.infolist()) <= 4 * 1024**3
             for entry in z.infolist():
@@ -102,6 +102,14 @@ try plain.write(to:URL(fileURLWithPath:CommandLine.arguments[2]))
                     result = subprocess.run([tool, '--oneshot', '-t', str(folder / (kind + '.gputrace')), '-c', 'list', '-c', 'go api_calls', '-c', 'list --all'], stdout=log, stderr=subprocess.STDOUT, timeout=240)
                 summary[kind + 'Exit'] = result.returncode
         else:
-            summary['analysisStatus'] = 'Standalone Apple gpudebug unavailable; reader inventory saved, no replay claimed'
+            reader = work / 'apple-reader'
+            subprocess.run(['xcrun', 'clang', '-fobjc-arc', '-Wno-objc-method-access', str(Path(__file__).with_name('gpu-apple-archive-reader.m')),
+                            '-framework', 'Foundation', '-o', str(reader)], check=True)
+            for kind in ['smooth', 'slow']:
+                with (out / (kind + '-reader.log')).open('w') as log:
+                    result = subprocess.run([str(reader), str(frameworks[0]), str(folder / (kind + '.gputrace')), str(out / kind)],
+                                            stdout=log, stderr=subprocess.STDOUT, env=env, timeout=180)
+                summary[kind + 'ReaderExit'] = result.returncode
+            summary['analysisStatus'] = 'Used installed Apple archive reader for static API structure; original-device GPU counters/replay not claimed'
     (out / 'gpu-analysis-summary.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary))
