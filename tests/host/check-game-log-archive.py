@@ -10,6 +10,11 @@ if not swift:
     print('SKIP: game log archive behavior requires host Swift'); raise SystemExit(0)
 source=(root/'app/Madeira/GameLogArchive.swift').read_text(encoding='utf-8')
 checks=r'''
+// Await the real serial IO queue. A fixed sleep can expire before fsync/journal
+// removal on a busy runner (for example immediately after Simulator startup).
+extension GameLogArchive {
+    func waitForPendingWrites() { queue.sync {} }
+}
 let fm=FileManager.default
 let dir=fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try fm.createDirectory(at:dir,withIntermediateDirectories:true)
@@ -18,13 +23,13 @@ let log=dir.appendingPathComponent("madeira-log.txt")
 try Data("before\n".utf8).write(to:log)
 let archive=GameLogArchive()
 archive.begin(title:"Game / one",sourceURL:log,metadata:["build":"fixture"])
-Thread.sleep(forTimeInterval:0.1)
+archive.waitForPendingWrites()
 let writer=try FileHandle(forWritingTo:log)
 try writer.seekToEnd();try writer.write(contentsOf:Data("Wine output\nFEX crash line\n".utf8));try writer.close()
 archive.finish(sourceURL:log)
 let after=try FileHandle(forWritingTo:log);try after.seekToEnd()
 try after.write(contentsOf:Data("AFTER GAME EXIT\n".utf8));try after.close()
-Thread.sleep(forTimeInterval:0.1)
+archive.waitForPendingWrites()
 let files=try fm.contentsOfDirectory(at:dir.appendingPathComponent("Logs"),includingPropertiesForKeys:nil)
 let first=files.first(where:{$0.pathExtension=="txt"})!
 let text=try String(contentsOf:first,encoding:.utf8)

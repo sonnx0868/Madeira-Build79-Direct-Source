@@ -160,11 +160,14 @@ struct Fixture: View {
     assert ipads, 'iPad Simulator runtime required for actual share/save presentation gate'
     ipads.sort(key=lambda d: ('13-inch' not in d['name'], 'Pro' not in d['name']))
     device = ipads[0]['udid']
+    already_booted = ipads[0].get('state') == 'Booted'
     subprocess.run(['xcrun', 'simctl', 'boot', device], check=False, capture_output=True)
     run('xcrun', 'simctl', 'bootstatus', device, '-b', timeout=180)
     run('xcrun', 'simctl', 'install', device, str(app))
-    run('xcrun', 'simctl', 'launch', device, 'org.madeira.gpu-share-check')
     container = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', device, 'org.madeira.gpu-share-check', 'data'], text=True).strip()) / 'Documents'
+    for name in ['result.json', 'failure.txt']:
+        (container / name).unlink(missing_ok=True)
+    run('xcrun', 'simctl', 'launch', device, 'org.madeira.gpu-share-check')
     for _ in range(90):
         if (container / 'result.json').exists() or (container / 'failure.txt').exists(): break
         time.sleep(1)
@@ -176,5 +179,6 @@ struct Fixture: View {
     shutil.copy2(container / 'result.json', out / 'gpu-share-checks.json')
     for name in result['passed']: shutil.copy2(container / (name + '.png'), out / ('gpu-' + name + '.png'))
     run('xcrun', 'simctl', 'terminate', device, 'org.madeira.gpu-share-check')
+    if not already_booted: run('xcrun', 'simctl', 'shutdown', device)
     print('PASS: actual iPad Simulator presents ready-file Share and Files from Session and diagnostics sheet; cancel/error callbacks keep ZIP and complete once')
     print('NOT TESTED: physical Files/cloud/third-party app ZIP delivery')
