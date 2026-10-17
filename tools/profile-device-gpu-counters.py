@@ -19,7 +19,7 @@ from typing import Annotated, Optional
 import typer
 from typer_injector import InjectingTyper
 from pymobiledevice3.cli.cli_common import ServiceProviderDep, async_command, default_json_encoder
-from pymobiledevice3.dtx import (DTXContext, DTXQueue, DTXService, PInt32, PInt64,
+from pymobiledevice3.dtx import (DTXContext, DTXQueue, DTXService, NSError, PInt32, PInt64,
                                dtx_method, dtx_on_dispatch, dtx_on_notification)
 from pymobiledevice3.dtx_service import DtxService
 from pymobiledevice3.services.dvt.instruments.device_info import DeviceInfo
@@ -60,6 +60,19 @@ class GPUCounters(DtxService[GPUCounterService]):
 
 
 cli = InjectingTyper(no_args_is_help=True)
+
+
+def encode_device_value(value):
+    # Unsupported counter profiles may arrive as NSError notifications rather
+    # than RPC exceptions. Preserve their domain/code instead of a blank
+    # JSON TypeError hiding the reason collection failed.
+    if isinstance(value, NSError):
+        return {'$NSError': {'domain': value.domain, 'code': value.code,
+                             'userInfo': value.user_info}}
+    try:
+        return default_json_encoder(value)
+    except TypeError as error:
+        raise TypeError(f'Unsupported GPU response value: {type(value).__name__}') from error
 
 
 @cli.command()
@@ -130,7 +143,7 @@ async def record(service_provider: ServiceProviderDep, output: Path,
                                 packets += 1
                                 samples += int(event[3])
                         events.write(json.dumps({'receivedUTC': datetime.now(timezone.utc).isoformat(),
-                                                 'event': event}, default=default_json_encoder) + '\n')
+                                                 'event': event}, default=encode_device_value) + '\n')
                 finally:
                     if started:
                         try:

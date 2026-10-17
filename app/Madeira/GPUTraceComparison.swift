@@ -162,6 +162,7 @@ struct GPUTraceDropPolicy {
                 if result.0 == 4 || result.0 == 5 {
                     manifest[kind] = ["file": "\(kind).gputrace", "complete": result.0 == 4, "buffers": result.1,
                                       "frames": result.2, "captureUptime": result.3, "error": result.4,
+                                      "stageTimingsFile": "\(kind)-stages.json", "stageTimingsRole": "following-frame",
                                       "finishedAt": ISO8601DateFormatter().string(from: Date())]
                     lastCapture = nil
                     if result.0 == 5 { interrupt(result.4); return }
@@ -384,7 +385,8 @@ enum GPUTraceFiles {
                     }
                     _ = try completeManifest(folder: folder)
                     NSLog("[gpu-trace-pair] export-start pair=%@", folder.lastPathComponent)
-                    let allowed: Set<String> = ["smooth.gputrace", "slow.gputrace", "manifest.json", "session.txt"]
+                    let allowed: Set<String> = ["smooth.gputrace", "slow.gputrace", "manifest.json", "session.txt",
+                                                "smooth-stages.json", "slow-stages.json"]
                     let children = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
                     guard children.allSatisfy({ allowed.contains($0.lastPathComponent) }),
                           let walker = fm.enumerator(at: folder, includingPropertiesForKeys: [.isSymbolicLinkKey]) else {

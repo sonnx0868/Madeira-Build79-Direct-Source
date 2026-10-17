@@ -41,7 +41,8 @@ def main():
     root=a.root.resolve();archive=a.archive or root/'app/Madeira/libdxmt_combined.a'
     record={'archive_sha256':sha_file(archive),'members':members(archive),'sources':{}}
     for name in ['dxmt/src/winemetal/unix/winemetal_unix.c','build/dxmt-ios/present_pacing.h',
-                 'patches/dxmt-producer-pacing.patch','patches/dxmt-gpu-foreground.patch','patches/dxmt-gpu-trace.patch']:
+                 'patches/dxmt-producer-pacing.patch','patches/dxmt-gpu-foreground.patch','patches/dxmt-gpu-trace.patch',
+                 'patches/dxmt-gpu-stages.patch']:
         record['sources'][name]=hashlib.sha256((root/name).read_bytes().replace(b'\r\n',b'\n')).hexdigest()
     receipt=root/'build/dxmt-ios/producer-pacing.json'
     if a.stamp:

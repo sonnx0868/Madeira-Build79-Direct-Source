@@ -13,7 +13,7 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-submit-before-present.patch", "patches/dxmt-cached-cpu-mappings.patch",
                "patches/dxmt-producer-pacing.patch", "patches/dxmt-query-park.patch",
                "patches/dxmt-dead-color-store.patch", "patches/dxmt-swapchain-hook-abi.patch",
-               "patches/dxmt-gpu-trace.patch")
+               "patches/dxmt-gpu-trace.patch", "patches/dxmt-gpu-stages.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",
                 "src/d3d9/d3d9_shader.cpp", "src/dxmt/dxmt_tasks.hpp", "src/dxmt/dxmt_shader_cache.hpp",
@@ -70,8 +70,14 @@ def patched_sources(root):
         assert (checkout / command_name).read_bytes() == expected_command
         # Verify re-running the production pipeline will recognize every patch,
         # including the lifecycle patch AFTER all gameplay changes have landed.
-        for path in patches:
+        # Verify the dependent top layer first, then validate all older layers
+        # against the exact source they extend. Restore it before returning.
+        stage_patch = patches[-1]
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(stage_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(stage_patch)], check=True)
+        for path in patches[:-1]:
             subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(path)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", str(stage_patch)], check=True)
         return {name: (checkout / name).read_text(encoding="utf-8") for name in SOURCE_FILES}
 
 

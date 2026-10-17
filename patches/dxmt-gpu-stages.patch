@@ -1,0 +1,238 @@
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -46,6 +46,16 @@
+ #define WINEMETAL_API
+ #include "../winemetal_thunks.h"
+ #include "../airconv_thunks.h"
++
++#if TARGET_OS_IOS
++/* Optional one-frame public-Metal stage timing; no PE ABI changes. */
++extern int madeira_gpu_stage_enabled(void);
++extern int madeira_gpu_stage_prepare(void *, void *, unsigned);
++extern void madeira_gpu_stage_encoder_created(void *, void *);
++extern void madeira_gpu_stage_pipeline(void *, void *);
++extern void madeira_gpu_stage_will_commit(void *);
++int madeira_gpu_stage_hooks_version(void) { return 1; }
++#endif
+ #if TARGET_OS_IOS
+ #include "../../../../build/dxmt-ios/pipeline_cache_ios.h"
+ #endif
+@@ -539,6 +549,9 @@
+       if (runtime) wine_runtime_gpu_end();
+     }];
+   }
++#if TARGET_OS_IOS
++  madeira_gpu_stage_will_commit((void *)params->handle);
++#endif
+   [(id<MTLCommandBuffer>)params->handle commit];
+ #if TARGET_OS_IOS
+   madeira_gpu_submit_end();
+@@ -858,13 +871,13 @@
+ }
+ 
+ /* iOS-Madeira 2026-05-13: iPhone GPUs (Apple7/Apple8 = A14/A15) lack native
+- * BC (DXT/BPTC) texture support — that's Apple9 / Mac2 only. Games like
++ * BC (DXT/BPTC) texture support â€” that's Apple9 / Mac2 only. Games like
+  * Thumper unconditionally CreateTexture2D(BC1) on their .pc cache files,
+  * which then dies in Metal's MTLTextureDescriptor validateWithDevice.
+  *
+  * Tier-1 fix: remap BC formats to RGBA8 (or matching narrower format) so
+  * the descriptor validates. The uploaded BC blob will be interpreted as
+- * RGBA8 garbage — black/noise textures with correct geometry. Acceptable
++ * RGBA8 garbage â€” black/noise textures with correct geometry. Acceptable
+  * for boot validation; tier-3 CPU decompression will follow once a first
+  * frame renders. */
+ static enum WMTPixelFormat remap_unsupported_bc(enum WMTPixelFormat fmt, bool bc_supported) {
+@@ -897,7 +910,7 @@
+   }
+ }
+ 
+-/* Cached per-device check — set on first to_metal_pixel_format call.
++/* Cached per-device check â€” set on first to_metal_pixel_format call.
+  * Safe because Madeira runs a single MTLDevice. */
+ static int g_bc_supported_cached = -1;
+ static bool query_bc_support(void) {
+@@ -922,7 +935,7 @@
+   g_bc_supported_cached = supported ? 1 : 0;
+   /* iOS-Madeira 2026-05-18: one-shot log so we can see if A15+ supports BC
+    * natively (would skip all the BC decoder work). Fires exactly once
+-   * per process — first call to to_metal_pixel_format. */
++   * per process â€” first call to to_metal_pixel_format. */
+   dprintf(STDERR_FILENO,
+           "[iOS DXMT] supportsBCTextureCompression = %s\n",
+           supported ? "YES" : "NO");
+@@ -963,7 +976,7 @@
+  * abort if bytesPerRow < width * bytes_per_pixel for the (now RGBA8)
+  * destination. This helper returns false when the upload would trip that
+  * check, letting the call site skip rather than abort. The texture stays
+- * zero/garbage — fine for boot validation. */
++ * zero/garbage â€” fine for boot validation. */
+ static bool format_bytes_per_pixel(MTLPixelFormat fmt, size_t *bpp_out) {
+   switch (fmt) {
+   case MTLPixelFormatA8Unorm:
+@@ -1359,6 +1372,17 @@
+     wmtr_enc_note(params->ret, params->handle);  /* ml820: blit destinations read back per cmdbuf */
+     return STATUS_SUCCESS;
+   }
++#if TARGET_OS_IOS
++  if (madeira_gpu_stage_enabled()) {
++    MTLBlitPassDescriptor *descriptor = [[MTLBlitPassDescriptor alloc] init];
++    if (madeira_gpu_stage_prepare((void *)params->handle, descriptor, 2)) {
++      id<MTLBlitCommandEncoder> encoder = [(id<MTLCommandBuffer>)params->handle blitCommandEncoderWithDescriptor:descriptor];
++      madeira_gpu_stage_encoder_created((void *)params->handle, encoder);
++      [descriptor release];
++      if (encoder) { params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(1, 0, 0, 0); return STATUS_SUCCESS; }
++    } else [descriptor release];
++  }
++#endif
+   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle blitCommandEncoder];
+   if (params->ret && madeira_frame_hooks_on()) ios_frame_pass(1, 0, 0, 0);
+   return STATUS_SUCCESS;
+@@ -1377,6 +1401,18 @@
+     if (!params->ret) fprintf(stderr, "[wmt-remote] host refused a compute encoder\n");
+     return STATUS_SUCCESS;
+   }
++#if TARGET_OS_IOS
++  if (madeira_gpu_stage_enabled()) {
++    MTLComputePassDescriptor *descriptor = [[MTLComputePassDescriptor alloc] init];
++    descriptor.dispatchType = params->arg ? MTLDispatchTypeConcurrent : MTLDispatchTypeSerial;
++    if (madeira_gpu_stage_prepare((void *)params->handle, descriptor, 1)) {
++      id<MTLComputeCommandEncoder> encoder = [(id<MTLCommandBuffer>)params->handle computeCommandEncoderWithDescriptor:descriptor];
++      madeira_gpu_stage_encoder_created((void *)params->handle, encoder);
++      [descriptor release];
++      if (encoder) { params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0); return STATUS_SUCCESS; }
++    } else [descriptor release];
++  }
++#endif
+   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle
+       computeCommandEncoderWithDispatchType:params->arg ? MTLDispatchTypeConcurrent : MTLDispatchTypeSerial];
+   if (params->ret && madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0);
+@@ -1447,7 +1483,19 @@
+   descriptor.renderTargetWidth = info->render_target_width;
+   descriptor.visibilityResultBuffer = (id<MTLBuffer>)info->visibility_buffer;
+ 
++#if TARGET_OS_IOS
++  BOOL profiled = madeira_gpu_stage_prepare((void *)params->handle, descriptor, 0);
++#endif
+   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle renderCommandEncoderWithDescriptor:descriptor];
++#if TARGET_OS_IOS
++  if (profiled) {
++    madeira_gpu_stage_encoder_created((void *)params->handle, (void *)params->ret);
++    if (!params->ret) {
++      descriptor.sampleBufferAttachments[0].sampleBuffer = nil;
++      params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle renderCommandEncoderWithDescriptor:descriptor];
++    }
++  }
++#endif
+ 
+   /* Count realized native passes, including clears and the final present.
+    * No new PE ABI or emulated hot-path counters are needed. */
+@@ -2258,6 +2306,9 @@
+     case WMTComputeCommandSetPSO: {
+       struct wmtcmd_compute_setpso *body = (struct wmtcmd_compute_setpso *)next;
+       [encoder setComputePipelineState:(id<MTLComputePipelineState>)body->pso];
++#if TARGET_OS_IOS
++      madeira_gpu_stage_pipeline(encoder, (void *)body->pso);
++#endif
+       threadgroup_size.width = body->threadgroup_size.width;
+       threadgroup_size.height = body->threadgroup_size.height;
+       threadgroup_size.depth = body->threadgroup_size.depth;
+@@ -2508,6 +2559,9 @@
+     case WMTRenderCommandSetPSO: {
+       struct wmtcmd_render_setpso *body = (struct wmtcmd_render_setpso *)next;
+       [encoder setRenderPipelineState:(id<MTLRenderPipelineState>)body->pso];
++#if TARGET_OS_IOS
++      madeira_gpu_stage_pipeline(encoder, (void *)body->pso);
++#endif
+       break;
+     }
+     case WMTRenderCommandSetDSSO: {
+@@ -2841,13 +2895,13 @@
+ #if !TARGET_OS_IOS
+   [(id<MTLBuffer>)params->handle didModifyRange:NSMakeRange(params->arg, params->ret)];
+ #else
+-  (void)params; /* iOS unified memory — no range invalidation needed. */
++  (void)params; /* iOS unified memory â€” no range invalidation needed. */
+ #endif
+   return STATUS_SUCCESS;
+ }
+ 
+ /* iOS-Madeira 2026-05-13: track Present cadence so we can tell whether the
+- * game's render loop is alive (continuous Presents → splash sustained via
++ * game's render loop is alive (continuous Presents â†’ splash sustained via
+  * redraw) or wedged on first frame. Prints once per ~60 frames at ~1Hz. */
+ static _Atomic uint64_t g_madeira_present_count = 0;
+ /* iOS-Madeira 2026-05-22: draw-call counter, sampled+reset on each present
+@@ -2860,14 +2914,14 @@
+   uint64_t n = atomic_fetch_add_explicit(&g_madeira_present_count, 1, memory_order_relaxed) + 1;
+   /* iOS-Madeira quiet mode: counter always ticks (FPS overlay reads it);
+    * only the log line is suppressed. At RAW rates this line fires 100+
+-   * times/s — real I/O + heat. */
++   * times/s â€” real I/O + heat. */
+   {
+     static int quiet = -1;
+     if (quiet < 0) quiet = getenv("MADEIRA_QUIET") != NULL;
+     if (quiet) return;
+   }
+   /* 2026-07-03: every-16 cadence (was 60) + monotonic timestamp + the
+-   * `after` min-duration arg — measures the black-phase ~1 FPS pacing
++   * `after` min-duration arg â€” measures the black-phase ~1 FPS pacing
+    * directly from the log (game-phase log lines carry no timestamps under
+    * the WINEDEBUG perf default). */
+   if (n == 1 || (n % 16) == 0) {
+@@ -2887,7 +2941,7 @@
+     int cur_exc = ios_exc_msg_count;
+     int exc_delta = cur_exc - last_exc_count;
+     last_exc_count = cur_exc;
+-    /* iOS-Madeira 2026-07-05: frame anatomy for the locked-60 push —
++    /* iOS-Madeira 2026-07-05: frame anatomy for the locked-60 push â€”
+      * game-thread server_wait wall time + wait/timeout/request counts
+      * (server_ios.c, same binary). Deltas cover the 16 presents since
+      * the last line. Answers: is the last ~1.5ms/frame server-request
+@@ -2921,7 +2975,7 @@
+ }
+ 
+ /* NOTE (2026-07-03): a presented-handler probe lived here during the
+- * visibility-stall investigation. Removed — presentedTime reported 0.000
++ * visibility-stall investigation. Removed â€” presentedTime reported 0.000
+  * even for frames provably on glass (the splash), so it carries no signal
+  * for this layer. See project memory for the full postmortem. */
+ 
+@@ -3358,7 +3412,7 @@
+   /* 2026-07-03: measure blocking time. When queued presentations never
+    * complete (render server not compositing the layer), all 3 pool
+    * drawables stay owned by the presentation queue and this call blocks
+-   * its full 1s timeout — the observed ~1 present/s black-screen pacing. */
++   * its full 1s timeout â€” the observed ~1 present/s black-screen pacing. */
+   struct timespec t0, t1;
+   clock_gettime(CLOCK_MONOTONIC, &t0);
+   params->ret = (obj_handle_t)[(CAMetalLayer *)params->handle nextDrawable];
+@@ -3718,7 +3772,7 @@
+ #if !TARGET_OS_IOS
+   [(id<MTLDevice>)params->handle setShouldMaximizeConcurrentCompilation:(BOOL)params->arg];
+ #else
+-  /* setShouldMaximizeConcurrentCompilation: is macOS-only — iOS MTLDevice
++  /* setShouldMaximizeConcurrentCompilation: is macOS-only â€” iOS MTLDevice
+    * raises an ObjC exception if we call it. Skip. */
+   (void)params;
+ #endif
+@@ -4568,7 +4622,7 @@
+              profile, kColorSyncSigBlueColorantTag, &desc_out->blue_primaries[0], &desc_out->blue_primaries[1]
+          );
+ }
+-#endif /* !TARGET_OS_IOS — end of ColorSync/NSScreen block */
++#endif /* !TARGET_OS_IOS â€” end of ColorSync/NSScreen block */
+ 
+ #if !TARGET_OS_IOS
+ NSScreen *
+@@ -4969,8 +5023,8 @@
+         fprintf(stderr, "[wmt-remote] updateContents DROPPED on 0x%llx: %s "
+                         "(offset %llu length %llu, buffer length %llu) (%lu so far)\n",
+                 (unsigned long long)params->buffer,
+-                !found      ? "NOT_FOUND — never registered"
+-                            : "OUT_OF_RANGE — write exceeds the buffer",
++                !found      ? "NOT_FOUND â€” never registered"
++                            : "OUT_OF_RANGE â€” write exceeds the buffer",
+                 (unsigned long long)params->offset,
+                 (unsigned long long)params->length,
+                 (unsigned long long)(found ? b.length : 0), unreg);

@@ -4,6 +4,7 @@
 #include <stdatomic.h>
 #include "GPUTraceCapture.h"
 #include "GPUTracePolicy.h"
+#include "GPUStageProfile.h"
 
 static pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int trace_enabled;
@@ -26,6 +27,10 @@ static MTLCaptureManager *trace_manager(void) {
 static void trace_finish(NSString *error) {
     // Never preempt an Xcode/third-party capture we do not own.
     if (trace_owned) { [trace_manager() stopCapture]; trace_owned = NO; }
+    if (!error && trace_policy.phase == MGTraceComplete && trace_queue) {
+        NSString *name = [trace_url.URLByDeletingPathExtension.path stringByAppendingString:@"-stages.json"];
+        stage_request([NSURL fileURLWithPath:name], trace_queue);
+    }
     if (error) { trace_error = [error copy]; trace_policy.phase = MGTraceFailed; }
     atomic_store_explicit(&trace_enabled, 0, memory_order_release);
     [trace_created removeAllObjects]; [trace_presented removeAllObjects]; trace_queue = nil;
@@ -83,6 +88,7 @@ uint64_t madeira_gpu_trace_will_create(void *rawQueue) {
     pthread_mutex_unlock(&trace_lock); return ticket;
 }
 void madeira_gpu_trace_did_create(void *rawBuffer, uint64_t ticket) {
+    stage_buffer_created(rawBuffer);
     if (!ticket || !atomic_load_explicit(&trace_enabled, memory_order_acquire)) return;
     pthread_mutex_lock(&trace_lock);
     id<MTLCommandBuffer> buffer = (__bridge id)rawBuffer;
@@ -95,6 +101,7 @@ void madeira_gpu_trace_did_create(void *rawBuffer, uint64_t ticket) {
     pthread_mutex_unlock(&trace_lock);
 }
 void madeira_gpu_trace_present(void *rawBuffer) {
+    stage_present(rawBuffer);
     if (!atomic_load_explicit(&trace_enabled, memory_order_acquire)) return;
     pthread_mutex_lock(&trace_lock);
     id<MTLCommandBuffer> buffer = (__bridge id)rawBuffer;
@@ -114,6 +121,7 @@ void madeira_gpu_trace_did_commit(void *rawBuffer) {
 }
 void madeira_gpu_trace_cancel(void) {
     pthread_mutex_lock(&trace_lock);
+    stage_cancel();
     if (atomic_load_explicit(&trace_enabled, memory_order_relaxed))
         trace_finish(@"GPU capture cancelled or timed out; this sample is incomplete.");
     pthread_mutex_unlock(&trace_lock);
@@ -123,6 +131,7 @@ MadeiraGPUTraceStatus madeira_gpu_trace_status(void) {
     if (madeira_trace_expired(&trace_policy, NSProcessInfo.processInfo.systemUptime))
         trace_finish(@"GPU capture exceeded 15 seconds; this sample is incomplete.");
     MadeiraGPUTraceStatus result = {trace_policy.phase, trace_policy.buffers, trace_policy.frames, trace_policy.started};
+    if (result.phase == MGTraceComplete && stage_waiting()) result.phase = MGTraceRecording;
     pthread_mutex_unlock(&trace_lock); return result;
 }
 NSString *madeira_gpu_trace_error(void) {

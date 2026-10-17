@@ -17,6 +17,43 @@ app:
     - JOBS: '4'
 
 workflows:
+  madeira-gpu-stage-check:
+    title: Check original-device GPU stage sampling
+    description: Compile public Metal stage hooks and exercise lifecycle/export gates without producing an IPA.
+    steps:
+      - activate-ssh-key@4:
+          run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          title: Validate stage counters with Apple SDK and lifecycle tests
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                mkdir -p "$BITRISE_DEPLOY_DIR"
+                exec > >(tee "$BITRISE_DEPLOY_DIR/gpu-stage-check.log") 2>&1
+                git submodule update --init dxmt
+                xcodebuild -version
+                sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+                xcrun --sdk iphoneos clang -fobjc-arc -fmodules -fblocks -target arm64-apple-ios18.0 \
+                  -isysroot "$sdk" -fsyntax-only app/Madeira/GPUTraceCapture.m
+                python3 tests/host/check-gpu-stages.py --require-darwin
+                python3 tests/host/check-gpu-trace.py --require-darwin
+                python3 tests/host/check-gpu-trace-share.py
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-GPU-stage-check
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-gpu-analysis:
     title: Inspect Apple GPU capture analysis tools
     description: Locate GPU debugger and replayer tools on the Mac analysis runner, without producing an IPA.

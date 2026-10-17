@@ -9,7 +9,7 @@ for requirement in 'app/Madeira/libntdll_unix.a:presented-exit-v1' 'app/Madeira/
     missing=1
   fi
 done
-for symbol in madeira_gpu_trace_will_create madeira_gpu_trace_did_create madeira_gpu_trace_present madeira_gpu_trace_did_commit; do
+for symbol in madeira_gpu_trace_will_create madeira_gpu_trace_did_create madeira_gpu_trace_present madeira_gpu_trace_did_commit madeira_gpu_stage_hooks_version; do
   if ! nm -g "$root/app/Madeira/libdxmt_combined.a" 2>/dev/null | grep -q "$symbol"; then
     echo "INVALID: native DXMT boundary lacks $symbol; refresh pacing dependencies"; missing=1
   fi
