@@ -372,6 +372,9 @@ enum DiagnosticEvents {
     private static var lastFrames: UInt64 = 0
     private static var sessionStartFrames: UInt64 = 0
     static func phase(_ phase: String) {
+        if phase.hasPrefix("game-visible-") {
+            DispatchQueue.main.async { GPUTraceComparison.shared.gameDidBecomeVisible() }
+        }
         if ["launch-failed", "quit-requested", "session-finished"].contains(phase) {
             DispatchQueue.main.async { GPUTraceComparison.shared.session(title: nil) }
             madeira_stall_monitor_end()
@@ -394,7 +397,8 @@ enum DiagnosticEvents {
         } else { madeira_stall_monitor_end() }
         LogStore.shared.recordTest(entry)
         let traceTitle = entry.title
-        DispatchQueue.main.async { GPUTraceComparison.shared.session(title: traceTitle) }
+        let traceExecutable = entry.launchRelativePath
+        DispatchQueue.main.async { GPUTraceComparison.shared.session(title: traceTitle, executable: traceExecutable) }
         sampledAt = Date(); lastFrames = madeira_frame_count()
         sessionStartFrames = lastFrames
         phase("launch")

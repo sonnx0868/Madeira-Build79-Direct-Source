@@ -4777,7 +4777,7 @@ struct LibraryHUD: View {
             else if command == "back", model.menu { model.menu = false }
         }
         .sheet(isPresented: $diagnosticSheet) {
-            DiagnosticUploadView(gameTitle: model.activeEntry?.title)
+            DiagnosticUploadView(gameTitle: model.activeEntry?.title, resumeGame: { model.menu = false })
         }
     }
     private func launchView(_ entry: LibraryEntry, geometry geo: GeometryProxy) -> some View {
@@ -4925,10 +4925,8 @@ struct LibraryHUD: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack { Label("Session", systemImage: "gamecontroller.fill").font(.title2.bold()); Spacer(); Button("Done") { model.menu = false }.buttonStyle(.bordered) }
-                if model.activeEntry?.title.localizedCaseInsensitiveContains("replaced") == true {
-                    GPUTraceComparisonControls(canStart: true) { model.menu = false }
-                    Divider()
-                }
+                GPUTraceComparisonControls { model.menu = false }
+                Divider()
                 // The controls come first, the easiest to reach; the overlay settings last.
                 Toggle("Touch controls", isOn: $controls.visible)
                 // The named layouts (Xbox controller, custom ones) live here in a session: this

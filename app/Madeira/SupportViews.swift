@@ -9,13 +9,15 @@ struct DiagnosticUploadView: View {
     @State private var importServer = false
     @State private var preparingLab = false
     @State private var labStatus: String?
-    init(gameTitle: String? = nil) {
+    private let resumeGame: () -> Void
+    init(gameTitle: String? = nil, resumeGame: @escaping () -> Void = {}) {
         _label = State(initialValue: gameTitle ?? "")
+        self.resumeGame = resumeGame
     }
     var body: some View {
         NavigationStack {
             Form {
-                Section { GPUTraceComparisonControls() }
+                Section { GPUTraceComparisonControls { dismiss(); resumeGame() } }
                 Section {
                     if let server = URL(string: upload.server), server.scheme == "https",
                        server.host?.hasSuffix(".chatgpt.site") == true {

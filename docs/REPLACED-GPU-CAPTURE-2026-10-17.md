@@ -82,6 +82,16 @@ capture, while public thermal state remains nominal. That differs from the
 725 session. The binary pair is still required before identifying individual
 GPU passes or attributing causality; this export correction is not an FPS fix.
 
+### Recording control visibility correction
+
+729 exposed recording only in the game Session menu and renamed the action
+to Record another comparison when a saved pair existed. The diagnostics view
+was export-only. Use the stable **Record FPS drop** label in both views. The
+button remains visible at Home with an explanation that REPLACED must first
+display a frame. A custom library title is supported by checking the launch
+EXE path as well as the title. Starting from diagnostics closes that sheet
+and the underlying Session menu so gameplay sampling can actually resume.
+
 After extracting the ZIP, validate both complete samples:
 
 ```
@@ -95,8 +105,9 @@ and dependencies. Replay timings on another GPU do not establish original
 iPad timings or its clock. A programmatic workload capture is not an Instruments
 Metal System Trace and does not by itself identify the OS power governor.
 
-No REPLACED trace has yet been recorded on the user's iPad with this new path.
-There is no claimed FPS correction until the two actual samples are analyzed.
+The 727 device text report confirms completion of the capture callbacks; the
+binary documents have not yet been received or analyzed. There is no claimed
+FPS correction until the two actual samples are analyzed.
 Host tests execute the real capture state policy, FPS detector and Objective-C
 controller with a fake Metal destination, plus the ordered source patch
 pipeline. Device capture and replay remain separate required validation.

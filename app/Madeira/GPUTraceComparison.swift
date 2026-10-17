@@ -54,9 +54,10 @@ struct GPUTraceDropPolicy {
     private var cachedExport: (folder: URL, zip: URL)?
     private let documents: URL
     private let preferences: UserDefaults
-    private var eligibleSession = false
+    @Published private(set) var eligibleSession = false
+    @Published private var gameVisible = false
     private var menuOpen = false
-    private var foreground = true
+    @Published private var foreground = true
     private var timer: Timer?
     private var policy = GPUTraceDropPolicy()
     private var previousFrames: UInt64 = 0
@@ -70,6 +71,12 @@ struct GPUTraceDropPolicy {
     private var observers: [NSObjectProtocol] = []
     @Published private var manualScheduled = false
     var canCaptureReference: Bool { recording && policy.reference == nil && lastCapture == nil && !manualScheduled }
+    var canStartRecording: Bool { eligibleSession && gameVisible && foreground && !recording && !busy && !exporting }
+    var recordHint: String? {
+        if !eligibleSession { return "Open REPLACED and enter the scene you want to compare, then tap Record FPS drop." }
+        if !gameVisible { return "Wait for the game to display a frame, then enter the scene you want to compare." }
+        return nil
+    }
 
     init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0],
          preferences: UserDefaults = .standard) {
@@ -83,17 +90,20 @@ struct GPUTraceDropPolicy {
             Task { @MainActor in self.foreground = true }
         })
     }
-    func session(title: String?) {
+    func session(title: String?, executable: String? = nil) {
         interrupt("The game session ended. Completed traces are still available.")
-        eligibleSession = title?.localizedCaseInsensitiveContains("replaced") == true
+        let identity = (title ?? "") + " " + (executable ?? "")
+        eligibleSession = identity.localizedCaseInsensitiveContains("replaced")
+        gameVisible = false
     }
+    func gameDidBecomeVisible() { if eligibleSession { gameVisible = true } }
     func setMenuOpen(_ open: Bool) {
         menuOpen = open
         if open, lastCapture != nil { interrupt("The game menu opened during capture. Start a new comparison from gameplay.") }
         if !open { policy.resume(after: ProcessInfo.processInfo.systemUptime) }
     }
-    func start() {
-        guard eligibleSession, !recording, !busy, !exporting, foreground else { return }
+    @discardableResult func start() -> Bool {
+        guard canStartRecording else { return false }
         generation = UUID(); let token = generation
         busy = true; message = "Preparing GPU comparison…"
         activeFolder = nil; manifest = [:]
@@ -129,6 +139,7 @@ struct GPUTraceDropPolicy {
                 LogStore.shared.log("[gpu-trace-pair] armed folder=GPUTraces/\(folder.lastPathComponent) mode=\(fpsMode) baseline-min-fps=50")
             } catch { if token == generation { busy = false; message = error.localizedDescription; restoreSaved() } }
         }
+        return true
     }
     private func tick() {
         guard recording, !polling else { return }
@@ -433,7 +444,6 @@ struct GPUTraceArchive: Transferable {
 
 struct GPUTraceComparisonControls: View {
     @ObservedObject private var trace = GPUTraceComparison.shared
-    var canStart = false
     var resume: () -> Void = {}
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -454,15 +464,14 @@ struct GPUTraceComparisonControls: View {
                     .foregroundStyle(.secondary)
                 Text(trace.findingSaved ? "Finding saved traces…" : "No completed comparison found yet.").font(.caption)
             }
-            if canStart {
-                Button(trace.savedFolder == nil ? "Record FPS drop" : "Record another comparison", systemImage: "waveform.path.ecg") { trace.start(); resume() }
-                    .disabled(trace.recording || trace.busy || trace.exporting)
-                if trace.canCaptureSlow {
-                    Button("Capture low FPS now", systemImage: "camera") { trace.captureSlow(); resume() }
-                }
-                if trace.canCaptureReference {
-                    Button("Capture reference now", systemImage: "camera") { trace.captureReference(); resume() }
-                }
+            Button("Record FPS drop", systemImage: "waveform.path.ecg") { if trace.start() { resume() } }
+                .disabled(!trace.canStartRecording)
+            if let hint = trace.recordHint { Text(hint).font(.caption).foregroundStyle(.secondary) }
+            if trace.canCaptureSlow {
+                Button("Capture low FPS now", systemImage: "camera") { trace.captureSlow(); resume() }
+            }
+            if trace.canCaptureReference {
+                Button("Capture reference now", systemImage: "camera") { trace.captureReference(); resume() }
             }
             if trace.recording { Button("Stop recording", role: .cancel) { trace.interrupt("Recording stopped. Completed samples were kept.") } }
             if trace.recording, trace.savedFolder != nil { Text("Stop recording to share the saved comparison.").font(.caption) }

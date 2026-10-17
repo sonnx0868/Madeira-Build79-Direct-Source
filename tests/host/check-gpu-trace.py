@@ -191,7 +191,12 @@ enum GPUTraceNative {
   for _ in 0..<300 {if !model.findingSaved {break};try await Task.sleep(nanoseconds:10_000_000)}
   assert(!model.findingSaved && model.savedFolder?.lastPathComponent==original.lastPathComponent && model.savedComparisons.count==1)
   assert(prefs.string(forKey:"madeira.gpuTrace.latest")==original.lastPathComponent)
-  model.session(title:"REPLACED");model.start()
+  assert(!model.eligibleSession && !model.canStartRecording && !model.start())
+  // Renaming the library title cannot hide recording for the same EXE.
+  model.session(title:"Custom library title",executable:"Games/REPLACED Viet Hoa/Replaced.exe")
+  assert(model.eligibleSession && !model.canStartRecording && !model.start())
+  model.gameDidBecomeVisible();assert(model.canStartRecording && model.recordHint==nil)
+  assert(model.start())
   for _ in 0..<300 {if !model.busy {break};try await Task.sleep(nanoseconds:10_000_000)}
   assert(model.recording && model.savedFolder?.lastPathComponent==original.lastPathComponent)
   assert(prefs.string(forKey:"madeira.gpuTrace.latest")==original.lastPathComponent)
@@ -203,7 +208,10 @@ enum GPUTraceNative {
   assert(metadataAfter==originalMetadata)
   let logAfter=try String(contentsOf:original.appendingPathComponent("session.txt"),encoding:.utf8)
   assert(logAfter=="CAPTURED GAME SESSION")
+  model.session(title:"Other game",executable:"Games/Other/Game.exe");model.gameDidBecomeVisible()
+  assert(!model.eligibleSession && !model.canStartRecording && !model.start() && model.recordHint != nil)
   print("PASS: actual GPU comparison model restores727 recording, preserves it across a new start/stop and exports/caches its original ZIP and session")
+  print("PASS: GPU record readiness rejects home/loading/other games, recognizes a renamed REPLACED by EXE path and enables after its first frame")
  }
 }
 ''',encoding='utf-8')
@@ -351,3 +359,10 @@ assert create.index('madeira_gpu_trace_will_create(')<create.index(' commandBuff
 commit=source.split('_MTLCommandBuffer_commit(void *obj)',1)[1].split('static NTSTATUS',1)[0]
 assert commit.index(' commit]')<commit.index('madeira_gpu_trace_did_commit(',commit.index(' commit]'))
 print('PASS: complete ordered production DXMT pipeline hooks capture before creation and after commit')
+ui=(root/'app/Madeira/GPUTraceComparison.swift').read_text(encoding='utf-8').split('struct GPUTraceComparisonControls:',1)[1]
+support=(root/'app/Madeira/SupportViews.swift').read_text(encoding='utf-8')
+library=(root/'app/Madeira/Library.swift').read_text(encoding='utf-8')
+assert 'Button("Record FPS drop"' in ui and 'Record another comparison' not in ui and 'if canStart' not in ui
+assert 'GPUTraceComparisonControls { dismiss(); resumeGame() }' in support
+assert 'DiagnosticUploadView(gameTitle: model.activeEntry?.title, resumeGame: { model.menu = false })' in library
+print('PASS: stable Record FPS drop label in both views; diagnostics start dismisses its sheet and resumes the game menu')
