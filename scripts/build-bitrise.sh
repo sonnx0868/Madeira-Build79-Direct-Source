@@ -150,6 +150,7 @@ checks() {
   python3 tests/host/check-gpu-lifecycle.py
   python3 tests/host/check-gpu-trace.py --require-darwin
   python3 tests/host/check-gpu-stages.py --require-darwin
+  python3 tests/host/check-gpu-stage-analysis.py
   python3 tests/host/check-gpu-trace-share.py
   xcrun --find gpudebug || echo 'GPU trace analysis CLI unavailable on this runner; use a Mac with gpudebug for replay'
   python3 tests/host/check-workload-diagnostics.py
