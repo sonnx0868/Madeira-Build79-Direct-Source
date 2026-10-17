@@ -34,8 +34,8 @@ int main(int argc, char **argv) { @autoreleasepool {
  unsigned count=0;Class *classes=objc_copyClassList(&count);
  for(unsigned i=0;i<count;i++) {
    NSString *name=NSStringFromClass(classes[i]);
-   if(!([name hasPrefix:@"DY"] || [name hasPrefix:@"GT"] || [name hasPrefix:@"MTLTools"])) continue;
-   if(!([name containsString:@"Capture"] || [name containsString:@"Trace"] || [name containsString:@"Session"] || [name containsString:@"Replay"]))continue;
+   if(!([name hasPrefix:@"DY"] || [name hasPrefix:@"GT"] || [name hasPrefix:@"MTLTools"] || [name containsString:@"FunctionTracer"])) continue;
+   if(!([name containsString:@"Capture"] || [name containsString:@"Trace"] || [name containsString:@"Session"] || [name containsString:@"Replay"] || [name containsString:@"Function"] || [name containsString:@"Database"]))continue;
    printf("CLASS %s\n",name.UTF8String);
    for(int meta=0;meta<2;meta++) {
      unsigned n=0;Method *methods=class_copyMethodList(meta?object_getClass(classes[i]):classes[i],&n);
@@ -51,6 +51,15 @@ int main(int argc, char **argv) { @autoreleasepool {
     with (out / 'apple-reader-classes.txt').open('w') as log:
         r = subprocess.run([str(work / 'classes')] + [str(p) for p in paths if p.exists()], stdout=log, stderr=subprocess.STDOUT, env=env, timeout=60)
     summary['readerInventoryExit'] = r.returncode
+    with (out / 'apple-reader-symbols.txt').open('w') as log:
+        for bundle in paths:
+            binary = bundle / 'Versions/A' / bundle.stem
+            if not binary.exists(): continue
+            log.write(str(binary) + '\n'); log.flush()
+            symbols = subprocess.run(['nm', '-gU', str(binary)], capture_output=True, text=True, timeout=30)
+            demangled = subprocess.run(['c++filt'], input=symbols.stdout, capture_output=True, text=True, timeout=30).stdout
+            log.write('\n'.join(line for line in demangled.splitlines() if re.search('Function(Name|Info|Description|Descriptor|Table)|[Ii]nitialize|[Rr]egister|[Ll]oad.*(MTL|Metal|Info|Database)|Tracer', line))[:100000] + '\n')
+            log.write('RESOURCE FILES\n' + '\n'.join(str(p.relative_to(bundle)) for p in (bundle / 'Resources').rglob('*') if p.is_file())[:30000] + '\n')
     url = os.environ.get('MADEIRA_GPU_TRACE_URL')
     key = os.environ.get('MADEIRA_GPU_TRACE_KEY')
     if url and key:
@@ -110,6 +119,10 @@ try plain.write(to:URL(fileURLWithPath:CommandLine.arguments[2]))
                     result = subprocess.run([str(reader), str(frameworks[0]), str(folder / (kind + '.gputrace')), str(out / kind)],
                                             stdout=log, stderr=subprocess.STDOUT, env=env, timeout=180)
                 summary[kind + 'ReaderExit'] = result.returncode
+                listing = out / (kind + '-apple-api.txt')
+                if listing.exists():
+                    commands = listing.read_text(errors='replace')
+                    summary[kind + 'NullFunctionNames'] = commands.count('(null)(')
             summary['analysisStatus'] = 'Used installed Apple archive reader for static API structure; original-device GPU counters/replay not claimed'
     (out / 'gpu-analysis-summary.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary))
