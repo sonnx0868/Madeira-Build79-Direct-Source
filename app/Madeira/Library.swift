@@ -4925,6 +4925,10 @@ struct LibraryHUD: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack { Label("Session", systemImage: "gamecontroller.fill").font(.title2.bold()); Spacer(); Button("Done") { model.menu = false }.buttonStyle(.bordered) }
+                if model.activeEntry?.title.localizedCaseInsensitiveContains("replaced") == true {
+                    GPUTraceComparisonControls(canStart: true) { model.menu = false }
+                    Divider()
+                }
                 // The controls come first, the easiest to reach; the overlay settings last.
                 Toggle("Touch controls", isOn: $controls.visible)
                 // The named layouts (Xbox controller, custom ones) live here in a session: this
@@ -4971,10 +4975,6 @@ struct LibraryHUD: View {
                 }
                 Button { diagnosticSheet = true } label: {
                     Label("Send diagnostic log", systemImage: "square.and.arrow.up")
-                }
-                if model.activeEntry?.title.localizedCaseInsensitiveContains("replaced") == true {
-                    Divider()
-                    GPUTraceComparisonControls(canStart: true) { model.menu = false }
                 }
                 if let appID = model.activeEntry?.steamAppID, SteamOwnedLibrary.cloudQuitEnabled {
                     Divider()

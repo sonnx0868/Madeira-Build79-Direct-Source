@@ -51,11 +51,36 @@ not a hard bound on the size of a two-frame capture. No guest code is modified.
 
 The native `.gputrace` documents, manifest and bounded session log remain in
 **Files → Madeira → GPUTraces → comparison UUID**. The Session menu and the
-diagnostics screen offer **Prepare GPU comparison ZIP**, then **Share GPU
-comparison ZIP**. Packaging uses a background file coordinator and does not
+diagnostics screen offer **Share GPU trace ZIP** at the top. It opens the
+system share interface and prepares the ZIP for the chosen destination.
+Packaging uses a background file coordinator and does not
 load the trace into a Swift Data buffer. The captured session log is saved
 when capture finishes, so a later game/session cannot replace it on export.
 The existing 20 MB text log uploader cannot carry GPU trace binaries.
+
+## Export correction after the 727 device report
+
+Report `950a4d6a-a4ab-4baf-a73d-23da56b15456` confirms that both samples in
+`480d7618-eb74-452f-b921-3e4fcc2d0d9d` finished with two frames/four buffers.
+The user then armed a second run (`296b2076…`) while FPS was already low.
+727 pointed its export UI at that new incomplete run. It also hid Share
+behind a separate Prepare action, below other game controls. The report
+contains no trace binaries and does not prove a successful export.
+
+The corrected app discovers complete pairs from their on-disk manifests,
+ignores newer incomplete runs and stale preferences, and retains the complete
+export selection separately from an active recording. It can recover an old
+pair after updating/restarting without game launch or JIT. Multiple complete
+pairs are selectable by game, date and short ID. Capture/export controls are
+at the top of the Session and diagnostics views. The single Share action uses
+Apple's asynchronous ZIP file representation; it doesn't require first finding
+a hidden Prepare action. Buttons inside the diagnostics Form use borderless
+style so they act independently. Export start/success/error are logged.
+
+The 727 report also shows a P-to-E CPU residency transition before the slow
+capture, while public thermal state remains nominal. That differs from the
+725 session. The binary pair is still required before identifying individual
+GPU passes or attributing causality; this export correction is not an FPS fix.
 
 After extracting the ZIP, validate both complete samples:
 

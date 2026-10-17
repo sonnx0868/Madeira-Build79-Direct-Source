@@ -77,7 +77,7 @@ assert(q.setManualReference(42) && q.reference == 42)
     else: print('SKIP: Swift detector execution requires swiftc; CI must run it')
     if platform.system()=='Darwin':
         text=(root/'app/Madeira/GPUTraceComparison.swift').read_text(encoding='utf-8')
-        files=text[text.index('enum GPUTraceFiles {'):text.index('struct GPUTraceComparisonControls:')]
+        files=text[text.index('enum GPUTraceFiles {'):text.index('struct GPUTraceArchive:')]
         diagnostics=(root/'app/Madeira/RemoteDiagnostics.swift').read_text(encoding='utf-8')
         error=diagnostics[diagnostics.index('enum SupportError:'):diagnostics.index('enum DiagnosticContext')]
         snapshot=diagnostics[diagnostics.index('enum DiagnosticSnapshot {'):diagnostics.index('enum DiagnosticCompanionLogs {')]
@@ -89,10 +89,10 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   let fm=FileManager.default, root=fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   try fm.createDirectory(at: root, withIntermediateDirectories: true)
   defer { try? fm.removeItem(at: root) }
-  let log=root.appendingPathComponent("input.txt"), folder=root.appendingPathComponent("pair")
+  let log=root.appendingPathComponent("input.txt"), folder=root.appendingPathComponent("00000000-0000-0000-0000-000000000001",isDirectory:true)
   try fm.createDirectory(at: folder, withIntermediateDirectories: false)
   try Data("ORIGINAL CAPTURED SESSION".utf8).write(to: log)
-  let manifest:[String:Any] = ["format":"madeira-gpu-comparison-v1",
+  let manifest:[String:Any] = ["format":"madeira-gpu-comparison-v1", "createdAt":"2026-10-17T03:43:00Z", "context":["gameTitle":"REPLACED"],
     "smooth":["file":"smooth.gputrace","complete":true,"frames":2],
     "slow":["file":"slow.gputrace","complete":true,"frames":2]]
   for kind in ["smooth","slow"] {
@@ -110,6 +110,29 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   let zip2=try await GPUTraceFiles.export(folder:folder);defer {try? fm.removeItem(at:zip2)}
   let capturedLog=try String(contentsOf:folder.appendingPathComponent("session.txt"),encoding:.utf8)
   assert(capturedLog=="ORIGINAL CAPTURED SESSION")
+  // Reproduce 727: the latest pointer names a newer unfinished run, while
+  // an earlier pair is complete. Discovery must recover the real old pair.
+  let unfinished=root.appendingPathComponent("00000000-0000-0000-0000-000000000002",isDirectory:true)
+  try fm.createDirectory(at:unfinished,withIntermediateDirectories:false)
+  GPUTraceFiles.writeManifest(["format":"madeira-gpu-comparison-v1","createdAt":"2026-10-17T03:45:00Z"],folder:unfinished)
+  var pairs=await GPUTraceFiles.savedComparisons(in:root)
+  assert(pairs.count==1 && pairs[0].id==folder.lastPathComponent && pairs[0].title=="REPLACED")
+  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:unfinished.lastPathComponent)?.folder==folder)
+  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:nil)?.folder==folder)
+  let older=root.appendingPathComponent("00000000-0000-0000-0000-000000000003",isDirectory:true)
+  try fm.copyItem(at:folder,to:older)
+  var oldManifest=manifest;oldManifest["createdAt"]="2026-10-16T03:43:00Z"
+  GPUTraceFiles.writeManifest(oldManifest,folder:older)
+  let malformed=root.appendingPathComponent("00000000-0000-0000-0000-000000000004")
+  try fm.createDirectory(at:malformed,withIntermediateDirectories:false)
+  try Data("invalid json".utf8).write(to:malformed.appendingPathComponent("manifest.json"))
+  try fm.createSymbolicLink(at:root.appendingPathComponent("00000000-0000-0000-0000-000000000005"),withDestinationURL:folder)
+  pairs=await GPUTraceFiles.savedComparisons(in:root)
+  assert(pairs.count==2 && pairs[0].folder==folder && pairs[1].folder==older)
+  assert(GPUTraceSavedComparison.select(from:pairs,preferredID:older.lastPathComponent)?.folder==older)
+  let restoredZip=try await GPUTraceFiles.export(folder:GPUTraceSavedComparison.select(from:pairs,preferredID:unfinished.lastPathComponent)!.folder)
+  defer {try? fm.removeItem(at:restoredZip)}
+  print("PASS: saved GPU comparison discovery recovers complete727 pair behind newer unfinished run, preserves selection, sorts dates and excludes malformed/symlink folders")
   let injected=folder.appendingPathComponent("unrelated.txt");try Data("PRIVATE".utf8).write(to:injected)
   var rejected=false;do {_=try await GPUTraceFiles.export(folder:folder)}catch{rejected=true};assert(rejected)
   try fm.removeItem(at:injected)
@@ -120,6 +143,71 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
 }
 ''',encoding='utf-8')
         subprocess.run([swift,'-parse-as-library',str(source),'-o',str(binary)],check=True)
+        subprocess.run([str(binary)],check=True,timeout=60)
+        model=text[text.index('@MainActor final class GPUTraceComparison:'):text.index('/// Enqueue synchronously')]
+        drop=text.split('// BEGIN GPU_TRACE_DROP_POLICY',1)[1].split('// END GPU_TRACE_DROP_POLICY',1)[0]
+        source=out/'model.swift';binary=out/'model'
+        source.write_text('import Foundation\nimport Combine\n'+error+snapshot+files+drop+model+r'''
+enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } }
+enum UIApplication {
+ static let willResignActiveNotification=Notification.Name("fixture-inactive")
+ static let didBecomeActiveNotification=Notification.Name("fixture-active")
+}
+func madeira_frame_count() -> UInt64 { 0 }
+func madeira_get_vsync_locked() -> Int32 { 1 }
+enum GPUTraceNative {
+ @MainActor static func cancel(_ done: @escaping @MainActor () -> Void) { done() }
+ @MainActor static func request(_ file: URL, done: @escaping @MainActor (Bool,String) -> Void) { done(true, "") }
+ @MainActor static func poll(_ done: @escaping @MainActor ((Int,Int,Int,Double,String)) -> Void) { done((0,0,0,0,"")) }
+}
+@MainActor final class LogStore {
+ static let shared=LogStore(); var source=URL(fileURLWithPath:"/unused")
+ func fileForUpload(previous:Bool)->URL {source}
+ func metadataForUpload(previous:Bool)->[String:String] { ["gameTitle":"REPLACED","build":"fixture"] }
+ func log(_ text:String) {print(text)}
+}
+@main struct CheckModel {
+ @MainActor static func main() async throws {
+  let fm=FileManager.default, docs=fm.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+  let root=docs.appendingPathComponent("GPUTraces")
+  try fm.createDirectory(at:root,withIntermediateDirectories:true)
+  defer {try? fm.removeItem(at:docs)}
+  let original=root.appendingPathComponent("480d7618-eb74-452f-b921-3e4fcc2d0d9d",isDirectory:true)
+  let unfinished=root.appendingPathComponent("296b2076-ee73-46ac-a2bb-16bf823c3de7",isDirectory:true)
+  for folder in [original,unfinished] {try fm.createDirectory(at:folder,withIntermediateDirectories:false)}
+  let manifest:[String:Any] = ["format":"madeira-gpu-comparison-v1", "createdAt":"2026-10-17T03:43:00Z",
+   "smooth":["file":"smooth.gputrace","frames":2,"complete":true],"slow":["file":"slow.gputrace","frames":2,"complete":true]]
+  let originalMetadata=try JSONSerialization.data(withJSONObject:manifest)
+  try originalMetadata.write(to:original.appendingPathComponent("manifest.json"))
+  for kind in ["smooth","slow"] {try Data("GPU fixture".utf8).write(to:original.appendingPathComponent(kind+".gputrace"))}
+  try Data("CAPTURED GAME SESSION".utf8).write(to:original.appendingPathComponent("session.txt"))
+  try Data("{\"format\":\"madeira-gpu-comparison-v1\"}".utf8).write(to:unfinished.appendingPathComponent("manifest.json"))
+  let input=docs.appendingPathComponent("input.txt");try Data("LATER SESSION".utf8).write(to:input);LogStore.shared.source=input
+  let suite="madeira.gpu-trace.fixture."+UUID().uuidString,prefs=UserDefaults(suiteName:suite)!
+  defer {prefs.removePersistentDomain(forName:suite)}
+  prefs.set(unfinished.lastPathComponent,forKey:"madeira.gpuTrace.latest")
+  let model=GPUTraceComparison(documents:docs,preferences:prefs)
+  model.restoreSaved()
+  for _ in 0..<300 {if !model.findingSaved {break};try await Task.sleep(nanoseconds:10_000_000)}
+  assert(!model.findingSaved && model.savedFolder==original && model.savedComparisons.count==1)
+  assert(prefs.string(forKey:"madeira.gpuTrace.latest")==original.lastPathComponent)
+  model.session(title:"REPLACED");model.start()
+  for _ in 0..<300 {if !model.busy {break};try await Task.sleep(nanoseconds:10_000_000)}
+  assert(model.recording && model.savedFolder==original)
+  assert(prefs.string(forKey:"madeira.gpuTrace.latest")==original.lastPathComponent)
+  model.interrupt("Fixture stops new incomplete run")
+  assert(!model.recording && model.savedFolder==original)
+  let zip=try await model.export(folder:original);defer {try? fm.removeItem(at:zip)}
+  let cached=try await model.export(folder:original);assert(zip==cached && !model.exporting)
+  let metadataAfter=try Data(contentsOf:original.appendingPathComponent("manifest.json"))
+  assert(metadataAfter==originalMetadata)
+  let logAfter=try String(contentsOf:original.appendingPathComponent("session.txt"),encoding:.utf8)
+  assert(logAfter=="CAPTURED GAME SESSION")
+  print("PASS: actual GPU comparison model restores727 recording, preserves it across a new start/stop and exports/caches its original ZIP and session")
+ }
+}
+''',encoding='utf-8')
+        subprocess.run([swift,'-swift-version','5','-parse-as-library',str(source),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True,timeout=60)
         source=out/'controller.m';binary=out/'controller'
         source.write_text(r'''

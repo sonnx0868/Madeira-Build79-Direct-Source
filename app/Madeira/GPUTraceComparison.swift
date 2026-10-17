@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
 import UIKit
+import CoreTransferable
+import UniformTypeIdentifiers
 
 // BEGIN GPU_TRACE_DROP_POLICY
 /// Observes ordinary gameplay outside the capture interval. Capturing itself
@@ -41,8 +43,17 @@ struct GPUTraceDropPolicy {
     @Published private(set) var recording = false
     @Published private(set) var busy = false
     @Published private(set) var canCaptureSlow = false
-    @Published private(set) var shareURL: URL?
     @Published private(set) var savedFolder: URL?
+    @Published private(set) var savedComparisons: [GPUTraceSavedComparison] = []
+    @Published private(set) var findingSaved = false
+    @Published private(set) var exporting = false
+    private var activeFolder: URL?
+    private var savedLookup = UUID()
+    private var exportTask: Task<URL, Error>?
+    private var exportingFolder: URL?
+    private var cachedExport: (folder: URL, zip: URL)?
+    private let documents: URL
+    private let preferences: UserDefaults
     private var eligibleSession = false
     private var menuOpen = false
     private var foreground = true
@@ -57,10 +68,13 @@ struct GPUTraceDropPolicy {
     private var history: [[String: Any]] = []
     private var manifest: [String: Any] = [:]
     private var observers: [NSObjectProtocol] = []
-    private var manualScheduled = false
+    @Published private var manualScheduled = false
     var canCaptureReference: Bool { recording && policy.reference == nil && lastCapture == nil && !manualScheduled }
 
-    private init() {
+    init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0],
+         preferences: UserDefaults = .standard) {
+        self.documents = documents.resolvingSymlinksInPath()
+        self.preferences = preferences
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in self.foreground = false; self.interrupt("Recording stopped because Madeira left the foreground. Start a new comparison after returning.") }
@@ -79,15 +93,16 @@ struct GPUTraceDropPolicy {
         if !open { policy.resume(after: ProcessInfo.processInfo.systemUptime) }
     }
     func start() {
-        guard eligibleSession, !recording, !busy, foreground else { return }
+        guard eligibleSession, !recording, !busy, !exporting, foreground else { return }
         generation = UUID(); let token = generation
-        busy = true; shareURL = nil; message = "Preparing GPU comparison…"
-        savedFolder = nil; manifest = [:]
+        busy = true; message = "Preparing GPU comparison…"
+        activeFolder = nil; manifest = [:]
         let metadata = LogStore.shared.metadataForUpload(previous: false)
+        let documents = self.documents
         Task {
             do {
                 let folder = try await Task.detached(priority: .utility) { () -> URL in
-                    let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].resolvingSymlinksInPath().appendingPathComponent("GPUTraces", isDirectory: true)
+                    let root = documents.appendingPathComponent("GPUTraces", isDirectory: true)
                     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
                     guard root.resolvingSymlinksInPath().standardizedFileURL == root.standardizedFileURL else {
                         throw SupportError.message("GPUTraces must be a folder inside Madeira, not a symbolic link.")
@@ -99,8 +114,7 @@ struct GPUTraceDropPolicy {
                     return folder
                 }.value
                 guard token == generation, eligibleSession, foreground else { return }
-                savedFolder = folder
-                UserDefaults.standard.set(folder.lastPathComponent, forKey: "madeira.gpuTrace.latest")
+                activeFolder = folder
                 manifest = ["format": "madeira-gpu-comparison-v1", "context": metadata, "createdAt": ISO8601DateFormatter().string(from: Date()),
                     "captureFrames": 2, "note": "Capture perturbs timing. Compare command structure and pre-capture FPS; replay timings are not original iPad hardware timings."]
                 policy = GPUTraceDropPolicy(); policy.resume(after: ProcessInfo.processInfo.systemUptime)
@@ -147,17 +161,20 @@ struct GPUTraceDropPolicy {
                         message = "Smooth sample saved. Keep playing in the same scene; a sustained 20% FPS drop triggers the second sample."
                     } else {
                         recording = false; canCaptureSlow = false; timer?.invalidate(); timer = nil
-                        message = "Both GPU samples saved. Export the comparison ZIP and send it for analysis."
+                        message = "Both GPU samples saved. Open Madeira's menu and tap Share GPU trace ZIP."
                     }
                     persist()
-                    if let folder = savedFolder { GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder) }
+                    if let folder = activeFolder {
+                        GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder)
+                        if kind == "slow" { restoreSaved(prefer: folder) }
+                    }
                     LogStore.shared.log("[gpu-trace-pair] sample=\(kind) complete=1 buffers=\(result.1) frames=\(result.2)")
                 }
             }
         } else if !manualScheduled, let kind = policy.sample(fps: fps, at: now, eligible: usable) { capture(kind) }
     }
     private func capture(_ kind: String) {
-        guard recording, !busy, lastCapture == nil, let folder = savedFolder else { return }
+        guard recording, !busy, lastCapture == nil, let folder = activeFolder else { return }
         lastCapture = kind; let token = generation
         manifest["\(kind)BeforeCapture"] = history.suffix(15).map { $0 }
         if let reference = policy.reference { manifest["referenceFPS"] = reference }
@@ -207,31 +224,48 @@ struct GPUTraceDropPolicy {
         manifest["interrupted"] = reason
         if let kind = lastCapture { manifest[kind] = ["file": "\(kind).gputrace", "complete": false, "error": reason] }
         lastCapture = nil; persist()
-        if let folder = savedFolder { GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder) }
+        if let folder = activeFolder { GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder) }
         let token = generation
         GPUTraceNative.cancel { [self] in if token == generation { busy = false } }
     }
     private func persist() {
-        guard let folder = savedFolder else { return }
+        guard let folder = activeFolder else { return }
         // Serial writes preserve phase ordering when stop follows start quickly.
         GPUTraceFiles.writeManifest(manifest, folder: folder)
     }
-    func restoreSaved() {
-        guard savedFolder == nil, let id = UserDefaults.standard.string(forKey: "madeira.gpuTrace.latest"), UUID(uuidString: id) != nil else { return }
-        savedFolder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .resolvingSymlinksInPath().appendingPathComponent("GPUTraces", isDirectory: true).appendingPathComponent(id, isDirectory: true)
-    }
-    func export() {
-        guard !recording, !busy, let folder = savedFolder else { return }
-        busy = true; shareURL = nil; message = "Packaging GPU traces…"
-        let token = generation
+    func restoreSaved(prefer: URL? = nil) {
+        let lookup = UUID(); savedLookup = lookup; findingSaved = true
+        let root = documents.appendingPathComponent("GPUTraces", isDirectory: true)
         Task {
-            do {
-                let url = try await GPUTraceFiles.export(folder: folder)
-                guard token == generation else { return }
-                shareURL = url; message = "ZIP ready. Share this file; GPU traces are too large for the text log uploader."
-            } catch { guard token == generation else { return }; message = error.localizedDescription }
-            busy = false
+            let pairs = await GPUTraceFiles.savedComparisons(in: root)
+            guard lookup == savedLookup else { return }
+            savedComparisons = pairs; findingSaved = false
+            let preferred = prefer?.lastPathComponent ?? savedFolder?.lastPathComponent ??
+                preferences.string(forKey: "madeira.gpuTrace.latest")
+            chooseSaved(GPUTraceSavedComparison.select(from: pairs, preferredID: preferred))
+        }
+    }
+    func selectSaved(_ id: String) { chooseSaved(savedComparisons.first { $0.id == id }) }
+    private func chooseSaved(_ comparison: GPUTraceSavedComparison?) {
+        savedFolder = comparison?.folder
+        if let comparison { preferences.set(comparison.id, forKey: "madeira.gpuTrace.latest") }
+    }
+    func export(folder: URL) async throws -> URL {
+        if let cachedExport, cachedExport.folder == folder, FileManager.default.fileExists(atPath: cachedExport.zip.path) {
+            return cachedExport.zip
+        }
+        if let exportTask, exportingFolder == folder { return try await exportTask.value }
+        guard !recording, !busy, !exporting else { throw SupportError.message("Stop recording before sharing the saved GPU comparison.") }
+        exporting = true; exportingFolder = folder; message = "Preparing GPU trace ZIP…"
+        let task = Task { try await GPUTraceFiles.export(folder: folder) }; exportTask = task
+        defer { exporting = false; exportTask = nil; exportingFolder = nil }
+        do {
+            let url = try await task.value
+            cachedExport = (folder, url)
+            message = "ZIP ready. Choose Save to Files or a sharing destination."
+            return url
+        } catch {
+            message = error.localizedDescription; throw error
         }
     }
 }
@@ -261,6 +295,55 @@ enum GPUTraceNative {
 
 enum GPUTraceFiles {
     private static let queue = DispatchQueue(label: "madeira.gpu-trace.files", qos: .utility)
+    static func savedComparisons(in root: URL) async -> [GPUTraceSavedComparison] {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let fm = FileManager.default
+                guard root.resolvingSymlinksInPath().standardizedFileURL == root.standardizedFileURL,
+                      let folders = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else {
+                    continuation.resume(returning: []); return
+                }
+                var pairs: [GPUTraceSavedComparison] = []
+                for folder in folders {
+                    guard UUID(uuidString: folder.lastPathComponent) != nil,
+                          let values = try? folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                          values.isDirectory == true, values.isSymbolicLink != true,
+                          let object = try? completeManifest(folder: folder) else { continue }
+                    let context = object["context"] as? [String: Any]
+                    let title = String((context?["gameTitle"] as? String ?? "GPU comparison").prefix(200))
+                    let date = (object["createdAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .distantPast
+                    pairs.append(GPUTraceSavedComparison(folder: folder, title: title, created: date))
+                }
+                pairs.sort { $0.created == $1.created ? $0.id < $1.id : $0.created > $1.created }
+                continuation.resume(returning: pairs)
+            }
+        }
+    }
+    private static func completeManifest(folder: URL) throws -> [String: Any] {
+        let fm = FileManager.default, manifest = folder.appendingPathComponent("manifest.json")
+        let values = try manifest.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize, size <= 1024 * 1024 else {
+            throw SupportError.message("GPU comparison metadata is invalid.")
+        }
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any]
+        guard let object, object["format"] as? String == "madeira-gpu-comparison-v1" else {
+            throw SupportError.message("GPU comparison metadata is missing.")
+        }
+        for kind in ["smooth", "slow"] {
+            let sample = object[kind] as? [String: Any]
+            guard sample?["complete"] as? Bool == true, sample?["frames"] as? Int == 2,
+                  sample?["file"] as? String == "\(kind).gputrace",
+                  let trace = try? folder.appendingPathComponent("\(kind).gputrace").resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]),
+                  trace.isSymbolicLink != true, trace.isDirectory == true || trace.isRegularFile == true else {
+                throw SupportError.message("Record both complete GPU samples before exporting the comparison.")
+            }
+        }
+        let log = try folder.appendingPathComponent("session.txt").resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard log.isRegularFile == true, log.isSymbolicLink != true else {
+            throw SupportError.message("The captured session log is missing.")
+        }
+        return object
+    }
     static func writeManifest(_ object: [String: Any], folder: URL) {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
         queue.async { do { try data.write(to: folder.appendingPathComponent("manifest.json"), options: .atomic) }
@@ -285,16 +368,8 @@ enum GPUTraceFiles {
                     guard folder.resolvingSymlinksInPath().standardizedFileURL == folder.standardizedFileURL else {
                         throw SupportError.message("The GPU comparison folder must not be a symbolic link.")
                     }
-                    let data = try Data(contentsOf: folder.appendingPathComponent("manifest.json"))
-                    let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                    guard object?["format"] as? String == "madeira-gpu-comparison-v1" else { throw SupportError.message("GPU comparison metadata is missing.") }
-                    for kind in ["smooth", "slow"] {
-                        let sample = object?[kind] as? [String: Any]
-                        guard sample?["complete"] as? Bool == true, sample?["frames"] as? Int == 2,
-                              fm.fileExists(atPath: folder.appendingPathComponent("\(kind).gputrace").path) else {
-                            throw SupportError.message("Record both complete GPU samples before exporting the comparison.")
-                        }
-                    }
+                    _ = try completeManifest(folder: folder)
+                    NSLog("[gpu-trace-pair] export-start pair=%@", folder.lastPathComponent)
                     let allowed: Set<String> = ["smooth.gputrace", "slow.gputrace", "manifest.json", "session.txt"]
                     let children = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
                     guard children.allSatisfy({ allowed.contains($0.lastPathComponent) }),
@@ -321,9 +396,34 @@ enum GPUTraceFiles {
                     }
                     if let error = coordinationError ?? (copyError as NSError?) { throw error }
                     guard copied else { throw SupportError.message("The GPU trace ZIP could not be created.") }
+                    NSLog("[gpu-trace-pair] export-ready file=%@", target.lastPathComponent)
                     continuation.resume(returning: target)
-                } catch { continuation.resume(throwing: error) }
+                } catch {
+                    NSLog("[gpu-trace-pair] export-failed: %@", error.localizedDescription)
+                    continuation.resume(throwing: error)
+                }
             }
+        }
+    }
+}
+
+struct GPUTraceSavedComparison: Identifiable {
+    let folder: URL
+    let title: String
+    let created: Date
+    var id: String { folder.lastPathComponent }
+    var label: String { "\(title) · \(created.formatted(date: .abbreviated, time: .shortened)) · \(id.prefix(8))" }
+    static func select(from pairs: [Self], preferredID: String?) -> Self? {
+        pairs.first { $0.id == preferredID } ?? pairs.first
+    }
+}
+
+struct GPUTraceArchive: Transferable {
+    let folder: URL
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .zip) { archive in
+            let url = try await GPUTraceComparison.shared.export(folder: archive.folder)
+            return SentTransferredFile(url)
         }
     }
 }
@@ -335,9 +435,25 @@ struct GPUTraceComparisonControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("GPU comparison").font(.headline)
+            if trace.savedComparisons.count > 1 {
+                Picker("Saved comparison", selection: Binding(get: { trace.savedFolder?.lastPathComponent ?? "" }, set: { trace.selectSaved($0) })) {
+                    ForEach(trace.savedComparisons) { pair in Text(pair.label).tag(pair.id) }
+                }.disabled(trace.exporting)
+            } else if let pair = trace.savedComparisons.first {
+                Text(pair.label).font(.caption).foregroundStyle(.secondary)
+            }
+            if let folder = trace.savedFolder {
+                ShareLink(item: GPUTraceArchive(folder: folder), preview: SharePreview("GPU trace ZIP")) {
+                    Label("Share GPU trace ZIP", systemImage: "square.and.arrow.up")
+                }.buttonStyle(.borderedProminent).disabled(trace.recording || trace.busy || trace.exporting)
+            } else {
+                Label("Share GPU trace ZIP", systemImage: "square.and.arrow.up")
+                    .foregroundStyle(.secondary)
+                Text(trace.findingSaved ? "Finding saved traces…" : "No completed comparison found yet.").font(.caption)
+            }
             if canStart {
-                Button("Record FPS drop", systemImage: "waveform.path.ecg") { trace.start(); resume() }
-                    .disabled(trace.recording || trace.busy)
+                Button(trace.savedFolder == nil ? "Record FPS drop" : "Record another comparison", systemImage: "waveform.path.ecg") { trace.start(); resume() }
+                    .disabled(trace.recording || trace.busy || trace.exporting)
                 if trace.canCaptureSlow {
                     Button("Capture low FPS now", systemImage: "camera") { trace.captureSlow(); resume() }
                 }
@@ -346,13 +462,11 @@ struct GPUTraceComparisonControls: View {
                 }
             }
             if trace.recording { Button("Stop recording", role: .cancel) { trace.interrupt("Recording stopped. Completed samples were kept.") } }
-            if trace.savedFolder != nil {
-                Button("Prepare GPU comparison ZIP", systemImage: "archivebox") { trace.export() }.disabled(trace.recording || trace.busy)
-            }
-            if let url = trace.shareURL { ShareLink(item: url) { Label("Share GPU comparison ZIP", systemImage: "square.and.arrow.up") } }
+            if trace.recording, trace.savedFolder != nil { Text("Stop recording to share the saved comparison.").font(.caption) }
+            if trace.exporting { ProgressView("Preparing GPU trace ZIP…") }
             if !trace.message.isEmpty { Text(trace.message).font(.caption).textSelection(.enabled) }
-            Text("Keep the same scene and settings. Two frames are recorded per sample; recording may briefly pause the game. Files are kept in Madeira → GPUTraces. Binary GPU traces are shared as a ZIP, separately from Send log.")
+            Text("Share GPU trace ZIP opens the sharing menu and prepares the file for your chosen destination. Saved comparisons remain available after restarting Madeira. Send log uploads only the text report.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.onAppear { trace.restoreSaved() }
+        }.buttonStyle(.borderless).onAppear { trace.restoreSaved() }
     }
 }
