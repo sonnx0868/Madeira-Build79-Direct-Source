@@ -58,7 +58,9 @@ int main(int argc, char **argv) { @autoreleasepool {
             log.write(str(binary) + '\n'); log.flush()
             symbols = subprocess.run(['nm', '-gU', str(binary)], capture_output=True, text=True, timeout=30)
             demangled = subprocess.run(['c++filt'], input=symbols.stdout, capture_output=True, text=True, timeout=30).stdout
-            log.write('\n'.join(line for line in demangled.splitlines() if re.search('Function(Name|Info|Description|Descriptor|Table)|[Ii]nitialize|[Rr]egister|[Ll]oad.*(MTL|Metal|Info|Database)|Tracer', line))[:100000] + '\n')
+            log.write(demangled[:2_000_000] + '\n')
+            dependencies = subprocess.run(['otool', '-L', str(binary)], capture_output=True, text=True, timeout=30)
+            log.write('DEPENDENCIES\n' + dependencies.stdout + '\n')
             log.write('RESOURCE FILES\n' + '\n'.join(str(p.relative_to(bundle)) for p in (bundle / 'Resources').rglob('*') if p.is_file())[:30000] + '\n')
     url = os.environ.get('MADEIRA_GPU_TRACE_URL')
     key = os.environ.get('MADEIRA_GPU_TRACE_KEY')
@@ -113,7 +115,7 @@ try plain.write(to:URL(fileURLWithPath:CommandLine.arguments[2]))
         else:
             reader = work / 'apple-reader'
             subprocess.run(['xcrun', 'clang', '-fobjc-arc', '-Wno-objc-method-access', str(Path(__file__).with_name('gpu-apple-archive-reader.m')),
-                            '-framework', 'Foundation', '-o', str(reader)], check=True)
+                            '-framework', 'Foundation', '-framework', 'Metal', '-o', str(reader)], check=True)
             for kind in ['smooth', 'slow']:
                 with (out / (kind + '-reader.log')).open('w') as log:
                     result = subprocess.run([str(reader), str(frameworks[0]), str(folder / (kind + '.gputrace')), str(out / kind)],

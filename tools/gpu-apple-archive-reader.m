@@ -2,6 +2,7 @@
 // this executable and these private Xcode APIs are never linked into Madeira.
 #import <Foundation/Foundation.h>
 #import <objc/message.h>
+#import <Metal/Metal.h>
 
 @interface NSObject (AppleArchiveReader)
 - (id)initWithURL:(NSURL *)url options:(NSInteger)options error:(NSError **)error;
@@ -40,6 +41,9 @@ static id jsonValue(id value) {
 int main(int argc,char **argv) { @autoreleasepool {
     if(argc<4) return 2;
     NSString *frameworks=@(argv[1]),*path=@(argv[2]),*out=@(argv[3]);
+    // Diagnostic process only: initialize the system Metal API metadata too.
+    [MTLCaptureManager sharedCaptureManager];
+    [[NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/MetalTools.framework"] load];
     for(NSString *name in @[@"MTLTools",@"MTLToolsServices",@"MTLToolsAnalysisEngine"]) {
         NSError *error=nil;
         BOOL loaded=[[NSBundle bundleWithPath:[frameworks stringByAppendingPathComponent:[name stringByAppendingString:@".framework"]]] loadAndReturnError:&error];
