@@ -51,8 +51,8 @@ not a hard bound on the size of a two-frame capture. No guest code is modified.
 
 The native `.gputrace` documents, manifest and bounded session log remain in
 **Files → Madeira → GPUTraces → comparison UUID**. The Session menu and the
-diagnostics screen offer **Share GPU trace ZIP** at the top. It opens the
-system share interface and prepares the ZIP for the chosen destination.
+diagnostics screen offer **Share GPU trace ZIP** and **Save ZIP to Files** at
+the top. Both finish preparing a regular ZIP before opening the system UI.
 Packaging uses a background file coordinator and does not
 load the trace into a Swift Data buffer. The captured session log is saved
 when capture finishes, so a later game/session cannot replace it on export.
@@ -72,10 +72,19 @@ ignores newer incomplete runs and stale preferences, and retains the complete
 export selection separately from an active recording. It can recover an old
 pair after updating/restarting without game launch or JIT. Multiple complete
 pairs are selectable by game, date and short ID. Capture/export controls are
-at the top of the Session and diagnostics views. The single Share action uses
-Apple's asynchronous ZIP file representation; it doesn't require first finding
-a hidden Prepare action. Buttons inside the diagnostics Form use borderless
+at the top of the Session and diagnostics views. Buttons inside the diagnostics Form use borderless
 style so they act independently. Export start/success/error are logged.
+
+The user's later device test reports that the asynchronous Transferable share
+opens but cannot deliver to Files or another app. Replace that deferred item
+provider with a ready local ZIP URL in UIActivityViewController, and a separate
+UIDocumentPickerViewController export-as-copy action. Present from the current
+SwiftUI controller, including a diagnostics sheet, with an explicit iPad popover
+anchor. Keep the owned ZIP in **Files → Madeira → GPUTraceExports**, independent
+of the share sheet or destination. Preparing, cancelling, or sharing never
+deletes the original captures. This is a delivery-path correction; an iPad
+Simulator modal test does not establish a successful transfer to a physical
+device's third-party app or cloud provider.
 
 The 727 report also shows a P-to-E CPU residency transition before the slow
 capture, while public thermal state remains nominal. That differs from the

@@ -77,7 +77,7 @@ assert(q.setManualReference(42) && q.reference == 42)
     else: print('SKIP: Swift detector execution requires swiftc; CI must run it')
     if platform.system()=='Darwin':
         text=(root/'app/Madeira/GPUTraceComparison.swift').read_text(encoding='utf-8')
-        files=text[text.index('enum GPUTraceFiles {'):text.index('struct GPUTraceArchive:')]
+        files=text[text.index('enum GPUTraceFiles {'):text.index('// BEGIN GPU_TRACE_FILE_PRESENTATION')]
         diagnostics=(root/'app/Madeira/RemoteDiagnostics.swift').read_text(encoding='utf-8')
         error=diagnostics[diagnostics.index('enum SupportError:'):diagnostics.index('enum DiagnosticContext')]
         snapshot=diagnostics[diagnostics.index('enum DiagnosticSnapshot {'):diagnostics.index('enum DiagnosticCompanionLogs {')]

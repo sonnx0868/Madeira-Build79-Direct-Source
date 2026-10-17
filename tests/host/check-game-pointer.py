@@ -71,7 +71,7 @@ assert "self.current == session" in quit_body, "a stale close timer must not rea
 assert "wine_session_close_has_exited() != 0" in library
 hud = library.split("struct LibraryHUD: View {", 1)[1].split("struct LibraryLiveLogs: View", 1)[0]
 assert ".sheet(isPresented: $diagnosticSheet)" in hud
-assert "DiagnosticUploadView(gameTitle: model.activeEntry?.title)" in hud
+assert "DiagnosticUploadView(gameTitle: model.activeEntry?.title, resumeGame:" in hud
 assert 'Label("Send diagnostic log"' in hud
 controls_window = view.split("final class ControlsWindow: UIWindow", 1)[1].split("enum TouchControlsHost", 1)[0]
 assert "if ControlPresetsModel.enabled, let root" not in controls_window

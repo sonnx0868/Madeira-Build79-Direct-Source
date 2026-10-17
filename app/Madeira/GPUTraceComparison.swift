@@ -1,8 +1,6 @@
 import Foundation
 import SwiftUI
 import UIKit
-import CoreTransferable
-import UniformTypeIdentifiers
 
 // BEGIN GPU_TRACE_DROP_POLICY
 /// Observes ordinary gameplay outside the capture interval. Capturing itself
@@ -268,17 +266,19 @@ struct GPUTraceDropPolicy {
         if let exportTask, exportingFolder == folder { return try await exportTask.value }
         guard !recording, !busy, !exporting else { throw SupportError.message("Stop recording before sharing the saved GPU comparison.") }
         exporting = true; exportingFolder = folder; message = "Preparing GPU trace ZIP…"
-        let task = Task { try await GPUTraceFiles.export(folder: folder) }; exportTask = task
+        let directory = documents.appendingPathComponent("GPUTraceExports", isDirectory: true)
+        let task = Task { try await GPUTraceFiles.export(folder: folder, directory: directory) }; exportTask = task
         defer { exporting = false; exportTask = nil; exportingFolder = nil }
         do {
             let url = try await task.value
             cachedExport = (folder, url)
-            message = "ZIP ready. Choose Save to Files or a sharing destination."
+            message = "ZIP ready. A copy is also available in Files → Madeira → GPUTraceExports."
             return url
         } catch {
             message = error.localizedDescription; throw error
         }
     }
+    func exportFinished(_ status: String) { message = status }
 }
 
 /// Enqueue synchronously from main so request/cancel/new-session cannot reorder
@@ -374,7 +374,7 @@ enum GPUTraceFiles {
             } catch { NSLog("[gpu-trace-pair] session snapshot failed: %@", error.localizedDescription) }
         }
     }
-    static func export(folder: URL) async throws -> URL {
+    static func export(folder: URL, directory: URL? = nil) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
@@ -403,7 +403,11 @@ enum GPUTraceFiles {
                     guard fm.fileExists(atPath: sessionLog.path) else {
                         throw SupportError.message("The captured session log is missing. Record a new comparison.")
                     }
-                    let target = fm.temporaryDirectory.appendingPathComponent("Madeira-GPU-\(folder.lastPathComponent)-\(UUID().uuidString).zip")
+                    // Own the ready ZIP before asking UIKit to hand it to Files
+                    // or another app. Do not generate it inside an item provider.
+                    let destination = directory ?? fm.temporaryDirectory
+                    try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+                    let target = destination.appendingPathComponent("Madeira-GPU-\(folder.lastPathComponent)-\(UUID().uuidString).zip")
                     var coordinationError: NSError?, copyError: Error?, copied = false
                     NSFileCoordinator().coordinate(readingItemAt: folder, options: .forUploading, error: &coordinationError) { archive in
                         do { try fm.copyItem(at: archive, to: target); copied = true } catch { copyError = error }
@@ -432,33 +436,124 @@ struct GPUTraceSavedComparison: Identifiable {
     }
 }
 
-struct GPUTraceArchive: Transferable {
-    let folder: URL
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(exportedContentType: .zip) { archive in
-            let url = try await GPUTraceComparison.shared.export(folder: archive.folder)
-            return SentTransferredFile(url)
+// BEGIN GPU_TRACE_FILE_PRESENTATION
+/// A request only exists after the archive has finished writing. UIKit gets a
+/// regular local file URL, not an asynchronous Transferable/item provider.
+struct GPUTraceFileRequest: Identifiable {
+    enum Action: String { case share, save }
+    let id = UUID()
+    let url: URL
+    let action: Action
+    init(url: URL, action: Action) throws {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard url.isFileURL, values.isRegularFile == true, (values.fileSize ?? 0) > 0,
+              FileManager.default.isReadableFile(atPath: url.path) else {
+            throw CocoaError(.fileReadCorruptFile)
         }
+        self.url = url; self.action = action
     }
 }
 
+/// Attach to the current SwiftUI controller, including the diagnostics sheet.
+/// A global keyWindow/root controller can be behind that sheet on iPad.
+struct GPUTraceFilePresenter: UIViewControllerRepresentable {
+    @Binding var request: GPUTraceFileRequest?
+    var finished: (String) -> Void
+    func makeUIViewController(context: Context) -> GPUTraceFileHostController { GPUTraceFileHostController() }
+    func updateUIViewController(_ controller: GPUTraceFileHostController, context: Context) {
+        controller.finished = { id, status in
+            if request?.id == id { request = nil; finished(status) }
+        }
+        controller.request = request
+        controller.presentWhenReady()
+    }
+}
+
+final class GPUTraceFileHostController: UIViewController, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
+    var request: GPUTraceFileRequest?
+    var finished: ((UUID, String) -> Void)?
+    private var active: GPUTraceFileRequest?
+    private var completedID: UUID?
+    private var scheduled = false
+    override func loadView() { view = UIView(); view.backgroundColor = .clear }
+    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); presentWhenReady() }
+    func presentWhenReady() {
+        guard !scheduled, active == nil, let request, request.id != completedID else { return }
+        scheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }; self.scheduled = false
+            // updateUIViewController can run before this controller has a window.
+            guard self.viewIfLoaded?.window != nil, self.active == nil,
+                  self.presentedViewController == nil, self.request?.id == request.id else { return }
+            self.active = request
+            let modal: UIViewController
+            switch request.action {
+            case .share:
+                let activity = UIActivityViewController(activityItems: [request.url], applicationActivities: nil)
+                activity.completionWithItemsHandler = { [weak self] _, completed, _, error in
+                    if let error { self?.finish("Sharing failed: \(error.localizedDescription)") }
+                    else { self?.finish(completed ? "ZIP shared. The original remains in GPUTraceExports." : "Sharing cancelled. The ZIP remains in GPUTraceExports.") }
+                }
+                if let popover = activity.popoverPresentationController {
+                    popover.sourceView = self.view
+                    popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 1, height: 1)
+                    popover.permittedArrowDirections = []
+                }
+                modal = activity
+            case .save:
+                let picker = UIDocumentPickerViewController(forExporting: [request.url], asCopy: true)
+                picker.delegate = self; modal = picker
+            }
+            modal.presentationController?.delegate = self
+            self.present(modal, animated: true) {
+                modal.presentationController?.delegate = self
+                NSLog("[gpu-trace-pair] file-presented action=%@ file=%@", request.action.rawValue, request.url.lastPathComponent)
+            }
+        }
+    }
+    private func finish(_ status: String) {
+        guard let active, completedID != active.id else { return }
+        completedID = active.id; self.active = nil; request = nil
+        NSLog("[gpu-trace-pair] file-result action=%@ status=%@", active.action.rawValue, status)
+        finished?(active.id, status)
+    }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        finish(urls.isEmpty ? "No destination selected. The ZIP remains in GPUTraceExports." : "ZIP saved to Files. The original remains in GPUTraceExports.")
+    }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish("Save cancelled. The ZIP remains in GPUTraceExports.") }
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { finish("Export closed. The ZIP remains in GPUTraceExports.") }
+}
+// END GPU_TRACE_FILE_PRESENTATION
+
 struct GPUTraceComparisonControls: View {
     @ObservedObject private var trace = GPUTraceComparison.shared
+    @State private var fileRequest: GPUTraceFileRequest?
+    @State private var preparing = false
     var resume: () -> Void = {}
+    private func export(_ folder: URL, action: GPUTraceFileRequest.Action) {
+        guard !preparing, fileRequest == nil else { return }
+        preparing = true
+        Task { @MainActor in
+            defer { preparing = false }
+            do { fileRequest = try GPUTraceFileRequest(url: await trace.export(folder: folder), action: action) }
+            catch { trace.exportFinished("Could not prepare ZIP: \(error.localizedDescription)") }
+        }
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("GPU comparison").font(.headline)
             if trace.savedComparisons.count > 1 {
                 Picker("Saved comparison", selection: Binding(get: { trace.savedFolder?.lastPathComponent ?? "" }, set: { trace.selectSaved($0) })) {
                     ForEach(trace.savedComparisons) { pair in Text(pair.label).tag(pair.id) }
-                }.disabled(trace.exporting)
+                }.disabled(trace.exporting || preparing || fileRequest != nil)
             } else if let pair = trace.savedComparisons.first {
                 Text(pair.label).font(.caption).foregroundStyle(.secondary)
             }
             if let folder = trace.savedFolder {
-                ShareLink(item: GPUTraceArchive(folder: folder), preview: SharePreview("GPU trace ZIP")) {
-                    Label("Share GPU trace ZIP", systemImage: "square.and.arrow.up")
-                }.buttonStyle(.borderedProminent).disabled(trace.recording || trace.busy || trace.exporting)
+                Button("Share GPU trace ZIP", systemImage: "square.and.arrow.up") { export(folder, action: .share) }
+                    .buttonStyle(.borderedProminent).disabled(trace.recording || trace.busy || trace.exporting || preparing || fileRequest != nil)
+                Button("Save ZIP to Files", systemImage: "folder") { export(folder, action: .save) }
+                    .disabled(trace.recording || trace.busy || trace.exporting || preparing || fileRequest != nil)
             } else {
                 Label("Share GPU trace ZIP", systemImage: "square.and.arrow.up")
                     .foregroundStyle(.secondary)
@@ -477,8 +572,10 @@ struct GPUTraceComparisonControls: View {
             if trace.recording, trace.savedFolder != nil { Text("Stop recording to share the saved comparison.").font(.caption) }
             if trace.exporting { ProgressView("Preparing GPU trace ZIP…") }
             if !trace.message.isEmpty { Text(trace.message).font(.caption).textSelection(.enabled) }
-            Text("Share GPU trace ZIP opens the sharing menu and prepares the file for your chosen destination. Saved comparisons remain available after restarting Madeira. Send log uploads only the text report.")
+            Text("ZIP is prepared before opening Share or Files. You can also find it in Files → Madeira → GPUTraceExports. Saved comparisons remain available after restarting Madeira. Send log uploads only the text report.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.buttonStyle(.borderless).onAppear { trace.restoreSaved() }
+        }.buttonStyle(.borderless)
+            .background { GPUTraceFilePresenter(request: $fileRequest, finished: trace.exportFinished).frame(width: 1, height: 1) }
+            .onAppear { trace.restoreSaved() }
     }
 }
