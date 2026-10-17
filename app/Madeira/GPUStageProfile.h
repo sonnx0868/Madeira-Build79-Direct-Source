@@ -10,7 +10,9 @@
 #include <stdint.h>
 #include <mach/mach_time.h>
 
-extern int madeira_gpu_stage_hooks_version(void) __attribute__((weak_import));
+// A restored older native bundle can still link the app. A refreshed boundary
+// supplies the strong version=1 definition, as IOSDisplayShim does for pacing.
+__attribute__((weak, noinline)) int madeira_gpu_stage_hooks_version(void) { return 0; }
 
 enum { MGStageRender = 0, MGStageCompute = 1, MGStageBlit = 2,
        MGStageSamples = 1024, MGStageBuffers = 8 };
@@ -61,7 +63,7 @@ static void stage_finish_locked(MadeiraGPUStageScope *scope, NSString *error) {
     mach_timebase_info_data_t timebase; mach_timebase_info(&timebase);
     NSDictionary *result = @{@"format": @"madeira-gpu-stages-v1",
         @"sampleRole": @"one complete following frame after a presentation boundary",
-        @"complete": @(scope.presented && scope.completed == scope.created && !scope.error),
+        @"complete": @(scope.presented && scope.completed == scope.created && scope.validIntervals > 0 && !scope.error),
         @"available": @(scope.validIntervals > 0), @"error": scope.error ?: @"",
         @"timestampFormat": @"MTLCounterResultTimestamp", @"validIntervals": @(scope.validIntervals),
         @"clockCalibration": @{@"cpuStart": @(scope.cpuStart), @"gpuStart": @(scope.gpuStart),
@@ -88,7 +90,7 @@ static void stage_finish_locked(MadeiraGPUStageScope *scope, NSString *error) {
 }
 
 static void stage_request(NSURL *url, id<MTLCommandQueue> queue) {
-    if (!madeira_gpu_stage_hooks_version || madeira_gpu_stage_hooks_version() != 1) return;
+    if (madeira_gpu_stage_hooks_version() != 1) return;
     pthread_mutex_lock(&stage_lock);
     if (stage_scope && !stage_scope.written) {
         pthread_mutex_unlock(&stage_lock); return;
