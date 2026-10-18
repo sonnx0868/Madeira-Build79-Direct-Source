@@ -83,10 +83,11 @@ if [[ "${1:-all}" = sync-only ]]; then
     test -s "$WINE_BUILD/include/config.h"
     compile_one "$BUILD_DIR/../madsync/madsync_bridge.c" madsync
     compile_one "$WINE_SRC/dlls/ntdll/unix/sync.c" sync
+    compile_one "$BUILD_DIR/thread_ios.c" thread
     [[ "$FAILED" = 0 ]] || exit 1
     candidate="$OBJ_DIR/libntdll_sync_refresh.a"
     cp "$APP_LIB" "$candidate"
-    xcrun ar r "$candidate" "$OBJ_DIR/madsync.o" "$OBJ_DIR/sync.o"
+    xcrun ar r "$candidate" "$OBJ_DIR/madsync.o" "$OBJ_DIR/sync.o" "$OBJ_DIR/thread.o"
     xcrun ranlib "$candidate"
     python3 "$REPO_ROOT/tools/ntdll-runtime-bundle.py" --stamp --sync-refresh --archive "$candidate" --base "$APP_LIB"
     mv "$candidate" "$APP_LIB"

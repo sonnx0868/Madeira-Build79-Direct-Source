@@ -41,7 +41,48 @@ NutsSync descriptor handoff failure/cleanup and empty APC-poll shortcut.
  
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
-@@ -3646,7 +3646,22 @@
+@@ -597,19 +597,39 @@
+     return c ? c : &ios_inproc_cache_fallback;
+ }
+ 
++static void release_inproc_sync( struct inproc_sync *sync );
++
+ /* Called when a pseudo-process dies (next to ios_fd_cache_release). The blocks
+  * are deliberately NOT freed: a laggard thread may still be inside a lookup. */
+ void ios_inproc_cache_release( void *peb )
+ {
+     int i;
++    sigset_t saved;
++    /* Same lock order as cache insertion and NtClose. The server keeps running
++     * while this client retires its cache. In-flight users retain their own
++     * references and may release them after the cache is no longer reachable. */
++    server_enter_uninterrupted_section( &fd_cache_mutex, &saved );
+     pthread_mutex_lock( &ios_inproc_cache_lock );
+     for (i = 0; i < IOS_MAX_INPROC_CACHES; i++)
+         if (ios_inproc_caches[i] && ios_inproc_caches[i]->peb == peb)
+         {
+-            ios_inproc_caches[i]->peb = (void *)~(uintptr_t)0;   /* never matches again */
++            struct ios_inproc_cache *cache = ios_inproc_caches[i];
++            cache->peb = (void *)~(uintptr_t)0;
+             ios_inproc_caches[i] = NULL;
++            for (unsigned block = 0; block < INPROC_SYNC_CACHE_ENTRIES; block++)
++                if (cache->blocks[block])
++                    for (unsigned entry = 0; entry < INPROC_SYNC_CACHE_BLOCK_SIZE; entry++)
++                    {
++                        struct inproc_sync *sync = &cache->blocks[block][entry];
++                        if (InterlockedCompareExchange( &sync->refcount, 0, 0 ) && !sync->closed)
++                        {
++                            sync->closed = 1;
++                            release_inproc_sync( sync ); /* the cache's reference only */
++                        }
++                    }
+         }
+     pthread_mutex_unlock( &ios_inproc_cache_lock );
++    server_leave_uninterrupted_section( &fd_cache_mutex, &saved );
+ }
+ #define inproc_sync_cache               (ios_get_inproc_cache()->blocks)
+ #define inproc_sync_cache_initial_block (ios_get_inproc_cache()->initial)
+@@ -3646,7 +3666,22 @@
          __sync_fetch_and_add( &ios_xp_delay_hist[d < 0 ? 5 : d == 0 ? 0 : d < 10000 ? 1 : d < 50000 ? 2 : d < 200000 ? 3 : 4], 1 );
      }
  

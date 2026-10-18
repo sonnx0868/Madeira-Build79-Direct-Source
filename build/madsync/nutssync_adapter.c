@@ -6,6 +6,10 @@
 static void ns_object_created(uint32_t slot);
 static void ns_wait_allocated(void *waiter);
 static void ns_wait_released(void *waiter);
+#include <os/lock.h>
+static os_unfair_lock ns_state_lock = OS_UNFAIR_LOCK_INIT;
+#define NUTSSYNC_LOCAL_LOCK() os_unfair_lock_lock(&ns_state_lock)
+#define NUTSSYNC_LOCAL_UNLOCK() os_unfair_lock_unlock(&ns_state_lock)
 #define NUTSSYNC_OBJECT_CREATED(slot) ns_object_created(slot)
 #define NUTSSYNC_WAIT_ALLOCATED(w) ns_wait_allocated(w)
 #define NUTSSYNC_WAIT_RELEASED(w) ns_wait_released(w)
@@ -21,11 +25,15 @@ static unsigned ns_post_buckets[NS_POST_BUCKETS], ns_posts_used, ns_post_free;
 struct ns_wait_frame
 {
     struct nutssync_waiter *waiter;
-    uint32_t pinned[NUTSSYNC_MAX_WAIT + 1];
-    unsigned count;
 };
-struct ns_thread_state { unsigned depth; struct ns_wait_frame frames[NS_NESTED_WAITS]; };
+struct ns_thread_state
+{
+    struct ns_thread_state *next;
+    unsigned depth;
+    struct ns_wait_frame frames[NS_NESTED_WAITS];
+};
 static pthread_key_t ns_thread_key;
+static struct ns_thread_state *ns_live_threads;
 
 /* Lock held. Numbers include a non-wrapping generation, not a bare slot. */
 static void ns_object_created(uint32_t slot) { ns_refs[slot] = 1; }
@@ -50,13 +58,13 @@ static void ns_unref_locked(uint32_t number)
 static void ns_wait_allocated(void *waiter)
 {
     struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
-    thread->frames[thread->depth - 1].waiter = waiter;
+    thread->frames[thread->depth++].waiter = waiter;
 }
 static void ns_wait_released(void *waiter)
 {
     (void)waiter;
     struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
-    thread->frames[thread->depth - 1].waiter = NULL;
+    thread->frames[--thread->depth].waiter = NULL;
 }
 
 /* Runs only when the NATIVE thread exits. Server logical termination can
@@ -67,7 +75,14 @@ static void ns_thread_exit(void *value)
 {
     struct ns_thread_state *thread = value;
     sigset_t saved;
+    if (!nutssync) return;
     nutssync_lock(&saved);
+    /* Also tolerate Wine's fixed TEB slot if allocation reserved key 275.
+     * Never dereference or free an address not owned by this adapter. */
+    struct ns_thread_state **link = &ns_live_threads;
+    while (*link && *link != thread) link = &(*link)->next;
+    if (!*link) { nutssync_unlock(&saved); return; }
+    *link = thread->next;
     while (thread->depth)
     {
         struct ns_wait_frame *frame = &thread->frames[--thread->depth];
@@ -80,7 +95,6 @@ static void ns_thread_exit(void *value)
             w->next_free = nutssync->waiter_free_head;
             nutssync->waiter_free_head = slot + 1;
         }
-        while (frame->count) ns_unref_locked(frame->pinned[--frame->count]);
         frame->waiter = NULL;
     }
     nutssync_unlock(&saved);
@@ -89,11 +103,18 @@ static void ns_thread_exit(void *value)
 
 static int ns_initialize(void)
 {
-    /* os_sync_* is public from iOS 18 / macOS 15. Do not expose the device
+    /* os_sync_* is public from iOS 17.4 / macOS 14.4. Do not expose the device
      * unless every resource is ready; falling back after exposure is unsafe. */
-    if (__builtin_available(iOS 18.0, macOS 15.0, *))
+    if (__builtin_available(iOS 17.4, macOS 14.4, *))
     {
         if (pthread_key_create(&ns_thread_key, ns_thread_exit)) return 0;
+        /* FEX/Wine store their TEB directly in Darwin slot 275. Do not let
+         * this new key alias it. Keep that reserved slot without a destructor. */
+        if (ns_thread_key == 275)
+        {
+            /* Keep 275 reserved. Its callback ignores non-adapter values. */
+            if (pthread_key_create(&ns_thread_key, ns_thread_exit)) return 0;
+        }
         nutssync = mmap(NULL, sizeof(*nutssync), PROT_READ | PROT_WRITE,
                        MAP_SHARED | MAP_ANON, -1, 0);
         if (nutssync == MAP_FAILED)
@@ -214,39 +235,37 @@ static int ns_wait(struct ntsync_wait_args *args, int all)
     struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
     if (!thread)
     {
+        sigset_t all, previous;
+        sigfillset(&all);
+        pthread_sigmask(SIG_BLOCK, &all, &previous);
         thread = calloc(1, sizeof(*thread));
-        if (!thread) { errno = ENOMEM; return -1; }
+        if (!thread) { pthread_sigmask(SIG_SETMASK, &previous, NULL); errno = ENOMEM; return -1; }
         if (pthread_setspecific(ns_thread_key, thread))
-        { free(thread); errno = ENOMEM; return -1; }
+        { free(thread); pthread_sigmask(SIG_SETMASK, &previous, NULL); errno = ENOMEM; return -1; }
+        nutssync_lock(&saved);
+        thread->next = ns_live_threads;
+        ns_live_threads = thread;
+        nutssync_unlock(&saved);
+        pthread_sigmask(SIG_SETMASK, &previous, NULL);
     }
     if (thread->depth == NS_NESTED_WAITS) { errno = ENOMEM; return -1; }
-    nutssync_lock(&saved);
-    struct ns_wait_frame *frame = &thread->frames[thread->depth++];
-    frame->waiter = NULL;
-    frame->count = 0;
     for (unsigned i = 0; i < args->count + !!args->alert; i++)
     {
         int fd = i < args->count ? fds[i] : (int)args->alert;
         uint32_t number = (unsigned)fd & 0x0fffffff;
-        if (!MADSYNC_IS_FD(fd) || !ns_pin_locked(number))
+        if (!MADSYNC_IS_FD(fd))
         {
-            while (frame->count) ns_unref_locked(frame->pinned[--frame->count]);
-            thread->depth--;
-            nutssync_unlock(&saved);
             errno = EINVAL;
             return -1;
         }
-        frame->pinned[frame->count++] = number;
         if (i < args->count) numbers[i] = number;
         else alert = number;
     }
-    nutssync_unlock(&saved);
+    /* Wine holds the descriptor reference until ioctl returns. NutsSync
+     * validates all numbers atomically and pins objects (including the alert)
+     * through waiting counts. No second descriptor pin/lock is necessary. */
     int error = nutssync_wait(numbers, args->count, all, alert, args->owner, args->timeout,
                              !!(args->flags & NTSYNC_WAIT_REALTIME), &args->index);
-    nutssync_lock(&saved);
-    while (frame->count) ns_unref_locked(frame->pinned[--frame->count]);
-    thread->depth--;
-    nutssync_unlock(&saved);
     if (error) { errno = error; return -1; }
     return 0;
 }

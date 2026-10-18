@@ -31,8 +31,11 @@ ASAN_OPTIONS=abort_on_error=1:detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
   MADEIRA_DOCS_DIR="$out/config" "$out/nutssync-asan"
 sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
 xcrun --sdk iphoneos clang -std=gnu11 -O2 -arch arm64 -isysroot "$sdk" \
-  -miphoneos-version-min=17.0 -Werror=implicit-function-declaration \
+  -miphoneos-version-min=17.0 -Werror=implicit-function-declaration -Werror=unguarded-availability-new \
   -fsyntax-only "$root/build/madsync/madsync_bridge.c"
 echo 'PASS production NutsSync bridge compiles against iPhoneOS SDK'
 python3 "$root/tests/host/check-runtime-settings.py"
 python3 "$root/tests/host/check-nutssync-policy.py"
+if [[ -f "$root/wine/dlls/ntdll/unix/sync.c" ]]; then
+  python3 "$root/tests/host/check-inproc-cache-retire.py"
+fi

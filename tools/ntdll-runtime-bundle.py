@@ -36,7 +36,7 @@ def verify(root, archive=None, stamp=False, base=None, sync_refresh=False):
         previous = helper.members(base)
         assert objects.keys() == previous.keys(), 'runtime refresh changed archive member set'
         changed = sorted(n for n in objects if objects[n] != previous[n])
-        allowed = {'madsync.o', 'sync.o'} if sync_refresh else {'loader.o', 'sync.o'}
+        allowed = {'madsync.o', 'sync.o', 'thread.o'} if sync_refresh else {'loader.o', 'sync.o'}
         assert 'sync.o' in changed and set(changed) <= allowed, ('unexpected native refresh', changed)
         document['base_archive_sha256'] = sha(base.read_bytes())
         document['changed_members'] = changed

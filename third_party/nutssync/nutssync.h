@@ -163,16 +163,23 @@ static inline int nutssync_attach( int fd, uint32_t *number )
 
 static inline int nutssync_wait_word( uint32_t *word, uint32_t value, uint64_t timeout_ns )
 {
+    if (__builtin_available(iOS 17.4, macOS 14.4, *))
+    {
     int ret = timeout_ns ? os_sync_wait_on_address_with_timeout( word, value, 4, OS_SYNC_WAIT_ON_ADDRESS_SHARED,
                                                                    OS_CLOCK_MACH_ABSOLUTE_TIME, timeout_ns )
                          : os_sync_wait_on_address( word, value, 4, OS_SYNC_WAIT_ON_ADDRESS_SHARED );
     return ret < 0 ? errno : 0;
+    }
+    return ENOTSUP;
 }
 
 static inline void nutssync_wake_word( uint32_t *word, int all )
 {
+    if (__builtin_available(iOS 17.4, macOS 14.4, *))
+    {
     if (all) os_sync_wake_by_address_all( word, 4, OS_SYNC_WAKE_BY_ADDRESS_SHARED );
     else os_sync_wake_by_address_any( word, 4, OS_SYNC_WAKE_BY_ADDRESS_SHARED );
+    }
 }
 
 /* The lock. Signals are blocked while it's held: Wine suspends a thread with a signal and
@@ -185,6 +192,11 @@ static inline void nutssync_lock( sigset_t *saved )
     sigset_t all;
     sigfillset( &all );
     pthread_sigmask( SIG_BLOCK, &all, saved );
+#ifdef NUTSSYNC_LOCAL_LOCK
+    /* Madeira hosts all Wine processes in one native task. Use the host's
+     * owner-aware lock with priority donation instead of a non-owning futex. */
+    NUTSSYNC_LOCAL_LOCK();
+#else
     uint32_t expected = 0;
     if (__atomic_compare_exchange_n( &nutssync->lock, &expected, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED ))
         goto locked;
@@ -205,12 +217,17 @@ static inline void nutssync_lock( sigset_t *saved )
     }
 locked:
     nutssync->lock_pid = getpid();
+#endif
 }
 
 static inline void nutssync_unlock( const sigset_t *saved )
 {
+#ifdef NUTSSYNC_LOCAL_LOCK
+    NUTSSYNC_LOCAL_UNLOCK();
+#else
     nutssync->lock_pid = 0;
     if (__atomic_exchange_n( &nutssync->lock, 0, __ATOMIC_RELEASE ) == 2) nutssync_wake_word( &nutssync->lock, 0 );
+#endif
     pthread_sigmask( SIG_SETMASK, saved, NULL );
 }
 
@@ -601,6 +618,11 @@ static inline void nutssync_leave( struct nutssync_waiter *w )
         struct nutssync_object *obj = &nutssync->objects[(w->objs[i] & NUTSSYNC_SLOT_MASK) - 1];
         if (!--obj->waiting && obj->destroyed) nutssync_free_slot( obj );
     }
+    if (w->alert)
+    {
+        struct nutssync_object *obj = &nutssync->objects[(w->alert & NUTSSYNC_SLOT_MASK) - 1];
+        if (!--obj->waiting && obj->destroyed) nutssync_free_slot( obj );
+    }
 }
 
 static inline uint64_t nutssync_now( int realtime )
@@ -665,6 +687,7 @@ static inline int nutssync_wait( const uint32_t *objs, uint32_t count, int all, 
         goto release;
     }
     for (i = 0; i < count; i++) nutssync->objects[(objs[i] & NUTSSYNC_SLOT_MASK) - 1].waiting++;
+    if (alert) nutssync->objects[(alert & NUTSSYNC_SLOT_MASK) - 1].waiting++;
     w->seq = ++nutssync->seq;
     nutssync->active[nutssync->active_count++] = slot;
     nutssync_unlock( &saved );

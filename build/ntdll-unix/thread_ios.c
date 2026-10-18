@@ -1160,7 +1160,12 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
                        "exiting cleanly (n=%lu) rev=ml558\n", noteb_n);
         pthread_exit( UIntToPtr(status) );
     }
-    close( ntdll_get_thread_data()->alert_fd );
+    /* This is a descriptor reference for in-process synchronization, not a
+     * kernel fd. libc close leaked it on every Wine thread exit. */
+    { extern int madsync_close( int fd );
+      int alert_fd = ntdll_get_thread_data()->alert_fd;
+      ntdll_get_thread_data()->alert_fd = -1;
+      madsync_close( alert_fd ); }
     close( ntdll_get_thread_data()->wait_fd[0] );
     close( ntdll_get_thread_data()->wait_fd[1] );
     close( ntdll_get_thread_data()->reply_fd );

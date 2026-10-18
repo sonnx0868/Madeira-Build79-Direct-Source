@@ -148,7 +148,9 @@ check('if !entry.fastSyncControlsAvailable {' in detail and 'Choose Fastsync in 
 check('if let mode = UnityStartupSync.mode(' in apply_env and 'setenv("MADEIRA_FASTSYNC", mode, 1)' in apply_env
       and 'setenv("MADEIRA_FASTSYNC_SEM", semaphoreFastPath == true ? "1" : "0", 1)' in apply_env,
       'a launch exports fastsync through the tested global/Unity policy')
-check('static let swapChoices = [0, 1024, 2048, 3072, 4096]' in settings and 'mb > 0 ? String(mb) : nil' in settings,
+check('static let swapChoices = GameMemorySettings.swapChoices' in settings
+      and 'mbPicker("Swap tier", key: "swap-mb"' in settings
+      and 'MadeiraConfig.set(key, mb > 0 ? String(mb) : nil)' in settings,
       'swap tier: Off removes swap-mb (off by default)')
 check('DisplayRateSettings' not in lib and 'MADEIRA_PROMOTE' not in fps,
       'display-rate override and its UI are removed')
