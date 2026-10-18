@@ -18,7 +18,7 @@ git -C "$root" submodule update --init dxmt
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tests/host/check-dxmt-patches.py"
 xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
-  -I"$root/dxmt/src/airconv" \
+  -I"$root/dxmt/src/airconv" -I"$root/build/dxmt-ios" \
   "$root/tests/host/air-sample-convergence.cpp" "$root/dxmt/src/airconv/nt/air_builder.cpp" \
   $("$llvm/bin/llvm-config" --ldflags --system-libs --libs core passes) \
   -Wl,-rpath,"$llvm/lib" -o "$out/convergence-check"

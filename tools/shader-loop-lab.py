@@ -98,7 +98,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
         z.extractall(inputs)
     cppflags = subprocess.check_output([llvm/'bin/llvm-config','--cxxflags'], text=True).split()
     ldflags = subprocess.check_output([llvm/'bin/llvm-config','--ldflags','--system-libs','--libs','passes','bitwriter'], text=True).split()
-    run(['xcrun','clang++',*cppflags,'-std=c++20','-O2','-I'+str(root/'dxmt/src/airconv'),
+    run(['xcrun','clang++',*cppflags,'-std=c++20','-O2','-I'+str(root/'dxmt/src/airconv'),'-I'+str(root/'build/dxmt-ios'),
          root/'tools/shader-loop-lab.cpp',root/'dxmt/src/airconv/metallib_writer.cpp',
          *ldflags,'-Wl,-rpath,'+str(llvm/'lib'),'-o',work/'optimize'])
     transforms = []

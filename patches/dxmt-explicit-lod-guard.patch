@@ -1,5 +1,5 @@
 diff --git a/src/airconv/airconv_context.cpp b/src/airconv/airconv_context.cpp
-index 69dfc77..e33819e 100644
+index 69dfc77..d461db6 100644
 --- a/src/airconv/airconv_context.cpp
 +++ b/src/airconv/airconv_context.cpp
 @@ -12,6 +12,8 @@
@@ -11,7 +11,24 @@ index 69dfc77..e33819e 100644
  #include "llvm/Transforms/Scalar/SROA.h"
  #include "llvm/Transforms/Scalar/EarlyCSE.h"
  #include "llvm/Transforms/IPO/AlwaysInliner.h"
-@@ -144,6 +146,13 @@ runOptimizationPasses(llvm::Module &M) {
+@@ -31,6 +33,7 @@
+ #include "air_tessellation.h"
+ 
+ #include "transforms/lower_16bit_texread.hpp"
++#include "explicit_lod_guard.hpp"
+ 
+ using namespace llvm;
+ 
+@@ -66,6 +69,8 @@ static std::atomic_flag llvm_overwrite = false;
+ void
+ runOptimizationPasses(llvm::Module &M) {
+ 
++  air::relaxExplicitLODSampling(M);
++
+   if (!llvm_overwrite.test_and_set()) {
+     auto Map = cl::getRegisteredOptions();
+     auto InfiniteLoopThreshold = Map["instcombine-infinite-loop-threshold"];
+@@ -144,6 +149,13 @@ runOptimizationPasses(llvm::Module &M) {
  
      GlobalCleanupPM.addPass(air::Lower16BitTexReadPass());
  
@@ -25,64 +42,13 @@ index 69dfc77..e33819e 100644
      MPM.addPass(createModuleToFunctionPassAdaptor(std::move(GlobalCleanupPM), true /* ? */));
    }
  
-@@ -198,4 +207,4 @@ linkTessellation(llvm::Module &M) {
+@@ -198,4 +210,4 @@ linkTessellation(llvm::Module &M) {
    linkShader(M, air_tessellation);
  }
  
 -} // namespace dxmt
 \ No newline at end of file
 +} // namespace dxmt
-diff --git a/src/airconv/nt/air_builder.cpp b/src/airconv/nt/air_builder.cpp
-index d9e26ca..6486da0 100644
---- a/src/airconv/nt/air_builder.cpp
-+++ b/src/airconv/nt/air_builder.cpp
-@@ -340,7 +340,6 @@ AIRBuilder::CreateSampleCommon(
-           {2U, Attribute::get(Context, Attribute::AttrKind::NoCapture)},
-           {2U, Attribute::get(Context, Attribute::AttrKind::ReadOnly)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::ArgMemOnly)},
--          {~0U, Attribute::get(Context, Attribute::AttrKind::Convergent)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::NoUnwind)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::WillReturn)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::ReadOnly)},
-@@ -417,6 +416,12 @@ AIRBuilder::CreateSampleCommon(
- 
-   auto Result = builder.CreateCall(Fn, Ops);
- 
-+  // Only implicit LOD uses neighbouring invocations to calculate derivatives.
-+  // Keep that constraint on the call: implicit and explicit LOD share the
-+  // same AIR declaration, and either kind may be emitted first.
-+  if (!ArgsControlBit)
-+    Result->addFnAttr(Attribute::Convergent);
-+
-   return {builder.CreateExtractValue(Result, {0u}), builder.CreateExtractValue(Result, {1u})};
- };
- 
-@@ -442,7 +447,6 @@ AIRBuilder::CreateSampleCmpCommon(
-           {2U, Attribute::get(Context, Attribute::AttrKind::NoCapture)},
-           {2U, Attribute::get(Context, Attribute::AttrKind::ReadOnly)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::ArgMemOnly)},
--          {~0U, Attribute::get(Context, Attribute::AttrKind::Convergent)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::NoUnwind)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::WillReturn)},
-           {~0U, Attribute::get(Context, Attribute::AttrKind::ReadOnly)},
-@@ -505,6 +509,10 @@ AIRBuilder::CreateSampleCmpCommon(
- 
-   auto Result = builder.CreateCall(Fn, Ops);
- 
-+  // SampleCmpLevelZero / explicit LOD does not calculate derivatives.
-+  if (!ArgsControlBit)
-+    Result->addFnAttr(Attribute::Convergent);
-+
-   return {builder.CreateExtractValue(Result, {0u}), builder.CreateExtractValue(Result, {1u})};
- };
- 
-@@ -1853,4 +1861,4 @@ AIRBuilder::SanitizePosition(llvm::Value *Pos) {
-   return builder.CreateSelect(ValidPos, Pos, PosClipped);
- }
- 
--} // namespace llvm::air
-\ No newline at end of file
-+} // namespace llvm::air
 diff --git a/src/dxmt/dxmt_shader_cache.hpp b/src/dxmt/dxmt_shader_cache.hpp
 --- a/src/dxmt/dxmt_shader_cache.hpp
 +++ b/src/dxmt/dxmt_shader_cache.hpp

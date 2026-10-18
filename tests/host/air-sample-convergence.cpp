@@ -1,5 +1,6 @@
 // Exercise the real AIR emitter, including mixed call order and loop guards.
 #include "nt/air_builder.hpp"
+#include "explicit_lod_guard.hpp"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/raw_ostream.h"
@@ -24,12 +25,13 @@ static void mixedCalls(bool explicitFirst,bool compare) {
     }
   }
   auto *barrier=air.CreateBarrier(air::MemFlags::Threadgroup);ir.CreateRetVoid();
+  require(dxmt::air::relaxExplicitLODSampling(module)==0,"mixed LOD declaration was relaxed");
   unsigned count=0;
   for(auto &block:*function)for(auto &instruction:block)if(auto *call=dyn_cast<CallInst>(&instruction)) {
     if(call==barrier){require(call->isConvergent(),"barrier lost convergence");continue;}
-    require(!call->getCalledFunction()->isConvergent(),"shared declaration forces explicit LOD convergence");
+    require(call->getCalledFunction()->isConvergent(),"mixed declaration lost convergence");
     bool explicitLOD=count++==0?explicitFirst:!explicitFirst;
-    require(call->isConvergent()!=explicitLOD,"wrong sampling convergence at call site");
+    require(call->isConvergent(),"mixed call lost sampling convergence");
   }
   require(count==2,"missing sampling calls");require(!verifyModule(module,&errs()),"invalid emitted module");
 }
@@ -48,6 +50,7 @@ static void loopGuard(bool explicitLOD) {
   ir.SetInsertPoint(body);ir.CreateStore(sample,ir.CreateGEP(ir.getFloatTy(),function->getArg(3),index));
   auto *next=ir.CreateAdd(index,ir.getInt32(1));index->addIncoming(next,body);ir.CreateBr(header);
   ir.SetInsertPoint(exit);ir.CreateRetVoid();
+  require(dxmt::air::relaxExplicitLODSampling(module)==unsigned(explicitLOD),"wrong explicit sampling eligibility");
   LoopAnalysisManager lam;FunctionAnalysisManager fam;CGSCCAnalysisManager cgam;ModuleAnalysisManager mam;PassBuilder pb;
   pb.registerModuleAnalyses(mam);pb.registerCGSCCAnalyses(cgam);pb.registerFunctionAnalyses(fam);pb.registerLoopAnalyses(lam);pb.crossRegisterProxies(lam,fam,cgam,mam);
   ModulePassManager pm;
