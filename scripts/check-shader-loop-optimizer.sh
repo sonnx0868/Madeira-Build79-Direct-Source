@@ -15,4 +15,7 @@ if [[ ! -s "$llvm/include/llvm/IR/IRBuilder.h" ]]; then
 fi
 test "$("$llvm/bin/llvm-config" --version)" = 15.0.7
 git -C "$root" submodule update --init dxmt
+if ! xcrun --find metal-tt >/dev/null 2>&1; then
+  xcodebuild -downloadComponent MetalToolchain
+fi
 python3 "$root/tools/shader-loop-lab.py"

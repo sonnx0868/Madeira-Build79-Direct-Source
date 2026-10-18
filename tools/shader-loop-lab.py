@@ -10,6 +10,16 @@ root = pathlib.Path(__file__).resolve().parents[1]
 out = pathlib.Path(os.environ['BITRISE_DEPLOY_DIR'])
 llvm = root / 'toolchains/llvm15-macos'
 
+for tool in ['metal-tt', 'metal-objdump', 'metal-config', 'metal-source', 'metal-lipo']:
+    found = subprocess.run(['xcrun', '--find', tool], capture_output=True, text=True)
+    if found.returncode: continue
+    help_result = subprocess.run(['xcrun', tool, '--help'], capture_output=True, text=True, timeout=30)
+    (out/(tool+'-help.txt')).write_text(help_result.stdout + help_result.stderr)
+    print('Offline Metal tool available:', tool, flush=True)
+for page in ['metal-pipelines-script','metal-tt','metal-objdump']:
+    man = subprocess.run(['man',page], capture_output=True, text=True, env=dict(os.environ,MANPAGER='cat'), timeout=30)
+    (out/(page+'-manual.txt')).write_text(man.stdout + man.stderr)
+
 def run(args, **kw):
     return subprocess.run([str(a) for a in args], check=True, **kw)
 
