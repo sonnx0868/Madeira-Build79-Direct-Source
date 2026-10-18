@@ -3,6 +3,15 @@
 set -euo pipefail
 
 mode="${1:-cached}"
+# Bitrise's app envs can shadow trigger values with the same name. Keep a
+# distinct, explicitly hash-pinned input for a private deployment-container
+# consumer; it never replaces the persistent app defaults in project settings.
+if [[ -n "${MADEIRA_NATIVE_INPUT_URL:-}" ]]; then
+  : "${MADEIRA_NATIVE_INPUT_SHA256:?Private native input requires its SHA-256}"
+  export MADEIRA_NATIVE_DEPS_URL="$MADEIRA_NATIVE_INPUT_URL"
+  export MADEIRA_NATIVE_DEPS_SHA256="$MADEIRA_NATIVE_INPUT_SHA256"
+  export MADEIRA_NATIVE_DEPS_INNER_SHA256="${MADEIRA_NATIVE_INPUT_INNER_SHA256:-}"
+fi
 # Allow the existing stored Bitrise workflow to request this source refresh.
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_SIGNAL_REFRESH:-0}" = 1 ]]; then mode=signal-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_PACING_REFRESH:-0}" = 1 ]]; then mode=pacing-refresh; fi
