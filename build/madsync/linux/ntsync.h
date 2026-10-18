@@ -15,6 +15,7 @@
 #define MADSYNC_LINUX_NTSYNC_H
 
 #include <stdint.h>
+#include <signal.h>
 #include <sys/ioctl.h>   /* before the macros below, so libc's prototypes stay intact */
 #include <unistd.h>
 
@@ -65,8 +66,10 @@ extern int  madsync_ioctl( int fd, unsigned long req, void *arg );
 extern int  madsync_close( int fd );
 extern int  madsync_ref( int fd );                                   /* another holder of the same object */
 /* The server->client hand-off that replaces SCM_RIGHTS for pseudo fds. */
-extern void madsync_post( unsigned int pid, unsigned int handle, int fd );
+extern int  madsync_post( unsigned int pid, unsigned int handle, int fd );
 extern int  madsync_take( unsigned int pid, unsigned int handle );
+extern void madsync_discard_posts( unsigned int pid );
+#include "../suspend_guard.h"
 
 #ifndef MADSYNC_IMPLEMENTATION
 #define ioctl(fd, req, arg) madsync_ioctl( (fd), (unsigned long)(req), (void *)(arg) )

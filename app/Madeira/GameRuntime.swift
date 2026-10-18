@@ -174,7 +174,7 @@ final class GameRuntime: ObservableObject {
         // a new engine, not a claimed live per-game toggle.
         ["x87=\(entry.reducedX87)", "fast=\(entry.fastSync ?? true)", "sem=\(entry.semaphoreFastPath ?? false)",
          "aniso=\(entry.anisotropyLimit.map(String.init) ?? "auto")", "unity=\(entry.unityOptimizations != false)"]
-        .joined(separator: "|") + ["pool", "inproc-sync", "env.MADEIRA_FASTSYNC", "d3d12"].map {
+        .joined(separator: "|") + ["pool", "sync-engine", "inproc-sync", "env.MADEIRA_FASTSYNC", "d3d12"].map {
             "|\($0)=\(MadeiraConfig.get($0) ?? "default")"
         }.joined() + "|d3d9=\(MadeiraConfig.get("d3d9") ?? "default")" +
         MadeiraConfig.all().sorted { $0.key < $1.key }.map { "|cfg:\($0.key)=\($0.value)" }.joined()

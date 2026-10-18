@@ -1,0 +1,11 @@
+{
+  "project": "NutsEmu NutsSync",
+  "build": 1521,
+  "revision": "82cec776c9",
+  "source": "https://www.nutsdeveloping.com/source/",
+  "archive": "https://www.nutsdeveloping.com/source/downloads/wine-11.18-nutsemu-1521.tar.xz",
+  "archive_sha256": "d5a248935cbdcd99a908e05a553e54fed641be317c2f1e04fe23f586f5be05e6",
+  "upstream_header_sha256": "ff35369260149219e35f82006d742a32d66719eed3518a63d2131d3e98f7856d",
+  "extracted_from": "patches/ALL-WINE-CHANGES-AS-BUILT.diff: include/wine/nutssync.h",
+  "license": "LGPL-2.1-or-later"
+}

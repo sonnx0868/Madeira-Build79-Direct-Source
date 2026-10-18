@@ -654,7 +654,7 @@ enum UnityStartupSync {
                      automaticAllowed: Bool) -> String? {
         // Never combine Madsync with Fastsync. An explicit env-level off or
         // per-game off remains available for compatibility comparisons.
-        if engine == "madsync" { return nil }
+        if engine == "madsync" || engine == "nutssync" { return nil }
         if engine == "fastsync" { return gameEnabled == false ? "0" : (globalMode ?? "auto") }
         if engine == "wine", unity, automaticAllowed, globalMode == nil, gameEnabled != false {
             return "auto"
@@ -4479,32 +4479,35 @@ enum SettingsSheet: String, Identifiable {
     var id: String { rawValue }
 }
 
-/// The in-process synchronisation engine, one per session. Fastsync is the default:
-/// madeira.cfg with neither inproc-sync nor env.MADEIRA_FASTSYNC, for which the app
-/// exports MADEIRA_FASTSYNC=auto (WineProcessBridge.m). Madsync is inproc-sync = 1;
-/// Wine standard sync is inproc-sync = 0 without a fastsync value, as it was written
-/// while madsync was the default. Mirrors madeira_cfg_sync_engine (build/madeira_cfg.h).
-/// Wine reads both once per app run, and never runs fastsync while madsync is on.
+/// One object synchronization engine per native session. Mirrors the C reader
+/// in build/madeira_cfg.h, including explicit legacy selections.
 enum SyncEngine: String, CaseIterable, Identifiable {
-    case madsync, fastsync, wine
+    case nutssync, madsync, fastsync, wine
     var id: String { rawValue }
     var label: String {
         switch self {
+        case .nutssync: return "NutsSync (default)"
         case .madsync: return "Madsync"
-        case .fastsync: return "Fastsync (default)"
+        case .fastsync: return "Fastsync"
         case .wine: return "Wine standard sync"
         }
     }
     /// The MADEIRA_FASTSYNC values Wine treats as "fastsync on" (sync.c, event.c).
     static let fastsyncValues: Set<String> = ["1", "on", "yes", "auto", "cells"]
     static var current: SyncEngine {
+        if let value = MadeiraConfig.get("sync-engine"), let engine = SyncEngine(rawValue: value) { return engine }
         let inproc = MadeiraConfig.get("inproc-sync")
         if inproc != nil && MadeiraConfig.bool("inproc-sync", default: false) { return .madsync }
-        if let fast = MadeiraConfig.get("env.MADEIRA_FASTSYNC") { return fastsyncValues.contains(fast) ? .fastsync : .wine }
-        return inproc == nil ? .fastsync : .wine
+        if let fast = MadeiraConfig.get("env.MADEIRA_FASTSYNC") {
+            if fast == "auto" { return .nutssync }
+            return fastsyncValues.contains(fast) ? .fastsync : .wine
+        }
+        return inproc == nil ? .nutssync : .wine
     }
     static func apply(_ engine: SyncEngine) {
+        MadeiraConfig.set("sync-engine", engine.rawValue)
         switch engine {
+        case .nutssync: MadeiraConfig.set("inproc-sync", nil); MadeiraConfig.set("env.MADEIRA_FASTSYNC", nil)
         case .madsync: MadeiraConfig.set("inproc-sync", "1"); MadeiraConfig.set("env.MADEIRA_FASTSYNC", nil)
         case .fastsync: MadeiraConfig.set("inproc-sync", nil); MadeiraConfig.set("env.MADEIRA_FASTSYNC", nil)
         case .wine: MadeiraConfig.set("inproc-sync", "0"); MadeiraConfig.set("env.MADEIRA_FASTSYNC", nil)
@@ -4519,7 +4522,7 @@ struct RuntimeMemorySyncSettings: View {
     /// Bumped when a Settings sheet closes, so the rows re-read madeira.cfg.
     var refresh = 0
     /// The keys this section owns; All settings leaves them out.
-    static let featuredKeys: Set<String> = ["pool", "vram-mb", "swap-mb", "env.MADEIRA_SWAP_COVERAGE", "inproc-sync",
+    static let featuredKeys: Set<String> = ["pool", "vram-mb", "swap-mb", "env.MADEIRA_SWAP_COVERAGE", "sync-engine", "inproc-sync",
                                             "env.MADEIRA_FASTSYNC", "eco", "env.MADEIRA_MULTI_GAME"]
     static let poolChoices = [0, 512, 640, 768, 1024, 1152]          // 0 = the standard 896 MB
     static let vramChoices = [0, 1536, 2048, 3072, 4096, 4352, 4608, 5120, 6144]   // 0 = automatic

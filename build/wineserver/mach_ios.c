@@ -21,6 +21,7 @@
 
 #include "config.h"
 #include "../madeira_cfg.h"   /* ml1095 */
+#include "../madsync/suspend_guard.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -559,6 +560,7 @@ static int rs_flag_ok( struct thread *thread, const char *who )
 /* Apply ONE persistent Mach hold. Idempotent per thread. */
 int ios_thread_mach_hold( struct thread *thread )
 {
+    struct madsync_suspend_guard sync_guard;
     mach_msg_type_name_t type;
     mach_port_t port;
     kern_return_t kr;
@@ -571,7 +573,11 @@ int ios_thread_mach_hold( struct thread *thread )
     if (mach_port_extract_right( mach_task_self(), thread->unix_tid,
                                  MACH_MSG_TYPE_COPY_SEND, &port, &type ))
         return 0;
+    /* Mach ignores Wine's signal mask. Own the sync lock before freezing a
+     * thread, so it cannot remain frozen while owning that lock. */
+    madsync_suspend_begin( &sync_guard );
     kr = thread_suspend( port );
+    madsync_suspend_end( &sync_guard );
     mach_port_deallocate( mach_task_self(), port );
     if (kr)
     {

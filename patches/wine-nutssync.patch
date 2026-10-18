@@ -1,0 +1,67 @@
+NutsSync descriptor handoff failure/cleanup and empty APC-poll shortcut.
+
+--- a/server/inproc_sync.c
++++ b/server/inproc_sync.c
+@@ -341,7 +341,8 @@
+ 
+     if ((fd = get_obj_inproc_sync( obj, &reply->type )) < 0) set_error( STATUS_NOT_IMPLEMENTED );
+ #ifdef WINE_IOS
+-    else madsync_post( get_process_id( current->process ), req->handle, fd );   /* ml1058: no SCM_RIGHTS for a pseudo fd */
++    else if (madsync_post( get_process_id( current->process ), req->handle, fd ) < 0)
++        set_error( STATUS_NO_MEMORY );   /* ml1058: no SCM_RIGHTS for a pseudo fd */
+ #else
+     else send_client_fd( current->process, fd, req->handle );
+ #endif
+--- a/server/thread.c
++++ b/server/thread.c
+@@ -2893,8 +2893,9 @@
+     {
+         reply->handle = get_thread_id( current ) | 1; /* arbitrary token */
+ #ifdef WINE_IOS
+-        { extern void madsync_post( unsigned int pid, unsigned int handle, int fd );
+-          madsync_post( get_process_id( current->process ), reply->handle, fd ); }   /* ml1058 */
++        { extern int madsync_post( unsigned int pid, unsigned int handle, int fd );
++          if (madsync_post( get_process_id( current->process ), reply->handle, fd ) < 0)
++              set_error( STATUS_NO_MEMORY ); }   /* ml1058 */
+ #else
+         send_client_fd( current->process, fd, reply->handle );
+ #endif
+--- a/server/process.c
++++ b/server/process.c
+@@ -790,6 +790,10 @@
+ 
+     assert( !process->sigkill_timeout );  /* timeout should hold a reference to the process */
+ 
++#ifdef WINE_IOS
++    { extern void madsync_discard_posts( unsigned int pid );
++      madsync_discard_posts( get_process_id( process ) ); }
++#endif
+     close_process_handles( process );
+     set_process_startup_state( process, STARTUP_ABORTED );
+ 
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -3646,7 +3646,22 @@
+         __sync_fetch_and_add( &ios_xp_delay_hist[d < 0 ? 5 : d == 0 ? 0 : d < 10000 ? 1 : d < 50000 ? 2 : d < 200000 ? 3 : 4], 1 );
+     }
+ 
+-    /* if alertable, we need to query the server */
++#ifdef WINE_IOS
++    /* SleepEx(0, TRUE) is a frequent Unity job-worker poll. Read the APC
++     * alert without a request when empty. A pending alert still goes through
++     * server_wait, which dispatches the APC; never consume it here. */
++    if (alertable && timeout && !timeout->QuadPart && inproc_device_fd >= 0)
++    {
++        int fd = get_inproc_alert_fd();
++        struct ntsync_event_args state;
++        if (fd >= 0 && !ioctl( fd, NTSYNC_IOC_EVENT_READ, &state ) && !state.signaled)
++        {
++            NtYieldExecution();
++            return STATUS_SUCCESS;
++        }
++    }
++#endif
++    /* Alertable timed sleeps retain the server's APC delivery path. */
+     if (alertable)
+     {
+         /* Since server_wait will result in an unconditional implicit yield,

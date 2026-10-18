@@ -118,3 +118,13 @@ else
     echo "Wine source does not match the module-path recovery patch" >&2
     exit 1
 fi
+
+patch="$root/patches/wine-nutssync.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine NutsSync handoff and APC poll changes already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match NutsSync integration" >&2
+    exit 1
+fi

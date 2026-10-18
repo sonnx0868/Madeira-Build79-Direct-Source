@@ -183,24 +183,32 @@ static int madeira_cfg_bool(const char *key, int dflt)
     return (!strcmp(v, "1") || !strcmp(v, "on") || !strcmp(v, "true") || !strcmp(v, "yes")) ? 1 : 0;
 }
 
-/* The synchronisation engine madeira.cfg selects (Settings > Sync engine). Madsync
- * only when inproc-sync is on; otherwise env.MADEIRA_FASTSYNC decides (the values
- * Wine treats as on: fastsync; anything else: Wine's own sync). With neither key
- * set it is fastsync, the default. inproc-sync = 0 without env.MADEIRA_FASTSYNC
- * stays Wine's own sync, which is what that choice wrote while madsync was the
- * default. The app mirrors this in SyncEngine.current (Library.swift). */
+/* Settings > Sync engine; mirrored by SyncEngine.current in Library.swift.
+ * NutsSync is automatic. Explicit old Wine/Madsync/Fastsync choices survive;
+ * old "auto" remains automatic. Never combine object synchronization engines. */
 #define MADEIRA_SYNC_MADSYNC  0
 #define MADEIRA_SYNC_FASTSYNC 1
 #define MADEIRA_SYNC_WINE     2
+#define MADEIRA_SYNC_NUTSSYNC 3
 static int madeira_cfg_sync_engine(void)
 {
     char v[32];
+    if (madeira_cfg_get("sync-engine", v, sizeof v))
+    {
+        if (!strcmp(v, "nutssync")) return MADEIRA_SYNC_NUTSSYNC;
+        if (!strcmp(v, "madsync")) return MADEIRA_SYNC_MADSYNC;
+        if (!strcmp(v, "fastsync")) return MADEIRA_SYNC_FASTSYNC;
+        if (!strcmp(v, "wine")) return MADEIRA_SYNC_WINE;
+    }
     int inproc = madeira_cfg_get("inproc-sync", v, sizeof v);
     if (inproc && madeira_cfg_bool("inproc-sync", 0)) return MADEIRA_SYNC_MADSYNC;
     if (madeira_cfg_get("env.MADEIRA_FASTSYNC", v, sizeof v))
+    {
+        if (!strcmp(v, "auto")) return MADEIRA_SYNC_NUTSSYNC;
         return (!strcmp(v, "1") || !strcmp(v, "on") || !strcmp(v, "yes") || !strcmp(v, "auto") || !strcmp(v, "cells"))
                ? MADEIRA_SYNC_FASTSYNC : MADEIRA_SYNC_WINE;
-    return inproc ? MADEIRA_SYNC_WINE : MADEIRA_SYNC_FASTSYNC;
+    }
+    return inproc ? MADEIRA_SYNC_WINE : MADEIRA_SYNC_NUTSSYNC;
 }
 
 #endif /* MADEIRA_CFG_H */

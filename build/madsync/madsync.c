@@ -240,19 +240,21 @@ int madsync_close( int fd )
 /* ---- server -> client hand-off ------------------------------------------- */
 static struct { unsigned pid, handle; int fd; } g_post[256];
 
-void madsync_post( unsigned int pid, unsigned int handle, int fd )
+int madsync_post( unsigned int pid, unsigned int handle, int fd )
 {
     sigset_t ms_old;
     unsigned i;
+    int result = -1;
     ms_lock( &ms_old );
     for (i = 0; i < 256; i++) if (!g_post[i].fd) break;
     if (i < 256)
     {
         struct ms_obj *o = obj_of( fd );
-        if (o) { o->refs++; g_post[i].pid = pid; g_post[i].handle = handle; g_post[i].fd = fd; }
+        if (o) { o->refs++; g_post[i].pid = pid; g_post[i].handle = handle; g_post[i].fd = fd; result = 0; }
     }
     else dprintf( 2, "[madsync] hand-off table full; pid %04x handle %#x dropped\n", pid, handle );
     ms_unlock( &ms_old );
+    return result;
 }
 
 int madsync_take( unsigned int pid, unsigned int handle )
