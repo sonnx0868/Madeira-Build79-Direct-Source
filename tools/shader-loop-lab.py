@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Compare saved compute shaders with the shipping LLVM and Apple's compiler.
 
-Input shaders remain in a temporary directory. Only counts, timings and compiler
-statistics are deployed. This experiment does not produce an IPA or measure FPS.
+Input shaders remain in a temporary directory. Counts, timings, compiler
+statistics and generated GPU binaries go to private CI artifacts. This
+experiment does not produce an IPA or measure game FPS.
 """
 import gzip, json, os, pathlib, plistlib, re, shutil, struct, subprocess, tempfile, urllib.parse, urllib.request, zipfile
 
@@ -101,7 +102,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
          root/'tools/shader-loop-lab.cpp',root/'dxmt/src/airconv/metallib_writer.cpp',
          *ldflags,'-Wl,-rpath,'+str(llvm/'lib'),'-o',work/'optimize'])
     transforms = []
-    modes = ['baseline','loops','cfg','o2']
+    modes = ['baseline','loops','cfg','o2','guarded']
     if os.environ.get('MADEIRA_SHADER_LAB_CONSTANTS'): modes += ['specialize']
     if os.environ.get('MADEIRA_SHADER_LAB_EMBEDDED_SRV'): modes += ['embed','constant']
     for mode in modes:
@@ -168,6 +169,11 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
                   'scope':'Offline compilation for the M2 GPU architecture. No iPad FPS measurement.',
                   'configuration':'Threadgroup-width hint and immutable buffers29/30 match the D3D11 compute pipeline.'}
         (out/'shader-native-results.json').write_text(json.dumps(report,indent=2))
+        if os.environ.get('MADEIRA_SHADER_LAB_REPLAY'):
+            profile=work/'replay-profile.json';profile.write_text(os.environ['MADEIRA_SHADER_LAB_REPLAY'])
+            run(['xcrun','clang','-O2','-fobjc-arc',root/'tools/shader-fog-replay.m',
+                 '-framework','Foundation','-framework','Metal','-o',work/'replay'])
+            run([work/'replay',work,profile,out/'fog-replay-results.json'])
         print('Offline GPU compilation results:',[(x['mode'],x['input'],x['returncode'],x['binary_bytes']) for x in native],flush=True)
         raise SystemExit(0)
     run(['xcrun','clang','-O2','-fobjc-arc',root/'tools/shader-loop-lab-metal.m',

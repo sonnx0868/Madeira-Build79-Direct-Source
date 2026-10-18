@@ -22,6 +22,30 @@
 #include <vector>
 
 using namespace llvm;
+// The final four sample arguments are explicit-LOD, LOD/bias, min-LOD and
+// access mode. Preserve convergence at every derivative-dependent call site.
+static unsigned relaxExplicitSampling(Module &m) {
+  unsigned changed=0;
+  for(auto &f:m) {
+    if(!f.isDeclaration() || !f.getName().startswith("air.sample_") || !f.isConvergent())continue;
+    SmallVector<CallBase *,16> calls;
+    bool supported=true;
+    for(auto *user:f.users()) {
+      auto *call=dyn_cast<CallBase>(user);
+      if(!call || call->getCalledFunction()!=&f || call->arg_size()<4 ||
+         !call->getArgOperand(call->arg_size()-4)->getType()->isIntegerTy(1)) {supported=false;break;}
+      calls.push_back(call);
+    }
+    if(!supported)continue;
+    f.removeFnAttr(Attribute::Convergent);
+    for(auto *call:calls) {
+      auto *explicitLOD=dyn_cast<ConstantInt>(call->getArgOperand(call->arg_size()-4));
+      if(explicitLOD && explicitLOD->isOne()) {call->removeFnAttr(Attribute::Convergent);++changed;}
+      else call->addFnAttr(Attribute::Convergent);
+    }
+  }
+  return changed;
+}
 // Preserve the SRV's per-component boundary checks while moving a captured,
 // read-only resource into constant memory. This is an offline experiment.
 static unsigned embedSRV(Module &m,bool captureValues) {
@@ -179,6 +203,7 @@ int main(int argc,char **argv) {
   auto before=stats(*m);
   const auto started=std::chrono::steady_clock::now();
   StringRef mode(argv[2]);
+  unsigned relaxed=mode=="guarded"?relaxExplicitSampling(*m):0;
   unsigned folded=(mode=="specialize" || mode=="embed")?specialize(*m):0;
   unsigned embedded=(mode=="embed" || mode=="constant")?embedSRV(*m,mode=="embed"):0;
   if(mode!="baseline") {
@@ -192,7 +217,11 @@ int main(int argc,char **argv) {
     pb.registerFunctionAnalyses(fam); pb.registerLoopAnalyses(lam);
     pb.crossRegisterProxies(lam,fam,cgam,mam);
     ModulePassManager pm;
-    if(mode=="loops") {
+    if(mode=="guarded") {
+      if(auto err=pb.parsePassPipeline(pm,"function(loop-simplify,lcssa,loop(loop-rotate),sink,instcombine,simplifycfg,adce)")) {
+        consumeError(std::move(err));return 7;
+      }
+    } else if(mode=="loops") {
       if(auto err=pb.parsePassPipeline(pm,"function(loop-simplify,lcssa,loop-mssa(licm),gvn,instcombine,simplifycfg,adce)")) {
         consumeError(std::move(err));return 7;
       }
@@ -232,6 +261,7 @@ int main(int argc,char **argv) {
   raw_fd_ostream output(argv[3],error); if(error) return 10;
   dxmt::metallib::MetallibWriter().Write(*m,output);
   outs()<<formatv("{0}\n",json::Value(json::Object{{"mode",mode.str()},{"before",std::move(before)},
-    {"after",stats(*m)},{"optimizer_ms",ms},{"folded_loads",int64_t(folded)},{"embedded_loads",int64_t(embedded)}}));
+    {"after",stats(*m)},{"optimizer_ms",ms},{"folded_loads",int64_t(folded)},{"embedded_loads",int64_t(embedded)},
+    {"relaxed_explicit_samples",int64_t(relaxed)}}));
   return 0;
 }
