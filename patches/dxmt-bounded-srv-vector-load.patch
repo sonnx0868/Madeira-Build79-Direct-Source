@@ -1,0 +1,36 @@
+--- a/src/airconv/nt/dxbc_converter_base.cpp
++++ b/src/airconv/nt/dxbc_converter_base.cpp
+@@ -1,4 +1,5 @@
+ #include "dxbc_converter_base.hpp"
++#include "bounded_srv_load.hpp"
+ #include "../dxbc_converter.hpp"
+ #include "air_builder.hpp"
+ #include "llvm/IR/Constants.h"
+@@ -2268,6 +2269,13 @@
+     return StoreOperand(load.dst, MaskSwizzle(ValueInt, Mask));
+   }
+ 
++  if (std::holds_alternative<SrcOperandResource>(load.src) && Buf->Metadata && !Buf->GlobalCoherent &&
++      cast<llvm::PointerType>(Buf->Pointer->getType())->getAddressSpace() == 1 &&
++      MemoryAccessMask(Mask, Buf->Swizzle) == kMaskAll) {
++    auto *ValueVec = loadBoundedSRV4(ir, Buf->Pointer, Index, DecodeRawBufferByteLength(Buf->Metadata));
++    return StoreOperand(load.dst, MaskSwizzle(ValueVec, Mask, Buf->Swizzle));
++  }
++
+   llvm::Value *ValueVec = llvm::PoisonValue::get(air.getIntTy(4));
+   for (auto [DstComp, _] : EnumerateComponents(MemoryAccessMask(Mask, Buf->Swizzle))) {
+     auto Ptr = CreateGEPInt32WithBoundCheck(Buf.value(), ir.CreateAdd(Index, ir.getInt32(DstComp)));
+@@ -2298,6 +2306,13 @@
+     auto ValueInt = Buf->GlobalCoherent ? (llvm::Value *)air.CreateDeviceCoherentLoad(ir.getInt32Ty(), Ptr)
+                                         : (llvm::Value *)ir.CreateLoad(ir.getInt32Ty(), Ptr, Volatile);
+     return StoreOperand(load.dst, MaskSwizzle(ValueInt, Mask));
++  }
++
++  if (std::holds_alternative<SrcOperandResource>(load.src) && Buf->Metadata && !Buf->GlobalCoherent &&
++      cast<llvm::PointerType>(Buf->Pointer->getType())->getAddressSpace() == 1 &&
++      MemoryAccessMask(Mask, Buf->Swizzle) == kMaskAll) {
++    auto *ValueVec = loadBoundedSRV4(ir, Buf->Pointer, Index, DecodeRawBufferByteLength(Buf->Metadata));
++    return StoreOperand(load.dst, MaskSwizzle(ValueVec, Mask, Buf->Swizzle));
+   }
+ 
+   llvm::Value *ValueVec = llvm::PoisonValue::get(air.getIntTy(4));

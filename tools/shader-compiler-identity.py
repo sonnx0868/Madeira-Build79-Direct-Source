@@ -5,7 +5,8 @@ import hashlib
 from pathlib import Path
 
 SOURCE_DIRECTORIES = ("dxmt/src/airconv", "dxmt/libs/DXBCParser", "dxmt/include", "madeira-d3d12/src")
-SOURCE_FILES = ("build/dxmt-ios/build.sh", "build/madeira_cfg.h", "build/llvm-ios/static-libs.txt",
+SOURCE_FILES = ("build/dxmt-ios/build.sh", "build/dxmt-ios/bounded_srv_load.hpp",
+                "build/madeira_cfg.h", "build/llvm-ios/static-libs.txt",
                 "dxmt/src/d3d9/d3d9_shader.cpp", "dxmt/src/d3d11/d3d11_shader.cpp",
                 "dxmt/src/d3d11/d3d11_shader.hpp", "dxmt/src/dxmt/dxmt_shader_cache.hpp")
 
