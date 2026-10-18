@@ -25,7 +25,6 @@ struct ns_wait_frame
     unsigned count;
 };
 struct ns_thread_state { unsigned depth; struct ns_wait_frame frames[NS_NESTED_WAITS]; };
-static _Thread_local struct ns_thread_state ns_thread;
 static pthread_key_t ns_thread_key;
 
 /* Lock held. Numbers include a non-wrapping generation, not a bare slot. */
@@ -50,12 +49,14 @@ static void ns_unref_locked(uint32_t number)
 }
 static void ns_wait_allocated(void *waiter)
 {
-    ns_thread.frames[ns_thread.depth - 1].waiter = waiter;
+    struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
+    thread->frames[thread->depth - 1].waiter = waiter;
 }
 static void ns_wait_released(void *waiter)
 {
     (void)waiter;
-    ns_thread.frames[ns_thread.depth - 1].waiter = NULL;
+    struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
+    thread->frames[thread->depth - 1].waiter = NULL;
 }
 
 /* Runs only when the NATIVE thread exits. Server logical termination can
@@ -83,6 +84,7 @@ static void ns_thread_exit(void *value)
         frame->waiter = NULL;
     }
     nutssync_unlock(&saved);
+    free(thread);
 }
 
 static int ns_initialize(void)
@@ -206,10 +208,20 @@ static int ns_wait(struct ntsync_wait_args *args, int all)
     const int *fds = (const int *)(uintptr_t)args->objs;
     if (args->count > NUTSSYNC_MAX_WAIT || args->flags & ~NTSYNC_WAIT_REALTIME || args->pad ||
         (args->count && !fds) || !args->owner) { errno = EINVAL; return -1; }
-    if (ns_thread.depth == NS_NESTED_WAITS || pthread_setspecific(ns_thread_key, &ns_thread))
-    { errno = ENOMEM; return -1; }
+    /* Darwin can release the C TLV allocation before pthread key destructors.
+     * The destructor must own HEAP state, never a pointer into C thread-local
+     * storage. Allocate only once, outside every synchronization critical region. */
+    struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
+    if (!thread)
+    {
+        thread = calloc(1, sizeof(*thread));
+        if (!thread) { errno = ENOMEM; return -1; }
+        if (pthread_setspecific(ns_thread_key, thread))
+        { free(thread); errno = ENOMEM; return -1; }
+    }
+    if (thread->depth == NS_NESTED_WAITS) { errno = ENOMEM; return -1; }
     nutssync_lock(&saved);
-    struct ns_wait_frame *frame = &ns_thread.frames[ns_thread.depth++];
+    struct ns_wait_frame *frame = &thread->frames[thread->depth++];
     frame->waiter = NULL;
     frame->count = 0;
     for (unsigned i = 0; i < args->count + !!args->alert; i++)
@@ -219,7 +231,7 @@ static int ns_wait(struct ntsync_wait_args *args, int all)
         if (!MADSYNC_IS_FD(fd) || !ns_pin_locked(number))
         {
             while (frame->count) ns_unref_locked(frame->pinned[--frame->count]);
-            ns_thread.depth--;
+            thread->depth--;
             nutssync_unlock(&saved);
             errno = EINVAL;
             return -1;
@@ -233,7 +245,7 @@ static int ns_wait(struct ntsync_wait_args *args, int all)
                              !!(args->flags & NTSYNC_WAIT_REALTIME), &args->index);
     nutssync_lock(&saved);
     while (frame->count) ns_unref_locked(frame->pinned[--frame->count]);
-    ns_thread.depth--;
+    thread->depth--;
     nutssync_unlock(&saved);
     if (error) { errno = error; return -1; }
     return 0;
