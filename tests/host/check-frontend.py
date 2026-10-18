@@ -283,14 +283,14 @@ expect(env("_MADEIRA_PRIVATE_ARGS") == nil && env("MADEIRA_WORKDIR") == nil, "ne
 
 
 game.controllerMode = nil
-expect(env("MADEIRA_FASTSYNC") == "auto" && env("MADEIRA_FASTSYNC_SEM") == "0",
-       "no sync keys (Fastsync, the default): the game's fastsync switches are exported")
+expect(env("MADEIRA_FASTSYNC") == nil && env("MADEIRA_FASTSYNC_SEM") == nil,
+       "NutsSync default: the game's fastsync switches are not exported")
 expect(LogStore.shared.lines.last == "[display-shape] resolution=1280x720 mode=fit", "the profile's display shape is logged")
 // Fastsync's per-game switches: exported only when Settings chose Fastsync.
 MadeiraConfig.values = ["inproc-sync": "0"]
 unsetenv("MADEIRA_FASTSYNC"); unsetenv("MADEIRA_FASTSYNC_SEM"); game.applyEnvironment()
 expect(env("MADEIRA_FASTSYNC") == nil && env("MADEIRA_FASTSYNC_SEM") == nil, "Wine standard sync: no fastsync switches")
-MadeiraConfig.values = ["inproc-sync": "0", "env.MADEIRA_FASTSYNC": "auto"]
+MadeiraConfig.values = ["sync-engine": "fastsync", "env.MADEIRA_FASTSYNC": "auto"]
 game.applyEnvironment()
 expect(env("MADEIRA_FASTSYNC") == "auto" && env("MADEIRA_FASTSYNC_SEM") == "0",
        "Fastsync: fast synchronization on by default (the chosen mode), semaphore waits off")

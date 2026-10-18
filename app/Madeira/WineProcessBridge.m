@@ -1761,13 +1761,11 @@ static void *wine_process_thread(void *arg) {
                     LOG("madeira.cfg env: %{public}s=%{public}s", k.UTF8String, v.UTF8String);
                     fprintf(stderr, "[madeira-env] ml1062 %s=%s\n", k.UTF8String, v.UTF8String);
                 }
-                /* Fastsync is the default sync engine: with neither inproc-sync nor
-                 * env.MADEIRA_FASTSYNC in madeira.cfg, Wine gets MADEIRA_FASTSYNC=auto,
-                 * the value Settings > Sync engine > Fastsync writes. Never overrides a
-                 * value already set (a game's own fastsync switch sets 0). */
+                /* Explicit Fastsync selection. Automatic sessions use NutsSync;
+                 * WineServer exposes its device before any game object is created. */
                 if (madeira_cfg_sync_engine() == MADEIRA_SYNC_FASTSYNC && !getenv("MADEIRA_FASTSYNC")) {
                     setenv("MADEIRA_FASTSYNC", "auto", 0);
-                    fprintf(stderr, "[madeira-env] sync engine: fastsync (default), MADEIRA_FASTSYNC=auto\n");
+                    fprintf(stderr, "[madeira-env] sync engine: fastsync, MADEIRA_FASTSYNC=auto\n");
                 }
             }
             madeira_apply_game_memory_overrides();

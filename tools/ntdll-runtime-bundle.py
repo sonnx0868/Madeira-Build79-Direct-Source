@@ -10,7 +10,7 @@ import subprocess
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
-def verify(root, archive=None, stamp=False, base=None):
+def verify(root, archive=None, stamp=False, base=None, sync_refresh=False):
     archive = archive or root / 'app/Madeira/libntdll_unix.a'
     spec = importlib.util.spec_from_file_location('signal_bundle', root / 'tools/ntdll-signal-bundle.py')
     helper = importlib.util.module_from_spec(spec)
@@ -36,7 +36,8 @@ def verify(root, archive=None, stamp=False, base=None):
         previous = helper.members(base)
         assert objects.keys() == previous.keys(), 'runtime refresh changed archive member set'
         changed = sorted(n for n in objects if objects[n] != previous[n])
-        assert 'sync.o' in changed and set(changed) <= {'loader.o', 'sync.o'}, ('unexpected native refresh', changed)
+        allowed = {'madsync.o', 'sync.o'} if sync_refresh else {'loader.o', 'sync.o'}
+        assert 'sync.o' in changed and set(changed) <= allowed, ('unexpected native refresh', changed)
         document['base_archive_sha256'] = sha(base.read_bytes())
         document['changed_members'] = changed
         document['preserved_members'] = len(objects)-len(changed)
@@ -60,8 +61,9 @@ if __name__ == '__main__':
     parser.add_argument('--archive', type=Path)
     parser.add_argument('--base', type=Path)
     parser.add_argument('--stamp', action='store_true')
+    parser.add_argument('--sync-refresh', action='store_true')
     args = parser.parse_args()
     try:
-        verify(args.root, args.archive, args.stamp, args.base)
+        verify(args.root, args.archive, args.stamp, args.base, args.sync_refresh)
     except (AssertionError, OSError, ValueError, subprocess.CalledProcessError) as error:
         raise SystemExit('INVALID scheduling/builtin native bundle: '+str(error))

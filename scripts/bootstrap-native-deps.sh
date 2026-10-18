@@ -152,6 +152,7 @@ python3 "$root/tests/host/check-mesa-patches.py"
 python3 "$root/tests/host/check-osmesa-screen.py"
 bash "$root/build/wineserver/build.sh"
 bash "$root/build/ntdll-unix/build.sh"
+python3 "$root/tools/nutssync-bundle.py" --root "$root" --stamp
 bash "$root/build/win32u-unix/build.sh"
 
 log "Build LLVM and DXMT"

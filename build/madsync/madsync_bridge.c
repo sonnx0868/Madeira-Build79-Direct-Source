@@ -33,6 +33,7 @@ static void sync_initialize(void)
     }
     else if (requested == MADEIRA_SYNC_MADSYNC && madsync_legacy_enabled())
         sync_backend = MADEIRA_SYNC_MADSYNC;
+    else if (requested == MADEIRA_SYNC_FASTSYNC) sync_backend = MADEIRA_SYNC_FASTSYNC;
     fprintf(stderr, "[sync-engine] nutssync-v1 requested=%d active=%d\n", requested, sync_backend);
 }
 

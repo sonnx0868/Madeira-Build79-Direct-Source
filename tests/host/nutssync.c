@@ -266,8 +266,9 @@ static void capacity(void)
 }
 int main(int argc,char **argv)
 {
-    (void)argc;(void)argv; alarm(50); setvbuf(stdout,NULL,_IONBF,0);
+    alarm(50); setvbuf(stdout,NULL,_IONBF,0);
     CHECK(madsync_enabled());
+    if (argc > 1 && !strcmp(argv[1], "--benchmark-only")) { jobs(); return 0; }
     semantics(); puts("CHECK native termination"); termination();
     puts("CHECK Mach suspend"); suspension(); puts("CHECK concurrent jobs"); jobs(); capacity();
     puts("PASS production synchronization suite"); return 0;

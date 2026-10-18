@@ -110,6 +110,19 @@ PATCHED_FILES=(
     "sock:$WINE_SRC/server/sock.c:sock.o"
 )
 
+if [[ "${1:-all}" = sync-objects ]]; then
+    for entry in "${PATCHED_FILES[@]}"; do
+        IFS=: read -r name src old_obj <<< "$entry"
+        case "$name" in
+            mach_ios|process_ios|thread|inproc_sync)
+                [[ "$src" = /* ]] || src="$BUILD_DIR/$src"
+                compile_one "$src" "$name"
+                ;;
+        esac
+    done
+    exit 0
+fi
+
 echo "=== Building kill wrapper (without kill macro) ==="
 echo -n "  wineserver_ios_kill... "
 # Compile WITHOUT -include wineserver_ios_kill.h to avoid recursive macro

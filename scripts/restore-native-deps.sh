@@ -59,6 +59,8 @@ elif [[ "${1:-}" = --refresh-gpu ]]; then
   bash "$root/build/dxmt-ios/refresh-gpu.sh"
 elif [[ "${1:-}" = --refresh-optimizer ]]; then
   bash "$root/build/dxmt-ios/refresh-optimizer.sh"
+elif [[ "${1:-}" = --refresh-sync ]]; then
+  bash "$root/build/madsync/refresh.sh"
 elif [[ -n "${1:-}" ]]; then
   echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl|--refresh-input|--refresh-signal|--refresh-pacing]' >&2; exit 2
 fi

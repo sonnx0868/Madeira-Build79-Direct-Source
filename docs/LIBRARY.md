@@ -74,7 +74,7 @@ diagnostic scans and output during play without changing buffer reclamation.
 
 The Unity profile also selects Fastsync for that launch when the global engine
 is Wine standard sync. Per-game **Fast synchronization** off, an explicit
-`env.MADEIRA_FASTSYNC` value, Madsync, profile off, or
+`env.MADEIRA_FASTSYNC` value, NutsSync, Madsync, profile off, or
 `env.MADEIRA_UNITY_STARTUP_SYNC = 0` retain the selected compatibility behavior.
 Fast semaphore waits remain off by default. This addresses the disabled fast
 event path found in the build572 Silksong loading report; a device comparison
@@ -231,9 +231,16 @@ Removing an entry never removes the game's files or saves.
   switch and **Credits** (the last section). Display applies from the next session or FPS limit change; Memory &
   sync after a restart. They write `env.MADEIRA_PROMOTE`, `swap-mb`,
   `inproc-sync` and `env.MADEIRA_FASTSYNC` in `Documents/madeira.cfg`, keeping
-  every other line. With neither sync key set the engine is fastsync
-  (`madeira_cfg_sync_engine` in `build/madeira_cfg.h`); `inproc-sync = 1` selects
-  madsync.
+  every other line. Automatic sessions now select NutsSync. `sync-engine`
+  selects NutsSync, Madsync, Fastsync or Wine explicitly and takes precedence
+  over legacy keys. Without it, `inproc-sync = 1` retains Madsync and
+  `inproc-sync = 0` without a fastsync value retains Wine. Old `auto` values
+  migrate to NutsSync; explicit Fastsync on/off choices survive.
+  NutsSync handles events, semaphores, mutexes, wait-any/all and APC alerts
+  directly, without polling or a server request on each operation. Persistent
+  Mach suspension acquires its state lock before freezing a thread. Native
+  thread cleanup releases active and completed waiters and their references.
+  Unsupported OS versions and one-time installer sessions retain Wine sync.
 
 ## Game details
 

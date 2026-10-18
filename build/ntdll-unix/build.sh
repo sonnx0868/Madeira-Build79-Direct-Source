@@ -78,6 +78,20 @@ if [[ "${1:-all}" = runtime-only ]]; then
     echo 'Refreshed loader.o and sync.o; every other native object preserved'
     exit 0
 fi
+if [[ "${1:-all}" = sync-only ]]; then
+    test -s "$APP_LIB"
+    test -s "$WINE_BUILD/include/config.h"
+    compile_one "$BUILD_DIR/../madsync/madsync_bridge.c" madsync
+    compile_one "$WINE_SRC/dlls/ntdll/unix/sync.c" sync
+    [[ "$FAILED" = 0 ]] || exit 1
+    candidate="$OBJ_DIR/libntdll_sync_refresh.a"
+    cp "$APP_LIB" "$candidate"
+    xcrun ar r "$candidate" "$OBJ_DIR/madsync.o" "$OBJ_DIR/sync.o"
+    xcrun ranlib "$candidate"
+    python3 "$REPO_ROOT/tools/ntdll-runtime-bundle.py" --stamp --sync-refresh --archive "$candidate" --base "$APP_LIB"
+    mv "$candidate" "$APP_LIB"
+    exit 0
+fi
 [[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|signal-only|runtime-only' >&2; exit 2; }
 
 # iOS-Madeira 2026-07-05 (Steam S0): compile a DLL's unix side into
@@ -122,7 +136,7 @@ echo "=== Building ntdll unix (iOS) ==="
 # IAudioClock that advances at real time so FMOD's audio-gated rhythm
 # logic in Thumper et al. advances past intro music.
 compile_one "$BUILD_DIR/audio_null_ios.c" "audio_null_ios"
-compile_one "$BUILD_DIR/../madsync/madsync.c" "madsync"   # ml1058: userspace ntsync
+compile_one "$BUILD_DIR/../madsync/madsync_bridge.c" "madsync"
 
 # iOS-Madeira 2026-07-05 (Steam S0): network + crypto unix sides.
 echo "=== Building crypto/network unixlibs ==="

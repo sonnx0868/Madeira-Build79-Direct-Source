@@ -4470,7 +4470,7 @@ struct MadeiraCredit: View {
 /// Settings › Memory & sync: the JIT pool (madeira.cfg pool), the video memory
 /// budget (vram-mb), the file-backed swap tier (swap-mb, off by default, and
 /// env.MADEIRA_SWAP_COVERAGE, which allocations it backs) and the in-process sync
-/// engine (SyncEngine: fastsync by default, madsync or Wine's own). All are read when Madeira starts,
+/// engine (SyncEngine: NutsSync by default). All are read when Madeira starts,
 /// so changes apply after a restart. "All settings" opens every other option.
 /// MADEIRA_RUNTIME_SETTINGS=0 hides this section.
 /// A sheet opened from Settings; LibraryView presents it from the Form itself.
