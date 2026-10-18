@@ -82,7 +82,23 @@ NutsSync descriptor handoff failure/cleanup and empty APC-poll shortcut.
  }
  #define inproc_sync_cache               (ios_get_inproc_cache()->blocks)
  #define inproc_sync_cache_initial_block (ios_get_inproc_cache()->initial)
-@@ -3646,7 +3666,22 @@
+@@ -711,10 +731,11 @@
+ {
+     unsigned int entry, idx = inproc_sync_handle_to_index( handle, &entry );
+     struct inproc_sync *cache;
+-
+-    if (entry >= INPROC_SYNC_CACHE_ENTRIES || !inproc_sync_cache[entry]) return NULL;
+-
+-    cache = &inproc_sync_cache[entry][idx];
++    struct inproc_sync **blocks = inproc_sync_cache;
++
++    if (entry >= INPROC_SYNC_CACHE_ENTRIES || !blocks[entry]) return NULL;
++
++    cache = &blocks[entry][idx];
+ 
+     /* this load needs acquire semantics [paired with the store in
+      * cache_inproc_sync()] */
+@@ -3646,7 +3667,22 @@
          __sync_fetch_and_add( &ios_xp_delay_hist[d < 0 ? 5 : d == 0 ? 0 : d < 10000 ? 1 : d < 50000 ? 2 : d < 200000 ? 3 : 4], 1 );
      }
  

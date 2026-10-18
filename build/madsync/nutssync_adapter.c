@@ -109,7 +109,7 @@ static int ns_initialize(void)
     {
         if (pthread_key_create(&ns_thread_key, ns_thread_exit)) return 0;
         /* FEX/Wine store their TEB directly in Darwin slot 275. Do not let
-         * this new key alias it. Keep that reserved slot without a destructor. */
+         * this new key alias it. Reserve it and use a different key. */
         if (ns_thread_key == 275)
         {
             /* Keep 275 reserved. Its callback ignores non-adapter values. */
