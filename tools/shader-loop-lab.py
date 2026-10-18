@@ -10,10 +10,10 @@ root = pathlib.Path(__file__).resolve().parents[1]
 out = pathlib.Path(os.environ['BITRISE_DEPLOY_DIR'])
 llvm = root / 'toolchains/llvm15-macos'
 
-for tool in ['metal-tt', 'metal-objdump', 'metal-config', 'metal-source', 'metal-lipo']:
+for tool in ['metal-tt', 'metal-nt', 'metal-objdump', 'metal-config', 'metal-source', 'metal-lipo']:
     found = subprocess.run(['xcrun', '--find', tool], capture_output=True, text=True)
     if found.returncode: continue
-    help_result = subprocess.run(['xcrun', tool, '-help' if tool=='metal-tt' else '--help'], capture_output=True, text=True, timeout=30)
+    help_result = subprocess.run(['xcrun', tool, '-help' if tool in ['metal-tt','metal-nt'] else '--help'], capture_output=True, text=True, timeout=30)
     (out/(tool+'-help.txt')).write_text(help_result.stdout + help_result.stderr)
     print('Offline Metal tool available:', tool, flush=True)
 for page in ['metal-pipelines-script','metal-tt','metal-objdump']:
@@ -103,7 +103,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     transforms = []
     modes = ['baseline','loops','cfg','o2']
     if os.environ.get('MADEIRA_SHADER_LAB_CONSTANTS'): modes += ['specialize']
-    if os.environ.get('MADEIRA_SHADER_LAB_EMBEDDED_SRV'): modes += ['embed']
+    if os.environ.get('MADEIRA_SHADER_LAB_EMBEDDED_SRV'): modes += ['embed','constant']
     for mode in modes:
         folder = work / mode; folder.mkdir()
         for input_path in sorted(inputs.iterdir()):
@@ -126,7 +126,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
                               'threadgroup_size_is_multiple_of_thread_execution_width':total_threads % 32 == 0,
                               'buffers':buffers}]}}
             script.write_text(json.dumps(descriptor))
-            command = ['xcrun','--sdk','iphoneos','metal-tt',library,script,'-arch','applegpu_g14g',
+            command = ['xcrun','--sdk','iphoneos','metal-tt',library,script,'-verbose','-arch','applegpu_g14g',
                        '-target','air64-apple-ios18.0','-o',binary]
             compiled = subprocess.run([str(a) for a in command],capture_output=True,text=True,timeout=90)
             entry = {'input':row['input'],'function':row['after']['function'],'mode':row['mode'],
