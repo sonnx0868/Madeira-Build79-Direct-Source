@@ -20,6 +20,7 @@ run_suite() {
   return "$status"
 }
 run_suite nutssync
+run_suite nutssync-benchmark --benchmark-only
 # Legacy path remains an explicit, executable compatibility choice.
 printf 'sync-engine = madsync\n' > "$out/config/madeira.cfg"
 run_suite madsync --benchmark-only

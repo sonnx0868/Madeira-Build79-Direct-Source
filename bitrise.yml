@@ -32,9 +32,10 @@ workflows:
                 #!/bin/bash
                 set -euo pipefail
                 cd "$BITRISE_SOURCE_DIR"
-                git submodule update --init wine
-                bash scripts/apply-wine-patches.sh
                 bash scripts/check-nutssync.sh
+                git submodule update --init --depth 1 wine
+                bash scripts/apply-wine-patches.sh
+                python3 tests/host/check-inproc-cache-retire.py
       - deploy-to-bitrise-io@2:
           is_always_run: true
           inputs:

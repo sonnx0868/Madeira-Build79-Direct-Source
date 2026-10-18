@@ -13,6 +13,8 @@ Madeira modifications, 2026-10-18:
 - Pin alert objects with the same waiter lifetime as other objects.
 - Use os_unfair_lock with ownership and priority donation in Madeira's single
   native host task, retaining NutsSync's word-based blocking waiter protocol.
+- Use private compare-and-wait operations in that host and no periodic timer
+  for infinite waits; atomic state checks preserve wake-before-park ordering.
 - Integrate through build/madsync/nutssync_adapter.c and madsync_bridge.c,
   preserving Wine object/access/APC protocols and legacy synchronization choices.
 - Coordinate persistent Mach suspension with the synchronization lock so a

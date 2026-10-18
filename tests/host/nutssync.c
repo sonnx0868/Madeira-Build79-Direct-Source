@@ -268,7 +268,8 @@ int main(int argc,char **argv)
 {
     alarm(50); setvbuf(stdout,NULL,_IONBF,0);
     CHECK(madsync_enabled());
-    if (argc > 1 && !strcmp(argv[1], "--benchmark-only")) { jobs(); return 0; }
+    if (argc > 1 && !strcmp(argv[1], "--benchmark-only"))
+    { for (unsigned i = 0; i < 5; i++) jobs(); return 0; }
     semantics(); puts("CHECK native termination"); termination();
     puts("CHECK Mach suspend"); suspension(); puts("CHECK concurrent jobs"); jobs(); capacity();
     puts("PASS production synchronization suite"); return 0;

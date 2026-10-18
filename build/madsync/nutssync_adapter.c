@@ -10,6 +10,10 @@ static void ns_wait_released(void *waiter);
 static os_unfair_lock ns_state_lock = OS_UNFAIR_LOCK_INIT;
 #define NUTSSYNC_LOCAL_LOCK() os_unfair_lock_lock(&ns_state_lock)
 #define NUTSSYNC_LOCAL_UNLOCK() os_unfair_lock_unlock(&ns_state_lock)
+/* All Wine instances share this native task and virtual mapping. Private
+ * futexes avoid a cross-process VM-object lookup on every wait and wake. */
+#define NUTSSYNC_WAIT_FLAGS OS_SYNC_WAIT_ON_ADDRESS_NONE
+#define NUTSSYNC_WAKE_FLAGS OS_SYNC_WAKE_BY_ADDRESS_NONE
 #define NUTSSYNC_OBJECT_CREATED(slot) ns_object_created(slot)
 #define NUTSSYNC_WAIT_ALLOCATED(w) ns_wait_allocated(w)
 #define NUTSSYNC_WAIT_RELEASED(w) ns_wait_released(w)

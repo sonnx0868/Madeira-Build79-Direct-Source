@@ -52,6 +52,11 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef NUTSSYNC_WAIT_FLAGS
+#define NUTSSYNC_WAIT_FLAGS OS_SYNC_WAIT_ON_ADDRESS_SHARED
+#define NUTSSYNC_WAKE_FLAGS OS_SYNC_WAKE_BY_ADDRESS_SHARED
+#endif
+
 #define NUTSSYNC_MAGIC        0x4e555453u  /* "NUTS" */
 #define NUTSSYNC_VERSION      1
 /* Madeira 2026-10-18: slot+1 must fit in 17 bits; reserve zero. The local
@@ -165,9 +170,9 @@ static inline int nutssync_wait_word( uint32_t *word, uint32_t value, uint64_t t
 {
     if (__builtin_available(iOS 17.4, macOS 14.4, *))
     {
-    int ret = timeout_ns ? os_sync_wait_on_address_with_timeout( word, value, 4, OS_SYNC_WAIT_ON_ADDRESS_SHARED,
+    int ret = timeout_ns ? os_sync_wait_on_address_with_timeout( word, value, 4, NUTSSYNC_WAIT_FLAGS,
                                                                    OS_CLOCK_MACH_ABSOLUTE_TIME, timeout_ns )
-                         : os_sync_wait_on_address( word, value, 4, OS_SYNC_WAIT_ON_ADDRESS_SHARED );
+                         : os_sync_wait_on_address( word, value, 4, NUTSSYNC_WAIT_FLAGS );
     return ret < 0 ? errno : 0;
     }
     return ENOTSUP;
@@ -177,8 +182,8 @@ static inline void nutssync_wake_word( uint32_t *word, int all )
 {
     if (__builtin_available(iOS 17.4, macOS 14.4, *))
     {
-    if (all) os_sync_wake_by_address_all( word, 4, OS_SYNC_WAKE_BY_ADDRESS_SHARED );
-    else os_sync_wake_by_address_any( word, 4, OS_SYNC_WAKE_BY_ADDRESS_SHARED );
+    if (all) os_sync_wake_by_address_all( word, 4, NUTSSYNC_WAKE_FLAGS );
+    else os_sync_wake_by_address_any( word, 4, NUTSSYNC_WAKE_FLAGS );
     }
 }
 
@@ -695,6 +700,12 @@ static inline int nutssync_wait( const uint32_t *objs, uint32_t count, int all, 
     for (;;)
     {
         uint64_t left = 1000000000ull;  /* at most a second at a time: see below */
+#ifdef NUTSSYNC_LOCAL_LOCK
+        /* Same native task and private compare-and-wait: state is checked
+         * atomically with parking. Infinite waits need no watchdog timer;
+         * the signaling thread (or Wine termination signal) wakes them. */
+        if (deadline == UINT64_MAX) left = 0;
+#endif
         if (__atomic_load_n( &w->state, __ATOMIC_ACQUIRE )) break;
         if (deadline != UINT64_MAX)
         {
