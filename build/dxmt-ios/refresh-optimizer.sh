@@ -8,7 +8,7 @@ archive="$root/app/Madeira/libdxmt_combined.a"
 mkdir -p "$out" "$llvm" "$out/shader-headers"
 if [[ ! -s "$llvm/include/llvm/IR/IRBuilder.h" ]]; then
   download="${TMPDIR:-/tmp}/madeira-llvm15-macos.tar.xz"
-  curl --fail --location --retry 3 --silent --show-error \
+  curl --fail --location --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 30 --silent --show-error \
     'https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/clang%2Bllvm-15.0.7-arm64-apple-darwin22.0.tar.xz' -o "$download"
   printf '%s  %s\n' 867c6afd41158c132ef05a8f1ddaecf476a26b91c85def8e124414f9a9ba188d "$download" | shasum -a 256 -c -
   tar -xJf "$download" --strip-components=1 -C "$llvm"
