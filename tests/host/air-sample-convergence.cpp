@@ -51,9 +51,14 @@ static void loopGuard(bool explicitLOD) {
   LoopAnalysisManager lam;FunctionAnalysisManager fam;CGSCCAnalysisManager cgam;ModuleAnalysisManager mam;PassBuilder pb;
   pb.registerModuleAnalyses(mam);pb.registerCGSCCAnalyses(cgam);pb.registerFunctionAnalyses(fam);pb.registerLoopAnalyses(lam);pb.crossRegisterProxies(lam,fam,cgam,mam);
   ModulePassManager pm;
-  if(auto error=pb.parsePassPipeline(pm,"function(loop-simplify,lcssa,loop(loop-rotate),sink)")){consumeError(std::move(error));std::exit(2);}
+  // Production already runs InstCombine before rotation/sinking. In
+  // particular, remove the unused sample-status extract emitted by AIRBuilder.
+  if(auto error=pb.parsePassPipeline(pm,"function(instcombine,loop-simplify,lcssa,loop(loop-rotate),sink)")){consumeError(std::move(error));std::exit(2);}
   pm.run(module,mam);
-  require((call->getParent()!=entry)==explicitLOD,"texture sampling did not respect zero-trip / derivative guard");
+  if((call->getParent()!=entry)!=explicitLOD) {
+    errs()<<"explicit LOD="<<explicitLOD<<'\n';module.print(errs(),nullptr);
+    require(false,"texture sampling did not respect zero-trip / derivative guard");
+  }
   require(!verifyModule(module,&errs()),"invalid optimized module");
 }
 int main() {
