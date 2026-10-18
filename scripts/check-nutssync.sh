@@ -6,7 +6,7 @@ mkdir -p "$out"
 exec > >(tee "$out/nutssync-check.log") 2>&1
 [[ "$(uname -s)" = Darwin && "$(uname -m)" = arm64 ]]
 xcrun clang -std=gnu11 -O2 -g -Wall -Wextra -Werror -Wno-unused-function \
-  -Wno-unused-parameter -mmacosx-version-min=15.0 "$root/tests/host/nutssync.c" -o "$out/nutssync-test"
+  -Wno-unused-parameter -Wno-incompatible-pointer-types-discards-qualifiers -mmacosx-version-min=15.0 "$root/tests/host/nutssync.c" -o "$out/nutssync-test"
 mkdir -p "$out/config"
 printf 'sync-engine = nutssync\n' > "$out/config/madeira.cfg"
 MADEIRA_DOCS_DIR="$out/config" "$out/nutssync-test"

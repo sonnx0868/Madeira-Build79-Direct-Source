@@ -7,7 +7,7 @@
 #include <mach/thread_act.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s errno=%d\n", __LINE__, #x, errno); abort(); } } while (0)
-static uint64_t now_ns(void) { return nutssync_now(0); }
+static uint64_t test_now_ns(void) { return nutssync_now(0); }
 static int event(int manual, int signaled)
 {
     struct ntsync_event_args a = {manual, signaled};
@@ -62,8 +62,8 @@ static unsigned active_on(int fd)
 }
 static void wait_registered(int fd, unsigned count)
 {
-    uint64_t end = now_ns() + 2000000000ull;
-    while (active_on(fd) != count && now_ns() < end) usleep(100);
+    uint64_t end = test_now_ns() + 2000000000ull;
+    while (active_on(fd) != count && test_now_ns() < end) usleep(100);
     CHECK(active_on(fd) == count);
 }
 struct waiting { int fds[2], all, alert; unsigned count, index, owner; int result, error; };
@@ -104,9 +104,9 @@ static void semantics(void)
     CHECK(wait_objects(NULL, 0, 0, alert, 0, 1, &index) == 0 && index == 0);
     op(alert, NTSYNC_IOC_EVENT_RESET);
     poll_timeout(&e, 1, 0);
-    uint64_t start = now_ns();
+    uint64_t start = test_now_ns();
     CHECK(wait_objects(&e, 1, 0, 0, start + 10000000, 1, NULL) == -1 && errno == ETIMEDOUT);
-    CHECK(now_ns() - start >= 9000000 && now_ns() - start < 1000000000);
+    CHECK(test_now_ns() - start >= 9000000 && test_now_ns() - start < 1000000000);
     struct ntsync_wait_args rt = {.objs=(uintptr_t)&e, .count=1, .owner=1,
         .timeout=nutssync_now(1) + 10000000, .flags=NTSYNC_WAIT_REALTIME};
     CHECK(madsync_ioctl(MADSYNC_DEVICE_FD, NTSYNC_IOC_WAIT_ANY, &rt) == -1 && errno == ETIMEDOUT);
@@ -231,13 +231,13 @@ static void jobs(void)
         jobs[i]=(struct job){event(0,0),event(0,0),ROUNDS,1000+i}; done[i]=jobs[i].done;
         CHECK(pthread_create(&threads[i],NULL,job_worker,&jobs[i]) == 0);
     }
-    struct rusage before, after; getrusage(RUSAGE_SELF, &before); uint64_t start=now_ns();
+    struct rusage before, after; getrusage(RUSAGE_SELF, &before); uint64_t start=test_now_ns();
     for (unsigned r = 0; r < ROUNDS; r++)
     {
         for (unsigned i = 0; i < WORKERS; i++) op(jobs[i].ready,NTSYNC_IOC_EVENT_SET);
         CHECK(wait_objects(done,WORKERS,1,0,UINT64_MAX,999,NULL) == 0);
     }
-    double wall=(now_ns()-start)/1e6; getrusage(RUSAGE_SELF,&after);
+    double wall=(test_now_ns()-start)/1e6; getrusage(RUSAGE_SELF,&after);
     double cpu=(after.ru_utime.tv_sec-before.ru_utime.tv_sec+after.ru_stime.tv_sec-before.ru_stime.tv_sec)*1000.0+
         (after.ru_utime.tv_usec-before.ru_utime.tv_usec+after.ru_stime.tv_usec-before.ru_stime.tv_usec)/1000.0;
     for (unsigned i=0;i<WORKERS;i++)
