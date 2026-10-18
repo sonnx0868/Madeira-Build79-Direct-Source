@@ -9,11 +9,20 @@ xcrun clang -std=gnu11 -O2 -g -Wall -Wextra -Werror -Wno-unused-function \
   -Wno-unused-parameter -Wno-incompatible-pointer-types-discards-qualifiers -mmacosx-version-min=15.0 "$root/tests/host/nutssync.c" -o "$out/nutssync-test"
 mkdir -p "$out/config"
 printf 'sync-engine = nutssync\n' > "$out/config/madeira.cfg"
-MADEIRA_DOCS_DIR="$out/config" "$out/nutssync-test"
+run_suite() {
+  local engine="$1" pid monitor status=0
+  MADEIRA_DOCS_DIR="$out/config" "$out/nutssync-test" > "$out/$engine.log" 2>&1 & pid=$!
+  (sleep 10; if kill -0 "$pid" 2>/dev/null; then /usr/bin/sample "$pid" 1 -file "$out/$engine-stacks.txt" || true; fi) & monitor=$!
+  wait "$pid" || status=$?
+  kill "$monitor" 2>/dev/null || true
+  cat "$out/$engine.log"
+  return "$status"
+}
+run_suite nutssync
 # Legacy path remains an explicit, executable compatibility choice.
 printf 'sync-engine = madsync\n' > "$out/config/madeira.cfg"
 # The old handoff table has a 256-entry limit. Its suite only uses that bound.
-MADEIRA_DOCS_DIR="$out/config" "$out/nutssync-test"
+run_suite madsync
 sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
 xcrun --sdk iphoneos clang -std=gnu11 -O2 -arch arm64 -isysroot "$sdk" \
   -miphoneos-version-min=17.0 -Werror=implicit-function-declaration \

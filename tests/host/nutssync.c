@@ -76,6 +76,7 @@ static void *wait_thread(void *arg)
 }
 static void semantics(void)
 {
+    puts("CHECK immediate waits and event state");
     int e = event(0, 0), manual = event(1, 1); unsigned index;
     poll_timeout(&e, 1, 0);
     CHECK(op(e, NTSYNC_IOC_EVENT_SET) == 0);
@@ -104,12 +105,14 @@ static void semantics(void)
     CHECK(wait_objects(NULL, 0, 0, alert, 0, 1, &index) == 0 && index == 0);
     op(alert, NTSYNC_IOC_EVENT_RESET);
     poll_timeout(&e, 1, 0);
+    puts("CHECK monotonic/realtime timeout");
     uint64_t start = test_now_ns();
     CHECK(wait_objects(&e, 1, 0, 0, start + 10000000, 1, NULL) == -1 && errno == ETIMEDOUT);
     CHECK(test_now_ns() - start >= 9000000 && test_now_ns() - start < 1000000000);
     struct ntsync_wait_args rt = {.objs=(uintptr_t)&e, .count=1, .owner=1,
         .timeout=nutssync_now(1) + 10000000, .flags=NTSYNC_WAIT_REALTIME};
     CHECK(madsync_ioctl(MADSYNC_DEVICE_FD, NTSYNC_IOC_WAIT_ANY, &rt) == -1 && errno == ETIMEDOUT);
+    puts("CHECK mutex recursion and abandonment");
     struct ntsync_mutex_args m = {7, 1};
     int mutex = madsync_ioctl(MADSYNC_DEVICE_FD, NTSYNC_IOC_CREATE_MUTEX, &m); CHECK(mutex >= 0);
     CHECK(wait_objects(&mutex, 1, 0, 0, 0, 7, NULL) == 0);
@@ -123,6 +126,7 @@ static void semantics(void)
     CHECK(wait_objects(&mutex, 1, 0, 0, 0, 10, NULL) == 0); /* abandoned only once */
     m.owner = 10; CHECK(madsync_ioctl(mutex, NTSYNC_IOC_MUTEX_UNLOCK, &m) == 0);
     /* Pulse reaches current waiters, never a future waiter. */
+    puts("CHECK pulse and blocked wait-all");
     struct waiting w = {.fds={e}, .count=1, .owner=100}; pthread_t thread;
     CHECK(pthread_create(&thread, NULL, wait_thread, &w) == 0); wait_registered(e, 1);
     op(e, NTSYNC_IOC_EVENT_PULSE); CHECK(pthread_join(thread, NULL) == 0 && w.result == 0);
@@ -132,6 +136,7 @@ static void semantics(void)
     op(e, NTSYNC_IOC_EVENT_SET); CHECK(active_on(e) == 1);
     release = 1; CHECK(madsync_ioctl(sem, NTSYNC_IOC_SEM_RELEASE, &release) == 0);
     CHECK(pthread_join(thread, NULL) == 0 && w.result == 0);
+    puts("CHECK descriptor handoff");
     unsigned posts = sync_backend == MADEIRA_SYNC_NUTSSYNC ? 1000 : 128;
     for (unsigned i = 0; i < posts; i++) CHECK(madsync_post(10, i, e) == 0);
     CHECK(madsync_take(11, 1) == -1);
@@ -261,8 +266,9 @@ static void capacity(void)
 }
 int main(int argc,char **argv)
 {
-    (void)argc;(void)argv; alarm(100);
+    (void)argc;(void)argv; alarm(50); setvbuf(stdout,NULL,_IONBF,0);
     CHECK(madsync_enabled());
-    semantics(); termination(); suspension(); jobs(); capacity();
+    semantics(); puts("CHECK native termination"); termination();
+    puts("CHECK Mach suspend"); suspension(); puts("CHECK concurrent jobs"); jobs(); capacity();
     puts("PASS production synchronization suite"); return 0;
 }
