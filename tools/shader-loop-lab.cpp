@@ -180,7 +180,7 @@ int main(int argc,char **argv) {
   auto before=stats(*m);
   const auto started=std::chrono::steady_clock::now();
   StringRef mode(argv[2]);
-  unsigned relaxed=mode=="guarded"?dxmt::air::relaxExplicitLODSampling(*m):0;
+  unsigned relaxed=mode=="guarded"?dxmt::shaderopt::relaxExplicitLODSampling(*m):0;
   unsigned folded=(mode=="specialize" || mode=="embed")?specialize(*m):0;
   unsigned embedded=(mode=="embed" || mode=="constant")?embedSRV(*m,mode=="embed"):0;
   if(mode!="baseline") {

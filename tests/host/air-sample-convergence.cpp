@@ -25,7 +25,7 @@ static void mixedCalls(bool explicitFirst,bool compare) {
     }
   }
   auto *barrier=air.CreateBarrier(air::MemFlags::Threadgroup);ir.CreateRetVoid();
-  require(dxmt::air::relaxExplicitLODSampling(module)==0,"mixed LOD declaration was relaxed");
+  require(dxmt::shaderopt::relaxExplicitLODSampling(module)==0,"mixed LOD declaration was relaxed");
   unsigned count=0;
   for(auto &block:*function)for(auto &instruction:block)if(auto *call=dyn_cast<CallInst>(&instruction)) {
     if(call==barrier){require(call->isConvergent(),"barrier lost convergence");continue;}
@@ -50,7 +50,7 @@ static void loopGuard(bool explicitLOD) {
   ir.SetInsertPoint(body);ir.CreateStore(sample,ir.CreateGEP(ir.getFloatTy(),function->getArg(3),index));
   auto *next=ir.CreateAdd(index,ir.getInt32(1));index->addIncoming(next,body);ir.CreateBr(header);
   ir.SetInsertPoint(exit);ir.CreateRetVoid();
-  require(dxmt::air::relaxExplicitLODSampling(module)==unsigned(explicitLOD),"wrong explicit sampling eligibility");
+  require(dxmt::shaderopt::relaxExplicitLODSampling(module)==unsigned(explicitLOD),"wrong explicit sampling eligibility");
   LoopAnalysisManager lam;FunctionAnalysisManager fam;CGSCCAnalysisManager cgam;ModuleAnalysisManager mam;PassBuilder pb;
   pb.registerModuleAnalyses(mam);pb.registerCGSCCAnalyses(cgam);pb.registerFunctionAnalyses(fam);pb.registerLoopAnalyses(lam);pb.crossRegisterProxies(lam,fam,cgam,mam);
   ModulePassManager pm;

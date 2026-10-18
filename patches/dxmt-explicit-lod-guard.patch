@@ -1,5 +1,5 @@
 diff --git a/src/airconv/airconv_context.cpp b/src/airconv/airconv_context.cpp
-index 69dfc77..d461db6 100644
+index 69dfc77..6522eac 100644
 --- a/src/airconv/airconv_context.cpp
 +++ b/src/airconv/airconv_context.cpp
 @@ -12,6 +12,8 @@
@@ -23,7 +23,7 @@ index 69dfc77..d461db6 100644
  void
  runOptimizationPasses(llvm::Module &M) {
  
-+  air::relaxExplicitLODSampling(M);
++  shaderopt::relaxExplicitLODSampling(M);
 +
    if (!llvm_overwrite.test_and_set()) {
      auto Map = cl::getRegisteredOptions();

@@ -3,7 +3,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 
-namespace dxmt::air {
+namespace dxmt::shaderopt {
 
 // LLVM15 can remove a call-site convergent attribute when the declaration
 // lacks it. Therefore keep mixed/unknown uses fully convergent; relax a
@@ -29,4 +29,4 @@ inline unsigned relaxExplicitLODSampling(llvm::Module &module) {
   }
   return relaxed;
 }
-} // namespace dxmt::air
+} // namespace dxmt::shaderopt
