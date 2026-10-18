@@ -113,7 +113,9 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     if os.environ.get('MADEIRA_SHADER_LAB_OFFLINE') == '1':
         native = []
         for row in transforms:
-            if row['input'] not in ['424068078B764242','58C1B30E79A7EE95']: continue
+            # Check every captured compute kernel affected by the production
+            # change, rather than only the fog/stress pair used during research.
+            if row['mode'] not in ['baseline','guarded']: continue
             folder = work/row['mode']
             library = folder/(row['input']+'.metallib')
             script = folder/(row['input']+'.mtlp-json')
@@ -169,6 +171,8 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
                   'scope':'Offline compilation for the M2 GPU architecture. No iPad FPS measurement.',
                   'configuration':'Threadgroup-width hint and immutable buffers29/30 match the D3D11 compute pipeline.'}
         (out/'shader-native-results.json').write_text(json.dumps(report,indent=2))
+        if any(row['returncode'] for row in native):
+            raise RuntimeError('Captured compute shader rejected by the M2 compiler')
         if os.environ.get('MADEIRA_SHADER_LAB_REPLAY'):
             profile=work/'replay-profile.json';profile.write_text(os.environ['MADEIRA_SHADER_LAB_REPLAY'])
             run(['xcrun','clang','-O2','-fobjc-arc',root/'tools/shader-fog-replay.m',
