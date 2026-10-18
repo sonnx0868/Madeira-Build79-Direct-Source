@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Compare saved compute shaders with the shipping LLVM and Apple's compiler.
+
+Input shaders remain in a temporary directory. Only counts, timings and compiler
+statistics are deployed. This experiment does not produce an IPA or measure FPS.
+"""
+import json, os, pathlib, plistlib, re, subprocess, tempfile, urllib.parse, urllib.request, zipfile
+
+root = pathlib.Path(__file__).resolve().parents[1]
+out = pathlib.Path(os.environ['BITRISE_DEPLOY_DIR'])
+llvm = root / 'toolchains/llvm15-macos'
+
+def run(args, **kw):
+    return subprocess.run([str(a) for a in args], check=True, **kw)
+
+def decode_plist(data):
+    archive = plistlib.loads(data)
+    objects = archive.get('$objects', [])
+    def value(v, depth=0):
+        if depth > 64: raise ValueError('Nested statistics archive')
+        if isinstance(v, plistlib.UID): return value(objects[v.data], depth + 1)
+        if isinstance(v, list): return [value(i, depth + 1) for i in v]
+        if isinstance(v, dict):
+            if 'NS.keys' in v:
+                return dict(zip(value(v['NS.keys'], depth + 1), value(v['NS.objects'], depth + 1)))
+            if 'NS.objects' in v: return value(v['NS.objects'], depth + 1)
+            return {k: value(x, depth + 1) for k, x in v.items() if k != '$class'}
+        return v
+    return value(archive['$top']['root']) if objects else archive
+
+def compiler_stats(folder):
+    stats = {}
+    for path in folder.iterdir():
+        data = path.read_bytes()
+        if not data.startswith(b'bplist00') or b'Instruction count' not in data: continue
+        decoded = decode_plist(data)
+        for stage, values in decoded.items():
+            if not isinstance(values, dict): continue
+            name = values.get('Compile Performance', {}).get('Function Name')
+            if not name or name == 'lab_marker': continue
+            stats[name] = {k: v for k, v in values.items()
+                           if isinstance(v, (int, float, bool)) and 'time' not in k.lower()}
+    return stats
+
+with tempfile.TemporaryDirectory(prefix='madeira-shader-loop-') as temp:
+    work = pathlib.Path(temp)
+    url = os.environ['MADEIRA_SHADER_LAB_URL']
+    parsed = urllib.parse.urlsplit(url)
+    assert parsed.scheme == 'https' and parsed.hostname == 'release-assets.githubusercontent.com'
+    key = os.environ['MADEIRA_SHADER_LAB_KEY']
+    assert re.fullmatch('[0-9a-f]{64}', key)
+    encrypted = work / 'input.aesgcm'
+    with urllib.request.urlopen(url, timeout=90) as source, encrypted.open('wb') as dest:
+        count = 0
+        for block in iter(lambda: source.read(1024 * 1024), b''):
+            count += len(block); assert count < 64 * 1024**2
+            dest.write(block)
+    # CryptoKit keeps the transfer key out of command arguments and logs.
+    decrypt = work / 'decrypt.swift'
+    decrypt.write_text('''import Foundation
+import CryptoKit
+let hex=ProcessInfo.processInfo.environment["MADEIRA_SHADER_LAB_KEY"]!
+let bytes=stride(from:0,to:hex.count,by:2).map { i -> UInt8 in
+ let start=hex.index(hex.startIndex,offsetBy:i)
+ return UInt8(hex[start..<hex.index(start,offsetBy:2)],radix:16)!
+}
+let box=try AES.GCM.SealedBox(combined:Data(contentsOf:URL(fileURLWithPath:CommandLine.arguments[1])))
+try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLWithPath:CommandLine.arguments[2]))
+''')
+    run(['xcrun','swiftc',decrypt,'-o',work/'decrypt'])
+    archive = work / 'input.zip'
+    run([work/'decrypt',encrypted,archive])
+    inputs = work / 'inputs'; inputs.mkdir()
+    with zipfile.ZipFile(archive) as z:
+        assert len(z.infolist()) <= 64 and sum(i.file_size for i in z.infolist()) < 64 * 1024**2
+        for entry in z.infolist():
+            assert re.fullmatch('[0-9A-F]{1,16}\.metallib', entry.filename)
+            assert entry.file_size < 4 * 1024**2
+        z.extractall(inputs)
+    cppflags = subprocess.check_output([llvm/'bin/llvm-config','--cxxflags'], text=True).split()
+    ldflags = subprocess.check_output([llvm/'bin/llvm-config','--ldflags','--system-libs','--libs','passes','bitwriter'], text=True).split()
+    run(['xcrun','clang++',*cppflags,'-std=c++20','-O2','-I'+str(root/'dxmt/src/airconv'),
+         root/'tools/shader-loop-lab.cpp',root/'dxmt/src/airconv/metallib_writer.cpp',
+         *ldflags,'-Wl,-rpath,'+str(llvm/'lib'),'-o',work/'optimize'])
+    transforms = []
+    for mode in ['baseline','loops','o2']:
+        folder = work / mode; folder.mkdir()
+        for input_path in sorted(inputs.iterdir()):
+            result = run([work/'optimize',input_path,mode,folder/input_path.name], capture_output=True, text=True)
+            transforms.append({'input':input_path.stem, **json.loads(result.stdout)})
+    run(['xcrun','clang','-O2','-fobjc-arc',root/'tools/shader-loop-lab-metal.m',
+         '-framework','Foundation','-framework','Metal','-o',work/'metal-check'])
+    env = dict(os.environ, MTL_CAPTURE_ENABLED='1')
+    run([work/'metal-check',work,work], env=env)
+    developer = pathlib.Path(subprocess.check_output(['xcode-select','-p'], text=True).strip())
+    frameworks = developer.parent/'SharedFrameworks'
+    run(['xcrun','clang','-O2','-fobjc-arc','-Wno-objc-method-access',root/'tools/gpu-apple-archive-reader.m',
+         '-framework','Foundation','-framework','Metal','-o',work/'reader'])
+    stats = {}
+    for mode in ['baseline','loops','o2']:
+        env = dict(os.environ, DYLD_FRAMEWORK_PATH=str(frameworks)+':'+str(developer.parent/'Frameworks'))
+        run([work/'reader',frameworks,work/(mode+'.gputrace'),work/('read-'+mode)], env=env)
+        stats[mode] = compiler_stats(work/('read-'+mode+'-shader-metadata'))
+    report = {'format':'madeira-shader-loop-experiment-v1','llvm':subprocess.check_output([llvm/'bin/llvm-config','--version'], text=True).strip(),
+              'scope':'Saved compute shaders recompiled on Mac. These are compiler statistics, not iPad FPS or GPU execution timings.',
+              'transforms':transforms,'compiler_statistics':stats}
+    (out/'shader-loop-results.json').write_text(json.dumps(report,indent=2))
+    print('Compiled saved compute shaders in all three modes. Compiler statistic counts:', {k:len(v) for k,v in stats.items()})

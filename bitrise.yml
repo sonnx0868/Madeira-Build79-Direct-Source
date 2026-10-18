@@ -19,6 +19,32 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: a94994ef17a7eb8a9bf01130d4f40fd3b755c78cbf7dd88361c3273d7d724f57
 
 workflows:
+  madeira-shader-optimizer-check:
+    title: Compare saved shader loop optimizations on Metal
+    description: Compile captured compute shaders through LLVM15 and Metal without producing an IPA.
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          title: Check saved shaders with the shipping LLVM and Apple compiler
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/check-shader-loop-optimizer.sh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-shader-optimizer-check
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-srv-vector-check:
     title: Validate bounded shader vector reads on Metal
     steps:
