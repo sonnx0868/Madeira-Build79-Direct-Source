@@ -1,5 +1,7 @@
 #!/bin/bash
-# Compile the production LLVM emitter and execute both paths on a real Mac GPU.
+# Compile the production LLVM emitter and execute both paths through Metal.
+# Hosted runners may expose an Apple Paravirtual device; report its actual name
+# and keep isolated loop cost separate from original-iPad game performance.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 out="${BITRISE_DEPLOY_DIR:-$root/build/srv-load-check}"

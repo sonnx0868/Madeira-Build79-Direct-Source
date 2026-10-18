@@ -26,9 +26,7 @@ with tempfile.TemporaryDirectory(prefix="madeira-identity-") as scratch:
     folder = Path(scratch)
     for name in ("dxmt/src/airconv", "dxmt/libs/DXBCParser", "dxmt/include", "madeira-d3d12/src"):
         p = folder / name / "compiler.h"; p.parent.mkdir(parents=True); p.write_bytes(b"source")
-    for name in ("build/dxmt-ios/build.sh", "build/madeira_cfg.h", "build/llvm-ios/static-libs.txt",
-                 "dxmt/src/d3d9/d3d9_shader.cpp", "dxmt/src/d3d11/d3d11_shader.cpp",
-                 "dxmt/src/d3d11/d3d11_shader.hpp", "dxmt/src/dxmt/dxmt_shader_cache.hpp"):
+    for name in module.SOURCE_FILES:
         p = folder / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text("Core\n" if name.endswith(".txt") else "flags")
     llvm = folder / "llvm"; llvm.mkdir(); (llvm / "libCore.a").write_bytes(b"archive")
     sdk = folder / "sdk"; sdk.mkdir(); (sdk / "converter.h").write_bytes(b"sdk")
@@ -39,6 +37,10 @@ with tempfile.TemporaryDirectory(prefix="madeira-identity-") as scratch:
     first, mtime = out.read_bytes(), out.stat().st_mtime_ns
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
     assert out.read_bytes() == first and out.stat().st_mtime_ns == mtime
+    # The new vector-load emitter must invalidate AIR entries too.
+    (folder / "build/dxmt-ios/bounded_srv_load.hpp").write_bytes(b"changed vector emitter")
+    subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
+    assert out.read_bytes() != first
     # Changing an actual linked LLVM archive must invalidate existing entries.
     (llvm / "libCore.a").write_bytes(b"changed compiler")
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
