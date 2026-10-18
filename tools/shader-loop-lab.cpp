@@ -3,6 +3,7 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar/SimplifyCFG.h"
@@ -12,8 +13,44 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include <chrono>
+#include <cstdlib>
 
 using namespace llvm;
+// Offline partial evaluation only. Values come from a saved dispatch; these
+// constants are never used as a game-wide or device-wide runtime override.
+static unsigned specialize(Module &m) {
+  const char *text=std::getenv("MADEIRA_SHADER_LAB_CONSTANTS");
+  if(!text)return 0;
+  auto document=json::parse(text);
+  if(!document){consumeError(document.takeError());return 0;}
+  auto *config=document->getAsObject();if(!config)return 0;
+  auto name=config->getString("function");
+  auto argument=config->getInteger("table_argument");
+  auto *values=config->getArray("values");
+  if(!name || !argument || !values || values->size()>32)return 0;
+  auto *f=m.getFunction(*name);if(!f || *argument<0 || uint64_t(*argument)>=f->arg_size())return 0;
+  SmallVector<Instruction *,16> erased;
+  for(auto &block:*f) for(auto &inst:block) {
+    auto *load=dyn_cast<LoadInst>(&inst);
+    if(!load || !load->getType()->isIntegerTy(32) || load->isVolatile() || load->isAtomic())continue;
+    int64_t offset=0,tableOffset=0;
+    auto *base=GetPointerBaseWithConstantOffset(load->getPointerOperand(),offset,m.getDataLayout());
+    auto *cb=dyn_cast<LoadInst>(base);
+    if(!cb || !cb->getType()->isPointerTy() || cb->getType()->getPointerAddressSpace()!=2)continue;
+    auto *table=GetPointerBaseWithConstantOffset(cb->getPointerOperand(),tableOffset,m.getDataLayout());
+    if(table!=f->getArg(*argument) || tableOffset<0 || tableOffset%8)continue;
+    for(const auto &entry:*values) {
+      auto *value=entry.getAsObject();if(!value)continue;
+      auto slot=value->getInteger("slot"),byteOffset=value->getInteger("byte_offset"),word=value->getInteger("value");
+      if(!slot || !byteOffset || !word || *word<0 || uint64_t(*word)>UINT32_MAX)continue;
+      if(tableOffset/8==*slot && offset==*byteOffset) {
+        load->replaceAllUsesWith(ConstantInt::get(load->getType(),*word));erased.push_back(load);break;
+      }
+    }
+  }
+  for(auto *instruction:erased)instruction->eraseFromParent();
+  return erased.size();
+}
 static json::Object stats(Module &m) {
   int64_t instructions=0, loads=0, stores=0, calls=0;
   unsigned totalThreads=0;
@@ -45,6 +82,7 @@ int main(int argc,char **argv) {
   auto before=stats(*m);
   const auto started=std::chrono::steady_clock::now();
   StringRef mode(argv[2]);
+  unsigned folded=mode=="specialize"?specialize(*m):0;
   if(mode!="baseline") {
     LoopAnalysisManager lam; FunctionAnalysisManager fam;
     CGSCCAnalysisManager cgam; ModuleAnalysisManager mam;
@@ -67,7 +105,7 @@ int main(int argc,char **argv) {
       fpm.addPass(InstCombinePass());
       fpm.addPass(SimplifyCFGPass(options));
       pm.addPass(createModuleToFunctionPassAdaptor(std::move(fpm)));
-    } else if(mode=="o2") pm=pb.buildPerModuleDefaultPipeline(OptimizationLevel::O2);
+    } else if(mode=="o2" || mode=="specialize") pm=pb.buildPerModuleDefaultPipeline(OptimizationLevel::O2);
     else return 8;
     pm.run(*m,mam);
   }
@@ -77,6 +115,6 @@ int main(int argc,char **argv) {
   raw_fd_ostream output(argv[3],error); if(error) return 10;
   dxmt::metallib::MetallibWriter().Write(*m,output);
   outs()<<formatv("{0}\n",json::Value(json::Object{{"mode",mode.str()},{"before",std::move(before)},
-    {"after",stats(*m)},{"optimizer_ms",ms}}));
+    {"after",stats(*m)},{"optimizer_ms",ms},{"folded_loads",int64_t(folded)}}));
   return 0;
 }

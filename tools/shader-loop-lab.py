@@ -4,7 +4,7 @@
 Input shaders remain in a temporary directory. Only counts, timings and compiler
 statistics are deployed. This experiment does not produce an IPA or measure FPS.
 """
-import gzip, json, os, pathlib, plistlib, re, shutil, subprocess, tempfile, urllib.parse, urllib.request, zipfile
+import gzip, json, os, pathlib, plistlib, re, shutil, struct, subprocess, tempfile, urllib.parse, urllib.request, zipfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
 out = pathlib.Path(os.environ['BITRISE_DEPLOY_DIR'])
@@ -13,7 +13,7 @@ llvm = root / 'toolchains/llvm15-macos'
 for tool in ['metal-tt', 'metal-objdump', 'metal-config', 'metal-source', 'metal-lipo']:
     found = subprocess.run(['xcrun', '--find', tool], capture_output=True, text=True)
     if found.returncode: continue
-    help_result = subprocess.run(['xcrun', tool, '--help'], capture_output=True, text=True, timeout=30)
+    help_result = subprocess.run(['xcrun', tool, '-help' if tool=='metal-tt' else '--help'], capture_output=True, text=True, timeout=30)
     (out/(tool+'-help.txt')).write_text(help_result.stdout + help_result.stderr)
     print('Offline Metal tool available:', tool, flush=True)
 for page in ['metal-pipelines-script','metal-tt','metal-objdump']:
@@ -101,7 +101,9 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
          root/'tools/shader-loop-lab.cpp',root/'dxmt/src/airconv/metallib_writer.cpp',
          *ldflags,'-Wl,-rpath,'+str(llvm/'lib'),'-o',work/'optimize'])
     transforms = []
-    for mode in ['baseline','loops','cfg','o2']:
+    modes = ['baseline','loops','cfg','o2']
+    if os.environ.get('MADEIRA_SHADER_LAB_CONSTANTS'): modes += ['specialize']
+    for mode in modes:
         folder = work / mode; folder.mkdir()
         for input_path in sorted(inputs.iterdir()):
             result = run([work/'optimize',input_path,mode,folder/input_path.name], capture_output=True, text=True)
@@ -139,6 +141,21 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
                 shutil.copyfile(binary,out/(prefix+'.gpubin'))
                 archs = subprocess.run(['xcrun','metal-lipo',str(binary),'-archs'],capture_output=True,text=True)
                 entry['architectures'] = archs.stdout+archs.stderr
+                blob = binary.read_bytes()
+                cursor = 32
+                for _ in range(struct.unpack_from('<I',blob,16)[0]):
+                    cmd,cmd_size = struct.unpack_from('<II',blob,cursor)
+                    if cmd==0x19:
+                        for section in range(struct.unpack_from('<I',blob,cursor+64)[0]):
+                            pos=cursor+72+section*80
+                            if blob[pos:pos+16].split(b'\0')[0]!=b'__compute': continue
+                            size,offset=struct.unpack_from('<QI',blob,pos+40)
+                            inner=work/(prefix+'.compute.macho');inner.write_bytes(blob[offset:offset+size])
+                            inner_dump=subprocess.run(['xcrun','metal-objdump','--macho','--disassemble',str(inner)],
+                                                      capture_output=True,text=True,timeout=60)
+                            (out/(prefix+'-inner-disassembly.txt')).write_text(inner_dump.stdout+inner_dump.stderr)
+                            shutil.copyfile(inner,out/inner.name)
+                    cursor+=cmd_size
             for option in ['--reflection','--section-headers','--disassemble']:
                 if compiled.returncode or not binary.exists(): continue
                 dumped = subprocess.run(['xcrun','metal-objdump','--macho',option,str(binary)],
