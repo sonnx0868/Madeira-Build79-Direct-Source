@@ -21,7 +21,8 @@ python3 "$root/tests/host/check-dxmt-patches.py"
 xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
   -I"$root/build/dxmt-ios" -I"$root/dxmt/src/airconv" \
   "$root/tests/host/gpu-srv-load-emit.cpp" "$root/dxmt/src/airconv/metallib_writer.cpp" \
-  $("$llvm/bin/llvm-config" --ldflags --system-libs --libs core bitwriter) -o "$out/emitter"
+  $("$llvm/bin/llvm-config" --ldflags --system-libs --libs core bitwriter) \
+  -Wl,-rpath,"$llvm/lib" -o "$out/emitter"
 "$out/emitter" scalar "$out/scalar"
 "$out/emitter" vector "$out/vector"
 xcrun clang -O2 -fobjc-arc "$root/tests/host/gpu-srv-load-metal.m" \

@@ -9,6 +9,7 @@ int main(int argc, char **argv) {
   if (argc != 3) return 2;
   bool optimized = std::string(argv[1]) == "vector";
   LLVMContext context;
+  context.setOpaquePointers(false);
   Module module("srv-load-test", context);
   module.setTargetTriple("air64-apple-macosx14.0.0");
   module.setDataLayout("e-p:64:64:64-i64:64-v64:64-v128:128-n8:16:32");
