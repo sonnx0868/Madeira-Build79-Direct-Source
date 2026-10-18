@@ -15,6 +15,14 @@ if [[ ! -s "$llvm/include/llvm/IR/IRBuilder.h" ]]; then
 fi
 test "$("$llvm/bin/llvm-config" --version)" = 15.0.7
 git -C "$root" submodule update --init dxmt
+bash "$root/scripts/apply-dxmt-patches.sh"
+python3 "$root/tests/host/check-dxmt-patches.py"
+xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
+  -I"$root/dxmt/src/airconv" \
+  "$root/tests/host/air-sample-convergence.cpp" "$root/dxmt/src/airconv/nt/air_builder.cpp" \
+  $("$llvm/bin/llvm-config" --ldflags --system-libs --libs core passes) \
+  -Wl,-rpath,"$llvm/lib" -o "$out/convergence-check"
+"$out/convergence-check"
 if ! xcrun --find metal-tt >/dev/null 2>&1; then
   xcodebuild -downloadComponent MetalToolchain
 fi

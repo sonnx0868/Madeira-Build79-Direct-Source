@@ -218,7 +218,7 @@ int main(int argc,char **argv) {
     pb.crossRegisterProxies(lam,fam,cgam,mam);
     ModulePassManager pm;
     if(mode=="guarded") {
-      if(auto err=pb.parsePassPipeline(pm,"function(loop-simplify,lcssa,loop(loop-rotate),sink,instcombine,simplifycfg,adce)")) {
+      if(auto err=pb.parsePassPipeline(pm,"function(loop-simplify,lcssa,loop(loop-rotate),sink)")) {
         consumeError(std::move(err));return 7;
       }
     } else if(mode=="loops") {
