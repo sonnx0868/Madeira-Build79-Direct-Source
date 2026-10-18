@@ -49,15 +49,3 @@ index 69dfc77..d461db6 100644
 -} // namespace dxmt
 \ No newline at end of file
 +} // namespace dxmt
-diff --git a/src/dxmt/dxmt_shader_cache.hpp b/src/dxmt/dxmt_shader_cache.hpp
---- a/src/dxmt/dxmt_shader_cache.hpp
-+++ b/src/dxmt/dxmt_shader_cache.hpp
-@@ -6,7 +6,7 @@
- 
- namespace dxmt {
- 
--constexpr int kDXMTShaderCacheVersion = 15;
-+constexpr int kDXMTShaderCacheVersion = 16;
- 
- // Base directory every DXMT cache lives under, so the Metal shader cache and
- // this one cannot disagree about where that is.

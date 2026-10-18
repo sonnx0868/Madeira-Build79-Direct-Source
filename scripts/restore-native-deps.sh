@@ -57,6 +57,8 @@ elif [[ "${1:-}" = --refresh-runtime ]]; then
   bash "$root/build/ntdll-unix/build.sh" runtime-only
 elif [[ "${1:-}" = --refresh-gpu ]]; then
   bash "$root/build/dxmt-ios/refresh-gpu.sh"
+elif [[ "${1:-}" = --refresh-optimizer ]]; then
+  bash "$root/build/dxmt-ios/refresh-optimizer.sh"
 elif [[ -n "${1:-}" ]]; then
   echo 'Usage: restore-native-deps.sh [--refresh-window|--refresh-renpy-gl|--refresh-input|--refresh-signal|--refresh-pacing]' >&2; exit 2
 fi

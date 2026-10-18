@@ -107,10 +107,15 @@ int main(int argc,char **argv) { @autoreleasepool {
   }
   NSMutableArray *results=[NSMutableArray array];
   NSData *unlitReference=nil;
-  for(unsigned fixture=0;fixture<2;fixture++) {
-    // The second fixture executes the previously guarded shadow branch too.
-    uint32_t *light=cb[5].contents;light[0]=fixture;
-    if(fixture) {
+  for(unsigned fixture=0;fixture<3;fixture++) {
+    // First preserve the saved constants. Then make scattering nonzero in a
+    // controlled fixture, before enabling its directional light separately.
+    if(fixture==1) {
+      float *fog=cb[6].contents;fog[4]=0;fog[7]=0.1;
+      fog[9]=fog[10]=fog[11]=0.75;
+    }
+    uint32_t *light=cb[5].contents;light[0]=fixture==2;
+    if(fixture==2) {
       light[8]|=2;light[11]=0x3f800000; // nonzero light intensity
       // Controlled shadow matrices place every voxel in a valid shadow texel.
       float *shadow=cb[3].contents;
@@ -119,6 +124,7 @@ int main(int argc,char **argv) { @autoreleasepool {
         shadow[matrix*16+12]=shadow[matrix*16+13]=0.5;
         shadow[matrix*16+14]=0.25;shadow[matrix*16+15]=1;
       }
+      shadow[100]=shadow[101]=shadow[102]=0.25;
     }
     NSMutableDictionary *reference=[NSMutableDictionary dictionary];
     NSMutableDictionary *timings=[NSMutableDictionary dictionary];
@@ -152,12 +158,12 @@ int main(int argc,char **argv) { @autoreleasepool {
       unsigned ao=av&0x8000?0x8000-(av&0x7fff):0x8000+av,bo=bv&0x8000?0x8000-(bv&0x7fff):0x8000+bv;
       maxULP=MAX(maxULP,ao>bo?ao-bo:bo-ao);
     }
-    BOOL lightingChangesOutput=fixture && ![reference[@"baseline"] isEqualToData:unlitReference];
-    if(!fixture)unlitReference=reference[@"baseline"];
-    NSDictionary *result=@{@"directional_lights":@(fixture),@"lighting_changes_output":@(lightingChangesOutput),@"nonzero_components":@(nonzero),@"nonfinite_components":@(nan),
+    BOOL lightingChangesOutput=fixture==2 && ![reference[@"baseline"] isEqualToData:unlitReference];
+    if(fixture<2)unlitReference=reference[@"baseline"];
+    NSDictionary *result=@{@"fixture_index":@(fixture),@"directional_lights":@(fixture==2),@"lighting_changes_output":@(lightingChangesOutput),@"nonzero_components":@(nonzero),@"nonfinite_components":@(nan),
                           @"different_components":@(different),@"max_ulp":@(maxULP),@"max_abs_error":@(maxAbs),@"gpu_ms":timings};
     [results addObject:result];printf("Replay: %s\n",[[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:result options:0 error:nil] encoding:NSUTF8StringEncoding].UTF8String);
-    if(nan || !nonzero || maxULP>2 || (fixture && !lightingChangesOutput))return 14;
+    if(nan || !nonzero || maxULP>2 || (fixture==2 && !lightingChangesOutput))return 14;
   }
   NSDictionary *report=@{@"device":device.name,@"scope":@"Controlled shader replay with captured constants/density data and synthetic textures. Not game FPS or iPad thermal performance.",@"fixtures":results};
   NSData *json=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:&error];

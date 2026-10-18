@@ -75,6 +75,9 @@ fi
 if [[ -f "$root/build/dxmt-ios/shader-vector-load.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-ios/shader-vector-load.json)
 fi
+if [[ -f "$root/build/dxmt-ios/shader-optimizer.json" ]]; then
+  (cd "$root" && zip -q "$output" build/dxmt-ios/shader-optimizer.json)
+fi
 if [[ -f "$root/build/dxmt-pe/query-park.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-pe/query-park.json)
 fi

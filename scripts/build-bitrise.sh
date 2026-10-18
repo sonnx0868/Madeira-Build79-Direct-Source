@@ -20,6 +20,7 @@ if [[ "$mode" = cached && "${MADEIRA_D3D11_QUERY_REFRESH:-0}" = 1 ]]; then mode=
 if [[ "$mode" = cached && "${MADEIRA_NTDLL_LOADER_REFRESH:-0}" = 1 ]]; then mode=loader-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_RUNTIME_REFRESH:-0}" = 1 ]]; then mode=runtime-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_GPU_PIPELINE_REFRESH:-0}" = 1 ]]; then mode=gpu-refresh; fi
+if [[ "$mode" = cached && "${MADEIRA_SHADER_OPTIMIZER_REFRESH:-0}" = 1 ]]; then mode=optimizer-refresh; fi
 case "$mode" in
   cached) ipa=Madeira-v0.1.6-source.ipa ;;
   bootstrap) ipa=Madeira-v0.1.6-source-bootstrap.ipa ;;
@@ -33,6 +34,7 @@ case "$mode" in
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   runtime-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   gpu-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  optimizer-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh|input-refresh|signal-refresh|pacing-refresh' >&2; exit 2 ;;
 esac
 
@@ -109,7 +111,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh ]]; then
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
@@ -120,6 +122,7 @@ else
     [[ "$mode" != loader-refresh ]] || refresh=--refresh-loader
     [[ "$mode" != runtime-refresh ]] || refresh=--refresh-runtime
     [[ "$mode" != gpu-refresh ]] || refresh=--refresh-gpu
+    [[ "$mode" != optimizer-refresh ]] || refresh=--refresh-optimizer
     timed native-restore bash scripts/restore-native-deps.sh "$refresh"
     timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
     shasum -a 256 "$out/madeira-v0.1.6-native-deps.zip" > "$out/native-deps-sha256.txt"
@@ -151,6 +154,7 @@ checks() {
   python3 tests/host/check-d3d11-query-park.py
   python3 tools/dxmt-pacing-bundle.py --root "$root"
   if [[ -f build/dxmt-ios/shader-vector-load.json ]]; then python3 tools/dxmt-srv-bundle.py --root "$root"; fi
+  if [[ -f build/dxmt-ios/shader-optimizer.json ]]; then python3 tools/dxmt-optimizer-bundle.py --root "$root"; fi
   python3 tools/dxmt-query-bundle.py --root "$root"
   python3 tools/dxmt-swapchain-bundle.py --root "$root"
   python3 tests/host/check-pe-launch.py
