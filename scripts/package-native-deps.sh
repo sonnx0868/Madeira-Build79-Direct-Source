@@ -72,6 +72,9 @@ fi
 if [[ -f "$root/build/dxmt-ios/producer-pacing.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-ios/producer-pacing.json)
 fi
+if [[ -f "$root/build/dxmt-ios/shader-vector-load.json" ]]; then
+  (cd "$root" && zip -q "$output" build/dxmt-ios/shader-vector-load.json)
+fi
 if [[ -f "$root/build/dxmt-pe/query-park.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-pe/query-park.json)
 fi

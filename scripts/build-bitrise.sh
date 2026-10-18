@@ -6,6 +6,7 @@ mode="${1:-cached}"
 # Allow the existing stored Bitrise workflow to request this source refresh.
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_SIGNAL_REFRESH:-0}" = 1 ]]; then mode=signal-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_PACING_REFRESH:-0}" = 1 ]]; then mode=pacing-refresh; fi
+if [[ "$mode" = cached && "${MADEIRA_NATIVE_SRV_REFRESH:-0}" = 1 ]]; then mode=srv-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_D3D11_QUERY_REFRESH:-0}" = 1 ]]; then mode=query-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NTDLL_LOADER_REFRESH:-0}" = 1 ]]; then mode=loader-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_RUNTIME_REFRESH:-0}" = 1 ]]; then mode=runtime-refresh; fi
@@ -18,6 +19,7 @@ case "$mode" in
   input-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   signal-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   pacing-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  srv-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   runtime-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
@@ -95,12 +97,13 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh ]]; then
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
     [[ "$mode" != signal-refresh ]] || refresh=--refresh-signal
     [[ "$mode" != pacing-refresh ]] || refresh=--refresh-pacing
+    [[ "$mode" != srv-refresh ]] || refresh=--refresh-srv
     [[ "$mode" != query-refresh ]] || refresh=--refresh-query
     [[ "$mode" != loader-refresh ]] || refresh=--refresh-loader
     [[ "$mode" != runtime-refresh ]] || refresh=--refresh-runtime
@@ -135,6 +138,7 @@ checks() {
   python3 tools/ntdll-runtime-bundle.py --root "$root"
   python3 tests/host/check-d3d11-query-park.py
   python3 tools/dxmt-pacing-bundle.py --root "$root"
+  if [[ -f build/dxmt-ios/shader-vector-load.json ]]; then python3 tools/dxmt-srv-bundle.py --root "$root"; fi
   python3 tools/dxmt-query-bundle.py --root "$root"
   python3 tools/dxmt-swapchain-bundle.py --root "$root"
   python3 tests/host/check-pe-launch.py
