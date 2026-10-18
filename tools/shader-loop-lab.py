@@ -4,7 +4,7 @@
 Input shaders remain in a temporary directory. Only counts, timings and compiler
 statistics are deployed. This experiment does not produce an IPA or measure FPS.
 """
-import json, os, pathlib, plistlib, re, subprocess, tempfile, urllib.parse, urllib.request, zipfile
+import gzip, json, os, pathlib, plistlib, re, subprocess, tempfile, urllib.parse, urllib.request, zipfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
 out = pathlib.Path(os.environ['BITRISE_DEPLOY_DIR'])
@@ -19,6 +19,14 @@ for tool in ['metal-tt', 'metal-objdump', 'metal-config', 'metal-source', 'metal
 for page in ['metal-pipelines-script','metal-tt','metal-objdump']:
     man = subprocess.run(['man',page], capture_output=True, text=True, env=dict(os.environ,MANPAGER='cat'), timeout=30)
     (out/(page+'-manual.txt')).write_text(man.stdout + man.stderr)
+sdk = pathlib.Path(subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],text=True).strip())
+tt = pathlib.Path(subprocess.check_output(['xcrun','--find','metal-tt'],text=True).strip())
+for man_root in [sdk/'usr/share/man',tt.parent.parent/'share/man']:
+    if not man_root.exists(): continue
+    for path in man_root.glob('man*/*metal*'):
+        if 'pipelines-script' not in path.name and 'metal-tt.' not in path.name: continue
+        data = gzip.decompress(path.read_bytes()) if path.suffix == '.gz' else path.read_bytes()
+        (out/('sdk-'+path.name.removesuffix('.gz')+'.txt')).write_bytes(data)
 
 def run(args, **kw):
     return subprocess.run([str(a) for a in args], check=True, **kw)
@@ -98,6 +106,38 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
         for input_path in sorted(inputs.iterdir()):
             result = run([work/'optimize',input_path,mode,folder/input_path.name], capture_output=True, text=True)
             transforms.append({'input':input_path.stem, **json.loads(result.stdout)})
+    if os.environ.get('MADEIRA_SHADER_LAB_OFFLINE') == '1':
+        native = []
+        for row in transforms:
+            if row['input'] not in ['424068078B764242','58C1B30E79A7EE95']: continue
+            folder = work/row['mode']
+            library = folder/(row['input']+'.metallib')
+            script = folder/(row['input']+'.mtlp-json')
+            binary = folder/(row['input']+'.binary.metallib')
+            descriptor = {'libraries':{'paths':[{'label':'SavedShader','path':str(library)}]},
+                          'pipelines':{'compute_pipelines':[{'compute_function':'alias:SavedShader#'+row['after']['function']}]}}
+            script.write_text(json.dumps(descriptor))
+            command = ['xcrun','--sdk','iphoneos','metal-tt',library,script,'-arch','applegpu_g14g',
+                       '-target','air64-apple-ios18.0','-o',binary]
+            compiled = subprocess.run([str(a) for a in command],capture_output=True,text=True,timeout=90)
+            entry = {'input':row['input'],'function':row['after']['function'],'mode':row['mode'],
+                     'architecture':'applegpu_g14g','target':'air64-apple-ios18.0',
+                     'pipeline_configuration':descriptor['pipelines'],'returncode':compiled.returncode,
+                     'diagnostic':compiled.stdout+compiled.stderr,'binary_bytes':binary.stat().st_size if binary.exists() else 0}
+            prefix = row['mode']+'-'+row['input']
+            for option in ['--reflection','--section-headers','--disassemble']:
+                if compiled.returncode or not binary.exists(): continue
+                dumped = subprocess.run(['xcrun','metal-objdump','--metallib',option,str(binary)],
+                                        capture_output=True,text=True,timeout=60)
+                (out/(prefix+option+'.txt')).write_text(dumped.stdout+dumped.stderr)
+                entry[option] = {'returncode':dumped.returncode,'text_bytes':len(dumped.stdout)}
+            native.append(entry)
+        report = {'format':'madeira-shader-native-experiment-v1','transforms':transforms,'native':native,
+                  'scope':'Offline compilation for the M2 GPU architecture. No iPad FPS measurement.',
+                  'configuration_limit':'Initial translator scripts use default PSO flags; shipping immutable-buffer and threadgroup hints must also be compared before deployment.'}
+        (out/'shader-native-results.json').write_text(json.dumps(report,indent=2))
+        print('Offline GPU compilation results:',[(x['mode'],x['input'],x['returncode'],x['binary_bytes']) for x in native],flush=True)
+        raise SystemExit(0)
     run(['xcrun','clang','-O2','-fobjc-arc',root/'tools/shader-loop-lab-metal.m',
          '-framework','Foundation','-framework','Metal','-o',work/'metal-check'])
     env = dict(os.environ, MTL_CAPTURE_ENABLED='1')

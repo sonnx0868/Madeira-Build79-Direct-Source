@@ -16,11 +16,15 @@
 using namespace llvm;
 static json::Object stats(Module &m) {
   int64_t instructions=0, loads=0, stores=0, calls=0;
+  std::string name;
+  if(auto *kernels=m.getNamedMetadata("air.kernel"))
+    if(kernels->getNumOperands())
+      if(auto *function=mdconst::dyn_extract<Function>(kernels->getOperand(0)->getOperand(0)))name=function->getName().str();
   for(auto &f:m) for(auto &b:f) for(auto &i:b) {
     ++instructions;
     loads+=isa<LoadInst>(i); stores+=isa<StoreInst>(i); calls+=isa<CallInst>(i);
   }
-  return json::Object{{"instructions",instructions},{"loads",loads},{"stores",stores},{"calls",calls}};
+  return json::Object{{"instructions",instructions},{"loads",loads},{"stores",stores},{"calls",calls},{"function",name}};
 }
 int main(int argc,char **argv) {
   if(argc!=4) return 2;
