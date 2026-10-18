@@ -112,6 +112,23 @@ int main(int argc,char **argv) { @autoreleasepool {
         exportedBytes+=blob.length;exportedFiles++;
     }
     NSLog(@"Shader metadata files=%lu bytes=%lu",(unsigned long)exportedFiles,(unsigned long)exportedBytes);
+    // Optional private analysis input can omit texture payloads while retaining
+    // buffer snapshots to compare camera/constants across the two captures.
+    if(getenv("MADEIRA_GPU_EXPORT_BUFFERS")) {
+        NSString *bufferOut=[out stringByAppendingString:@"-buffer-snapshots"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:bufferOut withIntermediateDirectories:YES attributes:nil error:nil];
+        NSRegularExpression *bufferName=[NSRegularExpression regularExpressionWithPattern:@"^MTLBuffer-[0-9]+-[0-9]+$" options:0 error:nil];
+        NSUInteger bufferBytes=0;
+        for(NSString *name in names) {
+            if(![bufferName firstMatchInString:name options:0 range:NSMakeRange(0,name.length)]) continue;
+            NSData *blob=[archive copyDataForFilename:name error:nil];
+            if(!blob || blob.length>64*1024*1024) continue;
+            if(bufferBytes+blob.length>256*1024*1024) return 10;
+            if(![blob writeToFile:[bufferOut stringByAppendingPathComponent:name] atomically:YES]) return 11;
+            bufferBytes+=blob.length;
+        }
+        NSLog(@"Private buffer snapshot bytes=%lu",(unsigned long)bufferBytes);
+    }
     // Inspect the reserved capture metadata for embedded timing/profile data.
     // No environment or account information is exported.
     for(NSString *name in @[@"gttrace-dump",@"MTLCaptureDescriptor"]) {

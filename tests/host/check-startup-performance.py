@@ -41,10 +41,11 @@ with tempfile.TemporaryDirectory(prefix="madeira-identity-") as scratch:
     (folder / "build/dxmt-ios/bounded_srv_load.hpp").write_bytes(b"changed vector emitter")
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
     assert out.read_bytes() != first
+    after_header = out.read_bytes()
     # Changing an actual linked LLVM archive must invalidate existing entries.
     (llvm / "libCore.a").write_bytes(b"changed compiler")
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
-    assert out.read_bytes() != first
+    assert out.read_bytes() != after_header
     # Execute the production generator against the real repo and vendored SDK
     # headers. Only the unavailable iOS LLVM binaries are stand-ins here.
     for target in (root / "build/llvm-ios/static-libs.txt").read_text().splitlines():
