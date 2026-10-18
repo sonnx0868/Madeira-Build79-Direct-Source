@@ -95,6 +95,23 @@ int main(int argc,char **argv) { @autoreleasepool {
     NSData *mapping=[NSJSONSerialization dataWithJSONObject:enumNames options:NSJSONWritingPrettyPrinted|NSJSONWritingSortedKeys error:&error];
     [mapping writeToFile:[out stringByAppendingString:@"-apple-function-names.json"] atomically:YES];
     NSLog(@"Apple function enum labels=%lu streamBytes=%lu framedEnd=%lu",(unsigned long)enumNames.count,(unsigned long)stream.length,(unsigned long)position);
+    // Descriptors may be embedded in the archive index instead of loose files.
+    // Export only hashed shader/PSO metadata, never texture/buffer contents.
+    NSString *metadataOut=[out stringByAppendingString:@"-shader-metadata"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:metadataOut withIntermediateDirectories:YES attributes:nil error:nil];
+    NSRegularExpression *hashName=[NSRegularExpression regularExpressionWithPattern:@"^[0-9A-F]{1,16}$" options:0 error:nil];
+    NSUInteger exportedBytes=0, exportedFiles=0;
+    for(NSString *name in names) {
+        if(![hashName firstMatchInString:name options:0 range:NSMakeRange(0,name.length)]) continue;
+        NSData *blob=[archive copyDataForFilename:name error:nil];
+        if(blob.length<8 || blob.length>4*1024*1024) continue;
+        const char *magic=blob.bytes;
+        if(memcmp(magic,"bplist00",8) && memcmp(magic,"MTLB",4)) continue;
+        if(exportedBytes+blob.length>128*1024*1024) return 8;
+        if(![blob writeToFile:[metadataOut stringByAppendingPathComponent:name] atomically:YES]) return 9;
+        exportedBytes+=blob.length;exportedFiles++;
+    }
+    NSLog(@"Shader metadata files=%lu bytes=%lu",(unsigned long)exportedFiles,(unsigned long)exportedBytes);
     // Inspect the reserved capture metadata for embedded timing/profile data.
     // No environment or account information is exported.
     for(NSString *name in @[@"gttrace-dump",@"MTLCaptureDescriptor"]) {

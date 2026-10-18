@@ -19,8 +19,16 @@ assert 'coveredMilliseconds' not in result and 'milliseconds' not in result['ran
 data['clockCalibration'] = {'available': True, 'cpuStart': 100, 'cpuEnd': 200,
     'gpuStart': 1000, 'gpuEnd': 1200, 'cpuMachNumer': 2, 'cpuMachDenom': 1}
 result = module.analyze(data)
-assert abs(result['coveredMilliseconds'] - 0.0002) < 1e-12
+assert abs(result['coveredMilliseconds'] - 0.0001) < 1e-12
 assert result['rankedStages'][0]['stage'] == 'fragment'
+
+# Real build 744 calibration: Metal CPU/GPU clocks are already nanoseconds.
+# The Mach 125/3 timebase in the export must not scale them a second time.
+data['clockCalibration'] = {'available': True, 'cpuStart': 454658664918458,
+    'cpuEnd': 454658711322833, 'gpuStart': 454658664918458,
+    'gpuEnd': 454658711322833, 'cpuMachNumer': 125, 'cpuMachDenom': 3}
+result = module.analyze(data)
+assert abs(result['coveredMilliseconds'] - 0.0002) < 1e-12
 data['buffers'][0]['passes'][0]['vertex']['end'] = 99
 try:
     module.analyze(data)

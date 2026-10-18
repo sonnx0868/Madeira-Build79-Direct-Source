@@ -32,9 +32,12 @@ def analyze(data):
     if calibration.get('available'):
         cpu = calibration['cpuEnd'] - calibration['cpuStart']
         gpu = calibration['gpuEnd'] - calibration['gpuStart']
-        numer, denom = calibration['cpuMachNumer'], calibration['cpuMachDenom']
-        if cpu > 0 and gpu > 0 and numer > 0 and denom > 0:
-            candidate = cpu * numer / denom / gpu / 1e6
+        # MTLDevice.sampleTimestamps returns CPU time in nanoseconds, unlike
+        # mach_absolute_time. Applying mach_timebase_info again inflates an
+        # Apple Silicon duration (e.g. by 125/3 on this iPad).
+        # https://developer.apple.com/documentation/metal/converting-gpu-timestamps-into-cpu-time
+        if cpu > 0 and gpu > 0:
+            candidate = cpu / gpu / 1e6
             if math.isfinite(candidate) and candidate > 0:
                 scale = candidate
     rows, intervals = [], []
