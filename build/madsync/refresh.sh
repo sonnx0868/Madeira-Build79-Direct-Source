@@ -9,7 +9,14 @@ bash "$root/build/ntdll-unix/build.sh" sync-only
 bash "$root/build/wineserver/build.sh" sync-objects
 objcopy="$(command -v llvm-objcopy || true)"
 [[ -x "$objcopy" ]] || objcopy=/opt/homebrew/opt/llvm/bin/llvm-objcopy
+if [[ ! -x "$objcopy" ]]; then
+  # Cached app runners have Apple's compiler but not GNU-style symbol tools.
+  # Only the refreshed server objects need rewriting; retain the other bytes.
+  brew install llvm
+  objcopy="$(brew --prefix llvm)/bin/llvm-objcopy"
+fi
 [[ -x "$objcopy" ]] || { echo 'llvm-objcopy is required for Wine server symbol isolation' >&2; exit 1; }
+"$objcopy" --version
 rename_args=()
 for symbol in alloc_user_handle free_user_handle get_virtual_screen_rect destroy_thread_windows \
   get_window_thread is_desktop_class is_message_class is_window_visible mirror_region send_notify_message \
