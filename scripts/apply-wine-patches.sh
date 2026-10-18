@@ -99,6 +99,16 @@ else
     exit 1
 fi
 
+patch="$root/patches/wine-tid-alert-parking.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine iOS alert parking handshake already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the iOS alert parking handshake patch" >&2
+    exit 1
+fi
+
 patch="$root/patches/wine-module-path.patch"
 if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
     echo "Wine loaded-module sibling recovery already applied"

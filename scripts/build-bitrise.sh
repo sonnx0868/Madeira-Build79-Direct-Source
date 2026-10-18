@@ -103,6 +103,9 @@ else
   xcrun -sdk macosx metal -v >/dev/null
   timed submodules git submodule update --init FEX wine dxmt madeira-dock
   timed wine-patches bash scripts/apply-wine-patches.sh
+  if [[ "$mode" = runtime-refresh ]]; then
+    timed tid-alert-parking python3 tests/host/check-tid-alert-parking.py --require-darwin
+  fi
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh

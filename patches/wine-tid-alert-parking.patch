@@ -1,0 +1,87 @@
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -5138,6 +5138,9 @@
+ volatile long long ios_alert_wakes, ios_alert_waits, ios_alert_wait_timeouts;
+ /* ml1122: alert -> waiter-running latency, and the alert-spin-us experiment. */
+ #include <mach/mach_time.h>
++#ifdef WINE_IOS
++#include "ios_tid_alert.h"
++#endif
+ volatile long long ios_alert_lat_n, ios_alert_lat_ticks, ios_alert_lat_hist[6], ios_alert_spin_tries, ios_alert_spin_hits;
+ static volatile unsigned long long ios_alert_stamp[4096];
+ static inline unsigned ios_alert_slot( const void *entry ) { return (unsigned)(((ULONG_PTR)entry >> 2) & 4095); }
+@@ -5186,7 +5189,11 @@
+                      (int)self_tid, (int)(ULONG_PTR)tid, entry ); }
+         }
+         ios_alert_stamp[ios_alert_slot( futex )] = mach_absolute_time();   /* ml1122 */
++#ifdef WINE_IOS
++        if (ios_tid_alert_post( futex ))
++#else
+         if (!InterlockedExchange( futex, 1 ))
++#endif
+             futex_wake_one( futex );
+         return STATUS_SUCCESS;
+     }
+@@ -5275,6 +5282,11 @@
+         ULONGLONG end;
+         int ret;
+         int ios_wslot;
++#ifdef WINE_IOS
++        const int wait_value = IOS_TID_ALERT_PARKED;
++#else
++        const int wait_value = 0;
++#endif
+ 
+         if (timeout)
+         {
+@@ -5304,6 +5316,9 @@
+             ios_alert_spin_ticks = (unsigned long long)(us * ios_ticks_per_us());
+             ios_alert_spin_loaded = 1;
+             fprintf( stderr, "[sync-census] ml1122 alert spin before sleeping: %lld us\n", us );
++#ifdef WINE_IOS
++            fprintf( stderr, "[sync] tid-alert-park-v1 pending alerts avoid kernel wake\n" );
++#endif
+         }
+         if (ios_alert_spin_ticks && !*(volatile LONG *)futex)
+         {
+@@ -5312,7 +5327,11 @@
+             while (!*(volatile LONG *)futex && mach_absolute_time() < spin_end) __asm__ __volatile__( "yield" );
+             if (*(volatile LONG *)futex) __sync_fetch_and_add( &ios_alert_spin_hits, 1 );
+         }
++#ifdef WINE_IOS
++        while (!ios_tid_alert_take_or_park( futex ))
++#else
+         while (!InterlockedExchange( futex, 0 ))
++#endif
+         {
+             unsigned long long ios_woke;
+             if (timeout)
+@@ -5322,12 +5341,16 @@
+ 
+                 timespec.tv_sec = timeleft / (ULONGLONG)TICKSPERSEC;
+                 timespec.tv_nsec = (timeleft % TICKSPERSEC) * 100;
+-                ret = futex_wait( futex, 0, &timespec );
++                ret = futex_wait( futex, wait_value, &timespec );
+             }
+             else
+-                ret = futex_wait( futex, 0, NULL );
++                ret = futex_wait( futex, wait_value, NULL );
+             ios_woke = mach_absolute_time();   /* ml1122 */
++#ifdef WINE_IOS
++            if (ios_tid_alert_pending( futex ))
++#else
+             if (*(volatile LONG *)futex)
++#endif
+             {
+                 unsigned long long st = ios_alert_stamp[ios_alert_slot( futex )];
+                 if (st && ios_woke > st)
+@@ -5341,6 +5364,9 @@
+ 
+             if (ret == -1 && errno == ETIMEDOUT)
+             {
++#ifdef WINE_IOS
++                ios_tid_alert_unpark( futex );
++#endif
+                 if (ios_wslot >= 0) ios_alert_waiters[ios_wslot].addr = NULL;
+                 if (ios_marked && ios_alert_unix_n < 120) { InterlockedIncrement( &ios_alert_unix_n );
+                     ERR( "[alert-unix] tid=%04x -> TIMEOUT\n",

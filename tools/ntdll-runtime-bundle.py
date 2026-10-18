@@ -16,10 +16,11 @@ def verify(root, archive=None, stamp=False, base=None):
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     objects = helper.members(archive)
-    for marker in (b'builtin-pe-v1', b'timed-sleep-v1', b'darwin-yield-v1'):
+    for marker in (b'builtin-pe-v1', b'timed-sleep-v1', b'darwin-yield-v1', b'tid-alert-park-v1'):
         assert marker in archive.read_bytes(), 'native archive predates ' + marker.decode()
     files = ['build/ntdll-unix/loader_ios.c', 'build/ntdll-unix/ios_builtin_pe.h', 'build/ntdll-unix/ios_scheduler_yield.h',
-             'wine/dlls/ntdll/unix/sync.c', 'patches/wine-timed-sleep.patch']
+             'wine/dlls/ntdll/unix/sync.c', 'patches/wine-timed-sleep.patch',
+             'build/ntdll-unix/shims/ios_tid_alert.h', 'patches/wine-tid-alert-parking.patch']
     expected = {'archive_sha256': sha(archive.read_bytes()),
                 'objects': {name: objects[name] for name in ('loader.o', 'sync.o')},
                 'inputs': {name: sha((root/name).read_bytes().replace(b'\r\n', b'\n')) for name in files}}
@@ -35,9 +36,10 @@ def verify(root, archive=None, stamp=False, base=None):
         previous = helper.members(base)
         assert objects.keys() == previous.keys(), 'runtime refresh changed archive member set'
         changed = sorted(n for n in objects if objects[n] != previous[n])
-        assert changed == ['loader.o', 'sync.o'], ('unexpected native refresh', changed)
+        assert 'sync.o' in changed and set(changed) <= {'loader.o', 'sync.o'}, ('unexpected native refresh', changed)
         document['base_archive_sha256'] = sha(base.read_bytes())
-        document['preserved_members'] = len(objects)-2
+        document['changed_members'] = changed
+        document['preserved_members'] = len(objects)-len(changed)
     # The old signal-handler producer remains authoritative. Only its archive
     # container changed; require its exact compiled object to be preserved.
     signal_path = root / 'build/ntdll-unix/lrcpc2-alias.json'
@@ -48,7 +50,7 @@ def verify(root, archive=None, stamp=False, base=None):
     signal['container_updated_by'] = document['producer_commit']
     signal_path.write_text(json.dumps(signal, indent=2)+'\n', encoding='utf-8')
     receipt.write_text(json.dumps(document, indent=2)+'\n', encoding='utf-8')
-    print('PASS: only loader.o and sync.o refreshed; all other archive objects preserved' if base else
+    print('PASS: only scheduling/builtin loader objects refreshed; all other archive objects preserved' if base else
           'Stamped freshly built timed-sleep and builtin PE runtime')
     return document
 
