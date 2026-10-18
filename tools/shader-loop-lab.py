@@ -4,7 +4,7 @@
 Input shaders remain in a temporary directory. Only counts, timings and compiler
 statistics are deployed. This experiment does not produce an IPA or measure FPS.
 """
-import gzip, json, os, pathlib, plistlib, re, subprocess, tempfile, urllib.parse, urllib.request, zipfile
+import gzip, json, os, pathlib, plistlib, re, shutil, subprocess, tempfile, urllib.parse, urllib.request, zipfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
 out = pathlib.Path(os.environ['BITRISE_DEPLOY_DIR'])
@@ -114,8 +114,14 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
             library = folder/(row['input']+'.metallib')
             script = folder/(row['input']+'.mtlp-json')
             binary = folder/(row['input']+'.binary.metallib')
+            buffers = [{'mutability':'Default'} for _ in range(31)]
+            buffers[29] = buffers[30] = {'mutability':'Immutable'}
+            total_threads = row['after']['total_threads']
+            assert total_threads > 0
             descriptor = {'libraries':{'paths':[{'label':'SavedShader','path':str(library)}]},
-                          'pipelines':{'compute_pipelines':[{'compute_function':'alias:SavedShader#'+row['after']['function']}]}}
+                          'pipelines':{'compute_pipelines':[{'compute_function':'alias:SavedShader#'+row['after']['function'],
+                              'threadgroup_size_is_multiple_of_thread_execution_width':total_threads % 32 == 0,
+                              'buffers':buffers}]}}
             script.write_text(json.dumps(descriptor))
             command = ['xcrun','--sdk','iphoneos','metal-tt',library,script,'-arch','applegpu_g14g',
                        '-target','air64-apple-ios18.0','-o',binary]
@@ -125,16 +131,24 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
                      'pipeline_configuration':descriptor['pipelines'],'returncode':compiled.returncode,
                      'diagnostic':compiled.stdout+compiled.stderr,'binary_bytes':binary.stat().st_size if binary.exists() else 0}
             prefix = row['mode']+'-'+row['input']
+            if binary.exists():
+                entry['binary_magic'] = binary.read_bytes()[:32].hex()
+                entry['file_type'] = subprocess.check_output(['file','--brief',str(binary)],text=True).strip()
+                # Small generated GPU binaries remain in private CI artifacts,
+                # allowing independent format inspection when a dumper rejects it.
+                shutil.copyfile(binary,out/(prefix+'.gpubin'))
+                archs = subprocess.run(['xcrun','metal-lipo',str(binary),'-archs'],capture_output=True,text=True)
+                entry['architectures'] = archs.stdout+archs.stderr
             for option in ['--reflection','--section-headers','--disassemble']:
                 if compiled.returncode or not binary.exists(): continue
-                dumped = subprocess.run(['xcrun','metal-objdump','--metallib',option,str(binary)],
+                dumped = subprocess.run(['xcrun','metal-objdump','--macho',option,str(binary)],
                                         capture_output=True,text=True,timeout=60)
                 (out/(prefix+option+'.txt')).write_text(dumped.stdout+dumped.stderr)
                 entry[option] = {'returncode':dumped.returncode,'text_bytes':len(dumped.stdout)}
             native.append(entry)
         report = {'format':'madeira-shader-native-experiment-v1','transforms':transforms,'native':native,
                   'scope':'Offline compilation for the M2 GPU architecture. No iPad FPS measurement.',
-                  'configuration_limit':'Initial translator scripts use default PSO flags; shipping immutable-buffer and threadgroup hints must also be compared before deployment.'}
+                  'configuration':'Threadgroup-width hint and immutable buffers29/30 match the D3D11 compute pipeline.'}
         (out/'shader-native-results.json').write_text(json.dumps(report,indent=2))
         print('Offline GPU compilation results:',[(x['mode'],x['input'],x['returncode'],x['binary_bytes']) for x in native],flush=True)
         raise SystemExit(0)
