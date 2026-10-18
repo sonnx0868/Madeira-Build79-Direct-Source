@@ -8,7 +8,7 @@ int main(int argc,char **argv) { @autoreleasepool {
   id<MTLCommandQueue> queue=[device newCommandQueue];
   MTLCaptureManager *manager=MTLCaptureManager.sharedCaptureManager;
   if(![manager supportsDestination:MTLCaptureDestinationGPUTraceDocument])return 4;
-  for(NSString *mode in @[@"baseline",@"loops",@"o2"]) { @autoreleasepool {
+  for(NSString *mode in @[@"baseline",@"loops",@"cfg",@"o2"]) { @autoreleasepool {
     NSError *error=nil;
     NSString *folder=[@(argv[1]) stringByAppendingPathComponent:mode];
     NSString *trace=[@(argv[2]) stringByAppendingPathComponent:[mode stringByAppendingString:@".gputrace"]];

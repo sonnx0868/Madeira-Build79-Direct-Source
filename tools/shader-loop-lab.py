@@ -74,7 +74,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     with zipfile.ZipFile(archive) as z:
         assert len(z.infolist()) <= 64 and sum(i.file_size for i in z.infolist()) < 64 * 1024**2
         for entry in z.infolist():
-            assert re.fullmatch('[0-9A-F]{1,16}\.metallib', entry.filename)
+            assert re.fullmatch(r'[0-9A-F]{1,16}\.metallib', entry.filename)
             assert entry.file_size < 4 * 1024**2
         z.extractall(inputs)
     cppflags = subprocess.check_output([llvm/'bin/llvm-config','--cxxflags'], text=True).split()
@@ -83,7 +83,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
          root/'tools/shader-loop-lab.cpp',root/'dxmt/src/airconv/metallib_writer.cpp',
          *ldflags,'-Wl,-rpath,'+str(llvm/'lib'),'-o',work/'optimize'])
     transforms = []
-    for mode in ['baseline','loops','o2']:
+    for mode in ['baseline','loops','cfg','o2']:
         folder = work / mode; folder.mkdir()
         for input_path in sorted(inputs.iterdir()):
             result = run([work/'optimize',input_path,mode,folder/input_path.name], capture_output=True, text=True)
@@ -97,7 +97,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     run(['xcrun','clang','-O2','-fobjc-arc','-Wno-objc-method-access',root/'tools/gpu-apple-archive-reader.m',
          '-framework','Foundation','-framework','Metal','-o',work/'reader'])
     stats = {}
-    for mode in ['baseline','loops','o2']:
+    for mode in ['baseline','loops','cfg','o2']:
         env = dict(os.environ, DYLD_FRAMEWORK_PATH=str(frameworks)+':'+str(developer.parent/'Frameworks'))
         run([work/'reader',frameworks,work/(mode+'.gputrace'),work/('read-'+mode)], env=env)
         stats[mode] = compiler_stats(work/('read-'+mode+'-shader-metadata'))
@@ -105,4 +105,4 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
               'scope':'Saved compute shaders recompiled on Mac. These are compiler statistics, not iPad FPS or GPU execution timings.',
               'transforms':transforms,'compiler_statistics':stats}
     (out/'shader-loop-results.json').write_text(json.dumps(report,indent=2))
-    print('Compiled saved compute shaders in all three modes. Compiler statistic counts:', {k:len(v) for k,v in stats.items()})
+    print('Compiled saved compute shaders in all modes. Compiler statistic counts:', {k:len(v) for k,v in stats.items()})

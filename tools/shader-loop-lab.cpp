@@ -4,6 +4,8 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Passes/PassBuilder.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -18,7 +20,7 @@ static json::Object stats(Module &m) {
     ++instructions;
     loads+=isa<LoadInst>(i); stores+=isa<StoreInst>(i); calls+=isa<CallInst>(i);
   }
-  return {{"instructions",instructions},{"loads",loads},{"stores",stores},{"calls",calls}};
+  return json::Object{{"instructions",instructions},{"loads",loads},{"stores",stores},{"calls",calls}};
 }
 int main(int argc,char **argv) {
   if(argc!=4) return 2;
@@ -49,6 +51,13 @@ int main(int argc,char **argv) {
       if(auto err=pb.parsePassPipeline(pm,"function(loop-simplify,lcssa,loop-mssa(licm),gvn,instcombine,simplifycfg,adce)")) {
         consumeError(std::move(err));return 7;
       }
+    } else if(mode=="cfg") {
+      FunctionPassManager fpm;
+      const auto options=SimplifyCFGOptions().convertSwitchRangeToICmp(true).hoistCommonInsts(true).sinkCommonInsts(true);
+      fpm.addPass(SimplifyCFGPass(options));
+      fpm.addPass(InstCombinePass());
+      fpm.addPass(SimplifyCFGPass(options));
+      pm.addPass(createModuleToFunctionPassAdaptor(std::move(fpm)));
     } else if(mode=="o2") pm=pb.buildPerModuleDefaultPipeline(OptimizationLevel::O2);
     else return 8;
     pm.run(*m,mam);
