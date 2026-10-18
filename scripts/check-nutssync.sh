@@ -35,6 +35,7 @@ xcrun --sdk iphoneos clang -std=gnu11 -O2 -arch arm64 -isysroot "$sdk" \
   -miphoneos-version-min=17.0 -Werror=implicit-function-declaration -Werror=unguarded-availability-new \
   -fsyntax-only "$root/build/madsync/madsync_bridge.c"
 echo 'PASS production NutsSync bridge compiles against iPhoneOS SDK'
+python3 "$root/tests/host/check-wineserver-symbol-aliases.py"
 python3 "$root/tests/host/check-runtime-settings.py"
 python3 "$root/tests/host/check-nutssync-policy.py"
 if [[ -f "$root/wine/dlls/ntdll/unix/sync.c" ]]; then

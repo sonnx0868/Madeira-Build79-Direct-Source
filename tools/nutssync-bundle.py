@@ -6,7 +6,7 @@ from pathlib import Path
 SOURCES = ('build/madsync/madsync_bridge.c', 'build/madsync/nutssync_adapter.c',
            'build/madsync/madsync.c', 'build/madsync/linux/ntsync.h',
            'build/madsync/suspend_guard.h', 'build/madsync/refresh.sh', 'build/madeira_cfg.h',
-           'build/ntdll-unix/build.sh', 'build/wineserver/build.sh',
+           'build/ntdll-unix/build.sh', 'build/wineserver/build.sh', 'build/wineserver/ios_symbol_aliases.h',
            'third_party/nutssync/nutssync.h', 'third_party/nutssync/source-origin.json',
            'patches/wine-nutssync.patch', 'build/wineserver/mach_ios.c',
            'wine/server/thread.c', 'wine/server/process.c', 'wine/server/inproc_sync.c',

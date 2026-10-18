@@ -111,6 +111,7 @@ PATCHED_FILES=(
 )
 
 if [[ "${1:-all}" = sync-objects ]]; then
+    CC_FLAGS=(-include "$BUILD_DIR/ios_symbol_aliases.h" "${CC_FLAGS[@]}")
     for entry in "${PATCHED_FILES[@]}"; do
         IFS=: read -r name src old_obj <<< "$entry"
         case "$name" in
