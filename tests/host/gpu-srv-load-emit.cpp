@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
   ir.SetInsertPoint(BasicBlock::Create(context, "entry", function));
   auto *id = ir.CreateExtractElement(function->getArg(0), ir.getInt32(0));
   auto *pair = ir.CreateMul(id, ir.getInt32(2));
-  auto *index = ir.CreateLoad(i32, ir.CreateGEP(i32, function->getArg(2), pair));
+  Value *index = ir.CreateLoad(i32, ir.CreateGEP(i32, function->getArg(2), pair));
   auto *length = ir.CreateLoad(i32, ir.CreateGEP(i32, function->getArg(2), ir.CreateAdd(pair, ir.getInt32(1))));
   auto *entry = ir.GetInsertBlock();
   PHINode *indexPhi = nullptr, *sumPhi = nullptr, *iterationPhi = nullptr;
