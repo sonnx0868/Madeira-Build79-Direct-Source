@@ -33,7 +33,7 @@ struct ns_wait_frame
 struct ns_thread_state
 {
     struct ns_thread_state *next;
-    unsigned depth;
+    unsigned depth, alert_number;
     struct ns_wait_frame frames[NS_NESTED_WAITS];
 };
 static pthread_key_t ns_thread_key;
@@ -101,6 +101,7 @@ static void ns_thread_exit(void *value)
         }
         frame->waiter = NULL;
     }
+    if (thread->alert_number) ns_unref_locked(thread->alert_number);
     nutssync_unlock(&saved);
     free(thread);
 }
@@ -146,6 +147,29 @@ static int ns_ref(int fd)
     if (!ok) { errno = EBADF; return -1; }
     return fd;
 }
+
+static struct ns_thread_state *ns_get_thread(void)
+{
+    struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
+    if (!thread)
+    {
+        sigset_t all, previous, saved;
+        sigfillset(&all);
+        pthread_sigmask(SIG_BLOCK, &all, &previous);
+        thread = calloc(1, sizeof(*thread));
+        if (thread && pthread_setspecific(ns_thread_key, thread)) { free(thread); thread = NULL; }
+        if (thread)
+        {
+            nutssync_lock(&saved);
+            thread->next = ns_live_threads;
+            ns_live_threads = thread;
+            nutssync_unlock(&saved);
+        }
+        pthread_sigmask(SIG_SETMASK, &previous, NULL);
+    }
+    return thread;
+}
+
 static int ns_close(int fd)
 {
     sigset_t saved;
@@ -154,7 +178,12 @@ static int ns_close(int fd)
     unsigned number = (unsigned)fd & 0x0fffffff;
     nutssync_lock(&saved);
     int ok = nutssync_object_of(number) != NULL;
-    if (ok) ns_unref_locked(number);
+    if (ok)
+    {
+        struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
+        if (thread && thread->alert_number == number) thread->alert_number = 0;
+        ns_unref_locked(number);
+    }
     nutssync_unlock(&saved);
     if (!ok) { errno = EBADF; return -1; }
     return 0;
@@ -188,6 +217,11 @@ static int ns_take(unsigned pid, unsigned handle)
 {
     sigset_t saved;
     int fd = -1;
+    /* Wine alert tokens are tid|1; ordinary server handles are multiples of 4.
+     * Track the transferred reference independently of the TEB: ExitProcess
+     * can longjmp to the host without calling thread_exit(). */
+    int alert = (handle & 3) == 1;
+    struct ns_thread_state *thread = alert ? ns_get_thread() : NULL;
     nutssync_lock(&saved);
     unsigned *link = &ns_post_buckets[ns_post_bucket(pid, handle)];
     while (*link)
@@ -199,6 +233,15 @@ static int ns_take(unsigned pid, unsigned handle)
             *link = ns_posts[slot].next;
             ns_posts[slot].next = ns_post_free;
             ns_post_free = slot + 1;
+            if (alert)
+            {
+                if (!thread) { ns_unref_locked(ns_posts[slot].number); fd = -1; }
+                else
+                {
+                    if (thread->alert_number) ns_unref_locked(thread->alert_number);
+                    thread->alert_number = ns_posts[slot].number;
+                }
+            }
             break;
         }
         link = &ns_posts[slot].next;
@@ -228,7 +271,6 @@ static void ns_discard_posts(unsigned pid)
 
 static int ns_wait(struct ntsync_wait_args *args, int all)
 {
-    sigset_t saved;
     uint32_t numbers[NUTSSYNC_MAX_WAIT], alert = 0;
     const int *fds = (const int *)(uintptr_t)args->objs;
     if (args->count > NUTSSYNC_MAX_WAIT || args->flags & ~NTSYNC_WAIT_REALTIME || args->pad ||
@@ -236,22 +278,8 @@ static int ns_wait(struct ntsync_wait_args *args, int all)
     /* Darwin can release the C TLV allocation before pthread key destructors.
      * The destructor must own HEAP state, never a pointer into C thread-local
      * storage. Allocate only once, outside every synchronization critical region. */
-    struct ns_thread_state *thread = pthread_getspecific(ns_thread_key);
-    if (!thread)
-    {
-        sigset_t all, previous;
-        sigfillset(&all);
-        pthread_sigmask(SIG_BLOCK, &all, &previous);
-        thread = calloc(1, sizeof(*thread));
-        if (!thread) { pthread_sigmask(SIG_SETMASK, &previous, NULL); errno = ENOMEM; return -1; }
-        if (pthread_setspecific(ns_thread_key, thread))
-        { free(thread); pthread_sigmask(SIG_SETMASK, &previous, NULL); errno = ENOMEM; return -1; }
-        nutssync_lock(&saved);
-        thread->next = ns_live_threads;
-        ns_live_threads = thread;
-        nutssync_unlock(&saved);
-        pthread_sigmask(SIG_SETMASK, &previous, NULL);
-    }
+    struct ns_thread_state *thread = ns_get_thread();
+    if (!thread) { errno = ENOMEM; return -1; }
     if (thread->depth == NS_NESTED_WAITS) { errno = ENOMEM; return -1; }
     for (unsigned i = 0; i < args->count + !!args->alert; i++)
     {

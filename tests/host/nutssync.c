@@ -138,15 +138,41 @@ static void semantics(void)
     CHECK(pthread_join(thread, NULL) == 0 && w.result == 0);
     puts("CHECK descriptor handoff");
     unsigned posts = sync_backend == MADEIRA_SYNC_NUTSSYNC ? 1000 : 128;
-    for (unsigned i = 0; i < posts; i++) CHECK(madsync_post(10, i, e) == 0);
+    for (unsigned i = 0; i < posts; i++) CHECK(madsync_post(10, i * 4, e) == 0);
     CHECK(madsync_take(11, 1) == -1);
-    for (unsigned i = 0; i < posts; i++) CHECK(madsync_close(madsync_take(10, i)) == 0);
+    for (unsigned i = 0; i < posts; i++) CHECK(madsync_close(madsync_take(10, i * 4)) == 0);
     CHECK(madsync_post(10, 1, e) == 0); madsync_discard_posts(10); CHECK(madsync_take(10, 1) == -1);
     int fds[] = {e,manual,sem,alert,mutex};
     for (unsigned i = 0; i < sizeof(fds)/sizeof(fds[0]); i++) CHECK(madsync_close(fds[i]) == 0);
     puts("PASS events, pulse, wait-any/all, APC alerts, mutex abandonment, semaphore overflow, timeouts, handoff");
 }
 static void terminate_handler(int sig) { (void)sig; pthread_exit(NULL); }
+struct alert_exit { int first, second, explicit_close; };
+static void *alert_exit_thread(void *arg)
+{
+    struct alert_exit *test = arg;
+    CHECK(madsync_take(77, 0x1001) == test->first);
+    if (test->second >= 0) CHECK(madsync_take(77, 0x1005) == test->second);
+    if (test->explicit_close) CHECK(madsync_close(test->second >= 0 ? test->second : test->first) == 0);
+    return NULL; /* intentionally skip Wine thread_exit/TEB cleanup */
+}
+static void alert_ownership(void)
+{
+    if (sync_backend != MADEIRA_SYNC_NUTSSYNC) return;
+    for (int explicit_close = 0; explicit_close < 2; explicit_close++)
+        for (int replace = 0; replace < 2; replace++)
+        {
+            struct alert_exit test = {event(1,0), replace ? event(1,0) : -1, explicit_close};
+            CHECK(madsync_post(77,0x1001,test.first) == 0);
+            if (replace) CHECK(madsync_post(77,0x1005,test.second) == 0);
+            pthread_t thread; CHECK(pthread_create(&thread,NULL,alert_exit_thread,&test) == 0);
+            CHECK(pthread_join(thread,NULL) == 0);
+            CHECK(madsync_close(test.first) == 0); /* server reference remains */
+            CHECK(madsync_ref(test.first) == -1);
+            if (replace) { CHECK(madsync_close(test.second) == 0); CHECK(madsync_ref(test.second) == -1); }
+        }
+    puts("PASS alert references on direct native exit, explicit close and reused host thread; no TEB required");
+}
 static void termination(void)
 {
     struct sigaction action = {.sa_handler=terminate_handler}; sigemptyset(&action.sa_mask);
@@ -270,7 +296,7 @@ int main(int argc,char **argv)
     CHECK(madsync_enabled());
     if (argc > 1 && !strcmp(argv[1], "--benchmark-only"))
     { for (unsigned i = 0; i < 5; i++) jobs(); return 0; }
-    semantics(); puts("CHECK native termination"); termination();
+    semantics(); alert_ownership(); puts("CHECK native termination"); termination();
     puts("CHECK Mach suspend"); suspension(); puts("CHECK concurrent jobs"); jobs(); capacity();
     puts("PASS production synchronization suite"); return 0;
 }
