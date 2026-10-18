@@ -3,6 +3,7 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
@@ -14,8 +15,92 @@
 #include "llvm/Support/raw_ostream.h"
 #include <chrono>
 #include <cstdlib>
+#include <functional>
+#include <vector>
 
 using namespace llvm;
+// Preserve the SRV's per-component boundary checks while moving a captured,
+// read-only resource into constant memory. This is an offline experiment.
+static unsigned embedSRV(Module &m) {
+  const char *text=std::getenv("MADEIRA_SHADER_LAB_EMBEDDED_SRV");
+  if(!text)return 0;
+  auto document=json::parse(text);if(!document){consumeError(document.takeError());return 0;}
+  auto *config=document->getAsObject();if(!config)return 0;
+  auto name=config->getString("function");
+  auto argument=config->getInteger("table_argument");
+  auto field=config->getInteger("field_byte_offset");auto *words=config->getArray("words");
+  if(!name || !argument || !field || !words || words->empty() || words->size()>4096)return 0;
+  auto *f=m.getFunction(*name);if(!f || *argument<0 || uint64_t(*argument)>=f->arg_size())return 0;
+  std::vector<uint32_t> values;
+  for(auto &entry:*words) {
+    auto word=entry.getAsInteger();if(!word || *word<0 || uint64_t(*word)>UINT32_MAX)return 0;
+    values.push_back(*word);
+  }
+  LoadInst *resource=nullptr;
+  SmallVector<LoadInst *,16> lengths;
+  for(auto &block:*f)for(auto &inst:block)if(auto *load=dyn_cast<LoadInst>(&inst)) {
+    int64_t offset=0;auto *base=GetPointerBaseWithConstantOffset(load->getPointerOperand(),offset,m.getDataLayout());
+    if(base!=f->getArg(*argument))continue;
+    if(offset==*field && load->getType()->isPointerTy())resource=load;
+    if(offset==*field+8 && load->getType()->isIntegerTy(64))lengths.push_back(load);
+  }
+  if(!resource || resource->getType()->getPointerAddressSpace()!=1)return 0;
+  auto *data=ConstantDataArray::get(m.getContext(),values);
+  auto *global=new GlobalVariable(m,data->getType(),true,GlobalValue::InternalLinkage,data,"captured_srv",nullptr,
+                                  GlobalVariable::NotThreadLocal,2);
+  global->setAlignment(Align(16));
+  auto *zeroData=ConstantAggregateZero::get(ArrayType::get(Type::getInt32Ty(m.getContext()),4));
+  auto *zeroGlobal=new GlobalVariable(m,zeroData->getType(),true,GlobalValue::InternalLinkage,zeroData,"captured_srv_zero",nullptr,
+                                      GlobalVariable::NotThreadLocal,2);
+  zeroGlobal->setAlignment(Align(16));
+  std::function<bool(Value *,unsigned)> depends=[&](Value *v,unsigned depth) {
+    if(depth>16)return false;if(v==resource)return true;
+    if(auto *gep=dyn_cast<GetElementPtrInst>(v))return depends(gep->getPointerOperand(),depth+1);
+    if(auto *cast=dyn_cast<BitCastInst>(v))return depends(cast->getOperand(0),depth+1);
+    if(auto *select=dyn_cast<SelectInst>(v))return depends(select->getTrueValue(),depth+1)||depends(select->getFalseValue(),depth+1);
+    return false;
+  };
+  SmallVector<LoadInst *,64> candidates;
+  for(auto &block:*f)for(auto &inst:block)if(auto *load=dyn_cast<LoadInst>(&inst))
+    if(!load->isVolatile() && !load->isAtomic() && depends(load->getPointerOperand(),0))candidates.push_back(load);
+  for(auto *load:candidates) {
+    IRBuilder<> ir(load);
+    auto *base=ir.CreateGEP(data->getType(),global,{ir.getInt32(0),ir.getInt32(0)});
+    auto *zero=ir.CreateGEP(zeroData->getType(),zeroGlobal,{ir.getInt32(0),ir.getInt32(0)});
+    auto constantType=[&](Value *old)->PointerType * {
+      auto *p=cast<PointerType>(old->getType());
+      return p->isOpaque()?PointerType::get(m.getContext(),2):PointerType::get(p->getNonOpaquePointerElementType(),2);
+    };
+    std::function<Value *(Value *,unsigned)> rebase=[&](Value *v,unsigned depth)->Value * {
+      if(depth>16)return nullptr;
+      if(v==resource)return ir.CreateBitCast(base,constantType(v));
+      if(isa<ConstantPointerNull>(v))return ir.CreateBitCast(zero,constantType(v));
+      if(auto *gep=dyn_cast<GetElementPtrInst>(v)) {
+        auto *p=rebase(gep->getPointerOperand(),depth+1);if(!p)return nullptr;
+        SmallVector<Value *,4> indices(gep->idx_begin(),gep->idx_end());
+        return ir.CreateGEP(gep->getSourceElementType(),p,indices);
+      }
+      if(auto *cast=dyn_cast<BitCastInst>(v)) {
+        auto *p=rebase(cast->getOperand(0),depth+1);return p?ir.CreateBitCast(p,constantType(v)):nullptr;
+      }
+      if(auto *select=dyn_cast<SelectInst>(v)) {
+        auto *a=rebase(select->getTrueValue(),depth+1),*b=rebase(select->getFalseValue(),depth+1);
+        return a&&b?ir.CreateSelect(select->getCondition(),a,b):nullptr;
+      }
+      return nullptr;
+    };
+    if(auto *p=rebase(load->getPointerOperand(),0)) {
+      auto *value=ir.CreateAlignedLoad(load->getType(),p,load->getAlign());
+      load->replaceAllUsesWith(value);
+    }
+  }
+  for(auto *length:lengths)length->replaceAllUsesWith(ConstantInt::get(length->getType(),values.size()*4));
+  // Old loads have no users now. Leave any unsupported chain on the original
+  // resource, and let DCE remove only unused loads and pointer calculations.
+  unsigned rewritten=0;
+  for(auto *load:candidates)if(load->use_empty()){load->eraseFromParent();++rewritten;}
+  return rewritten;
+}
 // Offline partial evaluation only. Values come from a saved dispatch; these
 // constants are never used as a game-wide or device-wide runtime override.
 static unsigned specialize(Module &m) {
@@ -82,13 +167,14 @@ int main(int argc,char **argv) {
   auto before=stats(*m);
   const auto started=std::chrono::steady_clock::now();
   StringRef mode(argv[2]);
-  unsigned folded=mode=="specialize"?specialize(*m):0;
+  unsigned folded=(mode=="specialize" || mode=="embed")?specialize(*m):0;
+  unsigned embedded=mode=="embed"?embedSRV(*m):0;
   if(mode!="baseline") {
     LoopAnalysisManager lam; FunctionAnalysisManager fam;
     CGSCCAnalysisManager cgam; ModuleAnalysisManager mam;
     PipelineTuningOptions tuning;
     tuning.LoopVectorization=false; tuning.SLPVectorization=false;
-    tuning.LoopUnrolling=false; tuning.LoopInterleaving=false;
+    tuning.LoopUnrolling=mode=="embed"; tuning.LoopInterleaving=false;
     PassBuilder pb(nullptr,tuning);
     pb.registerModuleAnalyses(mam); pb.registerCGSCCAnalyses(cgam);
     pb.registerFunctionAnalyses(fam); pb.registerLoopAnalyses(lam);
@@ -105,7 +191,7 @@ int main(int argc,char **argv) {
       fpm.addPass(InstCombinePass());
       fpm.addPass(SimplifyCFGPass(options));
       pm.addPass(createModuleToFunctionPassAdaptor(std::move(fpm)));
-    } else if(mode=="o2" || mode=="specialize") pm=pb.buildPerModuleDefaultPipeline(OptimizationLevel::O2);
+    } else if(mode=="o2" || mode=="specialize" || mode=="embed") pm=pb.buildPerModuleDefaultPipeline(OptimizationLevel::O2);
     else return 8;
     pm.run(*m,mam);
   }
@@ -115,6 +201,6 @@ int main(int argc,char **argv) {
   raw_fd_ostream output(argv[3],error); if(error) return 10;
   dxmt::metallib::MetallibWriter().Write(*m,output);
   outs()<<formatv("{0}\n",json::Value(json::Object{{"mode",mode.str()},{"before",std::move(before)},
-    {"after",stats(*m)},{"optimizer_ms",ms},{"folded_loads",int64_t(folded)}}));
+    {"after",stats(*m)},{"optimizer_ms",ms},{"folded_loads",int64_t(folded)},{"embedded_loads",int64_t(embedded)}}));
   return 0;
 }

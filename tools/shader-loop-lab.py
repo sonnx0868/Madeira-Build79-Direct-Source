@@ -103,6 +103,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     transforms = []
     modes = ['baseline','loops','cfg','o2']
     if os.environ.get('MADEIRA_SHADER_LAB_CONSTANTS'): modes += ['specialize']
+    if os.environ.get('MADEIRA_SHADER_LAB_EMBEDDED_SRV'): modes += ['embed']
     for mode in modes:
         folder = work / mode; folder.mkdir()
         for input_path in sorted(inputs.iterdir()):
