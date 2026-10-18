@@ -19,3 +19,12 @@ Madeira modifications, 2026-10-18:
   preserving Wine object/access/APC protocols and legacy synchronization choices.
 - Coordinate persistent Mach suspension with the synchronization lock so a
   thread cannot be frozen while holding that lock.
+
+Madeira yield-policy adaptation, 2026-10-19:
+- Apply Wine patch 0122's 2 ms elapsed budget and 100 us continuity gap to
+  NtYieldExecution. Retain Madeira's non-depressing Mach handoff and 100 us
+  long-poll sleep rather than increasing its periodic wake rate.
+- Timestamp after an intentional sleep, initialize shared options once,
+  bound overrides, and saturate the optional legacy count.
+- Source: the same build-1521 archive (also covering build 1522),
+  patches/wine/0122-spin-waits-sleep-only-after-2-ms.patch.

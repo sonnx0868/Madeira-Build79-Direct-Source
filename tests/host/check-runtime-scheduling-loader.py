@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Execute production builtin selection and timed sleeps, including Darwin waits."""
 from pathlib import Path
-import argparse, os, shutil, subprocess, sys, tempfile
+import argparse, json, os, shutil, subprocess, sys, tempfile
 
 root = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser()
@@ -123,11 +123,16 @@ int main(void){
     old=subprocess.check_output(['git','-C',str(root/'wine'),'show',pin+':dlls/ntdll/unix/sync.c'])
     file=folder/'dlls/ntdll/unix/sync.c';file.parent.mkdir(parents=True);file.write_bytes(old)
     subprocess.run(['git','-C',str(folder),'apply',str(root/'patches/wine-timed-sleep.patch')],check=True)
+    legacy_source=file.read_text(encoding='utf-8')
+    subprocess.run(['git','-C',str(folder),'apply',str(root/'patches/wine-yield-budget.patch')],check=True)
     source=file.read_text(encoding='utf-8');start=source.index('NTSTATUS WINAPI NtDelayExecution(')
     assert '#include "../../../../build/ntdll-unix/ios_scheduler_yield.h"' in source
     delay=source[start:source.index('\n/********',start)]
-    start=source.index('NTSTATUS WINAPI NtYieldExecution(')
+    start=source.index('#ifdef WINE_IOS\nstatic pthread_once_t ios_yield_config_once')
     yield_body=source[start:source.index('\n/********',start)]
+    old_start=legacy_source.index('NTSTATUS WINAPI NtYieldExecution(')
+    old_body=legacy_source[old_start:legacy_source.index('\n/********',old_start)]
+    old_body=old_body.replace('NtYieldExecution(void)','legacy_yield_execution(void)')
     assert 'return ios_scheduler_yield();' in yield_body
     scheduler=(root/'build/ntdll-unix/ios_scheduler_yield.h').read_text()
     common=r'''
@@ -190,9 +195,13 @@ int main(void){
     yield_common=common+r'''
 #include <time.h>
 #include <stdlib.h>
+#include <pthread.h>
 typedef unsigned int useconds_t;
 static long long ios_xp_yield,ios_xp_yield_slept;
-static long long madeira_cfg_int(const char *key,long long value){(void)key;return value;}
+static long long madeira_cfg_int(const char *key,long long value){
+ const char *v=getenv(!strcmp(key,"yield-sleep-us")?"TEST_YIELD_SLEEP":"TEST_YIELD_COUNT");
+ return v?strtoll(v,NULL,10):value;
+}
 '''
     yield_fake=yield_common+r'''
 #define MACH_PORT_NULL 0
@@ -200,23 +209,78 @@ static long long madeira_cfg_int(const char *key,long long value){(void)key;retu
 #define KERN_SUCCESS 0
 #define STATUS_NO_YIELD_PERFORMED 0x40000024
 static int switches,parks,switch_status;
+static uint64_t fake_now=1000;
 static int thread_switch(int port,int option,int timeout){assert(!port&&!option&&!timeout);++switches;return switch_status;}
-static int fake_clock(int clock_id,struct timespec *out){(void)clock_id;out->tv_sec=0;out->tv_nsec=1000;return 0;}
-static int fake_park(useconds_t us){assert(us==100);++parks;return 0;}
-#undef CLOCK_MONOTONIC
+static uint64_t clock_gettime_nsec_np(int clock_id){(void)clock_id;return fake_now;}
+static int fake_clock(int clock_id,struct timespec *t){(void)clock_id;t->tv_sec=fake_now/1000000000;t->tv_nsec=fake_now%1000000000;return 0;}
+static int fake_park(useconds_t us){assert(us==100);++parks;fake_now+=us*1000;return 0;}
+#define CLOCK_UPTIME_RAW 8
+#ifndef CLOCK_MONOTONIC
 #define CLOCK_MONOTONIC 1
+#endif
 #define clock_gettime fake_clock
 #define usleep fake_park
-'''+scheduler+yield_body+r'''
+'''+(root/'build/ntdll-unix/ios_yield_policy.h').read_text()+scheduler+yield_body+r'''
 int main(void){
+ if(getenv("TEST_YIELD_OVERRIDE")){
+  assert(NtYieldExecution()==STATUS_SUCCESS);
+  assert(ios_yield_sleep_us==strtoull(getenv("TEST_EXPECT_SLEEP"),NULL,10));
+  assert(ios_yield_min_calls==strtoull(getenv("TEST_EXPECT_COUNT"),NULL,10));
+  fake_now+=3000000;
+  for(int i=0;i<200;++i){fake_now+=50000;NtYieldExecution();}
+  if(!ios_yield_sleep_us)assert(!parks);
+  puts("PASS: production yield override bounds and disabled parking preserved");return 0;
+ }
+ struct ios_yield_state s={0};
+ assert(!ios_yield_should_park(&s,0,0));
+ for(uint64_t t=50000;t<2000000;t+=50000)assert(!ios_yield_should_park(&s,t,0));
+ assert(ios_yield_should_park(&s,2000000,0));
+ ios_yield_did_park(&s,7000000);assert(ios_yield_should_park(&s,7000001,0));
+ assert(!ios_yield_should_park(&s,7100001,0)); /* Exact gap starts a new streak. */
+ assert(!ios_yield_should_park(&s,1,0)); /* Discontinuous clocks restart safely. */
+ s.calls=UINT_MAX;s.start_ns=0;s.last_ns=3000000;s.initialized=1;
+ assert(ios_yield_should_park(&s,3000001,UINT_MAX)&&s.calls==UINT_MAX);
  assert(NtYieldExecution()==STATUS_SUCCESS&&switches==1&&!parks);
  switch_status=1;assert(NtYieldExecution()==STATUS_NO_YIELD_PERFORMED&&switches==2);
- switch_status=0;for(int i=0;i<300;++i)assert(NtYieldExecution()==STATUS_SUCCESS);
- assert(parks>0&&ios_xp_yield==302&&ios_xp_yield_slept==parks);
- puts("PASS: production Windows yield uses Mach SWITCH_OPTION_NONE; failed handoff status and adaptive anti-spin parking preserved");
+ switch_status=0;for(int i=0;i<300;++i){fake_now+=1000;assert(NtYieldExecution()==STATUS_SUCCESS);}
+ assert(!parks); /* More than 256 short yields must not trigger a timed sleep. */
+ for(int i=0;i<80;++i){fake_now+=50000;assert(NtYieldExecution()==STATUS_SUCCESS);}
+ assert(parks>0&&ios_xp_yield==382&&ios_xp_yield_slept==parks);
+ int saved=parks;
+ for(int i=0;i<500;++i){fake_now+=150000;assert(NtYieldExecution()==STATUS_SUCCESS);}
+ assert(parks==saved); /* Useful work between job handoffs resets polling. */
+ puts("PASS: production yield preserves short/periodic handoffs, parks sustained polling, and retains non-depressing Mach semantics");
 }
 '''
-    run('yield',yield_fake,['-DWINE_IOS=1'])
+    run('yield',yield_fake,['-DWINE_IOS=1','-pthread'])
+    for sleep,count,expected_sleep,expected_count in (('-1','-4','0','0'),('0','256','0','256'),
+            ('999999999999','999999999999','1000000','4294967295')):
+        env=dict(os.environ,TEST_YIELD_OVERRIDE='1',TEST_YIELD_SLEEP=sleep,TEST_YIELD_COUNT=count,
+                 TEST_EXPECT_SLEEP=expected_sleep,TEST_EXPECT_COUNT=expected_count)
+        subprocess.run([str(folder/'yield.exe')],env=env,check=True,timeout=20)
+    ab_source=yield_fake[:yield_fake.index('\nint main(void)')]+old_body+r'''
+int main(int argc,char **argv){
+ assert(argc==2);fake_now=1000000000;
+ NTSTATUS (*call)(void)=!strcmp(argv[1],"legacy")?legacy_yield_execution:NtYieldExecution;
+ for(int i=0;i<500;++i){fake_now+=150000;assert(call()==STATUS_SUCCESS);}
+ if(!strcmp(argv[1],"legacy"))assert(parks==243);else assert(!parks);
+ printf("{\"engine\":\"%s\",\"calls\":500,\"useful_work_between_calls_us\":150,\"forced_sleeps\":%d,\"forced_idle_us\":%d}\n",argv[1],parks,parks*100);
+ return 0;
+}
+'''
+    ab_file=folder/'before-after.c';ab_file.write_text(ab_source,encoding='utf-8')
+    ab_binary=folder/'before-after.exe'
+    subprocess.run([cc,'-std=c11','-pthread','-DWINE_IOS=1',str(ab_file),'-o',str(ab_binary)],check=True)
+    controlled=[]
+    for engine in ('legacy','elapsed'):
+        r=subprocess.check_output([str(ab_binary),engine],text=True,timeout=20)
+        record=json.loads(r.strip().splitlines()[-1]);controlled.append(record)
+        print('CONTROLLED_YIELD '+json.dumps(record),flush=True)
+    deploy=os.environ.get('BITRISE_DEPLOY_DIR')
+    if deploy:
+        Path(deploy,'yield-policy-before-after.json').write_text(json.dumps({
+            'scope':'controlled clock, actual old/new functions; not measured game FPS or device power',
+            'samples':controlled},indent=2)+'\n')
     if sys.platform=='darwin':
         real=common+r'''
 #include <sys/select.h>
@@ -250,7 +314,7 @@ int main(void){
 #include <pthread.h>
 #include <pthread/qos.h>
 #define STATUS_NO_YIELD_PERFORMED 0x40000024
-'''+scheduler+yield_body+r'''
+'''+(root/'build/ntdll-unix/ios_yield_policy.h').read_text()+scheduler+yield_body+r'''
 int main(void){
  assert(!pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE,0));
  for(int i=0;i<128;++i)assert(NtYieldExecution()==STATUS_SUCCESS);
@@ -260,5 +324,30 @@ int main(void){
 }
 '''
         run('darwin-yield',native_yield,['-DWINE_IOS=1'])
+        # Alternate old/new processes on the same runner. These measure the
+        # shipping yield code, not a synthetic copy of its sleep decision.
+        bench=yield_common+r'''
+#include <unistd.h>
+#include <sched.h>
+#include <mach/mach.h>
+#include <mach/thread_switch.h>
+#include <pthread/qos.h>
+#define STATUS_NO_YIELD_PERFORMED 0x40000024
+'''+(root/'build/ntdll-unix/ios_yield_policy.h').read_text()+scheduler+old_body+yield_body+(root/'tests/host/yield-handoff.c').read_text()
+        bench_file=folder/'handoff.c';bench_file.write_text(bench)
+        binary=folder/'handoff'
+        subprocess.run([cc,'-std=c11','-O2','-DWINE_IOS=1',str(bench_file),'-o',str(binary)],check=True)
+        samples=[]
+        for case in ('rapid','jobs','poll'):
+            for repeat in range(5):
+                for engine in (('legacy','elapsed') if repeat%2==0 else ('elapsed','legacy')):
+                    result=subprocess.check_output([str(binary),engine,case],text=True,timeout=30)
+                    record=json.loads(result.strip().splitlines()[-1]);record['repeat']=repeat
+                    samples.append(record);print('YIELD_BENCH '+json.dumps(record),flush=True)
+        deploy=os.environ.get('BITRISE_DEPLOY_DIR')
+        if deploy:
+            Path(deploy,'yield-handoff-benchmark.json').write_text(json.dumps({
+                'scope':'native macOS host; not game FPS or iPad power',
+                'samples':samples},indent=2)+'\n')
     else:
         print('SKIP: real Darwin sleep/QoS execution requires macOS; CI requires it')

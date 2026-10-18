@@ -36,6 +36,7 @@ workflows:
                 git submodule update --init --depth 1 wine
                 bash scripts/apply-wine-patches.sh
                 python3 tests/host/check-inproc-cache-retire.py
+                python3 tests/host/check-runtime-scheduling-loader.py --require-darwin
       - deploy-to-bitrise-io@2:
           is_always_run: true
           inputs:
@@ -319,7 +320,7 @@ workflows:
                 #!/bin/bash
                 set -euo pipefail
                 cd "$BITRISE_SOURCE_DIR"
-                bash scripts/build-bitrise.sh cached
+                MADEIRA_NATIVE_RUNTIME_REFRESH=1 bash scripts/build-bitrise.sh cached
       - deploy-to-bitrise-io@2:
           is_always_run: true
           inputs:

@@ -10,7 +10,8 @@ SOURCES = ('build/madsync/madsync_bridge.c', 'build/madsync/nutssync_adapter.c',
            'third_party/nutssync/nutssync.h', 'third_party/nutssync/source-origin.json',
            'patches/wine-nutssync.patch', 'build/wineserver/mach_ios.c',
            'wine/server/thread.c', 'wine/server/process.c', 'wine/server/inproc_sync.c',
-           'wine/dlls/ntdll/unix/sync.c', 'build/ntdll-unix/thread_ios.c')
+           'wine/dlls/ntdll/unix/sync.c', 'build/ntdll-unix/thread_ios.c',
+           'build/ntdll-unix/ios_yield_policy.h', 'patches/wine-yield-budget.patch')
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def members(root, path):
@@ -37,6 +38,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', type=Path, required=True); p.add_argument('--stamp', action='store_true')
     p.add_argument('--base-ntdll', type=Path); p.add_argument('--base-server', type=Path)
+    p.add_argument('--scheduling-refresh', action='store_true')
     a=p.parse_args(); root=a.root.resolve()
     archives={'ntdll':root/'app/Madeira/libntdll_unix.a', 'server':root/'app/Madeira/libwineserver.a'}
     current={k:members(root,v) for k,v in archives.items()}
@@ -47,8 +49,11 @@ def main():
     if a.stamp:
         record['producer_commit']=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
         assert bool(a.base_ntdll)==bool(a.base_server), 'both base archives are required'
-        comparisons = [('ntdll',a.base_ntdll,{'madsync.o','sync.o','thread.o'}),
-                       ('server',a.base_server,{'mach_ios.o','process_ios.o','thread.o','inproc_sync.o'})] if a.base_ntdll else []
+        comparisons = ([('ntdll',a.base_ntdll,{'sync.o'}),('server',a.base_server,set())]
+                       if a.scheduling_refresh else
+                       [('ntdll',a.base_ntdll,{'madsync.o','sync.o','thread.o'}),
+                        ('server',a.base_server,{'mach_ios.o','process_ios.o','thread.o','inproc_sync.o'})]) if a.base_ntdll else []
+        assert not a.scheduling_refresh or a.base_ntdll, 'scheduling refresh requires both base archives'
         for name,base,expected in comparisons:
             before=members(root,base); after=current[name]
             assert before.keys()==after.keys(), ('archive membership changed',name, before.keys()^after.keys())

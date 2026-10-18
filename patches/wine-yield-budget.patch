@@ -1,0 +1,101 @@
+Preserve short job handoffs; sleep only after sustained polling.
+Elapsed policy adapted from NutsEmu Wine patch 0122, LGPL-2.1-or-later.
+
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -81,6 +81,7 @@
+ 
+ #ifdef WINE_IOS
+ #include "../../../../build/ntdll-unix/ios_scheduler_yield.h"
++#include "../../../../build/ntdll-unix/ios_yield_policy.h"
+ #endif
+ 
+ HANDLE keyed_event = 0;
+@@ -3590,47 +3591,46 @@
+ /******************************************************************
+  *		NtYieldExecution (NTDLL.@)
+  */
++#ifdef WINE_IOS
++static pthread_once_t ios_yield_config_once = PTHREAD_ONCE_INIT;
++static unsigned int ios_yield_sleep_us, ios_yield_min_calls;
++
++static void ios_yield_config_init(void)
++{
++    long long sleep_us = madeira_cfg_int( "yield-sleep-us", 100 );
++    long long minimum_calls = madeira_cfg_int( "yield-streak", 0 );
++    /* Keep explicit overrides bounded; a count is an additional gate, never
++     * permission to sleep in a short handoff before the elapsed budget. */
++    ios_yield_sleep_us = sleep_us < 0 ? 0 : sleep_us > 1000000 ? 1000000 : sleep_us;
++    ios_yield_min_calls = minimum_calls < 0 ? 0 : minimum_calls > UINT_MAX ? UINT_MAX : minimum_calls;
++    fprintf( stderr, "[yield-budget-v2] sustained polling only: budget=2000us gap=100us sleep=%uus min_calls=%u; darwin-yield-v1 no priority depression\n",
++             ios_yield_sleep_us, ios_yield_min_calls );
++}
++#endif
++
+ NTSTATUS WINAPI NtYieldExecution(void)
+ {
+-    IOS_ECO_POLL();   /* ml1133 */
++    IOS_ECO_POLL();
+ #ifdef WINE_IOS
+-    /* iOS-Madeira ml1063: ADAPTIVE YIELD. A game thread that spins
+-     * WaitForSingleObject(h, 0) / SwitchToThread() waiting for work keeps a whole
+-     * core at 100 % (sampled: one such thread pegged for the entire benchmark,
+-     * ~290M empty polls in one run), because sched_yield with nothing else
+-     * runnable returns at once. On a 16-thread desktop that is harmless; on a
+-     * phone with two performance cores it takes one of them from the critical
+-     * thread and heats the package into throttling. After a burst of back-to-back
+-     * yields the thread is put to sleep for 100 us instead: the same forward
+-     * progress with a bounded latency cost. Streaks reset after a 2 ms gap. */
+-    {
+-        static __thread unsigned long long ios_last_yield_ns;
+-        static __thread unsigned ios_yield_streak;
+-        struct timespec ts;
+-        unsigned long long now;
+-        clock_gettime( CLOCK_MONOTONIC, &ts );
+-        now = (unsigned long long)ts.tv_sec * 1000000000ull + ts.tv_nsec;
+-        static long long ios_ysleep = -1, ios_ystreak = 256;   /* ml1124: madeira.cfg yield-sleep-us (default 100, 0 = never sleep), yield-streak (256) */
+-        if (ios_ysleep < 0)
+-        {
+-            ios_ystreak = madeira_cfg_int( "yield-streak", 256 );
+-            ios_ysleep = madeira_cfg_int( "yield-sleep-us", 100 );
+-            if (ios_ysleep < 0) ios_ysleep = 0;
+-            fprintf( stderr, "[sync-census] ml1124 adaptive yield: sleep %lld us after %lld back-to-back yields%s; darwin-yield-v1 no priority depression\n",
+-                     ios_ysleep, ios_ystreak, ios_ysleep ? "" : " (DISABLED)" );
+-        }
+-        if (now - ios_last_yield_ns < 2000000ull) ios_yield_streak++; else ios_yield_streak = 0;
+-        ios_last_yield_ns = now;
+-        __sync_fetch_and_add( &ios_xp_yield, 1 );   /* ml1131 */
+-        if (ios_ysleep && ios_yield_streak > ios_ystreak)
++    /* Counting yields across useful work made periodic job handoffs sleep on
++     * every call once 256 calls accumulated. Keep short waits cheap, and only
++     * back off when the thread continuously polls for at least two ms.
++     * NutsEmu Wine patch 0122 supplies the elapsed-time/gap policy. Retain our
++     * non-depressing Mach yield and update the timestamp after an idle sleep. */
++    {
++        static __thread struct ios_yield_state state;
++        uint64_t now;
++        pthread_once( &ios_yield_config_once, ios_yield_config_init );
++        now = clock_gettime_nsec_np( CLOCK_UPTIME_RAW );
++        __sync_fetch_and_add( &ios_xp_yield, 1 );
++        if (ios_yield_should_park( &state, now, ios_yield_min_calls ) && ios_yield_sleep_us)
+         {
+             __sync_fetch_and_add( &ios_xp_yield_slept, 1 );
+-            usleep( (useconds_t)ios_ysleep );
++            usleep( ios_yield_sleep_us );
++            ios_yield_did_park( &state, clock_gettime_nsec_np( CLOCK_UPTIME_RAW ) );
+             return STATUS_SUCCESS;
+         }
+     }
+-#endif
+-#if defined(WINE_IOS)
+     return ios_scheduler_yield();
+ #elif defined(HAVE_SCHED_YIELD)
+ #ifdef RUSAGE_THREAD
+@@ -3649,7 +3649,6 @@
+     return STATUS_NO_YIELD_PERFORMED;
+ #endif
+ }
+-
+ 
+ /******************************************************************
+  *		NtDelayExecution (NTDLL.@)

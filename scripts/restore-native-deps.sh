@@ -54,7 +54,16 @@ elif [[ "${1:-}" = --refresh-query ]]; then
 elif [[ "${1:-}" = --refresh-loader ]]; then
   bash "$root/scripts/refresh-module-loader.sh"
 elif [[ "${1:-}" = --refresh-runtime ]]; then
-  bash "$root/build/ntdll-unix/build.sh" runtime-only
+  if python3 "$root/tools/ntdll-runtime-bundle.py" --root "$root" >/dev/null 2>&1 &&
+     python3 "$root/tools/nutssync-bundle.py" --root "$root" >/dev/null 2>&1; then
+    echo 'Verified native runtime already matches the current scheduling source'
+  else
+    yield_baseline="$root/build/ntdll-unix/yield-baseline.a"
+    cp "$root/app/Madeira/libntdll_unix.a" "$yield_baseline"
+    bash "$root/build/ntdll-unix/build.sh" runtime-only
+    python3 "$root/tools/nutssync-bundle.py" --root "$root" --stamp --scheduling-refresh \
+      --base-ntdll "$yield_baseline" --base-server "$root/app/Madeira/libwineserver.a"
+  fi
 elif [[ "${1:-}" = --refresh-gpu ]]; then
   bash "$root/build/dxmt-ios/refresh-gpu.sh"
 elif [[ "${1:-}" = --refresh-optimizer ]]; then

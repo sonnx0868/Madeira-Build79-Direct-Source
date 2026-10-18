@@ -8,5 +8,7 @@
   "upstream_header_sha256": "c1271d158c95d9f028e2a9f1fdbfe60f5092db6f34db6336afeddafca826d731",
   "extracted_from": "patches/ALL-WINE-CHANGES-AS-BUILT.diff: include/wine/nutssync.h",
   "license": "LGPL-2.1-or-later",
-  "header_hash_line_endings": "LF"
+  "header_hash_line_endings": "LF",
+  "yield_policy_patch": "patches/wine/0122-spin-waits-sleep-only-after-2-ms.patch",
+  "yield_policy_adaptation": "build/ntdll-unix/ios_yield_policy.h"
 }
