@@ -7,7 +7,8 @@
 using namespace llvm;
 int main(int argc, char **argv) {
   if (argc != 3) return 2;
-  bool optimized = std::string(argv[1]) == "vector";
+  bool optimized = std::string(argv[1]).starts_with("vector");
+  bool heavy = std::string(argv[1]).ends_with("heavy");
   LLVMContext context;
   context.setOpaquePointers(false);
   Module module("srv-load-test", context);
@@ -27,6 +28,17 @@ int main(int argc, char **argv) {
   auto *pair = ir.CreateMul(id, ir.getInt32(2));
   auto *index = ir.CreateLoad(i32, ir.CreateGEP(i32, function->getArg(2), pair));
   auto *length = ir.CreateLoad(i32, ir.CreateGEP(i32, function->getArg(2), ir.CreateAdd(pair, ir.getInt32(1))));
+  auto *entry = ir.GetInsertBlock();
+  PHINode *indexPhi = nullptr, *sumPhi = nullptr, *iterationPhi = nullptr;
+  BasicBlock *loop = nullptr;
+  if (heavy) {
+    loop = BasicBlock::Create(context, "reads.loop", function);
+    ir.CreateBr(loop);ir.SetInsertPoint(loop);
+    indexPhi = ir.CreatePHI(i32, 2);indexPhi->addIncoming(index, entry);
+    sumPhi = ir.CreatePHI(v4, 2);sumPhi->addIncoming(Constant::getNullValue(v4), entry);
+    iterationPhi = ir.CreatePHI(i32, 2);iterationPhi->addIncoming(ir.getInt32(0), entry);
+    index = indexPhi;
+  }
   Value *result = nullptr;
   if (optimized) result = dxmt::dxbc::loadBoundedSRV4(ir, function->getArg(1), index, length);
   else {
@@ -39,6 +51,15 @@ int main(int argc, char **argv) {
                                       Constant::getNullValue(address->getType()));
       result = ir.CreateInsertElement(result, ir.CreateAlignedLoad(i32, bounded, Align(4)), uint64_t(component));
     }
+  }
+  if (heavy) {
+    auto *sum = ir.CreateAdd(sumPhi,result);
+    auto *iteration = ir.CreateAdd(iterationPhi,ir.getInt32(1));
+    auto *nextIndex = ir.CreateURem(ir.CreateAdd(index,ir.getInt32(15)),ir.CreateSub(ir.CreateLShr(length,2),ir.getInt32(3)));
+    auto *latch = ir.GetInsertBlock();
+    indexPhi->addIncoming(nextIndex,latch);sumPhi->addIncoming(sum,latch);iterationPhi->addIncoming(iteration,latch);
+    auto *exit = BasicBlock::Create(context,"reads.exit",function);
+    ir.CreateCondBr(ir.CreateICmpULT(iteration,ir.getInt32(64)),loop,exit);ir.SetInsertPoint(exit);result=sum;
   }
   ir.CreateAlignedStore(result, ir.CreateGEP(v4, function->getArg(3), id), Align(4));
   ir.CreateRetVoid();

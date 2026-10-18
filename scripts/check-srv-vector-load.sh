@@ -25,9 +25,11 @@ xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
   -Wl,-rpath,"$llvm/lib" -o "$out/emitter"
 "$out/emitter" scalar "$out/scalar"
 "$out/emitter" vector "$out/vector"
+"$out/emitter" scalar-heavy "$out/scalar-heavy"
+"$out/emitter" vector-heavy "$out/vector-heavy"
 xcrun clang -O2 -fobjc-arc "$root/tests/host/gpu-srv-load-metal.m" \
   -framework Foundation -framework Metal -o "$out/metal-check"
-"$out/metal-check" "$out/scalar.metallib" "$out/vector.metallib"
+"$out/metal-check" "$out/scalar.metallib" "$out/vector.metallib" "$out/scalar-heavy.metallib" "$out/vector-heavy.metallib"
 # A shipping source refresh must also compile the real caller, not only a test wrapper.
 sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
 git -C "$root/dxmt" submodule update --init include/native/directx

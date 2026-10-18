@@ -25,7 +25,7 @@ static double run(id<MTLCommandQueue> queue,id<MTLComputePipelineState> pso,id<M
     return 1000*(command.GPUEndTime-command.GPUStartTime);
 }
 int main(int argc,char **argv) { @autoreleasepool {
-    if(argc!=3) return 2;
+    if(argc!=3 && argc!=5) return 2;
     id<MTLDevice> device=MTLCreateSystemDefaultDevice();if(!device) return 6;
     id<MTLCommandQueue> queue=[device newCommandQueue];
     id<MTLComputePipelineState> baseline=pipeline(device,@(argv[1])),vector=pipeline(device,@(argv[2]));
@@ -65,4 +65,18 @@ int main(int argc,char **argv) { @autoreleasepool {
     [a sortUsingSelector:@selector(compare:)];[b sortUsingSelector:@selector(compare:)];
     printf("BENCH: device=%s scalar_median_ms=%.6f vector_median_ms=%.6f scope=isolated-SRV-read-not-game-FPS\n",
            device.name.UTF8String,[a[5] doubleValue],[b[5] doubleValue]);
+    if(argc==5) {
+        baseline=pipeline(device,@(argv[3]));vector=pipeline(device,@(argv[4]));
+        total=65536;NSMutableData *saved=[NSMutableData dataWithLength:total*16];
+        run(queue,baseline,data,0,cases,output,total,1);memcpy(saved.mutableBytes,output.contents,total*16);
+        run(queue,vector,data,0,cases,output,total,1);
+        if(memcmp(saved.bytes,output.contents,total*16)) {fprintf(stderr,"Dependent-read loop outputs differ\n");return 8;}
+        [a removeAllObjects];[b removeAllObjects];
+        for(unsigned i=0;i<10;i++) {
+            if(i%2) {[b addObject:@(run(queue,vector,data,0,cases,output,total,4))];[a addObject:@(run(queue,baseline,data,0,cases,output,total,4))];}
+            else {[a addObject:@(run(queue,baseline,data,0,cases,output,total,4))];[b addObject:@(run(queue,vector,data,0,cases,output,total,4))];}
+        }
+        [a sortUsingSelector:@selector(compare:)];[b sortUsingSelector:@selector(compare:)];
+        printf("PASS: 64-read loop outputs match; BENCH_LOOP: scalar_median_ms=%.6f vector_median_ms=%.6f scope=isolated-SRV-loop-not-game-FPS\n",[a[5] doubleValue],[b[5] doubleValue]);
+    }
 } return 0; }
