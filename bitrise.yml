@@ -32,6 +32,7 @@ workflows:
                 #!/bin/bash
                 set -euo pipefail
                 cd "$BITRISE_SOURCE_DIR"
+                git submodule update --init wine
                 python3 tests/host/check-stackwalk-alias.py
                 bash scripts/build-bitrise.sh stackwalk-refresh
       - deploy-to-bitrise-io@2:
