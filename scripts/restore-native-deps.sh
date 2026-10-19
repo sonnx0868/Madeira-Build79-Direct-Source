@@ -47,6 +47,9 @@ elif [[ "${1:-}" = --refresh-signal ]]; then
   bash "$root/build/ntdll-unix/build.sh" signal-only
 elif [[ "${1:-}" = --refresh-pacing ]]; then
   bash "$root/build/dxmt-ios/refresh-pacing.sh"
+elif [[ "${1:-}" = --refresh-graphics ]]; then
+  bash "$root/build/dxmt-ios/refresh-pacing.sh"
+  bash "$root/scripts/refresh-dxmt-query.sh"
 elif [[ "${1:-}" = --refresh-srv ]]; then
   bash "$root/build/dxmt-ios/refresh-srv.sh"
 elif [[ "${1:-}" = --refresh-query ]]; then

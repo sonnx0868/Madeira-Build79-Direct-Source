@@ -54,16 +54,21 @@ def main():
             changed=[new['name'] for old,new in zip(previous,record['members']) if old!=new]
             assert changed==['winemetal_unix.o'],('changed unrelated archive objects',changed)
             record['base_archive_sha256']=sha_file(a.base);record['preserved_members']=len(previous)-1
-            gpu_path=root/'build/dxmt-ios/gpu-pipeline.json'
-            if gpu_path.exists():
-                gpu=json.loads(gpu_path.read_text(encoding='utf-8'))
-                assert gpu['archive_sha256']==sha_file(a.base) and gpu['members']==previous,'stale GPU container receipt'
-                # All pipeline objects and the D3D11 PE keep their original
-                # producer. Only the shared native boundary was recompiled.
-                gpu['archive_sha256']=record['archive_sha256'];gpu['members']=record['members']
-                gpu['boundary_refresh']={'commit':record['producer_commit'],'base_archive_sha256':sha_file(a.base),
-                                         'receipt':'build/dxmt-ios/producer-pacing.json'}
-                gpu_path.write_text(json.dumps(gpu,indent=2)+'\n',encoding='utf-8')
+            # Validate every parent before writing any. These receipts bind the
+            # whole container even though their own shader/cache objects did
+            # not change. Preserve their producer and compiler namespace.
+            parents=[]
+            for name in ('gpu-pipeline.json','shader-vector-load.json','shader-optimizer.json'):
+                path=root/'build/dxmt-ios'/name
+                if not path.exists():continue
+                parent=json.loads(path.read_text(encoding='utf-8'))
+                assert parent['archive_sha256']==record['base_archive_sha256'] and parent['members']==previous,('stale native container receipt',name)
+                parent['archive_sha256']=record['archive_sha256'];parent['members']=record['members']
+                parent['boundary_refresh']={'commit':record['producer_commit'],'base_archive_sha256':record['base_archive_sha256'],
+                                            'receipt':'build/dxmt-ios/producer-pacing.json'}
+                parents.append((path,parent))
+            for path,parent in parents:
+                path.write_text(json.dumps(parent,indent=2)+'\n',encoding='utf-8')
         receipt.write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
         print('PASS: stamped producer pacing; '+str(record.get('preserved_members','all'))+' other DXMT/LLVM objects preserved')
     else:

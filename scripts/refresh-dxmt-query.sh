@@ -43,4 +43,5 @@ cp "$out/pe/src/d3d11/d3d11.dll" "$original"
 "$root/toolchains/$toolchain/bin/arm64ec-w64-mingw32-strip" --strip-debug "$original"
 python3 "$root/tools/dxmt-query-bundle.py" --root "$root" --stamp --base "$out/d3d11-base.dll"
 python3 "$root/tools/dxmt-swapchain-bundle.py" --root "$root" --stamp --base "$out/d3d11-base.dll"
+python3 "$root/tools/dxmt-color-views-bundle.py" --root "$root" --stamp
 echo 'Refreshed ARM64EC d3d11.dll GPU event polling; native renderer and other DLLs unchanged'

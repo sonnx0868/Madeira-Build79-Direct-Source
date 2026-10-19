@@ -82,6 +82,8 @@ fi
 if [[ -f "$root/build/dxmt-pe/query-park.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-pe/query-park.json)
 fi
+test -s "$root/build/dxmt-pe/color-views.json"
+(cd "$root" && zip -q "$output" build/dxmt-pe/color-views.json)
 test -s "$root/build/dxmt-ios/gpu-pipeline.json"
 (cd "$root" && zip -q "$output" build/dxmt-ios/gpu-pipeline.json)
 test -s "$root/build/dxmt-pe/swapchain-hooks.json"

@@ -50,6 +50,8 @@ static NSData *render(id<MTLDevice> device, BOOL pixelFormatView) {
 int main(int argc, char **argv) {
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice(); assert(device);
+        fprintf(stderr,"device=%s Apple5=%d Mac2=%d\n",device.name.UTF8String,
+            [device supportsFamily:MTLGPUFamilyApple5],[device supportsFamily:MTLGPUFamilyMac2]);
         NSArray *families = @[
             @[@(MTLPixelFormatRGBA8Unorm),@(MTLPixelFormatRGBA8Unorm_sRGB),@(MTLPixelFormatRGBA8Snorm),@(MTLPixelFormatRGBA8Uint),@(MTLPixelFormatRGBA8Sint)],
             @[@(MTLPixelFormatRGBA16Float),@(MTLPixelFormatRGBA16Unorm),@(MTLPixelFormatRGBA16Snorm),@(MTLPixelFormatRGBA16Uint),@(MTLPixelFormatRGBA16Sint)],
@@ -74,6 +76,8 @@ int main(int argc, char **argv) {
                     id<MTLTexture> parent = [device newTextureWithDescriptor:d];
                     if (!parent) { [unavailable addObject:base];continue; }
                     for (NSNumber *to in family) {
+                        fprintf(stderr,"view base=%lu target=%lu restore=%u\n",
+                            base.unsignedLongValue,to.unsignedLongValue,restore); fflush(stderr);
                         id<MTLTexture> view = [parent newTextureViewWithPixelFormat:to.unsignedIntegerValue];
                         assert(view && view.pixelFormat == to.unsignedIntegerValue); views++;
                     }
