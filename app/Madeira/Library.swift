@@ -1642,6 +1642,7 @@ final class LibraryModel: ObservableObject {
         MetalBackedView.presentCountAtLaunch = launchPresent; laidOutAfterFirstPresent = false
         launching = true; overlayFields = entry.overlayFields ?? ["FPS", "Frame time", "RAM", "Battery"]
         displayMode = entry.displayMode
+        GlassSkin.sessionChanged(active: true)
         activeEntry = entry; current = entry.id; menu = false; performance = entry.performance; liveLogs = entry.liveLogs
         LogStore.shared.setDisplayActive(entry.liveLogs)
         fpsMode = entry.fpsMode; sessionMessage = "Starting…"
@@ -1873,6 +1874,7 @@ final class LibraryModel: ObservableObject {
         controls.controls = savedControls; controls.visible = savedVisible; controls.sizeScale = savedSize
         if ControlPresetsModel.enabled { controls.layoutID = savedLayout }
         current = nil; activeEntry = nil; menu = false; sessionMessage = ""; launchAttention = nil
+        GlassSkin.sessionChanged(active: false)
         LibraryAccess.shared.lock()
         LibraryJITState.shared.sessionEnded()
         winios_window_alert_reset()

@@ -45,6 +45,7 @@ final class GlassSkin: NSObject {
 
     private var observer: CFRunLoopObserver?
     private var link: CADisplayLink?
+    private var gameSessionActive = false
     private var device: MTLDevice?
     private var queue: MTLCommandQueue?
     private var pipeline: MTLRenderPipelineState?
@@ -82,7 +83,7 @@ final class GlassSkin: NSObject {
     /// `fadeIn`: liquid metal was just turned on in Settings, so the pills it finds in the
     /// next moment fade from their glass into metal instead of switching.
     func start(fadeIn: Bool = false) {
-        guard Self.enabled, observer == nil, preparePipeline() else { return }
+        guard !gameSessionActive, Self.enabled, observer == nil, preparePipeline() else { return }
         fadeInUntil = fadeIn ? CACurrentMediaTime() + 0.5 : 0
         // Core Animation commits in an observer of order 2,000,000; run just before it.
         observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
@@ -97,6 +98,24 @@ final class GlassSkin: NSObject {
         link?.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         link?.add(to: .main, forMode: .common)
         LogStore.shared.log("[glass-skin] started")
+    }
+
+    /// The window-level game surface can cover a library that remains in the
+    /// UIKit hierarchy. Visibility checks cannot detect that occlusion: stop
+    /// the display link and pre-commit tree walks for the whole game session.
+    /// Keep the user's appearance preference, including through JIT app hops.
+    nonisolated static func sessionChanged(active: Bool) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { shared.setGameSessionActive(active) }
+        } else {
+            DispatchQueue.main.async { shared.setGameSessionActive(active) }
+        }
+    }
+
+    private func setGameSessionActive(_ active: Bool) {
+        guard gameSessionActive != active else { return }
+        gameSessionActive = active
+        if active { stop() } else { start() }
     }
 
     /// Takes the skin off every pill (liquid metal turned off in Settings): the metal fades

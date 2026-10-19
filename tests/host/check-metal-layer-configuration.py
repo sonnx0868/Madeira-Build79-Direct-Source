@@ -85,11 +85,23 @@ import Foundation
 import UIKit
 import Metal
 import QuartzCore
+@MainActor final class LiquidMetalSetting {
+    static let shared = LiquidMetalSetting()
+    var on = true
+}
+@MainActor final class LogStore {
+    static let shared = LogStore()
+    func log(_ text: String) { print(text) }
+}
 @main @MainActor final class Fixture: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     func application(_ app: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         window = UIWindow(frame: UIScreen.main.bounds)
-        window!.rootViewController = UIViewController()
+        let root = UIViewController()
+        let search = UISearchBar(frame: CGRect(x: 0, y: 0, width: 400, height: 44))
+        search.placeholder = "Library"
+        root.navigationItem.titleView = search
+        window!.rootViewController = UINavigationController(rootViewController: root)
         window!.makeKeyAndVisible()
         DispatchQueue.main.async { self.exercise() }
         return true
@@ -118,13 +130,34 @@ import QuartzCore
         if (applied & 2) != 0, let value = actual["nominalFramesPerSecond"] as? NSNumber {
             precondition(value.intValue == 120)
         }
-        let result: [String: Any] = ["oldSwiftArguments": old, "fixedArguments": fixed,
+        var result: [String: Any] = ["oldSwiftArguments": old, "fixedArguments": fixed,
             "realLayerAppliedMask": applied, "realLayerReadback": actual,
             "integer32And64Verified": true, "changedOrMissingSignaturesSkipped": true,
             "physicalIPadGameFpsMeasured": false]
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        try! JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
-            .write(to: docs.appendingPathComponent("result.json"))
+        GlassSkin.shared.start()
+        Task { @MainActor in
+            try! await Task.sleep(nanoseconds: 600_000_000)
+            let baseline = GlassSkin.shared.renderedFrames
+            precondition(baseline > 0, "Production search skin did not submit Metal frames")
+            // Occlusion leaves the library's UIKit views attached. While a
+            // game owns the window, even a late onAppear/start must stay idle.
+            GlassSkin.sessionChanged(active: true)
+            let paused = GlassSkin.shared.renderedFrames
+            GlassSkin.shared.start(fadeIn: true)
+            try! await Task.sleep(nanoseconds: 400_000_000)
+            precondition(GlassSkin.shared.renderedFrames == paused, "Hidden library still submits GPU work")
+            precondition(LiquidMetalSetting.shared.on, "Game changed the saved appearance setting")
+            GlassSkin.sessionChanged(active: false)
+            try! await Task.sleep(nanoseconds: 400_000_000)
+            precondition(GlassSkin.shared.renderedFrames > paused, "Returning to Library did not resume its renderer")
+            GlassSkin.shared.stop()
+            result["hiddenLibraryMetalSubmissionsStopped"] = true
+            result["libraryAppearanceResumesAfterGame"] = true
+            result["actualSkinFramesBeforePause"] = baseline
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            try! JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+                .write(to: docs.appendingPathComponent("result.json"))
+        }
     }
 }
 '''
@@ -147,7 +180,11 @@ with tempfile.TemporaryDirectory(prefix='madeira-layer-scalars-') as scratch:
         '-I' + str(root / 'app/Madeira'), '-c', str(folder / 'Bridge.m'), '-o', str(folder / 'Bridge.o'))
     run('xcrun', '--sdk', 'iphonesimulator', 'swiftc', '-swift-version', '5', '-parse-as-library',
         '-target', target, '-sdk', sdk, '-import-objc-header', str(folder / 'Bridge.h'),
-        str(folder / 'Fixture.swift'), str(folder / 'Bridge.o'), '-o', str(app / 'LayerScalars'))
+        str(folder / 'Fixture.swift'), str(root / 'app/Madeira/GlassSkin.swift'),
+        str(folder / 'Bridge.o'), '-o', str(app / 'LayerScalars'))
+    run('xcrun', '--sdk', 'iphonesimulator', 'metal', '-c', str(root / 'app/Madeira/LiquidMetalSkin.metal'),
+        '-o', str(folder / 'Skin.air'))
+    run('xcrun', '--sdk', 'iphonesimulator', 'metallib', str(folder / 'Skin.air'), '-o', str(app / 'default.metallib'))
     bundle = 'org.madeira.layer-scalars-fixture'
     with (app / 'Info.plist').open('wb') as output:
         plistlib.dump(dict(CFBundleIdentifier=bundle, CFBundleExecutable='LayerScalars', CFBundleName='Layer Scalars',
@@ -177,6 +214,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-layer-scalars-') as scratch:
         output.mkdir(exist_ok=True, parents=True)
         shutil.copy2(result_file, output / 'metal-layer-scalars-validation.json')
         print('PASS: old Swift NSNumber-to-scalar ABI bug reproduced; typed production setters, 30/60/120, guards and real UIKit layer verified')
+        print('PASS: actual Liquid Metal search draws on UIKit; game stops its GPU submissions despite attached views and late start; Library resumes without changing appearance preference')
         print(json.dumps(result, sort_keys=True))
     finally:
         subprocess.run(['xcrun', 'simctl', 'terminate', device, bundle], check=False, capture_output=True)
