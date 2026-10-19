@@ -4497,9 +4497,9 @@ enum SyncEngine: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .nutssync: return "NutsSync (default)"
+        case .nutssync: return "NutsSync (experimental)"
         case .madsync: return "Madsync"
-        case .fastsync: return "Fastsync"
+        case .fastsync: return "Fastsync (default)"
         case .wine: return "Wine standard sync"
         }
     }
@@ -4510,10 +4510,10 @@ enum SyncEngine: String, CaseIterable, Identifiable {
         let inproc = MadeiraConfig.get("inproc-sync")
         if inproc != nil && MadeiraConfig.bool("inproc-sync", default: false) { return .madsync }
         if let fast = MadeiraConfig.get("env.MADEIRA_FASTSYNC") {
-            if fast == "auto" { return .nutssync }
+            if fast == "auto" { return .fastsync }
             return fastsyncValues.contains(fast) ? .fastsync : .wine
         }
-        return inproc == nil ? .nutssync : .wine
+        return inproc == nil ? .fastsync : .wine
     }
     static func apply(_ engine: SyncEngine) {
         MadeiraConfig.set("sync-engine", engine.rawValue)

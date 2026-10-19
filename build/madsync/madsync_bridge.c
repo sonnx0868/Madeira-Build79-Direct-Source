@@ -23,6 +23,7 @@ static int sync_backend = MADEIRA_SYNC_WINE;
 static void sync_initialize(void)
 {
     int requested = madeira_cfg_sync_engine();
+    fprintf(stderr, "[sync-default-v2] automatic=fastsync nutssync=explicit requested=%d\n", requested);
     const char *session = getenv("MADEIRA_MADSYNC_SESSION");
     /* One-time installers still use the server's RPC-compatible path. */
     if (session && !strcmp(session, "0")) requested = MADEIRA_SYNC_WINE;

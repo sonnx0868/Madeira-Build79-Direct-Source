@@ -191,7 +191,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-layer-scalars-') as scratch:
         str(folder / 'Fixture.swift'), str(root / 'app/Madeira/GlassSkin.swift'),
         str(folder / 'Bridge.o'), '-o', str(app / 'LayerScalars'))
     run('xcrun', '--sdk', 'iphonesimulator', 'metal', '-c', str(root / 'app/Madeira/LiquidMetalSkin.metal'),
-        '-o', str(folder / 'Skin.air'))
+        '-target', 'air64-apple-ios18.0-simulator', '-isysroot', sdk, '-o', str(folder / 'Skin.air'))
     run('xcrun', '--sdk', 'iphonesimulator', 'metallib', str(folder / 'Skin.air'), '-o', str(app / 'default.metallib'))
     bundle = 'org.madeira.layer-scalars-fixture'
     with (app / 'Info.plist').open('wb') as output:

@@ -58,7 +58,15 @@ def main():
             before=members(root,base); after=current[name]
             assert before.keys()==after.keys(), ('archive membership changed',name, before.keys()^after.keys())
             changed={n for n in before if before[n]!=after[n]}
-            assert changed==expected, ('unexpected native changes',name,changed)
+            # A fresh compile of unchanged source may be byte-identical. The
+            # sync refresh still compiles every listed object; reject changes
+            # outside that set and require the new policy producer to change.
+            if a.scheduling_refresh:
+                assert changed==expected, ('unexpected native changes',name,changed)
+            else:
+                assert changed <= expected, ('unexpected native changes',name,changed)
+                if name == 'ntdll':
+                    assert {'madsync.o', 'sync.o'} <= changed, ('sync policy producer was not refreshed', changed)
             record['archives'][name].update(base_sha256=sha(base),changed=sorted(changed),preserved=len(before)-len(changed))
         path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text(json.dumps(record,indent=2)+'\n')

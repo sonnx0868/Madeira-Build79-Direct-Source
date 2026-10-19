@@ -100,7 +100,7 @@ struct RuntimeReport: Codable, Sendable {
         if modernDotNet { return "This game requests a separate .NET Desktop runtime. Review its runtimeconfig.json requirements." }
         if !missing.isEmpty {
             let names = Array(Set(missing.map(\.name))).sorted().prefix(8).joined(separator: ", ")
-            return "Still needs game files or unsupported components: " + names
+            return "Unresolved DLL references: " + names + ". This scan includes optional plugins; these references alone do not identify a launch failure."
         }
         if truncated { return "Known runtimes are ready. This large game needs further checks when it starts." }
         return installed.isEmpty ? "Runtime check complete" : "Installed and verified: " + installed.joined(separator: ", ")

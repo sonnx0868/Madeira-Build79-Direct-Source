@@ -31,8 +31,24 @@ final class GameComponentPreparation: ObservableObject {
                 throw RuntimePreparationError.message("Steam has a newer build of this game. Open Game details › Check & repair to update and verify its files before playing.")
             }
             if repairContent, let appID = entry.steamAppID {
-                try await SteamOwnedLibrary.shared.verifyInstalledGame(appID) { [weak self] message in
-                    self?.update(entry.id, text: message)
+                do {
+                    try await SteamOwnedLibrary.shared.verifyInstalledGame(appID) { [weak self] message in
+                        self?.update(entry.id, text: message)
+                    }
+                } catch {
+                    // Record transport context without the URL's path/query,
+                    // which can contain Steam authentication material.
+                    var failure = error as NSError
+                    for depth in 0..<3 {
+                        let url = (failure.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ??
+                            (failure.userInfo[NSURLErrorFailingURLStringErrorKey] as? String).flatMap { URL(string: $0) }
+                        let host = url?.host ?? "unavailable"
+                        let stream = (failure.userInfo["_kCFStreamErrorCodeKey"] as? NSNumber)?.intValue ?? 0
+                        LogStore.shared.log("[steam-repair-network] stage=verify-content depth=\(depth) host=\(host) domain=\(failure.domain) code=\(failure.code) stream=\(stream)", level: .error)
+                        guard let next = failure.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+                        failure = next
+                    }
+                    throw error
                 }
             }
             self?.update(entry.id, text: "Finding the game's program…")

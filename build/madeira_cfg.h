@@ -184,8 +184,9 @@ static int madeira_cfg_bool(const char *key, int dflt)
 }
 
 /* Settings > Sync engine; mirrored by SyncEngine.current in Library.swift.
- * NutsSync is automatic. Explicit old Wine/Madsync/Fastsync choices survive;
- * old "auto" remains automatic. Never combine object synchronization engines. */
+ * Automatic uses the pre-NutsSync Fastsync path while game regressions are
+ * investigated. NutsSync remains an explicit choice. Never combine object
+ * synchronization engines within one session. */
 #define MADEIRA_SYNC_MADSYNC  0
 #define MADEIRA_SYNC_FASTSYNC 1
 #define MADEIRA_SYNC_WINE     2
@@ -204,11 +205,11 @@ static int madeira_cfg_sync_engine(void)
     if (inproc && madeira_cfg_bool("inproc-sync", 0)) return MADEIRA_SYNC_MADSYNC;
     if (madeira_cfg_get("env.MADEIRA_FASTSYNC", v, sizeof v))
     {
-        if (!strcmp(v, "auto")) return MADEIRA_SYNC_NUTSSYNC;
+        if (!strcmp(v, "auto")) return MADEIRA_SYNC_FASTSYNC;
         return (!strcmp(v, "1") || !strcmp(v, "on") || !strcmp(v, "yes") || !strcmp(v, "auto") || !strcmp(v, "cells"))
                ? MADEIRA_SYNC_FASTSYNC : MADEIRA_SYNC_WINE;
     }
-    return inproc ? MADEIRA_SYNC_WINE : MADEIRA_SYNC_NUTSSYNC;
+    return inproc ? MADEIRA_SYNC_WINE : MADEIRA_SYNC_FASTSYNC;
 }
 
 #endif /* MADEIRA_CFG_H */

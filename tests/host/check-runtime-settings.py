@@ -130,12 +130,12 @@ engine = block(lib, 'enum SyncEngine: String, CaseIterable, Identifiable')
 detail = lib[lib.index('struct LibraryDetail: View'):lib.index('struct RuntimeMemorySyncSettings: View')]
 apply_env = block(lib, 'func applyEnvironment()')
 entry = block(lib, 'struct LibraryEntry: Codable, Identifiable')
-check('return inproc == nil ? .nutssync : .wine' in engine, 'fastsync is the engine unless madeira.cfg says otherwise')
+check('return inproc == nil ? .fastsync : .wine' in engine, 'fastsync is the engine unless madeira.cfg says otherwise')
 check('@State private var engine = SyncEngine.current' in settings and 'Picker("Sync engine"' in settings
       and 'SyncEngine.apply(choice)' in settings and 'ForEach(SyncEngine.allCases)' in settings,
       'Settings: the Sync engine picker writes through SyncEngine.apply')
-check(['NutsSync (default)', 'Madsync', 'Fastsync', 'Wine standard sync'] == re.findall(r'case \.\w+: return "([^"]+)"', engine),
-      'the picker offers Madsync, Fastsync (default) and Wine standard sync, in that order')
+check(['NutsSync (experimental)', 'Madsync', 'Fastsync (default)', 'Wine standard sync'] == re.findall(r'case \.\w+: return "([^"]+)"', engine),
+      'the picker labels the automatic stable path and explicit experimental engine')
 check('"env.MADEIRA_FASTSYNC"' in settings.split('static let featuredKeys')[1].split(']')[0],
       'All settings leaves env.MADEIRA_FASTSYNC to the picker')
 check('var fastSync: Bool?' in entry and 'var semaphoreFastPath: Bool?' in entry,
