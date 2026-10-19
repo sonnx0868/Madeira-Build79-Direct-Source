@@ -359,6 +359,27 @@ let compatReplaced = LibraryEntry(title: "REPLACED", relativePath: compatRelativ
 expect(ExternalGameCompatibility.prepare(compatReplaced).contains("il2cpp-strict-memory"), "REPLACED IL2CPP strict memory policy")
 expect(env("FEX_VECTORTSOENABLED") == "1" && env("FEX_MEMCPYSETTSOENABLED") == "1" && env("FEX_HALFBARRIERTSOENABLED") == "0", "vector/REP ordering and safe unaligned path")
 expect(env("MADEIRA_REAL_SUSPEND") == "1", "REPLACED keeps native suspend holds instead of snapshot-only suspend")
+var compatSteamUnity = LibraryEntry(title: "Steam Unity", relativePath: compatRelative, bits: 64)
+compatSteamUnity.steamAppID = 3097560
+expect(ExternalGameCompatibility.prepare(compatSteamUnity).contains("unity-mip-pressure") && env("MADEIRA_MIP_CLAMP_AUTO") == "1",
+       "Steam folder launches receive the same pressure-aware texture protection as imported Unity games")
+compatSteamUnity.unityOptimizations = false
+_ = ExternalGameCompatibility.prepare(compatSteamUnity)
+expect(env("MADEIRA_MIP_CLAMP_AUTO") == nil, "per-game opt-out clears the preceding automatic mip protection")
+compatSteamUnity.unityOptimizations = nil
+MadeiraConfig.values = ["env.MADEIRA_UNITY_OPTIMIZATIONS": "0"]
+expect(!ExternalGameCompatibility.prepare(compatSteamUnity).contains("unity-mip-pressure"), "global Unity opt-out also covers Steam folder launches")
+MadeiraConfig.values = ["env.MADEIRA_MIP_CLAMP_AUTO": "0"]
+expect(!ExternalGameCompatibility.prepare(compatSteamUnity).contains("unity-mip-pressure"), "explicit texture policy is preserved for Steam folder launches")
+MadeiraConfig.values = [:]
+setenv("MADEIRA_MIP_CLAMP_AUTO", "0", 1)
+_ = ExternalGameCompatibility.prepare(compatSteamUnity)
+expect(env("MADEIRA_MIP_CLAMP_AUTO") == "0", "caller-supplied texture environment opt-out remains unchanged")
+unsetenv("MADEIRA_MIP_CLAMP_AUTO")
+_ = ExternalGameCompatibility.prepare(compatSteamUnity)
+_ = ExternalGameCompatibility.prepare(game)
+expect(env("MADEIRA_MIP_CLAMP_AUTO") == nil && env("_MADEIRA_AUTO_MIP_CLAMP") == nil,
+       "an unrelated next game does not inherit Unity's automatic texture protection")
 var replacedMemory = compatReplaced
 replacedMemory.realSuspend = false; replacedMemory.swapMB = 0
 replacedMemory.applyEnvironment()

@@ -110,7 +110,7 @@ OVERLAY = {
     "env.MADEIRA_UNITY_D3D11": {"title": "Force Direct3D 11 for copied Unity games", "category": "App & front end",
                 "note": "On by default. Adds -force-d3d11 only when UnityPlayer.dll sits beside a directly launched game and no renderer argument was supplied. Steam Dock launches are untouched."},
     "env.MADEIRA_UNITY_OPTIMIZATIONS": {"title": "Unity smoothness profile", "category": "App & front end",
-                "note": "On by default for directly copied Unity games. Reports four CPU cores unless the game profile chooses a count, enables pressure-aware mip clamp and samples DXMT memory census at most every 10 seconds. Each game can opt out in Compatibility & performance."},
+                "note": "On by default for detected Unity games. Pressure-aware texture protection also covers Steam folder launches. Automatic CPU reporting inherits the host/global count; runtime memory census reports are sampled at most every 10 seconds. Each game can opt out in Compatibility & performance."},
     "env.MADEIRA_UNITY_RESOLUTION": {"title": "Use library resolution at Unity startup", "category": "App & front end",
                 "note": "On by default for directly copied Unity games. Adds -screen-width and -screen-height from the library resolution so a saved window size does not override it. Explicit screen launch options take priority."},
     "env.MADEIRA_RUNTIME_PROFILERS": {"title": "Heavy runtime profilers", "category": "Wine core (ntdll)",

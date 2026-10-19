@@ -67,6 +67,10 @@ selected resolution and it never overrides an explicit
 `env.MADEIRA_MIP_CLAMP_AUTO` value. The profile is on by default and can be
 turned off in the game's Compatibility & performance section; the global
 `env.MADEIRA_UNITY_OPTIMIZATIONS = 0` switch disables it for every game.
+Texture pressure protection also applies to detected Unity store installations,
+including Steam folder launches. It can reduce the highest mips of newly created
+large textures when headroom is low; existing allocations are not resized. Its
+automatic environment value is cleared before preparing another game.
 It also enables `DXMT_CENSUS_THROTTLE`: periodic memory census reports run at
 most once per 10 seconds, with the first report and memory warnings retained.
 An explicit `env.DXMT_CENSUS_THROTTLE` value takes priority. This reduces

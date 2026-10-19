@@ -908,6 +908,7 @@ enum ExternalGameCompatibility {
 
     static func prepare(_ entry: LibraryEntry) -> [String] {
         clearStrictMemory()
+        clearAutomaticMipClamp()
         SDLGamepadPolicy.clearPrevious()
         unsetenv("_MADEIRA_OPENGL_ANGLE_MODE")
         unsetenv("_MADEIRA_LUA51_GC64")
@@ -940,6 +941,13 @@ enum ExternalGameCompatibility {
         let detectedEngine = GameEngineDetection.detect(drive.appendingPathComponent(entry.launchRelativePath))
         if let engine = detectedEngine {
             fputs("[game-engine] detected=\(engine)\n", stderr)
+        }
+        // Store entries name a directory and return below before EXE-only
+        // compatibility work. Memory protection must also reach Unity games
+        // launched by Steam, without enabling unrelated CPU/renderer tweaks.
+        if detectedEngine == "Unity", entry.unityOptimizations != false,
+           MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS"), enableUnityMipClamp() {
+            applied.append("unity-mip-pressure")
         }
         if detectedEngine == "GameMaker",
            GameMakerCompatibility.prepare(drive.appendingPathComponent(entry.launchRelativePath), drive: drive) {
@@ -1001,7 +1009,6 @@ enum ExternalGameCompatibility {
                 setenv("MADEIRA_SWAP_PRESSURE", "1", 1)
                 applied.append("unity-pressure-swap")
             }
-            if enableUnityMipClamp() { applied.append("unity-mip-pressure") }
             if MadeiraConfig.get("env.DXMT_CENSUS_THROTTLE") == nil,
                getenv("DXMT_CENSUS_THROTTLE") == nil {
                 // The 64-bit DXMT default walks and prints the full census every
@@ -1063,7 +1070,16 @@ enum ExternalGameCompatibility {
         guard MadeiraConfig.get("env.MADEIRA_MIP_CLAMP_AUTO") == nil,
               getenv("MADEIRA_MIP_CLAMP_AUTO") == nil else { return false }
         setenv("MADEIRA_MIP_CLAMP_AUTO", "1", 1)
+        setenv("_MADEIRA_AUTO_MIP_CLAMP", "1", 1)
         return true
+    }
+
+    private static func clearAutomaticMipClamp() {
+        if getenv("_MADEIRA_AUTO_MIP_CLAMP") != nil,
+           getenv("MADEIRA_MIP_CLAMP_AUTO").map({ String(cString: $0) }) == "1" {
+            unsetenv("MADEIRA_MIP_CLAMP_AUTO")
+        }
+        unsetenv("_MADEIRA_AUTO_MIP_CLAMP")
     }
 }
 
@@ -4071,7 +4087,7 @@ struct LibraryDetail: View {
                         Text("Automatic").tag(0)
                         ForEach([1, 2, 4, 6], id: \.self) { Text("\($0)").tag($0) }
                     }
-                    if ExternalGameCompatibility.isUnity(entry) {
+                    if GameEngineDetection.detect(LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)) == "Unity" {
                         Toggle("Unity smoothness profile", isOn: Binding(
                             get: { entry.unityOptimizations ?? true },
                             set: { entry.unityOptimizations = $0 }))

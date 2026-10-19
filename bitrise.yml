@@ -34,6 +34,7 @@ workflows:
                 cd "$BITRISE_SOURCE_DIR"
                 python3 tests/host/check-pe-imports.py --require-swift
                 python3 tests/host/check-runtime-preparation.py --require-swift
+                python3 tests/host/check-frontend.py
 
   madeira-cdn-recovery-check:
     title: Validate Steam HTTPS recovery and manifest fallback
