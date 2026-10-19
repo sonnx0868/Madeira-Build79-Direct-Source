@@ -1,0 +1,42 @@
+--- a/dlls/ntdll/signal_arm64ec.c
++++ b/dlls/ntdll/signal_arm64ec.c
+@@ -4725,9 +4725,9 @@
+  *		RtlWalkFrameChain (NTDLL.@)
+  */
+ ULONG WINAPI RtlWalkFrameChain( void **buffer, ULONG count, ULONG flags )
+ {
+-    UNWIND_HISTORY_TABLE table;
++    UNWIND_HISTORY_TABLE table = { 0 };
+     RUNTIME_FUNCTION *func;
+     PEXCEPTION_ROUTINE handler;
+     ULONG_PTR pc, frame, base;
+     CONTEXT context;
+@@ -4737,18 +4737,26 @@
+     RtlCaptureContext( &context );
+ 
+     for (i = 0; i < count; i++)
+     {
+-        pc = context.Rip;
++        /* Captured PCs execute from registered iOS JIT aliases; unwind tables
++         * are keyed by their PE addresses, as in virtual_unwind(). */
++        ULONG_PTR previous_pc = (ULONG_PTR)xlate_ios_jit_rev( (void *)context.Rip );
++        ULONG_PTR previous_sp = context.Rsp, next_pc;
++        pc = previous_pc;
+         if ((context.ContextFlags & CONTEXT_UNWOUND_TO_CALL) && RtlIsEcCode( pc )) pc -= 4;
+         func = RtlLookupFunctionEntry( pc, &base, &table );
+         if (RtlVirtualUnwind2( UNW_FLAG_NHANDLER, base, pc, func, &context, NULL,
+                                &data, &frame, NULL, NULL, NULL, &handler, 0 ))
+             break;
+         if (!context.Rip) break;
++        next_pc = (ULONG_PTR)xlate_ios_jit_rev( (void *)context.Rip );
++        /* A missing/corrupt frame must not fill the requested trace with the
++         * same frame. Recursion with an advancing stack remains valid. */
++        if (next_pc == previous_pc && context.Rsp == previous_sp) break;
+         if (!frame || !is_valid_frame( frame )) break;
+         if (context.Rsp == (ULONG_PTR)NtCurrentTeb()->Tib.StackBase) break;
+-        if (i >= skip) buffer[num_entries++] = (void *)context.Rip;
++        if (i >= skip) buffer[num_entries++] = (void *)next_pc;
+     }
+     return num_entries;
+ }
+ 

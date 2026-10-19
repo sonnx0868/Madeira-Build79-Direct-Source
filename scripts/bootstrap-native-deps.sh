@@ -174,6 +174,7 @@ log "Build Madeira Dock"
 LLVM_MINGW="$mingw_dir/bin" bash "$root/build/madeira-dock/build.sh"
 bash "$root/scripts/build-wow64-addon.sh"
 python3 "$root/tools/loader-bundle.py" --root "$root" --stamp
+python3 "$root/tools/ntdll-stackwalk-bundle.py" --root "$root" --stamp
 
 log "Build Madeira on-device pairing library"
 if ! command -v rustup >/dev/null 2>&1; then

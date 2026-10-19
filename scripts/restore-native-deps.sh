@@ -50,6 +50,8 @@ elif [[ "${1:-}" = --refresh-pacing ]]; then
 elif [[ "${1:-}" = --refresh-graphics ]]; then
   bash "$root/build/dxmt-ios/refresh-pacing.sh"
   bash "$root/scripts/refresh-dxmt-query.sh"
+elif [[ "${1:-}" = --refresh-stackwalk ]]; then
+  bash "$root/scripts/refresh-stackwalk.sh"
 elif [[ "${1:-}" = --refresh-srv ]]; then
   bash "$root/build/dxmt-ios/refresh-srv.sh"
 elif [[ "${1:-}" = --refresh-query ]]; then
