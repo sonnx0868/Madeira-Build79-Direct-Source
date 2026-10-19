@@ -15,8 +15,8 @@ app:
     - XCODE_SCHEME: Madeira
     - APP_CONFIGURATION: Debug
     - JOBS: '4'
-    - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build824-1fb04f8/Madeira-v0.1.6-native-deps-build824.zip
-    - MADEIRA_NATIVE_DEPS_SHA256: c15d79c266db1f81e3b3ff611fab563fd55a976e12fb89b07d3c8708688d2f2e
+    - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build829-51466fd/Madeira-v0.1.6-native-deps-build829.zip
+    - MADEIRA_NATIVE_DEPS_SHA256: 29b11bc91507cd4b4037a81bb0a2ee4023ecb52b42bbf7b385453921d9e50ac9
 
 workflows:
   madeira-v016-frameflow-refresh:
