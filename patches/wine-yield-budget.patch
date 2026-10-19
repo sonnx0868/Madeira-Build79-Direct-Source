@@ -81,7 +81,7 @@ Elapsed policy adapted from NutsEmu Wine patch 0122, LGPL-2.1-or-later.
          {
              __sync_fetch_and_add( &ios_xp_yield_slept, 1 );
 -            usleep( (useconds_t)ios_ysleep );
-+            usleep( ios_yield_sleep_us );
++            usleep( ios_yield_park_us( &state, ios_yield_sleep_us ) );
 +            ios_yield_did_park( &state, clock_gettime_nsec_np( CLOCK_UPTIME_RAW ) );
              return STATUS_SUCCESS;
          }

@@ -363,7 +363,9 @@ static inline NTSTATUS ios_scheduler_yield(void){sched_yield();return STATUS_SUC
                 ('nuts-sched-100',['-DIOS_YIELD_BENCH_SCHED=1'],'100'),
                 ('rearm32-100',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
                 ('rearm128-100',['-DIOS_YIELD_BUDGET_NS=128000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
-                ('rearm32-50',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'50')]
+                ('rearm32-50',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'50'),
+                ('adaptive-1',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_ADAPTIVE=1','-DIOS_YIELD_MIN_BUDGET_NS=1000'],'100'),
+                ('adaptive-4',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_ADAPTIVE=1','-DIOS_YIELD_MIN_BUDGET_NS=4000'],'100')]
             matrix=[];candidates=[]
             for variant,flags,sleep_us in variants:
                 candidate=folder/variant

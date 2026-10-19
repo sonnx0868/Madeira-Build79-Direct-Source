@@ -18,7 +18,7 @@
 struct ios_yield_state
 {
     uint64_t last_ns, start_ns;
-    unsigned int calls;
+    unsigned int calls, idle_parks;
     int initialized;
 };
 
@@ -29,11 +29,32 @@ static inline int ios_yield_should_park( struct ios_yield_state *s, uint64_t now
     {
         s->start_ns = now;
         s->calls = 0;
+        s->idle_parks = 0;
         s->initialized = 1;
     }
     s->last_ns = now;
     if (s->calls < UINT_MAX) ++s->calls;
-    return now - s->start_ns >= IOS_YIELD_BUDGET_NS && s->calls >= minimum_calls;
+    uint64_t budget = IOS_YIELD_BUDGET_NS;
+#if defined(IOS_YIELD_ADAPTIVE) && IOS_YIELD_ADAPTIVE
+#ifndef IOS_YIELD_MIN_BUDGET_NS
+#define IOS_YIELD_MIN_BUDGET_NS UINT64_C(1000)
+#endif
+    if (s->idle_parks >= 4) budget = IOS_YIELD_MIN_BUDGET_NS;
+    else if (s->idle_parks >= 2) budget = UINT64_C(8000);
+#endif
+    return now - s->start_ns >= budget && s->calls >= minimum_calls;
+}
+
+static inline unsigned int ios_yield_park_us( const struct ios_yield_state *s,
+                                             unsigned int maximum_us )
+{
+#if defined(IOS_YIELD_ADAPTIVE) && IOS_YIELD_ADAPTIVE
+    unsigned int short_us = s->idle_parks < 2 ? 50 : s->idle_parks < 4 ? 75 : maximum_us;
+    return short_us < maximum_us ? short_us : maximum_us;
+#else
+    (void)s;
+    return maximum_us;
+#endif
 }
 
 /* The sleep is intentional idle time. Compare the next call with its end,
@@ -41,9 +62,13 @@ static inline int ios_yield_should_park( struct ios_yield_state *s, uint64_t now
 static inline void ios_yield_did_park( struct ios_yield_state *s, uint64_t now )
 {
     s->last_ns = now;
-#if defined(IOS_YIELD_REARM_AFTER_PARK) && IOS_YIELD_REARM_AFTER_PARK
+#if (defined(IOS_YIELD_REARM_AFTER_PARK) && IOS_YIELD_REARM_AFTER_PARK) || \
+    (defined(IOS_YIELD_ADAPTIVE) && IOS_YIELD_ADAPTIVE)
     s->start_ns = now;
     s->calls = 0;
+#if defined(IOS_YIELD_ADAPTIVE) && IOS_YIELD_ADAPTIVE
+    if (s->idle_parks < 4) ++s->idle_parks;
+#endif
 #endif
 }
 
