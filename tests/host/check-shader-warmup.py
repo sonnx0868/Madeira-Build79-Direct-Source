@@ -203,7 +203,7 @@ int main(void) { @autoreleasepool {
     assert([kept[@"schema"] isEqual:@2] && [kept[@"recipes"] count] == 256 && [kept[@"startup"] count] == 32);
     NSMutableSet *names = [NSMutableSet set];
     for (NSDictionary *r in kept[@"recipes"]) [names addObject:r[@"function"][@"name"]];
-    for (unsigned i = 0; i < 32; ++i) assert([names containsObject:[NSString stringWithFormat:@"intro.%u", i]]);
+    for (unsigned i = 0; i < 32; ++i) assert(([names containsObject:[NSString stringWithFormat:@"intro.%u", i]]));
     assert([names containsObject:@"popular"] && ![names containsObject:@"scene.42"]);
     printf("PASS: cold learning, exact render/compute replay, constants, changed/private descriptors, corrupt libraries and disabled cache\n");
     printf("PASS: startup-hot-v2 retains startup and popular pipelines across 300 later scene pipelines\n");
