@@ -216,7 +216,7 @@ enum RuntimeScanner {
                     satisfied = bundleByName[name]?.contains { RuntimeFiles.matches($0, bits: bits, bundled: true) } == true
                 }
                 if !satisfied {
-                    let source = String(module.path.dropFirst(root.path.count + 1))
+                    let source = module.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
                     missing.append((module, RuntimeDependency(name: name, folder: module.deletingLastPathComponent().path,
                         bits: bits, wrongArchitecture: wrong, source: source, load: imported.delayed ? .delayed : .unverified)))
                 }

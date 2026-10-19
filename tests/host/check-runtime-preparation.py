@@ -148,7 +148,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     let warningCache=try await run();assert(warningCache.cached)
     try FileManager.default.copyItem(at:root.appendingPathComponent("plugin.dll"),to:game.appendingPathComponent("plugin.dll"))
     let changed=try await run();assert(!changed.cached && changed.missing.contains { $0.name=="game_private.dll" })
-    assert(changed.additionalReferences.contains { $0.name=="game_private.dll" && $0.source=="plugin.dll" && $0.load == .unverified })
+    assert(changed.additionalReferences.contains { $0.name=="game_private.dll" && $0.source=="plugin.dll" && $0.load == .unverified },String(describing:changed.missing))
     // Classify edges, not DLL names: OpenCL can be a real startup dependency,
     // and a plugin's ordinary import does not prove the plugin is loaded.
     let graph=drive.appendingPathComponent("Games/Graph")
