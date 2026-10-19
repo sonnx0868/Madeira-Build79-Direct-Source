@@ -48,27 +48,12 @@ final class MetalHostView: UIView {
         // silently dropping them (presentedTime==0 on all but occasional
         // frames) at our sub-1Hz game present cadence. MeloNX (shipping
         // Switch emulator) sets exactly this pair on its layer.
-        let syncSel = NSSelectorFromString("setDisplaySyncEnabled:")
-        if metalLayer.responds(to: syncSel) {
-            metalLayer.perform(syncSel, with: NSNumber(value: false))
-            LogStore.shared.log("MetalLayer: displaySyncEnabled=false (private API, MeloNX pattern)")
-        }
-        /* ml651: was hardcoded 60, which contradicted everything around it —
-         * FPSOverlay asks the display link for CAFrameRateRange(preferred: 120)
-         * while this declared the surface a 60Hz one. Track the screen instead.
-         *
-         * ⚠️ HYPOTHESIS, NOT A DIAGNOSIS. displaySyncEnabled=false directly above
-         * takes our presents out of display-sync scheduling, so this nominal
-         * value may well be inert. It is one line and it removes a genuine
-         * contradiction; if the A/B shows nothing, the cap is elsewhere and we
-         * have eliminated it rather than argued about it. */
-        let fpsSel = NSSelectorFromString("setNominalFramesPerSecond:")
-        if metalLayer.responds(to: fpsSel) {
-            let hz = UIScreen.main.maximumFramesPerSecond
-            metalLayer.perform(fpsSel, with: hz as NSNumber)
-            LogStore.shared.log("MetalLayer: ml651 nominalFPS=\(hz) (was hardcoded 60; "
-                                + "display link asks preferred=120)")
-        }
+        // A BOOL/NSInteger setter cannot be called with perform(_:with:):
+        // that passes the NSNumber's address as the scalar argument. Use a
+        // signature-checked Objective-C bridge. The panel maximum remains
+        // metadata; the selected producer cap and CADisplayLink intent are
+        // configured separately by ProMotionIntent.
+        madeira_metal_layer_configure(metalLayer, Int32(UIScreen.main.maximumFramesPerSecond))
         UIApplication.shared.isIdleTimerDisabled = true
         // Set once so DXMT's swapchain setup never blocks on a zero-sized
         // layer. After this, DXMT's setProps is the ONLY drawableSize

@@ -15,7 +15,15 @@
 #include "InputSurfaceState.h"
 #include "GPUForegroundGate.h"
 #include "GPUFrameDiagnostics.h"
+#include "MetalLayerConfiguration.h"
 #include <stdio.h>
+
+void madeira_metal_layer_configure(CAMetalLayer *layer, int panel_hz) {
+    int sync = madeira_layer_set_sync(layer, NO);
+    int rate = madeira_layer_set_nominal_rate(layer, panel_hz);
+    fprintf(stderr, "[metal-layer-scalars-v1] display-sync-off=%d nominal-rate-set=%d panel-max=%d argument-abi=scalar\n",
+            sync, rate, panel_hz);
+}
 
 static pthread_mutex_t g_input_surface_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct madeira_input_surface g_input_surface;

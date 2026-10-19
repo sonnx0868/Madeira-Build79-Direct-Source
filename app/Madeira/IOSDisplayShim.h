@@ -28,6 +28,8 @@ MadeiraGPUStats madeira_gpu_diagnostics_sample(void);
 // Register the CAMetalLayer that DXMT-rendered content should go into.
 // Must be called before the first D3D11 swapchain is created.
 void madeira_display_set_layer(CAMetalLayer *layer);
+// Keep optional primitive layer setters out of performSelector:withObject:.
+void madeira_metal_layer_configure(CAMetalLayer *layer, int panel_hz);
 
 // Posted (on the main queue) when the guest's virtual monitor changes size.
 extern NSString * const MadeiraDisplayModeChangedNotification;

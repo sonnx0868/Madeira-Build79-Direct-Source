@@ -155,6 +155,7 @@ checks() {
   python3 tests/host/check-wow64-restore.py
   python3 tests/host/check-present-pacing.py
   python3 tests/host/check-capped-frame-intent.py
+  python3 tests/host/check-metal-layer-configuration.py --require-darwin
   python3 tests/host/check-runtime-scheduling-loader.py --require-darwin
   python3 tools/ntdll-runtime-bundle.py --root "$root"
   python3 tools/nutssync-bundle.py --root "$root"
