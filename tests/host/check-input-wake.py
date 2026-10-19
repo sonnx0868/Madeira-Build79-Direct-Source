@@ -173,10 +173,11 @@ int main(void){
     // a periodic timer, a graphics present or a foreground transition.
     pthread_t producer;assert(!pthread_create(&producer,NULL,delayed_producer,NULL));
     assert(readable(queue_fd,1000));
+    assert(!pthread_join(producer,NULL)); // both edges are queued before this drain assertion
     // The pre-wait capability query must not acknowledge this pending input.
     for(unsigned i=0;i<100;++i)assert(winios_drv_input_wake_ready());
     assert(readable(queue_fd,0));
-    assert(winios_pProcessEvents(0));assert(!pthread_join(producer,NULL));
+    assert(winios_pProcessEvents(0));
     assert(delivered==4 && down_count==2 && up_count==2 && !expected_down);
     assert(!readable(queue_fd,0));
     // Execute Wine's actual event dispatcher. A peer may have consumed the
