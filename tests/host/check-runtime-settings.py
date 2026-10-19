@@ -80,7 +80,7 @@ MadeiraConfig.set("inproc-sync", nil)
 expect(MadeiraConfig.bool("inproc-sync", default: true), "a removed key reads as the default")
 
 // Sync engine: exactly one engine, and the keys Wine reads for it.
-expect(SyncEngine.current == .nutssync, "no sync keys: NutsSync (the default)")
+expect(SyncEngine.current == .fastsync, "no sync keys: Fastsync (the default)")
 SyncEngine.apply(.madsync)
 SyncEngine.apply(.fastsync)
 expect(MadeiraConfig.get("inproc-sync") == nil && MadeiraConfig.get("env.MADEIRA_FASTSYNC") == nil
@@ -103,9 +103,9 @@ expect(SyncEngine.current == .wine, "hand-edited: MADEIRA_FASTSYNC = 0 without m
 MadeiraConfig.set("env.MADEIRA_FASTSYNC", nil)
 expect(SyncEngine.current == .wine, "inproc-sync = 0 without MADEIRA_FASTSYNC stays Wine standard sync (as written before)")
 MadeiraConfig.set("inproc-sync", nil)
-expect(SyncEngine.current == .nutssync, "neither key: NutsSync")
+expect(SyncEngine.current == .fastsync, "neither key: Fastsync")
 MadeiraConfig.set("env.MADEIRA_FASTSYNC", "auto")
-expect(SyncEngine.current == .nutssync, "legacy auto selects NutsSync")
+expect(SyncEngine.current == .fastsync, "legacy auto selects Fastsync")
 SyncEngine.apply(.nutssync)
 expect(SyncEngine.current == .nutssync, "explicit NutsSync reads back")
 MadeiraConfig.set("env.MADEIRA_FASTSYNC", "0")
