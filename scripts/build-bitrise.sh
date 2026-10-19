@@ -32,6 +32,7 @@ case "$mode" in
   pacing-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   graphics-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   stackwalk-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  frameflow-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   srv-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
@@ -116,7 +117,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
@@ -124,6 +125,7 @@ else
     [[ "$mode" != pacing-refresh ]] || refresh=--refresh-pacing
     [[ "$mode" != graphics-refresh ]] || refresh=--refresh-graphics
     [[ "$mode" != stackwalk-refresh ]] || refresh=--refresh-stackwalk
+    [[ "$mode" != frameflow-refresh ]] || refresh=--refresh-frameflow
     [[ "$mode" != srv-refresh ]] || refresh=--refresh-srv
     [[ "$mode" != query-refresh ]] || refresh=--refresh-query
     [[ "$mode" != loader-refresh ]] || refresh=--refresh-loader
@@ -241,6 +243,8 @@ checks() {
   python3 tests/host/check-pe-imports.py --require-swift
   python3 tests/host/check-cdn-routing.py --require-swift
   python3 tests/host/check-controller-refresh.py --require-swift
+  python3 tests/host/check-wgi-host-gamepad.py
+  python3 tests/host/check-upload-flow.py
   python3 tests/host/check-sdl-gamepad-policy.py --require-swift
   python3 tests/host/check-touch-gamepad.py
   python3 tests/host/check-control-presets.py

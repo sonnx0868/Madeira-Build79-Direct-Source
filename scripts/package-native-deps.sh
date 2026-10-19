@@ -9,6 +9,8 @@ rm -f "$output"
   wine/build-macos/include wine/build-macos/config.status \
   wine/build-arm64ec/include wine/build-arm64ec/config.status \
   build/wine-pe/controller-pe.version \
+  build/wine-pe/wgi-host-gamepad.json \
+  build/dxmt-ios/frameflow.json \
   build/wine-pe/exec-callback-pe.version \
   build/wine-pe/exec-callback-pe.json \
   build/wine-pe/module-loader.json \
@@ -31,6 +33,7 @@ rm -f "$output"
   app/Madeira/arm64ec-windows/xinput1_3.dll \
   app/Madeira/arm64ec-windows/xinput1_4.dll \
   app/Madeira/arm64ec-windows/xinput9_1_0.dll \
+  app/Madeira/arm64ec-windows/windows.gaming.input.dll \
   app/Madeira/arm64ec-windows/lua51-gc64.dll \
   app/Madeira/arm64ec-windows/libEGL.dll \
   app/Madeira/arm64ec-windows/libGLESv2.dll \

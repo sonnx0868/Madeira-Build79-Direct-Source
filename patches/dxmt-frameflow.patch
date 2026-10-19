@@ -1,0 +1,207 @@
+--- a/src/dxmt/dxmt_resource_initializer.hpp
++++ b/src/dxmt/dxmt_resource_initializer.hpp
+@@ -127,7 +127,7 @@
+   dxmt::mutex mutex_;
+ 
+   void *cpu_command_heap;
+-  size_t cpu_command_heap_size;
++  size_t upload_bytes_since_flush_; // Replaces the redundant fixed CPU heap capacity; layout unchanged.
+   size_t cpu_command_heap_offset;
+ 
+   RingBumpState<StagingBufferBlockAllocator, kResourceInitializerGpuUploadHeapSize> gpu_command_heap_allocator;
+--- a/src/dxmt/dxmt_resource_initializer.cpp
++++ b/src/dxmt/dxmt_resource_initializer.cpp
+@@ -8,6 +8,7 @@
+ #include "dxmt_mem_census.hpp"
+ #include "dxmt_bcn.hpp"
+ #include "util_madeira_switch.hpp"
++#include "../../../build/dxmt-ios/upload_policy.hpp"
+ 
+ namespace dxmt {
+ 
+@@ -54,8 +55,8 @@
+   upload_queue_ = device.newCommandQueue(kResourceInitializerChunks);
+   upload_queue_event_ = device.newSharedEvent();
+ 
+-  cpu_command_heap_size = kResourceInitializerCpuCommandHeapSize;
+-  cpu_command_heap = malloc(cpu_command_heap_size);
++  Logger::info("[upload-flow-v1] upload batches=64MB; completed allocations are reusable");
++  cpu_command_heap = malloc(kResourceInitializerCpuCommandHeapSize);
+   reset();
+ }
+ 
+@@ -546,6 +547,11 @@
+   size_t total_bytes_needed = bytes_per_image_needed * depth_sub;
+ 
+   std::lock_guard<dxmt::mutex> lock(mutex_);
++  // Adapted from willfaust/dxmt e874a1556fb42a4491c5f63013c7d05c8f292422.
++  // Submit BEFORE recording this copy: ALLOC_GPU's retry path is not a place
++  // to flush a half-written command. GPU uploads now overlap continued loading.
++  if (madeira::flush_upload_batch(upload_bytes_since_flush_, total_bytes_needed))
++    flushInternal();
+   do {
+     RETAIN(allocation);
+     ALLOC_BLIT(wmtcmd_blit_copy_from_buffer_to_texture, copy);
+@@ -618,6 +624,7 @@
+ void
+ ResourceInitializer::reset() {
+   cpu_command_heap_offset = 0;
++  upload_bytes_since_flush_ = 0;
+ 
+   clear_render_pass_head.next = nullptr;
+   clear_render_pass_tail = &clear_render_pass_head;
+@@ -651,6 +658,7 @@
+   auto [block, offset_] = gpu_command_heap_allocator.allocate(
+       current_seq_id_, cached_coherent_seq_id, size, kResourceInitializerGpuUploadHeapAlignment
+   );
++  upload_bytes_since_flush_ += size;
+   offset = offset_;
+   return block.buffer;
+ }
+--- a/src/dxmt/dxmt_staging.hpp
++++ b/src/dxmt/dxmt_staging.hpp
+@@ -26,6 +26,14 @@
+   void unmap();
+ 
+   uint64_t allocate(uint64_t coherent_seq_id);
++  // Reuse completed allocations first; ~0ull means a new spare exceeds budget.
++  uint64_t allocateBounded(uint64_t coherent_seq_id, uint64_t budget);
++  uint64_t gpuBusyDistance(uint64_t coherent_seq_id) const {
++    return gpu_occupied_until_finished_seq_id > coherent_seq_id
++      ? gpu_occupied_until_finished_seq_id - coherent_seq_id : 1;
++  }
++  static std::atomic<uint64_t> spare_bytes;
++  ~StagingResource();
+   void updateImmediateName(uint64_t current_seq_id, uint64_t allocation);
+ 
+   void *
+--- a/src/dxmt/dxmt_staging.cpp
++++ b/src/dxmt/dxmt_staging.cpp
+@@ -1,7 +1,14 @@
+ #include "dxmt_staging.hpp"
+ #include <cassert>
++#include "../../../build/dxmt-ios/upload_policy.hpp"
+ 
+ namespace dxmt {
++
++std::atomic<uint64_t> StagingResource::spare_bytes{0};
++StagingResource::~StagingResource() {
++  if (buffer_pool.size() > 1)
++    spare_bytes.fetch_sub((buffer_pool.size() - 1) * length, std::memory_order_relaxed);
++}
+ 
+ StagingResource::StagingResource(
+   WMT::Device device, uint64_t length, uint32_t bytes_per_row, uint32_t bytes_per_image
+@@ -61,6 +68,11 @@
+ 
+ uint64_t
+ StagingResource::allocate(uint64_t coherent_seq_id) {
++  return allocateBounded(coherent_seq_id, UINT64_MAX);
++}
++
++uint64_t
++StagingResource::allocateBounded(uint64_t coherent_seq_id, uint64_t budget) {
+   std::lock_guard<dxmt::mutex> lock(mutex_);
+   uint64_t ret = ~0ull;
+   for (;;) {
+@@ -80,7 +92,15 @@
+ #ifdef __i386__
+     flags.set(BufferAllocationFlag::CpuPlaced);
+ #endif
+-    buffer_pool.push_back(buffer_->allocate(flags, "StagingResource::pool"));
++    const bool spare = !buffer_pool.empty();
++    if (spare && !madeira::reserve_staging_spare(spare_bytes, length, budget))
++      return ~0ull;
++    try {
++      buffer_pool.push_back(buffer_->allocate(flags, "StagingResource::pool"));
++    } catch (...) {
++      if (spare) spare_bytes.fetch_sub(length, std::memory_order_relaxed);
++      throw;
++    }
+     ret = buffer_pool.size() - 1;
+   }
+   return ret;
+--- a/src/d3d11/d3d11_context_imm.cpp
++++ b/src/d3d11/d3d11_context_imm.cpp
+@@ -78,6 +78,8 @@
+       ctx_state({cmd_queue}),
+       d3dmt_(this, mutex) {
+         ignore_map_flag_no_wait_ = Config::getInstance().getOption<bool>("d3d11.ignoreMapFlagNoWait", false);
++        staging_rename_budget_ = uint64_t(std::max(0,
++          Config::getInstance().getOption<int>("d3d11.stagingRenameBudgetMB", 256))) << 20;
+       }
+ 
+   HRESULT
+@@ -244,7 +246,22 @@
+           return E_FAIL;
+         if (result == StagingMapResult::Renamable) {
+           // when write to a buffer that is gpu-readonly
+-          auto next_name = staging->allocate(coherent_seq_id);
++          auto next_name = staging->allocateBounded(coherent_seq_id, staging_rename_budget_);
++          if (next_name == ~0ull) {
++            // Adapted from willfaust/dxmt 51e74fe42bdd7e6f385b5b4eac431393d9cb7afb.
++            // The old path copied and retained another whole staging resource
++            // on every map of an unsubmitted upload. Submit once and let the
++            // exact GPU watermark make this allocation safe to reuse.
++            if (staging_rename_refusals_++ == 0)
++              Logger::info("[upload-flow-v1] staging spare budget reached; reusing after GPU completion");
++            Flush();
++            if (MapFlags & D3D11_MAP_FLAG_DO_NOT_WAIT)
++              return DXGI_ERROR_WAS_STILL_DRAWING;
++            cmd_queue.WaitCPUFence(coherent_seq_id + staging->gpuBusyDistance(coherent_seq_id));
++            current_seq_id = cmd_queue.CurrentSeqId();
++            coherent_seq_id = cmd_queue.CoherentSeqId();
++            continue;
++          }
+           // can't guarantee a full overwrite
+           std::memcpy(staging->mappedMemory(next_name), staging->mappedImmediateMemory(), staging->length);
+           staging->updateImmediateName(current_seq_id, next_name);
+@@ -617,6 +634,8 @@
+   std::atomic<uint32_t> refcount = 0;
+   D3D11Multithread d3dmt_;
+   bool ignore_map_flag_no_wait_;
++  uint64_t staging_rename_budget_;
++  uint64_t staging_rename_refusals_ = 0;
+ };
+ 
+ std::unique_ptr<MTLD3D11DeviceContextBase>
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -880,9 +880,11 @@
+   };
+ 
+   void UpdateStatistics(const FrameStatisticsContainer& statistics, uint64_t frame_id) {
+-    hud.begin();
+     auto &frame = statistics.at(frame_id - 1); // show the previous one frame statistics
+     auto &average = statistics.average();
++    // frameflow-v1: release builds do not format an invisible debug HUD.
++#ifdef DXMT_DEBUG
++    hud.begin();
+     Flags<FeatureCompatibility> flags = frame.compatibility_flags;
+     char text[] = "---------------------------";
+     if (flags.test(FeatureCompatibility::UnsupportedGeometryDraw)) {
+@@ -936,6 +938,8 @@
+         std::min(frame.render_pass_optimized, 999u),
+         std::min(frame.clear_pass_count - frame.clear_pass_optimized, 999u), std::min(frame.clear_pass_optimized, 99u)
+     ));
++
++#endif
+ 
+     /* iOS-Madeira 2026-07-03: dump the same frame statistics to the log every
+      * 64 frames — the HUD is invisible without MTL_HUD_ENABLED, and these
+@@ -962,6 +966,7 @@
+             frame.clear_pass_count - frame.clear_pass_optimized, frame.clear_pass_optimized));
+       }
+     }
++#ifdef DXMT_DEBUG
+     {
+       /* scaler info */
+       auto &info = frame.last_scaler_info;
+@@ -984,6 +989,7 @@
+       }
+     }
+     hud.end();
++#endif
+   }
+ 
+   BOOL STDMETHODCALLTYPE IsTemporaryMonoSupported() final { return FALSE; };

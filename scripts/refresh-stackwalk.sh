@@ -24,4 +24,7 @@ mkdir -p "$out"
 cp "$root/app/Madeira/arm64ec-windows/ntdll.dll" "$out/base-ntdll.dll"
 bash "$root/build/wine-pe/build-ntdll.sh"
 python3 "$root/tools/ntdll-stackwalk-bundle.py" --root "$root" --stamp --base "$out/base-ntdll.dll"
+if ! python3 "$root/tools/wgi-gamepad-bundle.py" --root "$root" >/dev/null 2>&1; then
+    bash "$root/build/wine-pe/build-wgi.sh"
+fi
 echo 'Refreshed only ARM64EC ntdll stack-walk alias handling; other loaders and native libraries preserved'

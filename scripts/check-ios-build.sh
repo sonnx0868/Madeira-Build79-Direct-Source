@@ -17,6 +17,7 @@ done
 python3 "$root/tools/nutssync-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/check-compatibility-binaries.py" --root "$root" || missing=1
 python3 "$root/tools/loader-bundle.py" --root "$root" || missing=1
+python3 "$root/tools/dxmt-frameflow-bundle.py" --root "$root" || missing=1
 need() { if [[ ! -s "$root/$1" ]]; then echo "MISSING: $1"; missing=1; fi; }
 
 python3 "$root/tools/patch-dxmt-query-log.py" --check || missing=1
@@ -74,6 +75,7 @@ need "app/Madeira/arm64ec-windows/libGLESv2.dll"
 need "app/Madeira/licenses/ANGLE-BSD-3.txt"
 need "app/Madeira/licenses/ANGLE-THIRD-PARTY-NOTICES.html"
 need "build/wine-pe/controller-pe.version"
+python3 "$root/tools/wgi-gamepad-bundle.py" --root "$root" || missing=1
 need "build/wine-pe/opengl-pe.version"
 need "app/Madeira/aarch64-windows/opengl32.dll"
 need "app/Madeira/aarch64-windows/glu32.dll"

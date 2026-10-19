@@ -1,0 +1,309 @@
+--- a/dlls/windows.gaming.input/Makefile.in
++++ b/dlls/windows.gaming.input/Makefile.in
+@@ -1,4 +1,4 @@
+ MODULE = windows.gaming.input.dll
+-IMPORTS = combase uuid user32 dinput8 setupapi hid
++IMPORTS = combase uuid user32 dinput8 setupapi hid win32u
+ 
+ SOURCES = \
+--- a/dlls/windows.gaming.input/private.h
++++ b/dlls/windows.gaming.input/private.h
+@@ -66,6 +66,7 @@
+ 
+ extern void provider_create( const WCHAR *device_path );
+ extern void provider_remove( const WCHAR *device_path );
++extern void provider_sync_host( void );
+ 
+ extern void manager_on_provider_created( IGameControllerProvider *provider );
+ extern void manager_on_provider_removed( IGameControllerProvider *provider );
+--- a/dlls/windows.gaming.input/provider.c
++++ b/dlls/windows.gaming.input/provider.c
+@@ -24,6 +24,8 @@
+ #include "dinput.h"
+ #include "provider.h"
+ #include "hidusage.h"
++#include "xinput.h"
++#include "ntuser.h"
+ 
+ #include "wine/debug.h"
+ 
+@@ -49,6 +51,9 @@
+     LONG ref;
+ 
+     IDirectInputDevice8W *dinput_device;
++    BOOL host;
++    LONG host_connected;
++    UINT host_index;
+     WCHAR device_path[MAX_PATH];
+     struct list entry;
+ 
+@@ -113,9 +118,9 @@
+ 
+     if (!ref)
+     {
+-        IDirectInputDevice8_Release( impl->dinput_device );
+-        HidD_FreePreparsedData( impl->preparsed );
+-        CloseHandle( impl->device );
++        if (impl->dinput_device) IDirectInputDevice8_Release( impl->dinput_device );
++        if (impl->preparsed) HidD_FreePreparsedData( impl->preparsed );
++        if (impl->device && impl->device != INVALID_HANDLE_VALUE) CloseHandle( impl->device );
+         free( impl->report_buf );
+         free( impl );
+     }
+@@ -143,6 +148,13 @@
+ 
+ static HRESULT WINAPI wine_provider_get_NonRoamableId( IWineGameControllerProvider *iface, HSTRING *value )
+ {
++    struct provider *impl = impl_from_IWineGameControllerProvider( iface );
++    WCHAR id[] = L"Madeira.Host.Gamepad.0";
++    if (impl->host)
++    {
++        id[ARRAY_SIZE(id) - 2] += impl->host_index;
++        return WindowsCreateString( id, ARRAY_SIZE(id) - 1, value );
++    }
+     FIXME( "iface %p, value %p stub!\n", iface, value );
+     return E_NOTIMPL;
+ }
+@@ -152,6 +164,8 @@
+     struct provider *impl = impl_from_IWineGameControllerProvider( iface );
+     DIDEVICEINSTANCEW instance = {.dwSize = sizeof(DIDEVICEINSTANCEW)};
+     HRESULT hr;
++
++    if (impl->host) { return WindowsCreateString( L"Madeira Xbox Controller", ARRAY_SIZE(L"Madeira Xbox Controller") - 1, value ); }
+ 
+     TRACE( "iface %p, value %p\n", iface, value );
+ 
+@@ -172,6 +186,8 @@
+     DIDEVICEINSTANCEW instance = {.dwSize = sizeof(DIDEVICEINSTANCEW)};
+     const WCHAR *tmp;
+     HRESULT hr;
++
++    if (impl->host) { *value = WineGameControllerType_Gamepad; return S_OK; }
+ 
+     TRACE( "iface %p, value %p.\n", iface, value );
+ 
+@@ -201,6 +217,8 @@
+     DIDEVCAPS caps = {.dwSize = sizeof(DIDEVCAPS)};
+     HRESULT hr;
+ 
++    if (impl->host) { *value = 6; return S_OK; }
++
+     TRACE( "iface %p, value %p.\n", iface, value );
+ 
+     if (SUCCEEDED(hr = IDirectInputDevice8_GetCapabilities( impl->dinput_device, &caps )))
+@@ -214,6 +232,8 @@
+     DIDEVCAPS caps = {.dwSize = sizeof(DIDEVCAPS)};
+     HRESULT hr;
+ 
++    if (impl->host) { *value = 10; return S_OK; }
++
+     TRACE( "iface %p, value %p.\n", iface, value );
+ 
+     if (SUCCEEDED(hr = IDirectInputDevice8_GetCapabilities( impl->dinput_device, &caps )))
+@@ -227,6 +247,8 @@
+     DIDEVCAPS caps = {.dwSize = sizeof(DIDEVCAPS)};
+     HRESULT hr;
+ 
++    if (impl->host) { *value = 1; return S_OK; }
++
+     TRACE( "iface %p, value %p.\n", iface, value );
+ 
+     if (SUCCEEDED(hr = IDirectInputDevice8_GetCapabilities( impl->dinput_device, &caps )))
+@@ -234,12 +256,68 @@
+     return hr;
+ }
+ 
++/* The host already merges touch and physical controllers into XInput slots.
++ * Modern Windows input clients enumerate WGI instead of polling XInput. Feed
++ * those same slots into Wine's existing Gamepad/RawGameController factories;
++ * no HID driver, keyboard emulation or second controller state is involved. */
++static double host_gamepad_axis( SHORT value )
++{
++    return (1. + (value < 0 ? value / 32768. : value / 32767.)) * .5;
++}
++
++static HRESULT host_gamepad_reading( UINT index, struct WineGameControllerState *out )
++{
++    static const WORD buttons[] = {0x1000, 0x2000, 0x4000, 0x8000, 0x100, 0x200, 0x20, 0x10, 0x40, 0x80};
++    XINPUT_STATE state;
++    WORD dpad;
++    UINT i;
++
++    memset( out, 0, sizeof(*out) );
++    if (!NtUserGetGamepadState( index, NtUserGamepadOp_State, &state ))
++        return HRESULT_FROM_WIN32( ERROR_DEVICE_NOT_CONNECTED );
++
++    /* Match the established axis contract consumed by gamepad_GetCurrentReading:
++     * [LY, LX, RY, RX, LT, RT]. Center is exactly .5, endpoints exactly 0/1. */
++    out->axes[0] = host_gamepad_axis( state.Gamepad.sThumbLY );
++    out->axes[1] = host_gamepad_axis( state.Gamepad.sThumbLX );
++    out->axes[2] = host_gamepad_axis( state.Gamepad.sThumbRY );
++    out->axes[3] = host_gamepad_axis( state.Gamepad.sThumbRX );
++    out->axes[4] = state.Gamepad.bLeftTrigger / 255.;
++    out->axes[5] = state.Gamepad.bRightTrigger / 255.;
++    for (i = 0; i < ARRAY_SIZE(buttons); ++i) out->buttons[i] = !!(state.Gamepad.wButtons & buttons[i]);
++    dpad = state.Gamepad.wButtons & 0xf;
++    /* Resolve impossible opposite pairs to neutral on that axis. */
++    if ((dpad & 3) == 3) dpad &= ~3;
++    if ((dpad & 12) == 12) dpad &= ~12;
++    switch (dpad)
++    {
++    case 1: out->switches[0] = GameControllerSwitchPosition_Up; break;
++    case 9: out->switches[0] = GameControllerSwitchPosition_UpRight; break;
++    case 8: out->switches[0] = GameControllerSwitchPosition_Right; break;
++    case 10: out->switches[0] = GameControllerSwitchPosition_DownRight; break;
++    case 2: out->switches[0] = GameControllerSwitchPosition_Down; break;
++    case 6: out->switches[0] = GameControllerSwitchPosition_DownLeft; break;
++    case 4: out->switches[0] = GameControllerSwitchPosition_Left; break;
++    case 5: out->switches[0] = GameControllerSwitchPosition_UpLeft; break;
++    default: break;
++    }
++    out->timestamp = GetTickCount64();
++    return S_OK;
++}
++
+ static HRESULT WINAPI wine_provider_get_State( IWineGameControllerProvider *iface, struct WineGameControllerState *out )
+ {
+     struct provider *impl = impl_from_IWineGameControllerProvider( iface );
+     DIJOYSTATE2 state = {0};
+     UINT32 i = 0;
+     HRESULT hr;
++
++    if (impl->host)
++    {
++        if (!InterlockedCompareExchange( &impl->host_connected, 0, 0 ))
++            return HRESULT_FROM_WIN32( ERROR_DEVICE_NOT_CONNECTED );
++        return host_gamepad_reading( impl->host_index, out );
++    }
+ 
+     TRACE( "iface %p, out %p.\n", iface, out );
+ 
+@@ -315,6 +393,8 @@
+     NTSTATUS status;
+     BOOL ret;
+ 
++    if (impl->host) { return S_OK; /* The host transport does not implement rumble. */ }
++
+     TRACE( "iface %p, value %p.\n", iface, &value );
+ 
+     if (!memcmp( &impl->vibration, &value, sizeof(value) )) return S_OK;
+@@ -354,6 +434,8 @@
+     struct provider *impl = impl_from_IWineGameControllerProvider( iface );
+     DIDEVCAPS caps = {.dwSize = sizeof(DIDEVCAPS)};
+     HRESULT hr;
++
++    if (impl->host) { *value = NULL; return S_OK; }
+ 
+     TRACE( "iface %p, value %p.\n", iface, value );
+ 
+@@ -400,6 +482,8 @@
+     struct provider *impl = impl_from_IGameControllerProvider( iface );
+     HRESULT hr;
+ 
++    if (impl->host) { *value = 0x028e; return S_OK; }
++
+     TRACE( "iface %p, value %p.\n", iface, value );
+ 
+     if (SUCCEEDED(hr = IDirectInputDevice8_GetProperty( impl->dinput_device, DIPROP_VIDPID, &vid_pid.diph )))
+@@ -413,6 +497,8 @@
+     struct provider *impl = impl_from_IGameControllerProvider( iface );
+     HRESULT hr;
+ 
++    if (impl->host) { *value = 0x045e; return S_OK; }
++
+     TRACE( "iface %p, value %p.\n", iface, value );
+ 
+     if (SUCCEEDED(hr = IDirectInputDevice8_GetProperty( impl->dinput_device, DIPROP_VIDPID, &vid_pid.diph )))
+@@ -428,6 +514,14 @@
+ 
+ static HRESULT WINAPI game_provider_get_IsConnected( IGameControllerProvider *iface, boolean *value )
+ {
++    struct provider *impl = impl_from_IGameControllerProvider( iface );
++    XINPUT_STATE state;
++    if (impl->host)
++    {
++        *value = InterlockedCompareExchange( &impl->host_connected, 0, 0 ) &&
++                 NtUserGetGamepadState( impl->host_index, NtUserGamepadOp_State, &state );
++        return S_OK;
++    }
+     FIXME( "iface %p, value %p stub!\n", iface, value );
+     return E_NOTIMPL;
+ }
+@@ -834,3 +928,42 @@
+         IGameControllerProvider_Release( provider );
+     }
+ }
++
++/* Called only by WGI's existing monitor thread, once at startup and on the
++ * bounded hotplug timeout. Manager callbacks run without provider_cs held. */
++void provider_sync_host( void )
++{
++    static struct provider *hosts[XUSER_MAX_COUNT];
++    struct provider *impl;
++    XINPUT_STATE state;
++    UINT i;
++
++    for (i = 0; i < XUSER_MAX_COUNT; ++i)
++    {
++        BOOL connected = NtUserGetGamepadState( i, NtUserGamepadOp_State, &state );
++        if (!!hosts[i] == !!connected) continue;
++        if (connected)
++        {
++            if (!(impl = calloc( 1, sizeof(*impl) ))) continue;
++            impl->IWineGameControllerProvider_iface.lpVtbl = &wine_provider_vtbl;
++            impl->IGameControllerProvider_iface.lpVtbl = &game_provider_vtbl;
++            impl->host = TRUE;
++            impl->host_connected = TRUE;
++            impl->host_index = i;
++            impl->device = INVALID_HANDLE_VALUE;
++            impl->ref = 1;
++            hosts[i] = impl;
++            manager_on_provider_created( &impl->IGameControllerProvider_iface );
++            ERR( "[wgi-host] host-gamepad-v1 slot=%u connected=1\n", i );
++        }
++        else
++        {
++            impl = hosts[i];
++            hosts[i] = NULL;
++            InterlockedExchange( &impl->host_connected, FALSE );
++            manager_on_provider_removed( &impl->IGameControllerProvider_iface );
++            IGameControllerProvider_Release( &impl->IGameControllerProvider_iface );
++            ERR( "[wgi-host] host-gamepad-v1 slot=%u connected=0\n", i );
++        }
++    }
++}
+--- a/dlls/windows.gaming.input/main.c
++++ b/dlls/windows.gaming.input/main.c
+@@ -115,6 +115,13 @@
+     HMODULE module;
+     HWND hwnd;
+     MSG msg;
++    DWORD wait, timeout = INFINITE;
++    WCHAR host[2];
++
++    /* The opt-in is supplied by Madeira before Wine snapshots its environment.
++     * Other Wine hosts retain their event-driven HID enumeration unchanged. */
++    if (GetEnvironmentVariableW( L"MADEIRA_HOST_GAMEPAD", host, ARRAY_SIZE(host) ) == 1 && host[0] == '1')
++        timeout = 250;
+ 
+     SetThreadDescription( GetCurrentThread(), L"wine_wginput_worker" );
+ 
+@@ -123,6 +130,7 @@
+     hwnd = CreateWindowExW( 0, wndclass.lpszClassName, NULL, 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, NULL, NULL );
+     devnotify = RegisterDeviceNotificationW( hwnd, &filter, DEVICE_NOTIFY_ALL_INTERFACE_CLASSES );
+     initialize_providers();
++    if (timeout != INFINITE) provider_sync_host();
+     SetEvent( start_event );
+ 
+     do
+@@ -132,7 +140,9 @@
+             TranslateMessage( &msg );
+             DispatchMessageW( &msg );
+         }
+-    } while (!MsgWaitForMultipleObjectsEx( 0, NULL, INFINITE, QS_ALLINPUT, MWMO_ALERTABLE ));
++        wait = MsgWaitForMultipleObjectsEx( 0, NULL, timeout, QS_ALLINPUT, MWMO_ALERTABLE );
++        if (timeout != INFINITE) provider_sync_host();
++    } while (wait == WAIT_OBJECT_0 || wait == WAIT_TIMEOUT || wait == WAIT_IO_COMPLETION);
+ 
+     UnregisterDeviceNotification( devnotify );
+     DestroyWindow( hwnd );

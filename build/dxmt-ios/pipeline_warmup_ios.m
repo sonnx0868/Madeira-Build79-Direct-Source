@@ -12,7 +12,7 @@
 
 static char libraryKey, functionKey, allowedKey;
 static const NSUInteger libraryLimit = 2 * 1024 * 1024, diskLimit = 32 * 1024 * 1024;
-static const NSUInteger recipeLimit = 128, warmLimit = 64, manifestLimit = 512 * 1024;
+static const NSUInteger recipeLimit = 256, startupLimit = 32, warmLimit = 64, manifestLimit = 512 * 1024;
 
 static NSString *digest(NSData *bytes) {
     unsigned char hash[CC_SHA256_DIGEST_LENGTH];
@@ -137,6 +137,8 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
     NSMutableSet *libraries, *submittedLibraries;
     NSMutableDictionary *librarySizes;
     NSMutableArray *order;
+    NSMutableArray *startup;
+    NSMutableDictionary *requests;
     NSUInteger libraryBytes;
     atomic_uint pending;
     unsigned warmHits;
@@ -152,11 +154,31 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
     ready = [NSMutableDictionary dictionary]; records = [NSMutableDictionary dictionary];
     libraries = [NSMutableSet set]; submittedLibraries = [NSMutableSet set]; librarySizes = [NSMutableDictionary dictionary];
     order = [NSMutableArray array]; atomic_init(&pending, 0);
+    startup = [NSMutableArray array]; requests = [NSMutableDictionary dictionary];
     queue = dispatch_queue_create("madeira.metal.warmup", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_BACKGROUND, 0));
     dispatch_async(queue, ^{ @autoreleasepool { [self replay]; } });
     return self;
 }
 - (NSURL *)libraryFile:(NSString *)hash { return [folder URLByAppendingPathComponent:[hash stringByAppendingString:@".metallib"]]; }
+// Queue-confined metadata. Preserve this launch's first pipeline requests even
+// after visiting scenes with hundreds of other pipelines. Popularity measures
+// pipeline creation requests, not draw frequency; live PSO hits need no work.
+- (void)remember:(NSDictionary *)r key:(NSString *)key {
+    if (![startup containsObject:key] && startup.count < startupLimit) [startup addObject:key];
+    uint64_t count = [requests[key] unsignedLongLongValue];
+    requests[key] = @(MIN(count + 1, UINT32_MAX));
+    if (records[key]) [order removeObject:key];
+    records[key] = r; [order addObject:key];
+    if (order.count > recipeLimit) {
+        NSString *victim = nil; uint64_t least = UINT64_MAX;
+        for (NSString *candidate in order) {
+            if ([startup containsObject:candidate]) continue;
+            uint64_t hits = [requests[candidate] unsignedLongLongValue];
+            if (hits < least) { victim = candidate; least = hits; }
+        }
+        if (victim) { [records removeObjectForKey:victim]; [requests removeObjectForKey:victim]; [order removeObject:victim]; }
+    }
+}
 - (void)storeLibrary:(NSData *)bytes hash:(NSString *)hash {
     // Reserve once per content hash, across all live DLLs/functions. Bounds
     // also cap pending copies on the serial writer, not only disk contents.
@@ -196,17 +218,14 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
     if (!r) { atomic_fetch_sub_explicit(&pending, 1, memory_order_relaxed); return; }
     NSString *key = digest(json(r));
     dispatch_async(queue, ^{ @autoreleasepool {
-        // Recent ordinary pipelines replace old entries when a game changes.
-        if (records[key]) [order removeObject:key];
-        records[key] = r; [order addObject:key];
-        if (order.count > recipeLimit) { [records removeObjectForKey:order.firstObject]; [order removeObjectAtIndex:0]; }
+        [self remember:r key:key];
         if (!flushScheduled) {
             flushScheduled = YES;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), queue, ^{ @autoreleasepool {
                 flushScheduled = NO;
                 NSMutableArray *items = [NSMutableArray array];
                 for (NSString *k in order) if (records[k]) [items addObject:records[k]];
-                NSData *bytes = json(@{@"schema": @1, @"recipes": items});
+                NSData *bytes = json(@{@"schema": @2, @"recipes": items, @"startup": [startup copy], @"requests": [requests copy]});
                 if (bytes.length <= manifestLimit) {
                     [NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:nil];
                     [bytes writeToURL:[folder URLByAppendingPathComponent:@"recipes.json"] options:NSDataWritingAtomic error:nil];
@@ -298,7 +317,8 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
         NSDictionary *attrs = [NSFileManager.defaultManager attributesOfItemAtPath:manifest.path error:nil];
         NSData *bytes = attrs && [attrs[NSFileSize] unsignedLongLongValue] <= manifestLimit ? [NSData dataWithContentsOfURL:manifest] : nil;
         id saved = bytes ? [NSJSONSerialization JSONObjectWithData:bytes options:0 error:nil] : nil;
-        if (![saved isKindOfClass:NSDictionary.class] || ![saved[@"schema"] isEqual:@1] ||
+        if (![saved isKindOfClass:NSDictionary.class] ||
+            (![saved[@"schema"] isEqual:@1] && ![saved[@"schema"] isEqual:@2]) ||
             ![saved[@"recipes"] isKindOfClass:NSArray.class] || [saved[@"recipes"] count] > recipeLimit) saved = nil;
         NSMutableDictionary *loaded = [NSMutableDictionary dictionary];
         // Count old files so subsequent sessions cannot grow the folder past
@@ -319,11 +339,34 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
             [lock unlock];
             if (!keep) [NSFileManager.defaultManager removeItemAtURL:file error:nil];
         }
-        CFAbsoluteTime start = CFAbsoluteTimeGetCurrent(); unsigned warmed = 0, missed = 0;
+        NSMutableArray *priorStartup = [NSMutableArray array];
+        NSDictionary *savedRequests = [saved[@"requests"] isKindOfClass:NSDictionary.class] ? saved[@"requests"] : @{};
         for (id r in saved[@"recipes"]) {
             if (![r isKindOfClass:NSDictionary.class]) continue;
             NSData *keyBytes = json(r); if (!keyBytes || keyBytes.length > 16384) continue;
-            NSString *key = digest(keyBytes); records[key] = r; [order addObject:key];
+            NSString *key = digest(keyBytes);
+            if (records[key]) continue;
+            records[key] = r; [order addObject:key];
+            id count = savedRequests[key];
+            uint64_t uses = [count isKindOfClass:NSNumber.class] && [count doubleValue] > 0 ? MIN([count unsignedLongLongValue], UINT32_MAX) : 1;
+            requests[key] = @(MAX(1, uses / 2)); // Age old scenes out across launches.
+        }
+        if ([saved[@"startup"] isKindOfClass:NSArray.class]) {
+            for (id key in saved[@"startup"]) {
+                if (priorStartup.count == startupLimit) break;
+                if (hashName(key) && records[key] && ![priorStartup containsObject:key]) [priorStartup addObject:key];
+            }
+        }
+        NSArray *popular = [order sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+            uint64_t ac = [requests[a] unsignedLongLongValue], bc = [requests[b] unsignedLongLongValue];
+            if (ac != bc) return ac > bc ? NSOrderedAscending : NSOrderedDescending;
+            return [a compare:b];
+        }];
+        NSMutableArray *replayOrder = [priorStartup mutableCopy];
+        for (NSString *key in popular) if (![priorStartup containsObject:key]) [replayOrder addObject:key];
+        CFAbsoluteTime start = CFAbsoluteTimeGetCurrent(); unsigned warmed = 0, missed = 0;
+        for (NSString *key in replayOrder) {
+            NSDictionary *r = records[key]; NSData *keyBytes = json(r);
             if (!archive || warmed + missed >= warmLimit || CFAbsoluteTimeGetCurrent() - start > 1.5 ||
                 NSProcessInfo.processInfo.thermalState >= NSProcessInfoThermalStateSerious) continue;
             @try {
@@ -338,6 +381,8 @@ static BOOL numbers(id value, NSUInteger count, NSUInteger maximum) {
         }
         NSLog(@"[shader-warmup] learned-pipeline-replay-v1 recipes=%lu ready=%u skipped=%u archive=%d elapsed-ms=%.2f", (unsigned long)records.count,
               warmed, missed, archive != nil, (CFAbsoluteTimeGetCurrent() - start) * 1000);
+        NSLog(@"[shader-warmup] startup-hot-v2 startup=%lu inventory=%lu warm-limit=%lu cold-compile=0",
+              (unsigned long)priorStartup.count, (unsigned long)records.count, (unsigned long)warmLimit);
     }
 }
 @end

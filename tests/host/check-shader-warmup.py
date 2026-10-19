@@ -179,7 +179,34 @@ int main(void) { @autoreleasepool {
     assert(!madeira_pipeline_warmup_for_device(third)); // no nil cache dereference
     assert(madeira_new_render_pipeline(third, render, 0, NULL, NULL, YES));
     assert(atomic_load(&third->normal) == 1);
+    // Loading many later scenes must not evict the startup inventory.
+    // Exercise the real asynchronous recorder and saved manifest, not a model.
+    NSURL *priorityFolder = [base URLByAppendingPathComponent:@"priority"];
+    MadeiraPipelineWarmup *priority = [[MadeiraPipelineWarmup alloc] initWithDevice:first folder:priorityFolder archive:nil];
+    for (unsigned i = 0; i < 342; ++i) {
+        FakeFunction *fn = [FakeFunction new]; fn.functionType = MTLFunctionTypeKernel;
+        fn.name = i < 32 ? [NSString stringWithFormat:@"intro.%u", i] :
+                  i < 42 ? @"popular" : [NSString stringWithFormat:@"scene.%u", i];
+        madeira_warmup_track_function(lib, fn, fn.name, @[], NO);
+        MTLComputePipelineDescriptor *d = [MTLComputePipelineDescriptor new]; d.computeFunction = fn;
+        madeira_pipeline_allow_warmup(d, YES);
+        [priority record:d compute:YES];
+        if (i % 16 == 0) usleep(10000); // Let the bounded writer drain.
+    }
+    NSURL *priorityFile = [priorityFolder URLByAppendingPathComponent:@"recipes.json"];
+    NSDictionary *kept = nil;
+    for (unsigned i = 0; i < 80; ++i) {
+        usleep(50000);
+        kept = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:priorityFile] ?: [NSData data] options:0 error:nil];
+        if ([kept[@"recipes"] count] == 256) break;
+    }
+    assert([kept[@"schema"] isEqual:@2] && [kept[@"recipes"] count] == 256 && [kept[@"startup"] count] == 32);
+    NSMutableSet *names = [NSMutableSet set];
+    for (NSDictionary *r in kept[@"recipes"]) [names addObject:r[@"function"][@"name"]];
+    for (unsigned i = 0; i < 32; ++i) assert([names containsObject:[NSString stringWithFormat:@"intro.%u", i]]);
+    assert([names containsObject:@"popular"] && ![names containsObject:@"scene.42"]);
     printf("PASS: cold learning, exact render/compute replay, constants, changed/private descriptors, corrupt libraries and disabled cache\n");
+    printf("PASS: startup-hot-v2 retains startup and popular pipelines across 300 later scene pipelines\n");
 } return 0; }
 '''
 

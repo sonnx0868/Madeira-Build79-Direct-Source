@@ -1,5 +1,41 @@
 # Gameplay performance validation
 
+## Shared frame processing, 2026-10-19
+
+The new `frameflow-refresh` workflow combines the already verified ARM64EC
+stack-walk fix with bounded texture uploads, staging reuse and persistent
+startup/hot pipeline preparation. It also carries the WGI host controller
+adapter; that adapter is an input fix, not an FPS optimization.
+
+- Resource initialization submits pending texture uploads at 64 MB before
+  recording the next copy. This adapts willfaust/dxmt `e874a1556fb4`; loading
+  without Present can now submit independent GPU uploads and recycle completed
+  upload blocks. A single oversized upload remains valid.
+- Staging growth uses a shared 256 MB spare budget, configurable through
+  `d3d11.stagingRenameBudgetMB`. Completed allocations are always reusable,
+  including with a zero growth budget. Reservations are atomic across contexts;
+  allocation failure releases them. A refused growth request submits pending
+  work and waits for the real completion watermark, or returns STILL_DRAWING
+  for DO_NOT_WAIT. Partial WRITE maps retain the old bytes.
+- Release D3D11 builds stop formatting the invisible debug HUD each frame.
+  Debug HUD builds and the existing bounded statistics logs remain available.
+- Warmup schema 2 preserves 32 startup recipes and retains up to 256 recipes
+  using creation-request counts with aging. It replays startup recipes before
+  popular recipes while retaining the existing 64-attempt, 1.5-second and
+  thermal budgets. Replay only accepts binary archive hits; it does not perform
+  cold compilation, omit draws or reduce render resolution.
+
+The staging test executes the production allocator against a fake Metal
+allocation backend. Repeated unretired 54 MB allocations stop after four
+spares; completed buffers are reused and concurrent reservations stay within
+budget. Class layout is preserved: staging adds no instance fields, and the
+initializer replaces a redundant fixed-capacity size_t at the same position.
+The actual changed ARM64EC translation units are compile checked. The native
+Objective-C test checks startup retention after 300 later scene recipes.
+
+These are correctness and implementation tests. They do not establish the
+physical iPad FPS gain, sustained thermal behavior or parity with Vapor.
+
 The Silksong build570 direct-route report (2026-10-07, 16:49 local) confirms
 `MADEIRA_MULTI_GAME=0`, 2560x1440, CPU report 4, nominal thermals and roughly
 3.1–3.3 GB footprint. In frames 8000–10944, five 64-frame batches contain a

@@ -17,6 +17,7 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-explicit-lod-guard.patch",
                "patches/dxmt-texture-headroom.patch",
                "patches/dxmt-lossless-color-views.patch",
+               "patches/dxmt-frameflow.patch",
                "patches/dxmt-gpu-stages.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",
@@ -26,7 +27,9 @@ SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.
                 "src/dxmt/dxmt_command_queue.hpp", "src/d3d11/d3d11_context_imm.cpp",
                 "src/d3d11/d3d11_query.hpp", "src/dxmt/dxmt_context.cpp",
                 "src/airconv/nt/dxbc_converter_base.cpp", "src/airconv/nt/air_builder.cpp",
-                "src/airconv/airconv_context.cpp", "src/d3d11/d3d11_resource_helper.cpp")
+                "src/airconv/airconv_context.cpp", "src/d3d11/d3d11_resource_helper.cpp",
+                "src/dxmt/dxmt_resource_initializer.cpp", "src/dxmt/dxmt_resource_initializer.hpp",
+                "src/dxmt/dxmt_staging.cpp", "src/dxmt/dxmt_staging.hpp")
 
 
 def patched_sources(root):

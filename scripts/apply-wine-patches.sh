@@ -24,6 +24,16 @@ else
 fi
 
 patch="$root/patches/wine-timed-sleep.patch"
+host_gamepad_patch="$root/patches/wine-wgi-host-gamepad.patch"
+if git -C "$root/wine" apply --reverse --check "$host_gamepad_patch" >/dev/null 2>&1; then
+    echo "Wine WGI host gamepad provider already applied"
+elif git -C "$root/wine" apply --check "$host_gamepad_patch"; then
+    git -C "$root/wine" apply "$host_gamepad_patch"
+else
+    echo "Wine source does not match the WGI host gamepad provider" >&2
+    exit 1
+fi
+
 if [[ "$session_priority_applied" = 1 ]] ||
    git -C "$root/wine" apply --reverse --check "$root/patches/wine-yield-budget.patch" >/dev/null 2>&1 ||
    git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then

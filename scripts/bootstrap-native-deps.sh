@@ -189,5 +189,6 @@ bash "$root/build/rppairing-ios/build.sh"
 
 log "Stage licences and validate"
 bash "$root/build/stage-licenses.sh"
+python3 "$root/tools/dxmt-frameflow-bundle.py" --root "$root" --stamp
 bash "$root/scripts/check-ios-build.sh"
 echo "Upstream Madeira native dependencies are ready."

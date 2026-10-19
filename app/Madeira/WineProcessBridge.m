@@ -1471,6 +1471,9 @@ static void *wine_process_thread(void *arg) {
         // get_desktop_window's returned HWND fails get_user_object lookup
         // when create_window receives it as req->parent.
         setenv("MADEIRA_WIN32U", "1", 1);
+        // WGI clients must enumerate the same host slots as XInput clients.
+        // This marker enables Wine's host provider monitor only inside Madeira.
+        setenv("MADEIRA_HOST_GAMEPAD", "1", 1);
 
         /* iOS-Madeira ml711: default FNA to its D3D11 backend.
          *

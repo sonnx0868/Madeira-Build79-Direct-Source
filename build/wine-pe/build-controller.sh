@@ -18,7 +18,7 @@ export PATH="$TC:$PATH"
 
 # user32 owns the public GetPointerInfo wrapper; win32u owns its tracked mouse
 # state. Rebuild and stage both halves together so Unity never sees a mixed API.
-modules=(win32u user32 xinput1_1 xinput1_2 xinput1_3 xinput1_4 xinput9_1_0 dinput dinput8)
+modules=(win32u user32 xinput1_1 xinput1_2 xinput1_3 xinput1_4 xinput9_1_0 dinput dinput8 windows.gaming.input)
 targets=()
 for module in "${modules[@]}"; do
     targets+=("dlls/$module/arm64ec-windows/$module.dll")
@@ -43,5 +43,7 @@ grep -a -q 'NtUserCallTwoParam' "$DEST/xinput1_3.dll"
 grep -a -q 'NtUserCallTwoParam' "$DEST/dinput8.dll"
 grep -a -q 'MADEIRA-DINPUT-IOS' "$DEST/dinput8.dll"
 grep -a -q 'NtUserGetPointerInfoList' "$DEST/user32.dll"
+grep -a -q 'host-gamepad-v1' "$DEST/windows.gaming.input.dll"
+python3 "$R/tools/wgi-gamepad-bundle.py" --root "$R" --stamp
 git -C "$R/wine" rev-parse HEAD > "$R/build/wine-pe/controller-pe.version"
 echo "Controller PE bridge rebuilt from $(git -C "$R/wine" rev-parse --short HEAD)."
