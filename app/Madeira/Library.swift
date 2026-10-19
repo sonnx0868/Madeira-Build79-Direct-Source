@@ -1510,6 +1510,15 @@ final class LibraryModel: ObservableObject {
         return levels.isEmpty ? nil : levels.sorted().joined(separator: " / ")
     }
     static func importNames(_ url: URL) -> [String] {
+        Array(Set(moduleImports(url).map(\.name))).sorted()
+    }
+
+    struct ModuleImport: Hashable {
+        var name: String
+        var delayed: Bool
+    }
+
+    static func moduleImports(_ url: URL) -> [ModuleImport] {
         guard let h = try? FileHandle(forReadingFrom: url) else { return [] }
         defer { try? h.close() }
         func read(_ offset: UInt64, _ count: Int) -> Data {
@@ -1563,7 +1572,7 @@ final class LibraryModel: ObservableObject {
                   ["dll", "exe", "drv", "ocx"].contains(URL(fileURLWithPath: name).pathExtension) else { return nil }
             return name
         }
-        var names = Set<String>()
+        var imports = Set<ModuleImport>()
         for (index, stride, nameField) in [(1, 20, 12), (13, 32, 4)] {
             guard let (rva, size) = entry(index), size >= UInt32(stride) else { continue }
             for i in 0..<min(256, Int(size) / stride) {
@@ -1582,10 +1591,10 @@ final class LibraryModel: ObservableObject {
                         nameRVA -= imageBase
                     }
                 }
-                if let name = moduleName(nameRVA) { names.insert(name) }
+                if let name = moduleName(nameRVA) { imports.insert(ModuleImport(name: name, delayed: index == 13)) }
             }
         }
-        return names.sorted()
+        return imports.sorted { $0.name == $1.name ? (!$0.delayed && $1.delayed) : $0.name < $1.name }
     }
 
     // MARK: session

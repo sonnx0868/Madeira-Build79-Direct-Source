@@ -9,6 +9,7 @@ final class GameComponentPreparation: ObservableObject {
         var busy: Bool
         var text: String
         var warning: Bool = false
+        var review: Bool = false
     }
     @Published private(set) var status: [UUID: Status] = [:]
     @Published private(set) var reports: [UUID: RuntimeReport] = [:]
@@ -72,7 +73,8 @@ final class GameComponentPreparation: ObservableObject {
             let summary = repairContent && entry.steamAppID != nil && report.missing.isEmpty && !report.modernDotNet
                 ? "Steam files and supported runtimes verified. " + report.summary : report.summary
             status[entry.id] = Status(busy: false, text: summary,
-                                     warning: !report.missing.isEmpty || report.modernDotNet || report.truncated || report.selectionPending == true)
+                                     warning: !report.startupMissing.isEmpty || report.modernDotNet || report.truncated || report.selectionPending == true,
+                                     review: !report.additionalReferences.isEmpty)
             LogStore.shared.log("[runtime-prepare] cache=\(report.cached ? 1 : 0) scanned=\(report.scanned) installed=\(report.installed.count) unresolved=\(report.missing.count)")
             return report
         } catch {
@@ -112,7 +114,10 @@ struct GameComponentPreparationSection: View {
             if let status = preparation.status[entry.id] {
                 HStack(alignment: .top, spacing: 10) {
                     if status.busy { ProgressView() }
-                    else { Image(systemName: status.warning ? "exclamationmark.circle" : "checkmark.circle").foregroundStyle(status.warning ? .orange : .green) }
+                    else {
+                        Image(systemName: status.warning ? "exclamationmark.circle" : (status.review ? "info.circle" : "checkmark.circle"))
+                            .foregroundStyle(status.warning ? Color.orange : (status.review ? Color.secondary : Color.green))
+                    }
                     Text(status.text).font(.subheadline)
                 }
             } else {
@@ -123,6 +128,14 @@ struct GameComponentPreparationSection: View {
             }.disabled(preparation.status[entry.id]?.busy == true || LibraryModel.shared.current != nil || wine_process_is_running() != 0)
             if let report = preparation.reports[entry.id] {
                 LabeledContent("Programs and libraries checked", value: String(report.scanned) + (report.truncated ? "+" : ""))
+                if !report.startupMissing.isEmpty {
+                    references("Unresolved startup DLLs", report.startupMissing)
+                }
+                if !report.additionalReferences.isEmpty {
+                    references("Additional DLL references", report.additionalReferences)
+                    Text("These come from delay imports or other modules found in the game folder. They may be required by a feature used later. A static scan cannot confirm whether the game loads them.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if report.missing.contains(where: \.wrongArchitecture) {
                     Label("A DLL in the game folder has the wrong architecture. Use the matching game files; existing files were preserved.", systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
@@ -132,6 +145,18 @@ struct GameComponentPreparationSection: View {
                 ? "Verifies this installation against Steam's current files, downloads missing content, then checks the program and supported runtimes. Close the game before repairing."
                 : "Checks this installed program and installs missing supported runtimes from Microsoft. Game-owned files and unsupported components are reported separately.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func references(_ title: String, _ dependencies: [RuntimeDependency]) -> some View {
+        DisclosureGroup(title) {
+            ForEach(dependencies, id: \.self) { dependency in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(dependency.name).font(.subheadline).textSelection(.enabled)
+                    Text("Requested by: " + (dependency.source ?? dependency.folder)).font(.caption)
+                    Text(dependency.load?.title ?? "Load timing unknown").font(.caption)
+                }.foregroundStyle(.secondary)
+            }
         }
     }
 }

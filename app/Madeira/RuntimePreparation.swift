@@ -83,7 +83,19 @@ struct RuntimeStamp: Codable, Equatable, Sendable {
 }
 
 struct RuntimeDependency: Codable, Hashable, Sendable {
+    enum Load: String, Codable, Hashable, Sendable {
+        case startup, delayed, unverified
+        var title: String {
+            switch self {
+            case .startup: return "Startup import"
+            case .delayed: return "Delay-loaded import"
+            case .unverified: return "Module may load at runtime"
+            }
+        }
+    }
     var name: String; var folder: String; var bits: Int; var wrongArchitecture: Bool
+    var source: String? = nil
+    var load: Load? = nil
 }
 struct RuntimeReport: Codable, Sendable {
     var missing: [RuntimeDependency] = []
@@ -95,12 +107,18 @@ struct RuntimeReport: Codable, Sendable {
     var installed: [String] = []
     var cached = false
     var selectionPending: Bool?
+    // Old receipts without provenance stay conservative until rescanned.
+    var startupMissing: [RuntimeDependency] { missing.filter { $0.load == nil || $0.load == .startup } }
+    var additionalReferences: [RuntimeDependency] { missing.filter { $0.load == .delayed || $0.load == .unverified } }
     var summary: String {
         if selectionPending == true { return "Steam will select this game's program at launch. Choose a program in Game details › Steam › Program to inspect its runtimes." }
         if modernDotNet { return "This game requests a separate .NET Desktop runtime. Review its runtimeconfig.json requirements." }
-        if !missing.isEmpty {
-            let names = Array(Set(missing.map(\.name))).sorted().prefix(8).joined(separator: ", ")
-            return "Unresolved DLL references: " + names + ". This scan includes optional plugins; these references alone do not identify a launch failure."
+        if !startupMissing.isEmpty {
+            let names = Array(Set(startupMissing.map(\.name))).sorted().prefix(8).joined(separator: ", ")
+            return "Unresolved startup DLLs: " + names + ". Review the requesting programs below."
+        }
+        if !additionalReferences.isEmpty {
+            return "Startup imports checked. Additional DLL references need review; they do not by themselves confirm a launch failure."
         }
         if truncated { return "Known runtimes are ready. This large game needs further checks when it starts." }
         return installed.isEmpty ? "Runtime check complete" : "Installed and verified: " + installed.joined(separator: ", ")
@@ -162,10 +180,13 @@ enum RuntimeScanner {
             return directoryCache[folder.path]?[name]
         }
         watched.insert(system)
-        var missing = Set<RuntimeDependency>()
+        var missing: [(URL, RuntimeDependency)] = []
+        var startupEdges: [URL: Set<URL>] = [:]
+        let moduleSet = Set(modules)
         for module in modules {
             watched.insert(module); report.scanned += 1
-            for name in LibraryModel.importNames(module) {
+            for imported in LibraryModel.moduleImports(module) {
+                let name = imported.name
                 if name == "mscoree.dll" { report.managed = true }
                 if name.hasPrefix("api-ms-") || name.hasPrefix("ext-ms-") { continue }
                 let folders = [module.deletingLastPathComponent(), root, system]
@@ -183,7 +204,10 @@ enum RuntimeScanner {
                     }
                     if let file = localFile(name, folder) {
                         watched.insert(file)
-                        if RuntimeFiles.matches(file, bits: bits, bundled: folder == system) { satisfied = true }
+                        if RuntimeFiles.matches(file, bits: bits, bundled: folder == system) {
+                            satisfied = true
+                            if !imported.delayed, moduleSet.contains(file) { startupEdges[module, default: []].insert(file) }
+                        }
                         else { wrong = folder != system }
                         break // An incompatible local DLL shadows later search paths.
                     }
@@ -191,10 +215,25 @@ enum RuntimeScanner {
                 if !satisfied && !wrong {
                     satisfied = bundleByName[name]?.contains { RuntimeFiles.matches($0, bits: bits, bundled: true) } == true
                 }
-                if !satisfied { missing.insert(RuntimeDependency(name: name, folder: module.deletingLastPathComponent().path, bits: bits, wrongArchitecture: wrong)) }
+                if !satisfied {
+                    let source = String(module.path.dropFirst(root.path.count + 1))
+                    missing.append((module, RuntimeDependency(name: name, folder: module.deletingLastPathComponent().path,
+                        bits: bits, wrongArchitecture: wrong, source: source, load: imported.delayed ? .delayed : .unverified)))
+                }
             }
         }
-        report.missing = missing.sorted { ($0.folder, $0.name) < ($1.folder, $1.name) }
+        // Only ordinary imports reachable from the chosen EXE establish a
+        // startup dependency. Unity plugins and delay imports can be loaded
+        // later; their presence on disk does not prove that code path is used.
+        var startup: Set<URL> = [executable], pending = [executable]
+        while let module = pending.popLast() {
+            for child in startupEdges[module] ?? [] where startup.insert(child).inserted { pending.append(child) }
+        }
+        report.missing = Set(missing.map { module, dependency in
+            var result = dependency
+            if result.load != .delayed, startup.contains(module) { result.load = .startup }
+            return result
+        }).sorted { ($0.source ?? $0.folder, $0.name, $0.load?.rawValue ?? "") < ($1.source ?? $1.folder, $1.name, $1.load?.rawValue ?? "") }
         report.stamps = watched.compactMap(RuntimeStamp.read).sorted { $0.path < $1.path }
         return report
     }
@@ -365,7 +404,7 @@ actor RuntimePreparer {
         let catalog = try RuntimeCatalog.load(bundle)
         let catalogHash = try RuntimeFiles.hash(bundle.appendingPathComponent("RuntimeCatalog.json"))
         let old = (try? Data(contentsOf: receiptURL)).flatMap { try? JSONDecoder().decode(Receipt.self, from: $0) }
-        if !force, let old, old.version == 2, old.bundle == bundle.path, old.catalog == catalogHash,
+        if !force, let old, old.version == 3, old.bundle == bundle.path, old.catalog == catalogHash,
            !old.report.truncated,
            old.report.stamps.allSatisfy(\.valid),
            old.installed.allSatisfy({ RuntimeFiles.inside(URL(fileURLWithPath: $0.key), drive) && (try? RuntimeFiles.hash(URL(fileURLWithPath: $0.key))) == $0.value }) {
@@ -438,7 +477,7 @@ actor RuntimePreparer {
             report.installed = preparedPackages.sorted()
             // Remove stale receipts after an application/game legitimately replaced a DLL.
             installed = installed.filter { (try? RuntimeFiles.hash(URL(fileURLWithPath: $0.key))) == $0.value }
-            let receipt = Receipt(version: 2, bundle: bundle.path, catalog: catalogHash, report: report, installed: installed)
+            let receipt = Receipt(version: 3, bundle: bundle.path, catalog: catalogHash, report: report, installed: installed)
             try JSONEncoder().encode(receipt).write(to: receiptURL, options: .atomic)
             return report
         } catch {

@@ -23,7 +23,7 @@ def cabinet(files):
             struct.pack('<BBHHHHH',3,1,1,len(files),0,0,0)+struct.pack('<IHH',offset,1,0)+
             names+struct.pack('<IHH',0,len(content),len(content))+content)
 
-def pe(bits=64, imports=()):
+def pe(bits=64, imports=(), delayed=()):
     d=bytearray(4096);d[:2]=b'MZ';struct.pack_into('<I',d,60,128)
     d[128:132]=b'PE\0\0';struct.pack_into('<HH',d,132,0x8664 if bits==64 else 0x14c,1)
     opt=240 if bits==64 else 224;struct.pack_into('<H',d,148,opt)
@@ -34,6 +34,11 @@ def pe(bits=64, imports=()):
     for i,name in enumerate(imports):
         offset=1024+i*128;struct.pack_into('<I',d,512+i*20+12,0x1000+offset-512)
         b=name.encode()+b'\0';d[offset:offset+len(b)]=b
+    if delayed:
+        struct.pack_into('<II',d,directory+13*8,0x1400,32*(len(delayed)+1))
+        for i,name in enumerate(delayed):
+            offset=2048+i*128;struct.pack_into('<II',d,1536+i*32,1,0x1000+offset-512)
+            b=name.encode()+b'\0';d[offset:offset+len(b)]=b
     return bytes(d)
 
 with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
@@ -105,6 +110,13 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     assert((!first.cached || !shared.cached) && first.missing.isEmpty && shared.missing.isEmpty)
     assert(first.installed==["vc120-x64","vc14-x64"])
     let second=try await run();assert(second.cached)
+    // A valid old receipt must be rescanned for new dependency provenance.
+    let receipts=try FileManager.default.contentsOfDirectory(at:cache.appendingPathComponent("games"),includingPropertiesForKeys:nil)
+    assert(receipts.count==1)
+    var old=try JSONSerialization.jsonObject(with:Data(contentsOf:receipts[0])) as! [String:Any]
+    old["version"]=2
+    try JSONSerialization.data(withJSONObject:old).write(to:receipts[0])
+    let migrated=try await run();assert(!migrated.cached && migrated.missing.isEmpty)
     try FileManager.default.removeItem(at:game.appendingPathComponent("vcruntime140.dll"))
     let restored=try await run();assert(!restored.cached && restored.missing.isEmpty)
     // The previous 32-bit session's staged Windows DLLs are not game-local
@@ -136,13 +148,30 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     let warningCache=try await run();assert(warningCache.cached)
     try FileManager.default.copyItem(at:root.appendingPathComponent("plugin.dll"),to:game.appendingPathComponent("plugin.dll"))
     let changed=try await run();assert(!changed.cached && changed.missing.contains { $0.name=="game_private.dll" })
+    assert(changed.additionalReferences.contains { $0.name=="game_private.dll" && $0.source=="plugin.dll" && $0.load == .unverified })
+    // Classify edges, not DLL names: OpenCL can be a real startup dependency,
+    // and a plugin's ordinary import does not prove the plugin is loaded.
+    let graph=drive.appendingPathComponent("Games/Graph")
+    let graphReport=try RuntimeScanner.scan(executable:graph.appendingPathComponent("game.exe"),bits:64,drive:drive,bundle:bundle)
+    assert(graphReport.startupMissing.contains { $0.name=="opencl.dll" && $0.source=="bridge.dll" })
+    assert(graphReport.additionalReferences.contains { $0.name=="on-demand.dll" && $0.load == .delayed && $0.source=="game.exe" })
+    assert(graphReport.additionalReferences.contains { $0.name=="late_child.dll" && $0.load == .unverified && $0.source=="optional.dll" })
+    assert(graphReport.additionalReferences.contains { $0.name=="avicap32.dll" && $0.load == .unverified && $0.source=="Plugins/unrelated.dll" })
+    assert(graphReport.missing.count==4 && graphReport.startupMissing.count==1)
+    let roundtrip=try JSONDecoder().decode(RuntimeReport.self,from:JSONEncoder().encode(graphReport))
+    assert(roundtrip.missing==graphReport.missing)
     try FileManager.default.removeItem(at:exe)
     do { _ = try await run(); fatalError("Missing executable accepted") } catch {}
-    print("PASS: production automatic install, transitive DLLs across runtime families, concurrent request sharing, recheck, cache hit, deletion repair, stale Windows staging with EC/native farms, wrong-architecture preservation, directory invalidation and missing EXE")
+    print("PASS: production automatic install, transitive DLLs across runtime families, concurrent request sharing, cache migration, startup graph and eager/delay/unverified provenance, receipt roundtrip, deletion repair, stale Windows staging with EC/native farms, wrong-architecture preservation, directory invalidation and missing EXE")
  }
 }
 '''
     (work/'wrong.dll').write_bytes(pe(bits=32));(work/'plugin.dll').write_bytes(pe(imports=['game_private.dll']))
+    graph=drive/'Games/Graph';(graph/'Plugins').mkdir(parents=True)
+    (graph/'game.exe').write_bytes(pe(imports=['bridge.dll'],delayed=['optional.dll','on-demand.dll']))
+    (graph/'bridge.dll').write_bytes(pe(imports=['opencl.dll']))
+    (graph/'optional.dll').write_bytes(pe(imports=['late_child.dll']))
+    (graph/'Plugins/unrelated.dll').write_bytes(pe(imports=['avicap32.dll']))
     (work/'Core.swift').write_text(core+stubs)
     (work/'Check.swift').write_text('import Foundation\n'+test)
     (work/'mono.c').write_text('int madeira_runtime_prepare_mono(const char*a,const char*b){return 0;}')

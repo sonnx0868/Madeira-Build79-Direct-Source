@@ -47,6 +47,9 @@ func names(_ data: Data) throws -> [String] {
 for wide in [false,true] {
     let good=image(wide)
     let valid=try names(good);assert(valid==["kernel32.dll","user32.dll"])
+    let file=folder.appendingPathComponent("fixture.exe")
+    let imports=Parser.moduleImports(file)
+    assert(imports==[Parser.ModuleImport(name:"kernel32.dll",delayed:false),Parser.ModuleImport(name:"user32.dll",delayed:true)])
     var bad=good;let directory=152+(wide ? 112 : 96)
     put(&bad,directory-4,0);let missingCount=try names(bad);assert(missingCount.isEmpty)
     bad=good;put(&bad,directory+12,0);let missingSize=try names(bad);assert(missingSize==["user32.dll"])
@@ -63,7 +66,7 @@ for wide in [false,true] {
 let oldDelay=try names(image(false,true));assert(oldDelay==["kernel32.dll","user32.dll"])
 let invalid64Delay=try names(image(true,true));assert(invalid64Delay==["kernel32.dll"])
 let truncated=try names(Data(image(true).prefix(200)));assert(truncated.isEmpty)
-print("PASS: production PE32/64 imports, delay VA/RVA, directory count/size bounds, binary names, missing NUL and section boundaries")
+print("PASS: production PE32/64 imports retain eager/delay provenance, delay VA/RVA, directory count/size bounds, binary names, missing NUL and section boundaries")
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-pe-imports-') as scratch:
     folder = Path(scratch)
