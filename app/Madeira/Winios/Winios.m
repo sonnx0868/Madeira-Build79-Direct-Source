@@ -856,11 +856,11 @@ void winios_reset_session_close(void) {
 BOOL winios_pProcessEvents(DWORD mask) {
     extern unsigned long long winios_drv_prepare_input_wake(void);
     unsigned long long token = winios_drv_prepare_input_wake();
-    if (token) winios_input_wake_ack(token);
+    BOOL source_drained = token && winios_input_wake_ack(token);
     // Serialise delivery, not just ring pops: two GUI threads must never
     // inject a button release before another thread's already-popped press.
     static pthread_mutex_t drain_lock = PTHREAD_MUTEX_INITIALIZER;
-    if (pthread_mutex_trylock(&drain_lock)) return FALSE;
+    if (pthread_mutex_trylock(&drain_lock)) return source_drained;
     unsigned int close = atomic_load_explicit(&g_session_close_request, memory_order_acquire);
     if (close) {
         HWND target = winios_drv_session_close_target(close == 2u);
@@ -929,7 +929,9 @@ BOOL winios_pProcessEvents(DWORD mask) {
         }
     }
     pthread_mutex_unlock(&drain_lock);
-    return drained;
+    // Wine uses this result to clear QS_DRIVER and re-arm the fd, including
+    // a wake whose ring events were already delivered by another GUI thread.
+    return drained || source_drained;
 }
 
 /* ============================================================ *

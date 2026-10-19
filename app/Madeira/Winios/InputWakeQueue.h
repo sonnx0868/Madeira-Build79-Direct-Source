@@ -93,21 +93,22 @@ static inline void madeira_input_wake_signal(struct madeira_input_wake_registry 
 }
 
 static inline int madeira_input_wake_ack(struct madeira_input_wake_registry *registry, uint64_t token) {
-    int ready = 0;
+    int acknowledged = 0;
     pthread_mutex_lock(&registry->lock);
     for (unsigned i = 0; token && i < MADEIRA_INPUT_WAKE_SLOTS; ++i) {
         struct madeira_input_wake_slot *slot = &registry->slots[i];
         if (slot->token != token) continue;
+        if (!slot->pending) break; // ordinary input polls need no read syscall
         char bytes[64];
         ssize_t count;
         do count = read(slot->read_fd, bytes, sizeof bytes); while (count > 0 || (count < 0 && errno == EINTR));
         if (count == 0 || (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) slot->broken = 1;
         slot->pending = 0;
-        ready = !slot->broken;
+        acknowledged = !slot->broken;
         break;
     }
     pthread_mutex_unlock(&registry->lock);
-    return ready;
+    return acknowledged;
 }
 
 /* A capability check must not consume readiness between an event-pump pass

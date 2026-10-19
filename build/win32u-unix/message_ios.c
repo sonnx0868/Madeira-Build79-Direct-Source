@@ -3398,14 +3398,13 @@ static BOOL process_driver_events( UINT events_mask, UINT wake_mask, UINT change
     BOOL drained = FALSE;
 
 #ifdef WINE_IOS
-    /* iOS: always call pProcessEvents on every PeekMessage poll, not just
-     * when QS_DRIVER is set. The QS_DRIVER bit is normally raised when the
-     * wineserver poll detects driver-side fd events, but winios.drv uses
-     * a Swift→Wine ring buffer that the wineserver's poll loop doesn't
-     * watch. Calling pProcessEvents unconditionally lets winios.drv drain
-     * its buffer each PeekMessage iteration — slightly inefficient but
-     * unblocks the chicken-and-egg without invasive wineserver changes. */
+    /* Polling callers drain the host ring immediately; sleeping callers are
+     * awakened by their QS_DRIVER pipe. A poll notification can arrive after
+     * another pump already acknowledged its byte. Clear/re-arm that latched
+     * source even when no application input remains to be injected. */
+    BOOL driver_pending = check_internal_bits( QS_DRIVER );
     drained = user_driver->pProcessEvents( events_mask );
+    drained = drained || driver_pending;
 #else
     if (check_internal_bits( QS_DRIVER )) drained = user_driver->pProcessEvents( events_mask );
 #endif

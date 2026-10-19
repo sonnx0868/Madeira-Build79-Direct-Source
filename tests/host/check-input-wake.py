@@ -43,6 +43,7 @@ wrappers=app[app.index('static struct madeira_input_wake_registry g_input_wakes'
 ring=app[app.index('#define WINIOS_RING_SIZE'):app.index('/* Public C entry points for Swift / UIKit gesture handlers.')]
 registration=driver[driver.index('struct winios_thread_input_wake'):driver.index('/* Direct mode (no virtual desktop)')]
 pump=function(app,'BOOL winios_pProcessEvents(')
+dispatch=function(message,'static BOOL process_driver_events(')
 c=r'''
 #include <assert.h>
 #include <stdint.h>
@@ -58,6 +59,17 @@ typedef void *HWND;
 typedef uintptr_t HANDLE,ULONG_PTR;
 typedef unsigned DWORD;
 typedef int BOOL,NTSTATUS;
+#define WINE_IOS 1
+#define QS_DRIVER 0x80000000u
+#define QS_HARDWARE 0x40000000u
+#define QS_ALLINPUT 0x04ffu
+typedef unsigned UINT;
+typedef long long LONGLONG;
+typedef struct {long long QuadPart;} LARGE_INTEGER;
+typedef struct {int unused;} MSG;
+struct peek_message_filter {int internal;};
+static _Thread_local unsigned mock_internal_bits,mask_updates;
+static _Thread_local int mock_poll_armed=1,mock_hardware_message;
 #define TRUE 1
 #define FALSE 0
 #define GENERIC_READ 1
@@ -77,12 +89,18 @@ static int wine_server_fd_to_handle(int fd,unsigned access,unsigned attrs,HANDLE
     if(fail_registration==1)return 0xc0000017;
     *handle=(HANDLE)(fd+1);return 0;
 }
-struct Request {HANDLE handle;};
-#define SERVER_START_REQ(name) do {struct Request storage,*req=&storage;
+enum {OP_set_queue_fd,OP_set_queue_mask};
+struct Request {unsigned op;HANDLE handle;unsigned poll_events,wake_mask,changed_mask;};
+#define SERVER_START_REQ(name) do {struct Request storage={.op=OP_##name},*req=&storage;
 #define SERVER_END_REQ } while(0)
 static HANDLE wine_server_obj_handle(HANDLE h){return h;}
 int winios_drv_input_wake_ready(void);
 static int wine_server_call(struct Request *req){
+    if(req->op==OP_set_queue_mask){
+        ++mask_updates;
+        if(req->poll_events){mock_internal_bits&=~QS_DRIVER;mock_poll_armed=1;}
+        return 0;
+    }
     assert(queue_fd<0);
     assert(!winios_drv_input_wake_ready()); // creating a pipe is not registration completion
     if(fail_registration==2)return 0xc0000022;
@@ -113,11 +131,20 @@ static void winios_drv_post_mouse(int x,int y,unsigned flags,unsigned data,HWND 
     }
     if(flags&MOUSEEVENTF_LEFTUP){assert(expected_down);expected_down=0;++up_count;}
     ++delivered;
+    mock_hardware_message=1;
 }
-static void winios_drv_post_key(unsigned short key,unsigned flags){(void)key;(void)flags;++delivered;}
+static void winios_drv_post_key(unsigned short key,unsigned flags){(void)key;(void)flags;++delivered;mock_hardware_message=1;}
 static void winios_drv_post_key_scan(unsigned short key,unsigned short scan,unsigned flags){(void)scan;winios_drv_post_key(key,flags);}
 __RING__
 __PUMP__
+static int check_internal_bits(unsigned mask){return !!(mock_internal_bits&mask);}
+static int check_queue_masks(unsigned wake,unsigned changed){(void)wake;(void)changed;return 1;}
+static int is_queue_signaled(void){return mock_hardware_message;}
+static void peek_message(MSG *message,struct peek_message_filter *filter){(void)message;(void)filter;}
+static void NtQueryPerformanceCounter(LARGE_INTEGER *counter,LARGE_INTEGER *frequency){counter->QuadPart=1;frequency->QuadPart=1;}
+static const struct {BOOL (*pProcessEvents)(DWORD);} fixture_driver={winios_pProcessEvents};
+#define user_driver (&fixture_driver)
+__DISPATCH__
 static int readable(int fd,int timeout){struct pollfd p={fd,POLLIN,0};int r;do r=poll(&p,1,timeout);while(r<0&&errno==EINTR);assert(r>=0);return r>0&&(p.revents&POLLIN);}
 static void cleanup_thread(void){winios_drv_thread_detach();if(queue_fd>=0){close(queue_fd);queue_fd=-1;}assert(thread_info.driver_data==0);}
 static unsigned fd_count(void){unsigned n=0;for(int i=0;i<2048;++i)if(fcntl(i,F_GETFD)>=0)++n;return n;}
@@ -132,7 +159,7 @@ int main(void){
     setenv("MADEIRA_QUIET","1",1);unsetenv("MADEIRA_DESKTOP");
     unsigned initial_fds=fd_count();
     assert(!winios_drv_input_wake_ready());
-    assert(!winios_pProcessEvents(0));assert(queue_fd>=0);
+    assert(winios_pProcessEvents(0));assert(queue_fd>=0); // initial fd acknowledgement, no input
     assert(winios_drv_input_wake_ready() && !readable(queue_fd,0));
     unsigned long long token=winios_drv_prepare_input_wake();
     assert(token==winios_drv_prepare_input_wake());
@@ -152,6 +179,25 @@ int main(void){
     assert(winios_pProcessEvents(0));assert(!pthread_join(producer,NULL));
     assert(delivered==4 && down_count==2 && up_count==2 && !expected_down);
     assert(!readable(queue_fd,0));
+    // Execute Wine's actual event dispatcher. A peer may have consumed the
+    // shared ring before this queue wakes. The private fd acknowledgement
+    // must still clear QS_DRIVER and re-arm the poll source, without exposing
+    // a fabricated application message or forcing every ordinary poll to RPC.
+    mock_hardware_message=0;
+    winios_input_wake_signal();mock_internal_bits=QS_DRIVER;mock_poll_armed=0;
+    assert(!process_driver_events(QS_ALLINPUT,1,1));
+    assert(!mock_internal_bits&&mock_poll_armed&&!readable(queue_fd,0));
+    // The server may report a poll result captured before a non-waiting pump
+    // drained the byte. A latched QS_DRIVER with an empty fd must also re-arm.
+    mock_internal_bits=QS_DRIVER;mock_poll_armed=0;
+    assert(!process_driver_events(QS_ALLINPUT,1,1));
+    assert(!mock_internal_bits&&mock_poll_armed);
+    unsigned updates=mask_updates;
+    assert(!process_driver_events(QS_ALLINPUT,1,1)&&mask_updates==updates);
+    winios_q_push_ev(WINIOS_EV_KEY,0x20,0,0,0);mock_internal_bits=QS_DRIVER;mock_poll_armed=0;
+    assert(process_driver_events(QS_ALLINPUT,1,1));
+    assert(!mock_internal_bits&&mock_poll_armed&&mask_updates==updates+1);
+    mock_hardware_message=0;
     // Each subscriber has its own byte. One ack cannot steal another wake.
     int first,second;uint64_t a=madeira_input_wake_create(&g_input_wakes,&first),b=madeira_input_wake_create(&g_input_wakes,&second);assert(a&&b);
     madeira_input_wake_ack(&g_input_wakes,a);madeira_input_wake_ack(&g_input_wakes,b);
@@ -169,7 +215,9 @@ int main(void){
     winios_q_push_ev(WINIOS_EV_MOUSE,40,40,MOUSEEVENTF_LEFTUP,0);
     pthread_t consumer;assert(!pthread_create(&consumer,NULL,pump_thread,NULL));
     pthread_mutex_lock(&gate_lock);while(!entered_down)pthread_cond_wait(&gate_cond,&gate_lock);pthread_mutex_unlock(&gate_lock);
-    assert(!winios_pProcessEvents(0)); // the second consumer cannot overtake DOWN
+    unsigned before_competing=delivered;
+    assert(winios_pProcessEvents(0)); // acknowledge this subscriber, then re-arm QS_DRIVER
+    assert(delivered==before_competing); // the second consumer cannot overtake DOWN
     pthread_mutex_lock(&gate_lock);release_down=1;pthread_cond_broadcast(&gate_cond);pthread_mutex_unlock(&gate_lock);
     assert(!pthread_join(consumer,NULL));pause_down=0;
     assert(down_count==3&&up_count==3&&!expected_down);
@@ -186,9 +234,9 @@ int main(void){
     int excess;assert(!madeira_input_wake_create(&g_input_wakes,&excess)&&excess==-1);
     for(unsigned i=0;i<MADEIRA_INPUT_WAKE_SLOTS;++i)madeira_input_wake_remove(&g_input_wakes,tokens[i]);
     assert(fd_count()==initial_fds);
-    puts("PASS: old queued input does not wake; production producer/pump wakes a sleeping GUI queue, preserves pending signals, subscriber independence, press/release order, burst coalescing, failure fallback and descriptor cleanup");
+    puts("PASS: old queued input does not wake; production producer/pump/dispatcher wakes a sleeping GUI queue, clears and re-arms QS_DRIVER after a peer drain, preserves pending signals, subscriber independence, press/release order, burst coalescing, failure fallback and descriptor cleanup");
 }
-'''.replace('__WRAPPERS__',wrappers).replace('__REGISTRATION__',registration).replace('__RING__',ring).replace('__PUMP__',pump)
+'''.replace('__WRAPPERS__',wrappers).replace('__REGISTRATION__',registration).replace('__RING__',ring).replace('__PUMP__',pump).replace('__DISPATCH__',dispatch)
 with tempfile.TemporaryDirectory(prefix='madeira-input-wake-') as temp:
     folder=Path(temp);source=folder/'check.c';source.write_text(c,encoding='utf-8')
     cc=os.environ.get('CC') or shutil.which('clang');assert cc
@@ -200,4 +248,6 @@ with tempfile.TemporaryDirectory(prefix='madeira-input-wake-') as temp:
         report={'productionProducerAndEventPumpExecuted':True,'actualPipeAndPoll':True,'sleepingQueueReproduction':True,
                 'negativeControlDoesNotWake':True,'candidateWakesWithoutExtraKey':True,'queueSubscribersIndependent':True,
                 'concurrentDeliveryOrdered':True,'descriptorCleanup':True,'gameSceneFreezeResolvedOnIPad':False}
+        report['productionWineDispatcherExecuted']=True
+        report['emptyWakeClearsAndRearmsDriverBit']=True
         (Path(os.environ['BITRISE_DEPLOY_DIR'])/'input-wake-validation.json').write_text(json.dumps(report,indent=2)+'\n')
