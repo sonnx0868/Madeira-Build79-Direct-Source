@@ -80,7 +80,15 @@ static inline int msp_role(MSPSession *s, unsigned pid, uintptr_t peb) {
         !msp_find(s,s->target,s->target_peb) || !msp_unique(s,s->target)) return MSP_NORMAL;
     MSPProcess *p=msp_find(s,pid,peb);
     if (!p || !msp_unique(s,pid) || p->kind!=MSP_BACKGROUND_UI || msp_family(s,p)!=0) return MSP_NORMAL;
-    return MSP_BACKGROUND_UI;
+    /* A launcher's browser/UI process can itself be a dependency of its game.
+     * Preserve the selected process's ancestors as well as its descendants. */
+    MSPProcess *ancestor=msp_find(s,s->target,s->target_peb);
+    for (unsigned depth=0;ancestor && depth<MSP_PROCESS_CAPACITY;++depth) {
+        if (ancestor==p) return MSP_NORMAL;
+        if (!ancestor->parent) return MSP_BACKGROUND_UI;
+        ancestor=msp_unique(s,ancestor->parent);
+    }
+    return MSP_NORMAL; /* uncertain ancestry: preserve existing priority */
 }
 static inline void msp_retire(MSPSession *s, unsigned pid, uintptr_t peb) {
     MSPProcess *p=msp_find(s,pid,peb);

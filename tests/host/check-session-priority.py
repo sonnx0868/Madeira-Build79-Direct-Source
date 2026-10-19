@@ -54,6 +54,28 @@ int main(void) {
     uint16_t bad[]={0x100,'x'};assert(msp_image_kind(bad,2)==MSP_NORMAL);
     assert(msp_image_kind(NULL,1)==MSP_NORMAL);
 
+    // Independent transitive-closure oracle across every 5-node parent forest.
+    // Both ancestors and descendants can be on the selected game's critical path.
+    for(unsigned forest=0;forest<120;++forest) {
+        MSPSession tree={0};unsigned code=forest;int reach[5][5]={{0}};
+        for(unsigned i=0;i<5;++i) {
+            unsigned parent=code%(i+1);code/=(i+1);
+            msp_attach(&tree,100+i,parent?99+parent:0,100+i);
+            image(&tree,100+i,100+i,"chrome.exe");
+            if(parent)reach[parent-1][i]=1;
+        }
+        for(unsigned k=0;k<5;++k)for(unsigned i=0;i<5;++i)for(unsigned j=0;j<5;++j)
+            reach[i][j]|=reach[i][k] && reach[k][j];
+        tree.active=tree.foreground=tree.presented=1;
+        for(unsigned target=0;target<5;++target) {
+            tree.target=100+target;tree.target_peb=100+target;
+            for(unsigned candidate=0;candidate<5;++candidate) {
+                int related=target==candidate || reach[target][candidate] || reach[candidate][target];
+                assert(msp_role(&tree,100+candidate,100+candidate)==(related?MSP_NORMAL:MSP_BACKGROUND_UI));
+            }
+        }
+    }
+
     const MSPQoSOps ops={get,set,0x11};MSPQoS q={0};
     assert(msp_qos_apply(&q,0,0,&ops)==0 && !sets && current==0x21);
     assert(msp_qos_apply(&q,1,0,&ops)==1 && q.owned && current==0x11);
