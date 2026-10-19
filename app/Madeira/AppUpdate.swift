@@ -137,10 +137,10 @@ enum AppUpdateDownload {
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                         totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
             if totalBytesWritten > AppUpdateDownload.maximumBytes || totalBytesExpectedToWrite > AppUpdateDownload.maximumBytes {
-                fail(.oversized, task: downloadTask); return
+                fail(Failure.oversized, task: downloadTask); return
             }
             if let expectedBytes, totalBytesWritten > expectedBytes {
-                fail(.sizeMismatch, task: downloadTask); return
+                fail(Failure.sizeMismatch, task: downloadTask); return
             }
             let now = Date()
             guard now.timeIntervalSince(lastUpdate) >= 0.2 else { return }
@@ -150,7 +150,7 @@ enum AppUpdateDownload {
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
             guard let url = request.url, UpdateRules.downloadRedirect(url) else {
-                fail(.redirect, task: task); completionHandler(nil); return
+                fail(Failure.redirect, task: task); completionHandler(nil); return
             }
             completionHandler(request)
         }
