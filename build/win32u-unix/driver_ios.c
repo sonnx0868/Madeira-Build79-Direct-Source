@@ -25,6 +25,7 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -34,6 +35,7 @@
 #include "wine/winbase16.h"
 #include "wine/list.h"
 #include "wine/debug.h"
+#include "wine/server.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(driver);
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
@@ -66,6 +68,64 @@ extern UINT winios_OpenGLInit( UINT version, const struct opengl_funcs *opengl_f
                                const struct opengl_driver_funcs **driver_funcs );
 
 static struct user_driver_funcs winios_user_driver;
+
+extern unsigned long long winios_input_wake_create(int *fd);
+extern void winios_input_wake_remove(unsigned long long token);
+extern int winios_input_wake_ready(unsigned long long token);
+
+struct winios_thread_input_wake { unsigned long long token; int registered; };
+
+/* Called on a Wine GUI thread, never UIKit. Use Wine's existing QS_DRIVER
+ * queue-fd mechanism, like macdrv, so an INFINITE message wait wakes on input. */
+unsigned long long winios_drv_prepare_input_wake(void)
+{
+    struct winios_thread_input_wake *data = (void *)(ULONG_PTR)NtUserGetThreadInfo()->driver_data;
+    HANDLE handle = 0;
+    int fd;
+    NTSTATUS status;
+    if (data) return data->registered ? data->token : 0;
+    if (!(data = calloc(1, sizeof(*data)))) return 0;
+    NtUserGetThreadInfo()->driver_data = (ULONG_PTR)data;
+    if (!(data->token = winios_input_wake_create(&fd))) return 0;
+    status = wine_server_fd_to_handle(fd, GENERIC_READ | SYNCHRONIZE, 0, &handle);
+    if (!status)
+    {
+        SERVER_START_REQ(set_queue_fd)
+        {
+            req->handle = wine_server_obj_handle(handle);
+            status = wine_server_call(req);
+        }
+        SERVER_END_REQ;
+        NtClose(handle);
+    }
+    if (status)
+    {
+        winios_input_wake_remove(data->token);
+        data->token = 0;
+        dprintf(2, "[input-wake-v1] queue-fd registration failed status=%08x; bounded wait fallback\n", (unsigned)status);
+    }
+    else
+    {
+        data->registered = 1;
+        dprintf(2, "[input-wake-v1] queue-fd registered tid=%04x\n", (unsigned)GetCurrentThreadId());
+    }
+    return data->registered ? data->token : 0;
+}
+
+int winios_drv_input_wake_ready(void)
+{
+    struct winios_thread_input_wake *data = (void *)(ULONG_PTR)NtUserGetThreadInfo()->driver_data;
+    return data && data->registered && data->token && winios_input_wake_ready(data->token);
+}
+
+static void winios_drv_thread_detach(void)
+{
+    struct winios_thread_input_wake *data = (void *)(ULONG_PTR)NtUserGetThreadInfo()->driver_data;
+    NtUserGetThreadInfo()->driver_data = 0;
+    if (!data) return;
+    if (data->token) winios_input_wake_remove(data->token);
+    free(data);
+}
 
 /* Direct mode (no virtual desktop) has no compositor to draw the Windows
  * cursor, so the app draws the program's own cursor over the game view while a
@@ -1835,6 +1895,7 @@ static void load_display_driver(void)
         if (winios_pCreateWindow)        winios_user_driver.pCreateWindow        = winios_pCreateWindow;
         if (winios_pDestroyWindow)       winios_user_driver.pDestroyWindow       = winios_pDestroyWindow;
         if (winios_pProcessEvents)       winios_user_driver.pProcessEvents       = winios_pProcessEvents;
+        winios_user_driver.pThreadDetach = winios_drv_thread_detach;
         if (winios_desktop_mode())       winios_user_driver.pSetCursor           = winios_drv_set_cursor;
         /* direct mode: inert (like winios_pSetCursor) until the app enables it */
         else if (winios_direct_cursor_set) winios_user_driver.pSetCursor         = winios_drv_set_cursor;

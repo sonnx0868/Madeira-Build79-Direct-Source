@@ -3526,12 +3526,14 @@ static DWORD wait_message( DWORD count, const HANDLE *handles, DWORD timeout, DW
     process_driver_events( QS_ALLINPUT, wake_mask, changed_mask );
     if (!(changed_mask & QS_SMRESULT) && (event = get_user_thread_info()->idle_event)) NtSetEvent( event, NULL );
 
-    /* iOS desktop mode: trackpad events sit in the app-side ring until a
+    /* UIKit events sit in the app-side ring until a
      * wine thread runs pProcessEvents — a thread sleeping here (e.g. the
      * SC_MOVE / menu modal loops via NtUserGetMessage) never drains it,
      * so drags advanced only when winemine's 1Hz timer woke the queue.
-     * Wake every 16ms to poll driver events; only surface WAIT_TIMEOUT
-     * when the CALLER's own deadline expires. Games path unchanged. */
+     * Direct games use the registered QS_DRIVER pipe. Keep the existing
+     * desktop polling path, and use it as a bounded fallback when a GUI
+     * thread could not register that pipe. Only surface WAIT_TIMEOUT when
+     * the CALLER's own deadline expires. */
     {
         static int ios_slice = -1;
         if (ios_slice < 0)
@@ -3539,7 +3541,8 @@ static DWORD wait_message( DWORD count, const HANDLE *handles, DWORD timeout, DW
             const char *d = getenv( "MADEIRA_DESKTOP" );
             ios_slice = (d && *d == '1');
         }
-        if (!ios_slice)
+        extern int winios_drv_input_wake_ready(void);
+        if (!ios_slice && winios_drv_input_wake_ready())
         {
             do ret = NtWaitForMultipleObjects( count, handles, type, !!(flags & MWMO_ALERTABLE), abs );
             while (ret == count - 1 && !process_driver_events( QS_ALLINPUT, wake_mask, changed_mask ));

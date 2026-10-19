@@ -19,6 +19,29 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: 7a05675ef80cd4913b567ec9c8d80952df43a09fb87d45b619760d69dd91c02a
 
 workflows:
+  madeira-input-wake-check:
+    title: Reproduce idle game input wake and validate native pipe delivery
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                python3 tests/host/check-input-wake.py --require-darwin
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-input-wake-validation
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+
   madeira-v016-retirement-refresh:
     title: Rebuild verified GPU retirement lifetime and Present wait attribution
     steps:

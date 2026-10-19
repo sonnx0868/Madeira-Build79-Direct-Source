@@ -36,7 +36,17 @@
 /* The window census struct is shared with Swift through this header;
  * including it here keeps both sides' definitions the same. */
 #include "Winios.h"
+#include "InputWakeQueue.h"
 #include "../IOSDisplayShim.h"
+
+static struct madeira_input_wake_registry g_input_wakes = MADEIRA_INPUT_WAKE_INITIALIZER;
+unsigned long long winios_input_wake_create(int *read_fd) {
+    return madeira_input_wake_create(&g_input_wakes, read_fd);
+}
+void winios_input_wake_signal(void) { madeira_input_wake_signal(&g_input_wakes); }
+int winios_input_wake_ack(unsigned long long token) { return madeira_input_wake_ack(&g_input_wakes, token); }
+int winios_input_wake_ready(unsigned long long token) { return madeira_input_wake_ready(&g_input_wakes, token); }
+void winios_input_wake_remove(unsigned long long token) { madeira_input_wake_remove(&g_input_wakes, token); }
 
 /* csops syscall — CS_DEBUGGED is the flag StikDebug JIT rides on. Declared by
  * hand for the same reason JITAllocator.c does: <sys/codesign.h> is not in the
@@ -507,6 +517,7 @@ static void winios_census_note_frame(HWND hwnd, int x, int y, int w, int h, int 
         /* Posted, not sent: this runs inside the window's WindowPosChanged. */
         int ok = winios_drv_post_restore(hwnd);
         atomic_store(&g_restore_foreground, (uintptr_t)hwnd);
+        winios_input_wake_signal();
         fprintf(stderr, "[born-minimized] hwnd=%p pid=%04x restore-posted=%d "
                         "(MADEIRA_RESTORE_BORN_MINIMIZED=0 leaves it minimized)\n", hwnd, pid, ok ? 1 : 0);
         fflush(stderr);
@@ -737,7 +748,7 @@ static int winios_q_add_clamped(int a, int b)
     return (int)sum;
 }
 
-static void winios_q_push_ev(unsigned int type, int x, int y, unsigned int flags, unsigned int data) {
+static void winios_q_push_ev_raw(unsigned int type, int x, int y, unsigned int flags, unsigned int data) {
     winios_input_event_t incoming = {type, x, y, flags, data};
     pthread_mutex_lock(&g_input_q.lock);
 
@@ -791,6 +802,11 @@ static void winios_q_push_ev(unsigned int type, int x, int y, unsigned int flags
     pthread_mutex_unlock(&g_input_q.lock);
 }
 
+static void winios_q_push_ev(unsigned int type, int x, int y, unsigned int flags, unsigned int data) {
+    winios_q_push_ev_raw(type, x, y, flags, data);
+    winios_input_wake_signal();
+}
+
 /* Public C entry points for Swift / UIKit gesture handlers.
  * Coordinates are in iOS view-local pixels; we scale to a fixed
  * 1024×768 logical surface inside winios_pProcessEvents to match
@@ -831,12 +847,20 @@ extern void winios_drv_close_session(HWND hwnd, int force);
 
 void winios_request_session_close(int force) {
     atomic_store_explicit(&g_session_close_request, force ? 2u : 1u, memory_order_release);
+    winios_input_wake_signal();
 }
 void winios_reset_session_close(void) {
     atomic_store_explicit(&g_session_close_request, 0, memory_order_release);
 }
 
 BOOL winios_pProcessEvents(DWORD mask) {
+    extern unsigned long long winios_drv_prepare_input_wake(void);
+    unsigned long long token = winios_drv_prepare_input_wake();
+    if (token) winios_input_wake_ack(token);
+    // Serialise delivery, not just ring pops: two GUI threads must never
+    // inject a button release before another thread's already-popped press.
+    static pthread_mutex_t drain_lock = PTHREAD_MUTEX_INITIALIZER;
+    if (pthread_mutex_trylock(&drain_lock)) return FALSE;
     unsigned int close = atomic_load_explicit(&g_session_close_request, memory_order_acquire);
     if (close) {
         HWND target = winios_drv_session_close_target(close == 2u);
@@ -904,6 +928,7 @@ BOOL winios_pProcessEvents(DWORD mask) {
                     coalesced, dropped_moves, dropped_critical);
         }
     }
+    pthread_mutex_unlock(&drain_lock);
     return drained;
 }
 
