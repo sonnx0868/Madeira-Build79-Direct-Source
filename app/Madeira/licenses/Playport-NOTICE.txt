@@ -1,4 +1,6 @@
 Madeira adapts the colour typeless texture usage correction from Playport.
+Modified for Madeira: restrict the omission to BGRA/BGRX linear/sRGB families;
+retain PixelFormatView for numeric reinterpretation, depth, BC and UAV resources.
 
 Source: https://github.com/playportdev/playport
 Reviewed revision: 412de5f (2026-10-19 review)

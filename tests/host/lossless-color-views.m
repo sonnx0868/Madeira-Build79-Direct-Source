@@ -5,13 +5,13 @@
 #include <string.h>
 
 static NSData *render(id<MTLDevice> device, BOOL pixelFormatView) {
-    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
         width:16 height:16 mipmapped:NO];
     d.storageMode = MTLStorageModePrivate;
     d.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget |
         (pixelFormatView ? MTLTextureUsagePixelFormatView : 0);
     id<MTLTexture> parent = [device newTextureWithDescriptor:d]; assert(parent);
-    id<MTLTexture> view = [parent newTextureViewWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB]; assert(view);
+    id<MTLTexture> view = [parent newTextureViewWithPixelFormat:MTLPixelFormatBGRA8Unorm_sRGB]; assert(view);
     NSError *error = nil;
     NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
         "vertex float4 v(uint i [[vertex_id]]) { float2 p[3]={float2(-1,-1),float2(3,-1),float2(-1,3)};return float4(p[i],0,1); }\n"
@@ -20,7 +20,7 @@ static NSData *render(id<MTLDevice> device, BOOL pixelFormatView) {
     MTLRenderPipelineDescriptor *pipeline = [MTLRenderPipelineDescriptor new];
     pipeline.vertexFunction = [library newFunctionWithName:@"v"];
     pipeline.fragmentFunction = [library newFunctionWithName:@"f"];
-    pipeline.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm_sRGB;
+    pipeline.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
     id<MTLRenderPipelineState> state = [device newRenderPipelineStateWithDescriptor:pipeline error:&error]; assert(state);
     id<MTLCommandQueue> queue = [device newCommandQueue]; assert(queue);
     id<MTLCommandBuffer> command = [queue commandBuffer];
@@ -42,7 +42,7 @@ static NSData *render(id<MTLDevice> device, BOOL pixelFormatView) {
     NSMutableData *pixels = [NSMutableData dataWithLength:16*16*4];
     for (unsigned y=0;y<16;y++) memcpy((char *)pixels.mutableBytes+y*64,(char *)readback.contents+y*256,64);
     const uint8_t *bytes = pixels.bytes;
-    const int expected[4] = {137,188,225,255};
+    const int expected[4] = {225,188,137,255}; // raw BGRA bytes after sRGB encoding
     for (unsigned i=0;i<16*16*4;i++) assert(abs((int)bytes[i]-expected[i%4]) <= 1);
     return pixels;
 }
@@ -50,8 +50,6 @@ static NSData *render(id<MTLDevice> device, BOOL pixelFormatView) {
 int main(int argc, char **argv) {
     @autoreleasepool {
         id<MTLDevice> device = MTLCreateSystemDefaultDevice(); assert(device);
-        fprintf(stderr,"device=%s Apple5=%d Mac2=%d\n",device.name.UTF8String,
-            [device supportsFamily:MTLGPUFamilyApple5],[device supportsFamily:MTLGPUFamilyMac2]);
         NSArray *families = @[
             @[@(MTLPixelFormatRGBA8Unorm),@(MTLPixelFormatRGBA8Unorm_sRGB),@(MTLPixelFormatRGBA8Snorm),@(MTLPixelFormatRGBA8Uint),@(MTLPixelFormatRGBA8Sint)],
             @[@(MTLPixelFormatRGBA16Float),@(MTLPixelFormatRGBA16Unorm),@(MTLPixelFormatRGBA16Snorm),@(MTLPixelFormatRGBA16Uint),@(MTLPixelFormatRGBA16Sint)],
@@ -72,12 +70,15 @@ int main(int argc, char **argv) {
                     MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:base.unsignedIntegerValue
                         width:16 height:16 mipmapped:NO];
                     d.storageMode = MTLStorageModePrivate;
-                    d.usage = MTLTextureUsageShaderRead | (restore ? MTLTextureUsagePixelFormatView : 0);
+                    BOOL srgbOnly = base.unsignedIntegerValue == MTLPixelFormatBGRA8Unorm ||
+                                    base.unsignedIntegerValue == MTLPixelFormatBGRA8Unorm_sRGB;
+                    // Exercise the narrowed production policy, not the unsafe
+                    // broad Playport policy rejected by CI197/198. Numeric
+                    // families retain PFV for UNORM/SNORM/UINT reinterpretation.
+                    d.usage = MTLTextureUsageShaderRead | ((restore || !srgbOnly) ? MTLTextureUsagePixelFormatView : 0);
                     id<MTLTexture> parent = [device newTextureWithDescriptor:d];
                     if (!parent) { [unavailable addObject:base];continue; }
                     for (NSNumber *to in family) {
-                        fprintf(stderr,"view base=%lu target=%lu restore=%u\n",
-                            base.unsignedLongValue,to.unsignedLongValue,restore); fflush(stderr);
                         id<MTLTexture> view = [parent newTextureViewWithPixelFormat:to.unsignedIntegerValue];
                         assert(view && view.pixelFormat == to.unsignedIntegerValue); views++;
                     }
@@ -87,6 +88,8 @@ int main(int argc, char **argv) {
         NSData *old = render(device,YES), *eligible = render(device,NO);
         assert([old isEqualToData:eligible]);
         NSDictionary *result = @{@"device":device.name,@"viewsCreated":@(views),@"families":@(families.count),
+            @"supportsApple5":@([device supportsFamily:MTLGPUFamilyApple5]),
+            @"optimizedFamilies":@[@"BGRA8 linear/sRGB (BGRX via swizzle)"],
             @"unsupportedBaseFormats":unavailable,@"renderedPixelsEqual":@YES,@"renderedPixels":@256,
             @"validationLayerRequested":@YES,@"physicalGameFpsMeasured":@NO,@"compressionRatioMeasured":@NO};
         assert(views >= 200);

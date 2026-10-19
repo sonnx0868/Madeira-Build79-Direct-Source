@@ -73,7 +73,7 @@ OVERLAY = {
                 "choices": [("", "Default (auto)"), ("auto", "Auto"), ("1", "On"), ("cells", "Poll answers only"), ("0", "Off")]},
     "vram-mb": {"title": "Video memory budget (MB)"},
     "env.DXMT_TYPELESS_PFV": {"title": "Legacy colour texture views", "kind": "bool", "default": "0", "category": "Direct3D 9/10/11 (DXMT)",
-        "note": "Restores PixelFormatView for colour typeless textures. Off by default so compatible colour views remain eligible for lossless framebuffer compression. Depth/stencil, BC and UAV resources retain their previous policy.",
+        "note": "Restores PixelFormatView for BGRA/BGRX typeless textures. Off keeps these linear/sRGB-only families eligible for lossless compression. Numeric reinterpretation, depth/stencil, BC and UAV resources retain their previous policy.",
         "sources": ["dxmt/src/d3d11/d3d11_resource_helper.cpp"]},
     "ram-reserve-mb": {"title": "RAM reserved for iPadOS (MB)", "kind": "int", "default": "1536", "category": "Memory & JIT pool",
         "note": "Plans graphics memory with the lower of the process limit and physical RAM minus this reserve. Used by video-memory budgeting and texture pressure protection. 0 restores process-limit-only planning; restart Madeira after changing it.",

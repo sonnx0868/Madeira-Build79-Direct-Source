@@ -1,4 +1,4 @@
-Retain lossless compression eligibility on same-layout colour typeless views.
+Retain lossless compression eligibility on sRGB-only colour typeless families.
 Adapted from playportdev/playport patches/dxmt/0009 at commit 412de5f.
 Playport authors, GPL-3.0; retain the additional depth-bind and UAV guards here.
 
@@ -12,21 +12,24 @@ Playport authors, GPL-3.0; retain the additional depth-bind and UAV guards here.
  
  namespace dxmt {
  
-@@ -369,8 +370,18 @@
+@@ -369,8 +370,21 @@
    }
  
    if (metal_format.Flag & MTL_DXGI_FORMAT_TYPELESS) {
 -    // well this is necessary for passing validation layer
 -    metal_usage |= WMTTextureUsagePixelFormatView;
-+    /* Adapted from Playport's DXMT 0009. Colour-family views keep their
-+     * component layout, so Metal does not require PixelFormatView. On Apple
-+     * GPUs that unnecessary flag disables lossless framebuffer compression.
-+     * Keep depth/stencil and BC views unchanged, plus UAV resources where
-+     * ShaderWrite already rules compression out. BindFlags matters here:
-+     * R16/R32 TYPELESS can have been remapped to a depth pixel format above.
-+     * The explicit escape hatch restores the preceding allocation policy. */
++    /* Adapted from Playport's DXMT 0009 with narrower compatibility rules.
++     * Metal validation rejects e.g. RGBA8 UNORM->SNORM without PFV, despite
++     * the unchanged component sizes. Keep it on numeric typeless families.
++     * BGRA/BGRX typeless families only expose linear/sRGB (plus X swizzle),
++     * where PFV is unnecessary and would disable lossless compression.
++     * Depth, BC and UAV resources retain the preceding allocation policy.
++     * The explicit escape hatch also restores it for BGRA/BGRX. */
 +    static const bool always_pfv = env::getEnvVar("DXMT_TYPELESS_PFV") == "1";
-+    if (always_pfv || (BindFlags & (D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_UNORDERED_ACCESS)) ||
++    const bool srgb_only_family = Format == DXGI_FORMAT_B8G8R8A8_TYPELESS ||
++                                  Format == DXGI_FORMAT_B8G8R8X8_TYPELESS;
++    if (always_pfv || !srgb_only_family ||
++        (BindFlags & (D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_UNORDERED_ACCESS)) ||
 +        (metal_format.Flag & (MTL_DXGI_FORMAT_DEPTH_PLANER | MTL_DXGI_FORMAT_STENCIL_PLANER |
 +                              MTL_DXGI_FORMAT_BC)))
 +      metal_usage |= WMTTextureUsagePixelFormatView;

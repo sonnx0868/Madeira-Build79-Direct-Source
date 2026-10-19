@@ -81,6 +81,14 @@ planning). This applies to the advertised video-memory budget, budget trimming
 and texture headroom, since the reported process limit can exceed physical RAM.
 Unknown GPU guidance, discrete GPUs and remote rendering retain their previous
 behavior. The policy does not discard live resources or bypass GPU fences.
+The DXMT frontend also keeps BGRA/BGRX typeless colour targets eligible for
+Metal lossless compression by omitting `PixelFormatView` on their linear/sRGB
+views. This adapts Playport's 0009 with a narrower compatibility rule: native
+Metal validation rejected its broader UNORM-to-SNORM case even with Apple5
+support. Numeric typeless families, depth/stencil, BC and UAV resources retain
+the flag. `env.DXMT_TYPELESS_PFV=1` restores it for BGRA/BGRX too. The native
+view and render/readback tests check compatibility and identical pixels; they
+do not establish a sustained REPLACED frame-rate improvement.
 It also enables `DXMT_CENSUS_THROTTLE`: periodic memory census reports run at
 most once per 10 seconds, with the first report and memory warnings retained.
 An explicit `env.DXMT_CENSUS_THROTTLE` value takes priority. This reduces

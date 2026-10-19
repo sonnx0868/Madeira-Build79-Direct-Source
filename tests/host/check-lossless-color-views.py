@@ -33,8 +33,9 @@ source = r'''
 #include <string>
 enum { MTL_DXGI_FORMAT_TYPELESS=1,MTL_DXGI_FORMAT_DEPTH_PLANER=2,MTL_DXGI_FORMAT_STENCIL_PLANER=4,MTL_DXGI_FORMAT_BC=8 };
 enum { D3D11_BIND_DEPTH_STENCIL=64,D3D11_BIND_UNORDERED_ACCESS=128,WMTTextureUsagePixelFormatView=16 };
+enum { DXGI_FORMAT_B8G8R8A8_TYPELESS=90,DXGI_FORMAT_B8G8R8X8_TYPELESS=92 };
 namespace env { static std::string getEnvVar(const char *s) {const char *v=getenv(s);return v?v:"";} }
-static unsigned usage(unsigned format_flags,unsigned BindFlags) {
+static unsigned usage(unsigned format_flags,unsigned BindFlags,unsigned Format=90) {
     struct { unsigned Flag; } metal_format={format_flags};
     unsigned metal_usage=5;
 __POLICY__
@@ -44,10 +45,13 @@ int main(int argc,char **argv) {
     bool restore=argc>1;
     assert(usage(0,0)==5);
     assert(usage(MTL_DXGI_FORMAT_TYPELESS,0)==(restore?21:5));
+    assert(usage(MTL_DXGI_FORMAT_TYPELESS,0,92)==(restore?21:5));
+    for(unsigned format : {1u,9u,15u,23u,27u,33u,39u,48u,53u,60u})
+        assert(usage(MTL_DXGI_FORMAT_TYPELESS,0,format)==21); // numeric reinterpretation needs PFV
     assert(usage(MTL_DXGI_FORMAT_TYPELESS,D3D11_BIND_DEPTH_STENCIL)==21);
     assert(usage(MTL_DXGI_FORMAT_TYPELESS,D3D11_BIND_UNORDERED_ACCESS)==21);
     for(unsigned mask=2;mask<16;mask+=2) assert(usage(MTL_DXGI_FORMAT_TYPELESS|mask,0)==21);
-    puts("PASS: production descriptor policy preserves typed, depth-bound, UAV, plane/BC resources and explicit restore");
+    puts("PASS: production policy only optimizes BGRA/BGRX sRGB families; numeric, depth-bound, UAV, plane/BC resources and explicit restore preserved");
 }
 '''.replace('__POLICY__',policy)
 with tempfile.TemporaryDirectory(prefix='madeira-lossless-views-') as scratch:
