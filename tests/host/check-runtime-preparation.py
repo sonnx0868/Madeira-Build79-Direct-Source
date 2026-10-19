@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-runtime-check-') as scratch:
     let root = URL(fileURLWithPath: CommandLine.arguments[1])
     let drive=root.appendingPathComponent("drive_c"), bundle=root.appendingPathComponent("bundle"), cache=root.appendingPathComponent("cache")
     let game=drive.appendingPathComponent("Games/Fixture"), exe=game.appendingPathComponent("game.exe")
-    func run(_ force: Bool = false) async throws -> RuntimeReport {
+    @Sendable func run(_ force: Bool = false) async throws -> RuntimeReport {
       try await RuntimePreparer.shared.prepare(executable:exe,bits:64,drive:drive,bundle:bundle,cache:cache,force:force,progress:{ _ in })
     }
     async let a=run();async let b=run()

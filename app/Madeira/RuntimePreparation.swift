@@ -68,6 +68,14 @@ enum RuntimeFiles {
         guard let files = try? manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return nil }
         return files.first { $0.lastPathComponent.lowercased() == name }
     }
+    static func filesystemPath(_ file: URL) -> String {
+        // Foundation can present /var and /private/var differently for an
+        // enumerated file and its parent. POSIX identity is consistent across
+        // those URL representations, including when matching graph nodes.
+        guard let path = file.path.withCString({ realpath($0, nil) }) else { return file.standardizedFileURL.path }
+        defer { free(path) }
+        return String(cString: path)
+    }
     static func make(_ folder: URL) throws { try manager.createDirectory(at: folder, withIntermediateDirectories: true) }
 }
 
@@ -184,8 +192,15 @@ enum RuntimeScanner {
         }
         watched.insert(system)
         var missing: [(URL, RuntimeDependency)] = []
-        var startupEdges: [URL: Set<URL>] = [:]
-        let moduleSet = Set(modules)
+        var startupEdges: [String: Set<String>] = [:]
+        var pathCache: [URL: String] = [:]
+        func identity(_ file: URL) -> String {
+            if let path = pathCache[file] { return path }
+            let path = RuntimeFiles.filesystemPath(file)
+            pathCache[file] = path
+            return path
+        }
+        let moduleSet = Set(modules.map(identity)), rootPath = identity(root)
         for module in modules {
             watched.insert(module); report.scanned += 1
             for imported in LibraryModel.moduleImports(module) {
@@ -209,7 +224,8 @@ enum RuntimeScanner {
                         watched.insert(file)
                         if RuntimeFiles.matches(file, bits: bits, bundled: folder == system) {
                             satisfied = true
-                            if !imported.delayed, moduleSet.contains(file) { startupEdges[module, default: []].insert(file) }
+                            let child = identity(file)
+                            if !imported.delayed, moduleSet.contains(child) { startupEdges[identity(module), default: []].insert(child) }
                         }
                         else { wrong = folder != system }
                         break // An incompatible local DLL shadows later search paths.
@@ -219,7 +235,8 @@ enum RuntimeScanner {
                     satisfied = bundleByName[name]?.contains { RuntimeFiles.matches($0, bits: bits, bundled: true) } == true
                 }
                 if !satisfied {
-                    let source = module.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
+                    let path = identity(module)
+                    let source = path.hasPrefix(rootPath + "/") ? String(path.dropFirst(rootPath.count + 1)) : module.lastPathComponent
                     missing.append((module, RuntimeDependency(name: name, folder: module.deletingLastPathComponent().path,
                         bits: bits, wrongArchitecture: wrong, source: source, load: imported.delayed ? .delayed : .unverified)))
                 }
@@ -228,13 +245,13 @@ enum RuntimeScanner {
         // Only ordinary imports reachable from the chosen EXE establish a
         // startup dependency. Unity plugins and delay imports can be loaded
         // later; their presence on disk does not prove that code path is used.
-        var startup: Set<URL> = [entryModule], pending = [entryModule]
+        var startup: Set<String> = [identity(entryModule)], pending = [identity(entryModule)]
         while let module = pending.popLast() {
             for child in startupEdges[module] ?? [] where startup.insert(child).inserted { pending.append(child) }
         }
         report.missing = Set(missing.map { module, dependency in
             var result = dependency
-            if result.load != .delayed, startup.contains(module) { result.load = .startup }
+            if result.load != .delayed, startup.contains(identity(module)) { result.load = .startup }
             return result
         }).sorted { ($0.source ?? $0.folder, $0.name, $0.load?.rawValue ?? "") < ($1.source ?? $1.folder, $1.name, $1.load?.rawValue ?? "") }
         report.stamps = watched.compactMap(RuntimeStamp.read).sorted { $0.path < $1.path }
