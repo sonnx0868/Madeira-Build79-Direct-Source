@@ -11,6 +11,7 @@ rm -f "$output"
   build/wine-pe/controller-pe.version \
   build/wine-pe/wgi-host-gamepad.json \
   build/dxmt-ios/frameflow.json \
+  build/dxmt-ios/retirement.json \
   build/wine-pe/exec-callback-pe.version \
   build/wine-pe/exec-callback-pe.json \
   build/wine-pe/module-loader.json \

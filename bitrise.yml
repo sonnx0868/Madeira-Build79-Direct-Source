@@ -19,6 +19,29 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: 29b11bc91507cd4b4037a81bb0a2ee4023ecb52b42bbf7b385453921d9e50ac9
 
 workflows:
+  madeira-v016-retirement-refresh:
+    title: Rebuild verified GPU retirement lifetime and Present wait attribution
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh retirement-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+
   madeira-gpu-retirement-check:
     title: Verify GPU retirement lifetime with actual Metal and sanitizers
     steps:
