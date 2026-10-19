@@ -71,6 +71,12 @@ Texture pressure protection also applies to detected Unity store installations,
 including Steam folder launches. It can reduce the highest mips of newly created
 large textures when headroom is low; existing allocations are not resized. Its
 automatic environment value is cleared before preparing another game.
+On iOS the native query also considers Metal's recommended working set minus
+its current resource allocations. The lower of that GPU headroom and process
+headroom drives the existing protection: remaining room below the process kill
+limit alone does not establish that more GPU resources can maintain performance.
+Unknown GPU guidance, discrete GPUs and remote rendering retain their previous
+behavior. The policy does not discard live resources or bypass GPU fences.
 It also enables `DXMT_CENSUS_THROTTLE`: periodic memory census reports run at
 most once per 10 seconds, with the first report and memory warnings retained.
 An explicit `env.DXMT_CENSUS_THROTTLE` value takes priority. This reduces

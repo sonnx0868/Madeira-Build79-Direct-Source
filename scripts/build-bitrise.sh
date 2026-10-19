@@ -146,6 +146,7 @@ if [[ -n "${MADEIRA_WOW64_ADDON_URL:-}" ]]; then
 fi
 
 checks() {
+  python3 tests/host/check-texture-headroom.py --require-darwin
   local metrics_sdk
   metrics_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
   xcrun --sdk iphoneos clang -fobjc-arc -fmodules -fblocks \

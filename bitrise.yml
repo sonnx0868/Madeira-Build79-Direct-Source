@@ -15,10 +15,51 @@ app:
     - XCODE_SCHEME: Madeira
     - APP_CONFIGURATION: Debug
     - JOBS: '4'
-    - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build794-9e615ce/Madeira-v0.1.6-native-deps-build794.zip
-    - MADEIRA_NATIVE_DEPS_SHA256: a23c5e83bc82d22cce4d4d7cc30829c834ce79c1023be46255aa77ff81e1cd7f
+    - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build813-d49d3fc/Madeira-v0.1.6-native-deps-build813.zip
+    - MADEIRA_NATIVE_DEPS_SHA256: 9f4850a08adccb2fe9111b46f31785f3fc36f53267920ca40a89f28f2cd6faa9
 
 workflows:
+  madeira-texture-headroom-check:
+    title: Validate native texture pressure against Metal performance budget
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                git submodule update --init dxmt
+                python3 tests/host/check-texture-headroom.py --require-darwin
+                python3 tests/host/check-frontend.py
+
+  madeira-v016-texture-refresh:
+    title: Refresh native texture pressure and build IPA
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh pacing-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-runtime-reference-check:
     title: Validate dependency provenance and runtime repair cache
     steps:

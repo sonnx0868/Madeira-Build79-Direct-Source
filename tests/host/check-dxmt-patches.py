@@ -15,6 +15,7 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-dead-color-store.patch", "patches/dxmt-swapchain-hook-abi.patch",
                "patches/dxmt-gpu-trace.patch", "patches/dxmt-bounded-srv-vector-load.patch",
                "patches/dxmt-explicit-lod-guard.patch",
+               "patches/dxmt-texture-headroom.patch",
                "patches/dxmt-gpu-stages.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",

@@ -1,0 +1,43 @@
+Account for the unified GPU performance working set before the existing allocation-time mip protection.
+
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -2,6 +2,7 @@
+ #include "../../../../build/madeira_cfg.h"   /* ml1095: one config file */
+ #include <sys/mman.h>
+ #include <mach/vm_statistics.h>
++#include "dxmt-ios/texture_headroom.h"
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <sys/stat.h>
+@@ -5988,7 +5989,7 @@
+     break;
+   }
+   case 7: {   /* ml2000: memory headroom for DXMT's automatic mip clamp.
+-               * len = os_proc_available_memory() bytes, ptr = phys_footprint
++               * len = effective allocation headroom, ptr = phys_footprint
+                * bytes (0 when task_info fails), ret = 1. ret stays 0 when the
+                * limit is unknown (0 from os_proc_available_memory) and in
+                * remote mode, where textures live on the other machine. No
+@@ -5999,6 +6000,21 @@
+     if (wmtr_enabled()) break;
+     avail = (uint64_t)os_proc_available_memory();
+     if (!avail) break;
++#if TARGET_OS_IOS
++    /* A process may have room below jetsam while its GPU resources already
++     * exceed Metal's recommended working set. On iOS both consume unified
++     * memory. Stop treating process headroom as GPU performance headroom.
++     * The existing PE-side eligibility and explicit opt-outs still decide
++     * whether a NEW texture may lose a top mip; live resources are untouched. */
++    static id<MTLDevice> texture_device;
++    static dispatch_once_t texture_device_once;
++    dispatch_once(&texture_device_once, ^{
++      texture_device = MTLCreateSystemDefaultDevice();
++    });
++    if (texture_device)
++      avail = madeira_texture_headroom(avail, [texture_device recommendedMaxWorkingSetSize],
++                                       [texture_device currentAllocatedSize], [texture_device hasUnifiedMemory]);
++#endif
+     a->len = avail;
+     a->ptr = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vmi, &cnt) == KERN_SUCCESS
+                  ? (uint64_t)vmi.phys_footprint : 0;

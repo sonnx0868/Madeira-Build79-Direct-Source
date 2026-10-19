@@ -42,7 +42,8 @@ def main():
     record={'archive_sha256':sha_file(archive),'members':members(archive),'sources':{}}
     for name in ['dxmt/src/winemetal/unix/winemetal_unix.c','build/dxmt-ios/present_pacing.h',
                  'patches/dxmt-producer-pacing.patch','patches/dxmt-gpu-foreground.patch','patches/dxmt-gpu-trace.patch',
-                 'patches/dxmt-gpu-stages.patch']:
+                 'patches/dxmt-gpu-stages.patch','patches/dxmt-texture-headroom.patch',
+                 'build/dxmt-ios/texture_headroom.h']:
         record['sources'][name]=hashlib.sha256((root/name).read_bytes().replace(b'\r\n',b'\n')).hexdigest()
     receipt=root/'build/dxmt-ios/producer-pacing.json'
     if a.stamp:
