@@ -211,10 +211,13 @@ static long long madeira_cfg_int(const char *key,long long value){
 static int switches,parks,switch_status;
 static uint64_t fake_now=1000;
 static int thread_switch(int port,int option,int timeout){assert(!port&&!option&&!timeout);++switches;return switch_status;}
-static uint64_t clock_gettime_nsec_np(int clock_id){(void)clock_id;return fake_now;}
+static uint64_t fake_nsec_clock(int clock_id){(void)clock_id;return fake_now;}
 static int fake_clock(int clock_id,struct timespec *t){(void)clock_id;t->tv_sec=fake_now/1000000000;t->tv_nsec=fake_now%1000000000;return 0;}
 static int fake_park(useconds_t us){assert(us==100);++parks;fake_now+=us*1000;return 0;}
+#ifndef CLOCK_UPTIME_RAW
 #define CLOCK_UPTIME_RAW 8
+#endif
+#define clock_gettime_nsec_np fake_nsec_clock
 #ifndef CLOCK_MONOTONIC
 #define CLOCK_MONOTONIC 1
 #endif
