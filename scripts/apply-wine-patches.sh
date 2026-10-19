@@ -3,6 +3,12 @@
 # submodule's upstream repository. Safe to call repeatedly in local/CI builds.
 set -euo pipefail
 root="${CM_BUILD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Wine's dependency scanner resolves quoted includes even inside WINE_IOS
+# guards while regenerating PE Makefiles. Native compilation already finds
+# this header via -Ibuild/ntdll-unix/shims; stage the identical owned header
+# beside sync.c as well so cached PE-only refreshes can regenerate safely.
+install -m 644 "$root/build/ntdll-unix/shims/ios_tid_alert.h" \
+    "$root/wine/dlls/ntdll/unix/ios_tid_alert.h"
 session_priority_applied=0
 if git -C "$root/wine" apply --reverse --check "$root/patches/wine-session-priority.patch" >/dev/null 2>&1; then
     session_priority_applied=1
