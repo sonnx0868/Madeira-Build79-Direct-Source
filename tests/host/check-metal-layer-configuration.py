@@ -91,7 +91,8 @@ import QuartzCore
 }
 @MainActor final class LogStore {
     static let shared = LogStore()
-    func log(_ text: String) { print(text) }
+    var messages: [String] = []
+    func log(_ text: String) { messages.append(text); print(text) }
 }
 @main @MainActor final class Fixture: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
@@ -138,18 +139,18 @@ import QuartzCore
         Task { @MainActor in
             try! await Task.sleep(nanoseconds: 600_000_000)
             let baseline = GlassSkin.shared.renderedFrames
-            precondition(baseline > 0, "Production search skin did not submit Metal frames")
+            guard self.require(baseline > 0, "Production search skin did not submit Metal frames: " + LogStore.shared.messages.joined(separator: "; ")) else { return }
             // Occlusion leaves the library's UIKit views attached. While a
             // game owns the window, even a late onAppear/start must stay idle.
             GlassSkin.sessionChanged(active: true)
             let paused = GlassSkin.shared.renderedFrames
             GlassSkin.shared.start(fadeIn: true)
             try! await Task.sleep(nanoseconds: 400_000_000)
-            precondition(GlassSkin.shared.renderedFrames == paused, "Hidden library still submits GPU work")
-            precondition(LiquidMetalSetting.shared.on, "Game changed the saved appearance setting")
+            guard self.require(GlassSkin.shared.renderedFrames == paused, "Hidden library still submits GPU work"),
+                  self.require(LiquidMetalSetting.shared.on, "Game changed the saved appearance setting") else { return }
             GlassSkin.sessionChanged(active: false)
             try! await Task.sleep(nanoseconds: 400_000_000)
-            precondition(GlassSkin.shared.renderedFrames > paused, "Returning to Library did not resume its renderer")
+            guard self.require(GlassSkin.shared.renderedFrames > paused, "Returning to Library did not resume its renderer") else { return }
             GlassSkin.shared.stop()
             result["hiddenLibraryMetalSubmissionsStopped"] = true
             result["libraryAppearanceResumesAfterGame"] = true
@@ -158,6 +159,13 @@ import QuartzCore
             try! JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
                 .write(to: docs.appendingPathComponent("result.json"))
         }
+    }
+    func require(_ value: Bool, _ message: String) -> Bool {
+        if !value {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            try! Data(message.utf8).write(to: docs.appendingPathComponent("failure.txt"))
+        }
+        return value
     }
 }
 '''
@@ -204,10 +212,17 @@ with tempfile.TemporaryDirectory(prefix='madeira-layer-scalars-') as scratch:
         documents = Path(subprocess.check_output(['xcrun', 'simctl', 'get_app_container', device, bundle, 'data'], text=True).strip()) / 'Documents'
         result_file = documents / 'result.json'
         result_file.unlink(missing_ok=True)
-        run('xcrun', 'simctl', 'launch', device, bundle)
+        failure_file = documents / 'failure.txt'
+        failure_file.unlink(missing_ok=True)
+        console = subprocess.Popen(['xcrun', 'simctl', 'launch', '--console', device, bundle], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for _ in range(30):
-            if result_file.exists(): break
+            if result_file.exists() or failure_file.exists() or console.poll() is not None: break
             time.sleep(1)
+        if failure_file.exists(): raise AssertionError(failure_file.read_text())
+        if not result_file.exists():
+            subprocess.run(['xcrun', 'simctl', 'terminate', device, bundle], capture_output=True)
+            try: print(console.communicate(timeout=10)[0][-6000:])
+            except subprocess.TimeoutExpired: console.kill()
         assert result_file.exists(), 'Scalar fixture failed or timed out; inspect Simulator crash report'
         result = json.loads(result_file.read_text())
         output = Path(os.environ.get('BITRISE_DEPLOY_DIR', folder))
@@ -218,4 +233,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-layer-scalars-') as scratch:
         print(json.dumps(result, sort_keys=True))
     finally:
         subprocess.run(['xcrun', 'simctl', 'terminate', device, bundle], check=False, capture_output=True)
+        if 'console' in locals():
+            try: console.communicate(timeout=10)
+            except subprocess.TimeoutExpired: console.kill(); console.communicate()
         if not was_booted: run('xcrun', 'simctl', 'shutdown', device)
