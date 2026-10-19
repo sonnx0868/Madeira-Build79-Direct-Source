@@ -11,7 +11,10 @@
 #include <limits.h>
 
 #ifndef IOS_YIELD_BUDGET_NS
-#define IOS_YIELD_BUDGET_NS UINT64_C(2000000)
+#define IOS_YIELD_BUDGET_NS UINT64_C(32000)
+#endif
+#ifndef IOS_YIELD_ADAPTIVE
+#define IOS_YIELD_ADAPTIVE 1
 #endif
 #define IOS_YIELD_GAP_NS UINT64_C(100000)
 
@@ -37,7 +40,7 @@ static inline int ios_yield_should_park( struct ios_yield_state *s, uint64_t now
     uint64_t budget = IOS_YIELD_BUDGET_NS;
 #if defined(IOS_YIELD_ADAPTIVE) && IOS_YIELD_ADAPTIVE
 #ifndef IOS_YIELD_MIN_BUDGET_NS
-#define IOS_YIELD_MIN_BUDGET_NS UINT64_C(1000)
+#define IOS_YIELD_MIN_BUDGET_NS UINT64_C(4000)
 #endif
     if (s->idle_parks >= 4) budget = IOS_YIELD_MIN_BUDGET_NS;
     else if (s->idle_parks >= 2) budget = UINT64_C(8000);

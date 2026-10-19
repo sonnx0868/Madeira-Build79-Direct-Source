@@ -11,7 +11,7 @@ Elapsed policy adapted from NutsEmu Wine patch 0122, LGPL-2.1-or-later.
  #endif
  
  HANDLE keyed_event = 0;
-@@ -3590,47 +3591,46 @@
+@@ -3590,47 +3591,47 @@
  /******************************************************************
   *		NtYieldExecution (NTDLL.@)
   */
@@ -27,7 +27,7 @@ Elapsed policy adapted from NutsEmu Wine patch 0122, LGPL-2.1-or-later.
 +     * permission to sleep in a short handoff before the elapsed budget. */
 +    ios_yield_sleep_us = sleep_us < 0 ? 0 : sleep_us > 1000000 ? 1000000 : sleep_us;
 +    ios_yield_min_calls = minimum_calls < 0 ? 0 : minimum_calls > UINT_MAX ? UINT_MAX : minimum_calls;
-+    fprintf( stderr, "[yield-budget-v2] sustained polling only: budget=2000us gap=100us sleep=%uus min_calls=%u; darwin-yield-v1 no priority depression\n",
++    fprintf( stderr, "[yield-budget-v3] adaptive polling: budget=32/8/4us gap=100us max_sleep=%uus min_calls=%u; darwin-yield-v1 no priority depression\n",
 +             ios_yield_sleep_us, ios_yield_min_calls );
 +}
 +#endif
@@ -66,11 +66,12 @@ Elapsed policy adapted from NutsEmu Wine patch 0122, LGPL-2.1-or-later.
 -        ios_last_yield_ns = now;
 -        __sync_fetch_and_add( &ios_xp_yield, 1 );   /* ml1131 */
 -        if (ios_ysleep && ios_yield_streak > ios_ystreak)
-+    /* Counting yields across useful work made periodic job handoffs sleep on
-+     * every call once 256 calls accumulated. Keep short waits cheap, and only
-+     * back off when the thread continuously polls for at least two ms.
-+     * NutsEmu Wine patch 0122 supplies the elapsed-time/gap policy. Retain our
-+     * non-depressing Mach yield and update the timestamp after an idle sleep. */
++    /* Do not carry a count across useful work or latch every later yield into
++     * a sleep. NutsEmu patch 0122 supplies the elapsed-time/gap principle.
++     * Native comparisons found a fixed 2 ms burst used excessive CPU during
++     * periodic jobs. Start with 32 us and reduce idle retries to 8 then 4 us;
++     * rearm after parking and reset when useful work breaks the poll stream.
++     * Keep non-depressing Mach handoffs and a bounded 50/75/100 us backoff. */
 +    {
 +        static __thread struct ios_yield_state state;
 +        uint64_t now;
@@ -91,7 +92,7 @@ Elapsed policy adapted from NutsEmu Wine patch 0122, LGPL-2.1-or-later.
      return ios_scheduler_yield();
  #elif defined(HAVE_SCHED_YIELD)
  #ifdef RUSAGE_THREAD
-@@ -3649,7 +3649,6 @@
+@@ -3649,7 +3650,6 @@
      return STATUS_NO_YIELD_PERFORMED;
  #endif
  }

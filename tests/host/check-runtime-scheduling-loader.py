@@ -214,7 +214,7 @@ static uint64_t fake_now=1000;
 static int thread_switch(int port,int option,int timeout){assert(!port&&!option&&!timeout);++switches;return switch_status;}
 static uint64_t fake_nsec_clock(int clock_id){(void)clock_id;return fake_now;}
 static int fake_clock(int clock_id,struct timespec *t){(void)clock_id;t->tv_sec=fake_now/1000000000;t->tv_nsec=fake_now%1000000000;return 0;}
-static int fake_park(useconds_t us){assert(us==100);++parks;fake_now+=us*1000;return 0;}
+static int fake_park(useconds_t us){assert(us>0&&us<=100);++parks;fake_now+=us*1000;return 0;}
 #ifndef CLOCK_UPTIME_RAW
 #define CLOCK_UPTIME_RAW 8
 #endif
@@ -237,16 +237,23 @@ int main(void){
  }
  struct ios_yield_state s={0};
  assert(!ios_yield_should_park(&s,0,0));
- for(uint64_t t=50000;t<2000000;t+=50000)assert(!ios_yield_should_park(&s,t,0));
- assert(ios_yield_should_park(&s,2000000,0));
- ios_yield_did_park(&s,7000000);assert(ios_yield_should_park(&s,7000001,0));
- assert(!ios_yield_should_park(&s,7100001,0)); /* Exact gap starts a new streak. */
+ assert(ios_yield_park_us(&s,100)==50);
+ for(uint64_t t=1000;t<32000;t+=1000)assert(!ios_yield_should_park(&s,t,0));
+ assert(ios_yield_should_park(&s,32000,0));
+ ios_yield_did_park(&s,7000000);assert(!ios_yield_should_park(&s,7000001,0));
+ assert(ios_yield_should_park(&s,7032000,0));ios_yield_did_park(&s,7032000);
+ assert(s.idle_parks==2&&ios_yield_park_us(&s,100)==75);
+ assert(!ios_yield_should_park(&s,7039999,0));assert(ios_yield_should_park(&s,7040000,0));
+ ios_yield_did_park(&s,7040000);ios_yield_did_park(&s,7048000);
+ assert(s.idle_parks==4&&ios_yield_park_us(&s,100)==100&&ios_yield_park_us(&s,17)==17);
+ assert(!ios_yield_should_park(&s,7051999,0));assert(ios_yield_should_park(&s,7052000,0));
+ assert(!ios_yield_should_park(&s,7152000,0)&&!s.idle_parks); /* Exact gap restarts the fast budget. */
  assert(!ios_yield_should_park(&s,1,0)); /* Discontinuous clocks restart safely. */
  s.calls=UINT_MAX;s.start_ns=0;s.last_ns=3000000;s.initialized=1;
  assert(ios_yield_should_park(&s,3000001,UINT_MAX)&&s.calls==UINT_MAX);
  assert(NtYieldExecution()==STATUS_SUCCESS&&switches==1&&!parks);
  switch_status=1;assert(NtYieldExecution()==STATUS_NO_YIELD_PERFORMED&&switches==2);
- switch_status=0;for(int i=0;i<300;++i){fake_now+=1000;assert(NtYieldExecution()==STATUS_SUCCESS);}
+ switch_status=0;for(int i=0;i<300;++i){fake_now+=100;assert(NtYieldExecution()==STATUS_SUCCESS);}
  assert(!parks); /* More than 256 short yields must not trigger a timed sleep. */
  for(int i=0;i<80;++i){fake_now+=50000;assert(NtYieldExecution()==STATUS_SUCCESS);}
  assert(parks>0&&ios_xp_yield==382&&ios_xp_yield_slept==parks);
@@ -276,7 +283,7 @@ int main(int argc,char **argv){
     ab_binary=folder/'before-after.exe'
     subprocess.run([cc,'-std=c11','-pthread','-DWINE_IOS=1',str(ab_file),'-o',str(ab_binary)],check=True)
     controlled=[]
-    for engine in ('legacy','elapsed'):
+    for engine in ('legacy','shipping'):
         r=subprocess.check_output([str(ab_binary),engine],text=True,timeout=20)
         record=json.loads(r.strip().splitlines()[-1]);controlled.append(record)
         print('CONTROLLED_YIELD '+json.dumps(record),flush=True)
@@ -348,7 +355,7 @@ static inline NTSTATUS ios_scheduler_yield(void){sched_yield();return STATUS_SUC
         samples=[]
         for case in ('rapid','jobs','poll'):
             for repeat in range(5):
-                for engine in (('legacy','elapsed') if repeat%2==0 else ('elapsed','legacy')):
+                for engine in (('legacy','shipping') if repeat%2==0 else ('shipping','legacy')):
                     result=subprocess.check_output([str(binary),engine,case],text=True,timeout=30)
                     record=json.loads(result.strip().splitlines()[-1]);record['repeat']=repeat
                     samples.append(record);print('YIELD_BENCH '+json.dumps(record),flush=True)
@@ -358,12 +365,12 @@ static inline NTSTATUS ios_scheduler_yield(void){sched_yield();return STATUS_SUC
                 'scope':'native macOS host; not game FPS or iPad power',
                 'samples':samples},indent=2)+'\n')
         if args.yield_matrix:
-            variants=[('legacy',[],None),('elapsed',[],None),
-                ('nuts-sched-50',['-DIOS_YIELD_BENCH_SCHED=1'],'50'),
-                ('nuts-sched-100',['-DIOS_YIELD_BENCH_SCHED=1'],'100'),
-                ('rearm32-100',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
-                ('rearm128-100',['-DIOS_YIELD_BUDGET_NS=128000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
-                ('rearm32-50',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'50'),
+            variants=[('legacy',[],None),('elapsed',['-DIOS_YIELD_BUDGET_NS=2000000','-DIOS_YIELD_ADAPTIVE=0'],None),
+                ('nuts-sched-50',['-DIOS_YIELD_BUDGET_NS=2000000','-DIOS_YIELD_ADAPTIVE=0','-DIOS_YIELD_BENCH_SCHED=1'],'50'),
+                ('nuts-sched-100',['-DIOS_YIELD_BUDGET_NS=2000000','-DIOS_YIELD_ADAPTIVE=0','-DIOS_YIELD_BENCH_SCHED=1'],'100'),
+                ('rearm32-100',['-DIOS_YIELD_ADAPTIVE=0','-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
+                ('rearm128-100',['-DIOS_YIELD_ADAPTIVE=0','-DIOS_YIELD_BUDGET_NS=128000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
+                ('rearm32-50',['-DIOS_YIELD_ADAPTIVE=0','-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'50'),
                 ('adaptive-1',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_ADAPTIVE=1','-DIOS_YIELD_MIN_BUDGET_NS=1000'],'100'),
                 ('adaptive-4',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_ADAPTIVE=1','-DIOS_YIELD_MIN_BUDGET_NS=4000'],'100')]
             matrix=[];candidates=[]

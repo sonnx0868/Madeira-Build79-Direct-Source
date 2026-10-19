@@ -1,0 +1,506 @@
+{
+  "date": "2026-10-19",
+  "source_test_commit": "9e03065",
+  "bitrise_build": 167,
+  "scope": "Native macOS yield microbenchmarks, not REPLACED FPS or iPad power",
+  "selected_policy": "adaptive-4",
+  "reason": "Bounded 32/8/4 us retry budgets, rearm after park and 50/75/100 us sleep progression; avoid both permanently latched sleeps and 2 ms polling on every short job.",
+  "summary": [
+    {
+      "variant": "legacy",
+      "rapid": {
+        "wall_ms": 2473.785,
+        "cpu_ms": 117.774,
+        "parks": 19627
+      },
+      "jobs": {
+        "wall_ms": 138.362,
+        "cpu_ms": 93.216,
+        "parks": 794
+      },
+      "poll": {
+        "wall_ms": 120.159,
+        "cpu_ms": 2.613,
+        "parks": 503
+      }
+    },
+    {
+      "variant": "elapsed",
+      "rapid": {
+        "wall_ms": 1417.025,
+        "cpu_ms": 69.532,
+        "parks": 11596
+      },
+      "jobs": {
+        "wall_ms": 90.156,
+        "cpu_ms": 180.145,
+        "parks": 0
+      },
+      "poll": {
+        "wall_ms": 120.2,
+        "cpu_ms": 4.293,
+        "parks": 498
+      }
+    },
+    {
+      "variant": "nuts-sched-50",
+      "rapid": {
+        "wall_ms": 814.085,
+        "cpu_ms": 38.732,
+        "parks": 12933
+      },
+      "jobs": {
+        "wall_ms": 90.151,
+        "cpu_ms": 180.042,
+        "parks": 0
+      },
+      "poll": {
+        "wall_ms": 120.049,
+        "cpu_ms": 5.978,
+        "parks": 954
+      }
+    },
+    {
+      "variant": "adaptive-4",
+      "rapid": {
+        "wall_ms": 505.194,
+        "cpu_ms": 39.484,
+        "parks": 4416
+      },
+      "jobs": {
+        "wall_ms": 96.809,
+        "cpu_ms": 113.927,
+        "parks": 668
+      },
+      "poll": {
+        "wall_ms": 120.195,
+        "cpu_ms": 4.526,
+        "parks": 498
+      }
+    }
+  ],
+  "tradeoffs": [
+    "The jobs case uses more CPU than the old aggressive count-based sleep, while finishing sooner.",
+    "The selected policy uses less CPU than the fixed 2 ms policy in the jobs case.",
+    "Sustained empty polling still parks; no claim of lower device temperature is made."
+  ],
+  "validation": [
+    "Events/APC/mutex/semaphore correctness",
+    "Native exit and descriptor cleanup",
+    "300 persistent Mach suspensions during contention",
+    "ASan and UBSan",
+    "iPhoneOS SDK bridge compile",
+    "Darwin timed sleep and QoS semantics",
+    "Clean Wine patch stack"
+  ],
+  "samples": [
+    {
+      "engine": "legacy",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 2473.785,
+      "cpu_ms": 116.611,
+      "yields": 20141,
+      "parks": 19627,
+      "checksum": 49995000,
+      "variant": "legacy",
+      "repeat": 0
+    },
+    {
+      "engine": "elapsed",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 1417.025,
+      "cpu_ms": 69.532,
+      "yields": 20337,
+      "parks": 11596,
+      "checksum": 49995000,
+      "variant": "elapsed",
+      "repeat": 0
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 137.018,
+      "cpu_ms": 9.485,
+      "yields": 20374,
+      "parks": 2142,
+      "checksum": 49995000,
+      "variant": "nuts-sched-50",
+      "repeat": 0
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 505.194,
+      "cpu_ms": 39.484,
+      "yields": 60554,
+      "parks": 4151,
+      "checksum": 49995000,
+      "variant": "adaptive-4",
+      "repeat": 0
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 1307.046,
+      "cpu_ms": 144.357,
+      "yields": 90670,
+      "parks": 10159,
+      "checksum": 49995000,
+      "variant": "adaptive-4",
+      "repeat": 1
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 968.681,
+      "cpu_ms": 47.478,
+      "yields": 21277,
+      "parks": 15514,
+      "checksum": 49995000,
+      "variant": "nuts-sched-50",
+      "repeat": 1
+    },
+    {
+      "engine": "elapsed",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 1.902,
+      "cpu_ms": 3.813,
+      "yields": 20066,
+      "parks": 0,
+      "checksum": 49995000,
+      "variant": "elapsed",
+      "repeat": 1
+    },
+    {
+      "engine": "legacy",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 2404.499,
+      "cpu_ms": 117.774,
+      "yields": 20648,
+      "parks": 19363,
+      "checksum": 49995000,
+      "variant": "legacy",
+      "repeat": 1
+    },
+    {
+      "engine": "legacy",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 2515.445,
+      "cpu_ms": 132.392,
+      "yields": 20146,
+      "parks": 19632,
+      "checksum": 49995000,
+      "variant": "legacy",
+      "repeat": 2
+    },
+    {
+      "engine": "elapsed",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 1651.742,
+      "cpu_ms": 98.515,
+      "yields": 20380,
+      "parks": 12734,
+      "checksum": 49995000,
+      "variant": "elapsed",
+      "repeat": 2
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 814.085,
+      "cpu_ms": 38.732,
+      "yields": 20212,
+      "parks": 12933,
+      "checksum": 49995000,
+      "variant": "nuts-sched-50",
+      "repeat": 2
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "rapid",
+      "rounds": 10000,
+      "wall_ms": 490.278,
+      "cpu_ms": 36.789,
+      "yields": 88766,
+      "parks": 4416,
+      "checksum": 49995000,
+      "variant": "adaptive-4",
+      "repeat": 2
+    },
+    {
+      "engine": "legacy",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 138.362,
+      "cpu_ms": 94.093,
+      "yields": 1397,
+      "parks": 883,
+      "checksum": 44850,
+      "variant": "legacy",
+      "repeat": 0
+    },
+    {
+      "engine": "elapsed",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 90.807,
+      "cpu_ms": 177.569,
+      "yields": 585938,
+      "parks": 0,
+      "checksum": 44850,
+      "variant": "elapsed",
+      "repeat": 0
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 91.199,
+      "cpu_ms": 175.138,
+      "yields": 565697,
+      "parks": 0,
+      "checksum": 44850,
+      "variant": "nuts-sched-50",
+      "repeat": 0
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 97.538,
+      "cpu_ms": 114.059,
+      "yields": 126913,
+      "parks": 677,
+      "checksum": 44850,
+      "variant": "adaptive-4",
+      "repeat": 0
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 96.809,
+      "cpu_ms": 113.927,
+      "yields": 125178,
+      "parks": 668,
+      "checksum": 44850,
+      "variant": "adaptive-4",
+      "repeat": 1
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 90.127,
+      "cpu_ms": 180.042,
+      "yields": 677643,
+      "parks": 0,
+      "checksum": 44850,
+      "variant": "nuts-sched-50",
+      "repeat": 1
+    },
+    {
+      "engine": "elapsed",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 90.156,
+      "cpu_ms": 180.263,
+      "yields": 677519,
+      "parks": 0,
+      "checksum": 44850,
+      "variant": "elapsed",
+      "repeat": 1
+    },
+    {
+      "engine": "legacy",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 122.46,
+      "cpu_ms": 92.452,
+      "yields": 1174,
+      "parks": 660,
+      "checksum": 44850,
+      "variant": "legacy",
+      "repeat": 1
+    },
+    {
+      "engine": "legacy",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 138.732,
+      "cpu_ms": 93.216,
+      "yields": 1308,
+      "parks": 794,
+      "checksum": 44850,
+      "variant": "legacy",
+      "repeat": 2
+    },
+    {
+      "engine": "elapsed",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 90.091,
+      "cpu_ms": 180.145,
+      "yields": 672821,
+      "parks": 0,
+      "checksum": 44850,
+      "variant": "elapsed",
+      "repeat": 2
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 90.151,
+      "cpu_ms": 180.168,
+      "yields": 686604,
+      "parks": 0,
+      "checksum": 44850,
+      "variant": "nuts-sched-50",
+      "repeat": 2
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "jobs",
+      "rounds": 300,
+      "wall_ms": 93.62,
+      "cpu_ms": 112.186,
+      "yields": 113717,
+      "parks": 627,
+      "checksum": 44850,
+      "variant": "adaptive-4",
+      "repeat": 2
+    },
+    {
+      "engine": "legacy",
+      "case": "poll",
+      "wall_ms": 120.159,
+      "cpu_ms": 2.262,
+      "yields": 765,
+      "parks": 508,
+      "variant": "legacy",
+      "repeat": 0
+    },
+    {
+      "engine": "elapsed",
+      "case": "poll",
+      "wall_ms": 120.2,
+      "cpu_ms": 4.293,
+      "yields": 12089,
+      "parks": 498,
+      "variant": "elapsed",
+      "repeat": 0
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "poll",
+      "wall_ms": 120.047,
+      "cpu_ms": 5.872,
+      "yields": 10861,
+      "parks": 957,
+      "variant": "nuts-sched-50",
+      "repeat": 0
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "poll",
+      "wall_ms": 120.215,
+      "cpu_ms": 4.469,
+      "yields": 8796,
+      "parks": 498,
+      "variant": "adaptive-4",
+      "repeat": 0
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "poll",
+      "wall_ms": 120.195,
+      "cpu_ms": 4.75,
+      "yields": 7810,
+      "parks": 495,
+      "variant": "adaptive-4",
+      "repeat": 1
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "poll",
+      "wall_ms": 120.085,
+      "cpu_ms": 5.978,
+      "yields": 9335,
+      "parks": 954,
+      "variant": "nuts-sched-50",
+      "repeat": 1
+    },
+    {
+      "engine": "elapsed",
+      "case": "poll",
+      "wall_ms": 120.086,
+      "cpu_ms": 3.901,
+      "yields": 14204,
+      "parks": 501,
+      "variant": "elapsed",
+      "repeat": 1
+    },
+    {
+      "engine": "legacy",
+      "case": "poll",
+      "wall_ms": 120.005,
+      "cpu_ms": 2.613,
+      "yields": 759,
+      "parks": 502,
+      "variant": "legacy",
+      "repeat": 1
+    },
+    {
+      "engine": "legacy",
+      "case": "poll",
+      "wall_ms": 120.167,
+      "cpu_ms": 2.651,
+      "yields": 760,
+      "parks": 503,
+      "variant": "legacy",
+      "repeat": 2
+    },
+    {
+      "engine": "elapsed",
+      "case": "poll",
+      "wall_ms": 120.241,
+      "cpu_ms": 5.662,
+      "yields": 8179,
+      "parks": 482,
+      "variant": "elapsed",
+      "repeat": 2
+    },
+    {
+      "engine": "nuts-sched-50",
+      "case": "poll",
+      "wall_ms": 120.049,
+      "cpu_ms": 6.231,
+      "yields": 7339,
+      "parks": 942,
+      "variant": "nuts-sched-50",
+      "repeat": 2
+    },
+    {
+      "engine": "adaptive-4",
+      "case": "poll",
+      "wall_ms": 120.116,
+      "cpu_ms": 4.526,
+      "yields": 8796,
+      "parks": 507,
+      "variant": "adaptive-4",
+      "repeat": 2
+    }
+  ]
+}

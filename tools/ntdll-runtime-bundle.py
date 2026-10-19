@@ -16,7 +16,7 @@ def verify(root, archive=None, stamp=False, base=None, sync_refresh=False):
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     objects = helper.members(archive)
-    for marker in (b'builtin-pe-v1', b'timed-sleep-v1', b'darwin-yield-v1', b'tid-alert-park-v1', b'yield-budget-v2'):
+    for marker in (b'builtin-pe-v1', b'timed-sleep-v1', b'darwin-yield-v1', b'tid-alert-park-v1', b'yield-budget-v3'):
         assert marker in archive.read_bytes(), 'native archive predates ' + marker.decode()
     files = ['build/ntdll-unix/loader_ios.c', 'build/ntdll-unix/ios_builtin_pe.h', 'build/ntdll-unix/ios_scheduler_yield.h',
              'build/ntdll-unix/ios_yield_policy.h', 'patches/wine-yield-budget.patch',
