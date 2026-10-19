@@ -1,0 +1,28 @@
+Cooperative session priority at existing Wine wait entry/exit boundaries.
+
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -82,6 +82,7 @@
+ #ifdef WINE_IOS
+ #include "../../../../build/ntdll-unix/ios_scheduler_yield.h"
+ #include "../../../../build/ntdll-unix/ios_yield_policy.h"
++#include "../../../../build/ntdll-unix/ios_session_priority.h"
+ #endif
+ 
+ HANDLE keyed_event = 0;
+@@ -2230,9 +2231,12 @@
+ {
+     ios_eco_init();
+     ios_eco_seen = __atomic_load_n( &ios_eco_gen, __ATOMIC_ACQUIRE );
+-    pthread_set_qos_class_self_np( ios_eco_on > 0 ? ios_eco_class : QOS_CLASS_USER_INTERACTIVE, 0 );
+-}
+-#define IOS_ECO_POLL() do { if (__builtin_expect( ios_eco_seen != ios_eco_gen, 0 )) ios_eco_apply_self(); } while (0)
++    if (!pthread_set_qos_class_self_np( ios_eco_on > 0 ? ios_eco_class : QOS_CLASS_USER_INTERACTIVE, 0 ))
++        ios_session_priority_base_changed();
++}
++#define IOS_ECO_POLL() \
++    do { if (__builtin_expect( ios_eco_seen != ios_eco_gen, 0 )) ios_eco_apply_self(); } while (0); \
++    IOS_SESSION_PRIORITY_SCOPE()
+ 
+ void madeira_set_eco( int on )   /* the app's ECO pill */
+ {

@@ -3,6 +3,10 @@
 # submodule's upstream repository. Safe to call repeatedly in local/CI builds.
 set -euo pipefail
 root="${CM_BUILD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+session_priority_applied=0
+if git -C "$root/wine" apply --reverse --check "$root/patches/wine-session-priority.patch" >/dev/null 2>&1; then
+    session_priority_applied=1
+fi
 patch="$root/patches/wine-builtin-xinput.patch"
 if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
     echo "Wine builtin XInput selection already applied"
@@ -14,7 +18,8 @@ else
 fi
 
 patch="$root/patches/wine-timed-sleep.patch"
-if git -C "$root/wine" apply --reverse --check "$root/patches/wine-yield-budget.patch" >/dev/null 2>&1 ||
+if [[ "$session_priority_applied" = 1 ]] ||
+   git -C "$root/wine" apply --reverse --check "$root/patches/wine-yield-budget.patch" >/dev/null 2>&1 ||
    git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
     echo "Wine nonzero timed sleeps already avoid scheduler yield"
 elif git -C "$root/wine" apply --check "$patch"; then
@@ -24,7 +29,7 @@ else
     exit 1
 fi
 patch="$root/patches/wine-yield-budget.patch"
-if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+if [[ "$session_priority_applied" = 1 ]] || git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
     echo "Wine elapsed yield budget already applied"
 elif git -C "$root/wine" apply --check "$patch"; then
     git -C "$root/wine" apply "$patch"
@@ -136,5 +141,15 @@ elif git -C "$root/wine" apply --check "$patch"; then
     git -C "$root/wine" apply "$patch"
 else
     echo "Wine source does not match NutsSync integration" >&2
+    exit 1
+fi
+
+patch="$root/patches/wine-session-priority.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine cooperative session priority already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match cooperative session priority" >&2
     exit 1
 fi

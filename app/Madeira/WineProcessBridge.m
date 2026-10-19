@@ -69,6 +69,7 @@ static dispatch_queue_t stall_queue(void) {
 static dispatch_source_t stall_timer;
 static unsigned stall_generation;
 #include "ReplacedMetrics.h"
+#include "SessionPriority.h"
 
 static MadeiraWorkCounters work_counters(const struct rusage_info_v4 *usage) {
     return (MadeiraWorkCounters){ usage->ri_user_time + usage->ri_system_time,
@@ -623,9 +624,11 @@ void wine_game_process_expect(const char *path, int directory) {
         g_game_path = [value copy]; g_game_directory = directory;
         pthread_mutex_unlock(&g_game_path_lock);
     }
+    madeira_session_priority_begin();
 }
 void wine_game_process_started(uint32_t pid, const uint16_t *image, size_t characters) {
     if (!pid || !image || !characters || characters > 2048) return;
+    madeira_session_priority_image(pid,image,characters);
     @autoreleasepool {
         NSString *path = madeira_game_path([[NSString alloc] initWithCharacters:image length:characters]);
         pthread_mutex_lock(&g_game_path_lock);
@@ -634,8 +637,10 @@ void wine_game_process_started(uint32_t pid, const uint16_t *image, size_t chara
             [path isEqualToString:g_game_path]);
         pthread_mutex_unlock(&g_game_path_lock);
         uint32_t empty = 0;
-        if (match && __atomic_compare_exchange_n(&g_game_pid, &empty, pid, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        if (match && __atomic_compare_exchange_n(&g_game_pid, &empty, pid, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            madeira_session_priority_select(pid);
             dprintf(2, "[game-process-v1] selected pid=%04x before first frame\n", pid);
+        }
     }
 }
 int wine_game_process_has_exited(void) { return __atomic_load_n(&g_game_exit, __ATOMIC_ACQUIRE) != 0; }
@@ -648,6 +653,7 @@ int wine_game_process_exit_status(uint32_t *status) {
 void wine_presented_process_track(uint32_t pid) {
     if (!pid || __atomic_load_n(&g_presented_exit, __ATOMIC_ACQUIRE)) return;
     __atomic_store_n(&g_presented_pid, pid, __ATOMIC_RELEASE);
+    madeira_session_priority_presented(pid);
 }
 static uint32_t __attribute__((unused)) replaced_metrics_target_pid(void) {
     uint32_t pid=__atomic_load_n(&g_game_pid,__ATOMIC_ACQUIRE);

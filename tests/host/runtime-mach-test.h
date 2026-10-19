@@ -1,6 +1,10 @@
 /* Dependency substitutes for the production GameRuntimeBridge.m, not a
  * second implementation of its lifecycle policy. No real host thread is killed. */
 #include <stdint.h>
+void madeira_session_priority_thread(unsigned pid,unsigned tid,unsigned parent,void *peb) {
+    (void)pid; (void)tid; (void)parent; (void)peb;
+}
+void madeira_session_priority_retired(unsigned pid,void *peb) { (void)pid; (void)peb; }
 typedef unsigned mach_port_t;
 typedef unsigned mach_msg_type_number_t;
 typedef int kern_return_t;

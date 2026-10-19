@@ -1686,6 +1686,7 @@ final class LibraryModel: ObservableObject {
             return
         }
         DiagnosticEvents.sample()
+        if madeira_frame_count() >= launchPresent + 3 { madeira_session_priority_rendering() }
         let dockStart = DockStartScreen.shared
         if dockStart.active {
             // A Dock start: the desktop's own frames (explorer, the host's console window)
@@ -1853,6 +1854,7 @@ final class LibraryModel: ObservableObject {
         }
     }
     private func finish() {
+        madeira_session_priority_end()
         madeira_flush_pipeline_cache()
         DiagnosticEvents.phase("session-finished")
         let report = sawProcess ? exitReport() : nil

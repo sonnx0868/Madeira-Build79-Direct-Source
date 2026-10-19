@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "GameRuntime.h"
+#include "SessionPriorityAPI.h"
 
 #ifdef __cplusplus
 extern "C" {

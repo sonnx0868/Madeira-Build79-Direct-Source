@@ -4,6 +4,7 @@
  * A Windows process handle signaled by wineserver alone is NOT enough to
  * recycle the FEX/JIT address space shared by all pseudo-processes. */
 #include "GameRuntime.h"
+#include "SessionPriorityAPI.h"
 #ifdef MADEIRA_RUNTIME_UNIT_TEST
 #include "runtime-mach-test.h"
 #else
@@ -94,6 +95,7 @@ void wine_runtime_set_processors(unsigned count) { atomic_store(&runtime_process
 unsigned wine_runtime_processors(void) { return atomic_load(&runtime_processors); }
 int wine_runtime_is_enabled(void) { return atomic_load(&runtime_enabled); }
 void wine_runtime_thread_attach(unsigned pid, unsigned tid, unsigned parent, void *peb) {
+    madeira_session_priority_thread(pid,tid,parent,peb);
     extern void madeira_replaced_metrics_thread(unsigned,unsigned,void *);
     madeira_replaced_metrics_thread(pid,tid,peb);
     thread_record(pid, tid, parent, peb, 0);
@@ -188,6 +190,7 @@ int wine_runtime_prepare_process_exit(unsigned pid, void *peb) {
     return 0;
 }
 void wine_runtime_process_retired(unsigned pid, void *peb, int safe) {
+    madeira_session_priority_retired(pid,peb);
     if (!wine_runtime_is_enabled()) return;
     pthread_mutex_lock(&runtime_lock);
     struct runtime_process *p = process_find(pid, peb, 0, 0);

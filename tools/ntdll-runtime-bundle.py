@@ -16,10 +16,12 @@ def verify(root, archive=None, stamp=False, base=None, sync_refresh=False):
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     objects = helper.members(archive)
-    for marker in (b'builtin-pe-v1', b'timed-sleep-v1', b'darwin-yield-v1', b'tid-alert-park-v1', b'yield-budget-v3'):
+    for marker in (b'builtin-pe-v1', b'timed-sleep-v1', b'darwin-yield-v1', b'tid-alert-park-v1', b'yield-budget-v3',
+                   b'madeira_session_priority_poll_current'):
         assert marker in archive.read_bytes(), 'native archive predates ' + marker.decode()
     files = ['build/ntdll-unix/loader_ios.c', 'build/ntdll-unix/ios_builtin_pe.h', 'build/ntdll-unix/ios_scheduler_yield.h',
              'build/ntdll-unix/ios_yield_policy.h', 'patches/wine-yield-budget.patch',
+             'build/ntdll-unix/ios_session_priority.h', 'patches/wine-session-priority.patch',
              'wine/dlls/ntdll/unix/sync.c', 'patches/wine-timed-sleep.patch',
              'build/ntdll-unix/shims/ios_tid_alert.h', 'patches/wine-tid-alert-parking.patch']
     expected = {'archive_sha256': sha(archive.read_bytes()),

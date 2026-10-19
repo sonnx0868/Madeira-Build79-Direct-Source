@@ -151,6 +151,7 @@ checks() {
   xcrun --sdk iphoneos clang -fobjc-arc -fmodules -fblocks \
     -target arm64-apple-ios17.0 -isysroot "$metrics_sdk" -fsyntax-only app/Madeira/WineProcessBridge.m
   echo 'PASS: production Wine bridge and REPLACED metrics compile against iPhoneOS SDK'
+  python3 tests/host/check-session-priority.py --require-darwin
   python3 tests/host/check-wow64-restore.py
   python3 tests/host/check-present-pacing.py
   python3 tests/host/check-capped-frame-intent.py

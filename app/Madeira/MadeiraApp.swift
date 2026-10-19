@@ -30,9 +30,14 @@ struct MadeiraApp: App {
                 .modifier(ClaimGamepadEvents())
                 .modifier(LibraryAccessPresentation())
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                    madeira_session_priority_foreground(0)
                     madeira_flush_pipeline_cache()
                 }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    madeira_session_priority_foreground(1)
+                }
                 .onAppear {
+                    madeira_session_priority_foreground(1)
                     GamepadInput.shared.start()
                     HardwareInput.shared.start()
                     JITNetworkShortcut.shared.restoreLeftover()   // also starts its network path monitor
