@@ -8,6 +8,8 @@ swap-mb = 3072
 vram-mb = 1536
 pool = 640
 totalphys = 4096
+# Planning reserve for iPadOS; default 1536 MB. 0 uses the process limit alone.
+# ram-reserve-mb = 1536
 swap-canary = 0
 
 # emulator environment (FEX reads FEX_* from the process environment)

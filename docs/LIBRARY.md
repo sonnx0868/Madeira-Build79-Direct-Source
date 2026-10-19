@@ -75,6 +75,10 @@ On iOS the native query also considers Metal's recommended working set minus
 its current resource allocations. The lower of that GPU headroom and process
 headroom drives the existing protection: remaining room below the process kill
 limit alone does not establish that more GPU resources can maintain performance.
+As in the reviewed BCD memory-budget fix, planning also respects physical RAM
+minus an iPadOS reserve (`ram-reserve-mb`, default 1536 MB; 0 keeps process-limit
+planning). This applies to the advertised video-memory budget, budget trimming
+and texture headroom, since the reported process limit can exceed physical RAM.
 Unknown GPU guidance, discrete GPUs and remote rendering retain their previous
 behavior. The policy does not discard live resources or bypass GPU fences.
 It also enables `DXMT_CENSUS_THROTTLE`: periodic memory census reports run at

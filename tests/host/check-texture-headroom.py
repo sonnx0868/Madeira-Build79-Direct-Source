@@ -22,6 +22,7 @@ sources = module.patched_sources(root)
 native = sources['src/winemetal/unix/winemetal_unix.c']
 start = native.index('  case 7: {   /* ml2000: memory headroom')
 query = native[start:native.index('  case 2: {', start)]
+helpers = native[native.index('static uint64_t madeira_ram_cap(void)'):native.index('static uint64_t madeira_ml1042_video_budget(uint64_t metal_recommended);')]
 assert 'madeira_texture_headroom(' in query and 'if (wmtr_enabled()) break;' in query
 
 cc = os.environ.get('CC') or shutil.which('clang') or shutil.which('cc')
@@ -44,6 +45,15 @@ int main(void) {
     assert(madeira_texture_headroom(UINT64_MAX,UINT64_MAX,UINT64_MAX-1,1)==1);
     assert(madeira_texture_headroom(UINT64_MAX,1,UINT64_MAX,1)==0);
     assert(madeira_texture_headroom(UINT64_MAX,0,UINT64_MAX,1)==UINT64_MAX);
+    /* Physical RAM 15709MB - iPadOS reserve 1536MB, versus a reported
+     * process limit of 16384MB: plan with 14173MB, not 16384MB. */
+    assert(madeira_memory_limit(3027*MB,13357*MB,14173*MB)==14173*MB);
+    assert(madeira_memory_available(3027*MB,13357*MB,14173*MB)==816*MB);
+    assert(madeira_memory_available(3027*MB,14319*MB,14173*MB)==MB);
+    assert(madeira_memory_limit(3027*MB,13357*MB,0)==16384*MB);
+    assert(madeira_memory_limit(UINT64_MAX,MB,0)==UINT64_MAX);
+    assert(madeira_memory_available(0,13357*MB,14173*MB)==0);
+    assert(madeira_memory_limit(512*MB,1024*MB,14173*MB)==1536*MB);
     puts("PASS: log813 pressure missed by process-only headroom; GPU/process minimum, discrete/unknown fallback and overflow bounds");
 }
 '''
@@ -64,6 +74,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-texture-headroom-') as scratch:
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #include <mach/mach.h>
+#include <sys/sysctl.h>
 #include <stdint.h>
 #include <assert.h>
 #include "texture_headroom.h"
@@ -71,9 +82,18 @@ with tempfile.TemporaryDirectory(prefix='madeira-texture-headroom-') as scratch:
 #define TARGET_OS_IOS 1
 #define MB (UINT64_C(1024)*1024)
 static uint64_t available = 3027*MB;
+static uint64_t physical, footprint;
+static long long reserve_mb=1536;
 static int remote;
 static uint64_t fixture_available_memory(void) { return available; }
 static int wmtr_enabled(void) { return remote; }
+static long long fixture_config(const char *key,long long fallback) { assert(!strcmp(key,"ram-reserve-mb"));return reserve_mb; }
+static int fixture_sysctl(const char *name,void *out,size_t *size,const void *value,size_t value_size) {
+  assert(!strcmp(name,"hw.memsize") && *size>=sizeof physical);memcpy(out,&physical,sizeof physical);*size=sizeof physical;return 0;
+}
+static kern_return_t fixture_task_info(task_name_t task,task_flavor_t flavor,task_info_t out,mach_msg_type_number_t *count) {
+  assert(flavor==TASK_VM_INFO);memset(out,0,sizeof(task_vm_info_data_t));((task_vm_info_t)out)->phys_footprint=footprint;return KERN_SUCCESS;
+}
 @interface DeviceReadings : NSObject
 @property uint64_t recommended, allocated;
 @property BOOL unified;
@@ -90,6 +110,10 @@ static DeviceReadings *readings;
 static id<MTLDevice> fixture_device(void) { return (id)[readings retain]; }
 #define MTLCreateSystemDefaultDevice fixture_device
 #define os_proc_available_memory fixture_available_memory
+#define madeira_cfg_int fixture_config
+#define sysctlbyname fixture_sysctl
+#define task_info fixture_task_info
+__PRODUCTION_HELPERS__
 struct Query { uint64_t len,ptr;unsigned ret; };
 static struct Query query(void) {
     struct Query value={0},*a=&value;
@@ -101,10 +125,21 @@ __PRODUCTION_QUERY__
 }
 #undef MTLCreateSystemDefaultDevice
 #undef os_proc_available_memory
+#undef sysctlbyname
+#undef task_info
 int main(int argc,char **argv) {
   @autoreleasepool {
     readings=[DeviceReadings new];readings.unified=YES;
     readings.recommended=10922*MB;readings.allocated=11040*MB;
+    if(argc>2 && !strcmp(argv[2],"ram-cap")) {
+      physical=15709*MB;footprint=13357*MB;
+      readings.allocated=7819*MB;
+      struct Query capped=query();assert(capped.ret==1 && capped.len==816*MB && capped.ptr==footprint);
+      assert(madeira_mem_limit(footprint)==14173*MB);
+      available=0;capped=query();assert(capped.ret==0);
+      puts("PASS: production physical-RAM query, configured iPadOS reserve, video-budget limit and mip headroom use the same cap");
+      [readings release];return 0;
+    }
     struct Query q=query();assert(q.ret==1 && q.len==0);
     readings.allocated=9500*MB;q=query();assert(q.ret==1 && q.len==1422*MB);
     available=700*MB;q=query();assert(q.ret==1 && q.len==700*MB);
@@ -123,7 +158,9 @@ int main(int argc,char **argv) {
     q=query();assert(q.ret==1 && q.len<=available);
     uint64_t recommended=readings.actual.recommendedMaxWorkingSetSize;
     if(readings.actual.hasUnifiedMemory && recommended) assert(q.len==madeira_texture_headroom(available,recommended,after,1));
-    NSDictionary *result=@{@"productionQueryExecuted":@YES,@"realMetalDevice":readings.actual.name,
+    uint64_t actualPhysical=0;size_t actualSize=sizeof actualPhysical;
+    assert(!sysctlbyname("hw.memsize",&actualPhysical,&actualSize,NULL,0) && actualPhysical);
+    NSDictionary *result=@{@"productionQueryExecuted":@YES,@"realMetalDevice":readings.actual.name,@"physicalBytes":@(actualPhysical),
       @"unified":@(readings.actual.hasUnifiedMemory),@"recommendedBytes":@(recommended),
       @"allocationDeltaBytes":@(after-before),@"effectiveHeadroomBytes":@(q.len),@"physicalGameFpsMeasured":@NO};
     if(argc>1){NSData *data=[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:NULL];
@@ -133,7 +170,7 @@ int main(int argc,char **argv) {
     [readings release];
   }
 }
-'''.replace('__PRODUCTION_QUERY__',query)
+'''.replace('__PRODUCTION_QUERY__',query).replace('__PRODUCTION_HELPERS__',helpers)
     path=folder/'native.m';path.write_text(objc,encoding='utf8')
     sdk=subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'],text=True).strip()
     subprocess.run(['xcrun','--sdk','iphoneos','clang','-target','arm64-apple-ios18.0','-isysroot',sdk,'-fblocks','-fno-objc-arc','-Werror','-Wno-deprecated-declarations','-I'+str(root/'build/dxmt-ios'),'-fsyntax-only',str(path)],check=True)
@@ -141,6 +178,7 @@ int main(int argc,char **argv) {
     subprocess.run(['xcrun','clang','-fblocks','-fno-objc-arc','-O2','-I'+str(root/'build/dxmt-ios'),str(path),'-framework','Foundation','-framework','Metal','-o',str(executable)],check=True)
     result=folder/'texture-headroom-validation.json'
     subprocess.run([str(executable),str(result)],check=True,timeout=30)
+    subprocess.run([str(executable),str(result),'ram-cap'],check=True,timeout=30)
     report=json.loads(result.read_text(encoding='utf8'))
     print(json.dumps(report,sort_keys=True))
     if os.environ.get('BITRISE_DEPLOY_DIR'):
