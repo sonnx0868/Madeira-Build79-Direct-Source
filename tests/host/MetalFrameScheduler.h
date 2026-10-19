@@ -1,4 +1,5 @@
-// Private implementation, included once by IOSDisplayShim.m.
+// Experimental display-link implementation; not included in the shipping app.
+// The host fixture validates it separately from the smaller CADisplayLink fix.
 // A Metal display link supplies the drawable and frame deadline together.
 // Wine/DXMT continues to encode on its existing worker, never on UIKit's thread.
 #import <Foundation/Foundation.h>
@@ -152,6 +153,8 @@ static char madeira_managed_drawable_key;
         if (![_condition waitUntilDate:limit]) break;
     }
     id<CAMetalDrawable> drawable = request.generation == _generation ? request.drawable : nil;
+    if (!drawable && request.drawable)
+        objc_setAssociatedObject(request.drawable, &madeira_managed_drawable_key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [_requests removeObjectIdenticalTo:request];
     if (!request.complete && !_stopping && request.generation == _generation) {
         _failed = YES; _stopping = YES;

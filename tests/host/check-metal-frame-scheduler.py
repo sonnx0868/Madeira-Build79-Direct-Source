@@ -13,7 +13,7 @@ if sys.platform != 'darwin':
 with tempfile.TemporaryDirectory(prefix='madeira-frame-scheduler-') as scratch:
     binary = Path(scratch) / 'check'
     subprocess.run(['xcrun', 'clang', '-fobjc-arc', '-fblocks', '-O2', '-mmacosx-version-min=14.0',
-                    '-I' + str(root / 'app/Madeira'), '-framework', 'AppKit', '-framework', 'Foundation',
+                    '-I' + str(root / 'tests/host'), '-framework', 'AppKit', '-framework', 'Foundation',
                     '-framework', 'QuartzCore', '-framework', 'Metal',
                     str(root / 'tests/host/metal-frame-scheduler.m'), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=25)

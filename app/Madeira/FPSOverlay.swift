@@ -76,6 +76,7 @@ final class ThermalPacingController {
         if madeira_get_vsync_locked() != applied { madeira_set_vsync_locked(applied) }
         if running { ProMotionIntent.apply(mode: applied) }
         else {
+            ProMotionIntent.resetSession()
             ProMotionIntent.shared.setActive(false)
             madeira_set_display_max_fps(Int32(ProMotionIntent.panelMaxFPS), 0)
         }
@@ -96,13 +97,27 @@ final class ThermalPacingController {
 /// documented way for present-driven Metal apps to hold the panel higher.
 /// The tick itself does nothing.
 ///
-/// Armed only for MAX and RAW. The old capped-mode override was removed
-/// after device reports of worse frame pacing. Saved configuration cannot
-/// enable that override again; capped sessions release the display link.
+/// MAX/RAW requests the panel rate. The REPLACED investigation also requests
+/// its selected capped rate: 60 means 60/60/60, never a request for 120 Hz.
+/// This mirrors the public API pattern verified in NutsEmu 1522's binary.
+/// A display hint is separate from DXMT's producer cap and does not render frames.
 final class ProMotionIntent {
     static let shared = ProMotionIntent()
     private var link: CADisplayLink?
     private var activeMax: Float = 0
+    private static var cappedSessionIntent = false
+
+    static func configureSession(cappedIntent: Bool, mode: Int32) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { configureSession(cappedIntent: cappedIntent, mode: mode) }
+            return
+        }
+        cappedSessionIntent = cappedIntent
+        apply(mode: mode)
+        fputs("[frame-intent-v1] capped-session=\(cappedIntent ? 1 : 0) mode=\(mode) requested-hz=\(maxHz(for: mode, cappedIntent: cappedIntent))\n", stderr)
+    }
+
+    static func resetSession() { cappedSessionIntent = false }
 
     /// Honest report of what the panel can do, for the native `[frame]` line.
     static var panelMaxFPS: Int { UIScreen.main.maximumFramesPerSecond }
@@ -117,7 +132,8 @@ final class ProMotionIntent {
 
     /// `maxHz` 0 means "tear it down".
     func setActive(_ active: Bool, maxHz: Int = ProMotionIntent.panelMaxFPS) {
-        let want = Float(max(maxHz, 0))
+        let boundedHz = min(max(maxHz, 0), ProMotionIntent.panelMaxFPS)
+        let want = Float(boundedHz)
         if active && want > 0 {
             if link != nil && activeMax == want { return }
             link?.invalidate()
@@ -125,7 +141,7 @@ final class ProMotionIntent {
             // `minimum` must not exceed the panel's own maximum or CoreAnimation
             // clamps the whole range away (a 60Hz device asked for min 60 /
             // max 120 gets nothing useful).
-            let lo = Float(min(60, maxHz))
+            let lo = Float(min(60, boundedHz))
             l.preferredFrameRateRange = CAFrameRateRange(minimum: lo, maximum: want, preferred: want)
             l.add(to: .main, forMode: .common)
             link = l
@@ -140,14 +156,15 @@ final class ProMotionIntent {
     }
 
     /// The intent that belongs to a given pacing mode (0 = none). See the type comment.
-    static func maxHz(for mode: Int32) -> Int {
-        if mode == 1 || mode == 3 { return 0 }   // 60/30 FPS: let iOS manage refresh
+    static func maxHz(for mode: Int32, cappedIntent: Bool = false) -> Int {
+        if mode == 1 { return cappedIntent ? min(60, panelMaxFPS) : 0 }
+        if mode == 3 { return cappedIntent ? min(30, panelMaxFPS) : 0 }
         return panelMaxFPS                     // MAX, RAW
     }
 
     /// Arms or releases the link for `mode` and publishes the rates to DXMT.
     static func apply(mode: Int32) {
-        let hz = maxHz(for: mode)
+        let hz = maxHz(for: mode, cappedIntent: cappedSessionIntent)
         shared.setActive(hz > 0, maxHz: hz)
         madeira_set_display_max_fps(Int32(panelMaxFPS), Int32(hz))
     }

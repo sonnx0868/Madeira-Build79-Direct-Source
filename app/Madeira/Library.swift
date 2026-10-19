@@ -1660,6 +1660,10 @@ final class LibraryModel: ObservableObject {
         stickDirectionMode = entry.stickDirectionMode
         applyControllerMode()
         MetalHostView.shared.isHidden = false
+        // Test the observed capped display-clock difference on REPLACED.
+        // Keep session behavior independent of whether diagnostics are enabled.
+        let displayIdentity = (entry.title + " " + entry.relativePath).lowercased()
+        ProMotionIntent.configureSession(cappedIntent: displayIdentity.contains("replaced"), mode: entry.effectiveFPSMode)
         ThermalPacingController.request(entry.effectiveFPSMode)
         if remember { var played = entry; played.lastPlayed = Date(); save(played) }
         launchDismissLogged = false
@@ -1875,6 +1879,7 @@ final class LibraryModel: ObservableObject {
         DockStartScreen.shared.finish()
         LibraryController.shared.configure(enabled: enabled, ownsInput: enabled)
         MetalHostView.shared.isHidden = true
+        ProMotionIntent.resetSession()
         ProMotionIntent.shared.setActive(false)
         if GameRuntime.shared.ownsSession {
             GameRuntime.shared.sessionFinished()

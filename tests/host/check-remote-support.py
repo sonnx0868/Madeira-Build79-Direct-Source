@@ -94,6 +94,8 @@ checks = r'''
 for panel in [60, 120] {
     TestDisplayPolicy.panelMaxFPS = panel
     assert(TestDisplayPolicy.maxHz(for: 1) == 0 && TestDisplayPolicy.maxHz(for: 3) == 0)
+    assert(TestDisplayPolicy.maxHz(for: 1, cappedIntent: true) == min(60, panel))
+    assert(TestDisplayPolicy.maxHz(for: 3, cappedIntent: true) == min(30, panel))
     assert(TestDisplayPolicy.maxHz(for: 0) == panel && TestDisplayPolicy.maxHz(for: 2) == panel)
 }
 let selected = UnityLaunch.arguments("", resolution: "2560x1440", matchResolution: true, forceD3D11: true)

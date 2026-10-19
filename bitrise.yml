@@ -33,6 +33,7 @@ workflows:
                 set -euo pipefail
                 cd "$BITRISE_SOURCE_DIR"
                 python3 tests/host/check-metal-frame-scheduler.py --require-darwin
+                python3 tests/host/check-capped-frame-intent.py
 
   madeira-update-download-check:
     title: Check the IPA downloader with local failures and a real GitHub asset
