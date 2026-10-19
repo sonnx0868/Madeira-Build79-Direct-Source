@@ -10,7 +10,9 @@
 #include <stdint.h>
 #include <limits.h>
 
+#ifndef IOS_YIELD_BUDGET_NS
 #define IOS_YIELD_BUDGET_NS UINT64_C(2000000)
+#endif
 #define IOS_YIELD_GAP_NS UINT64_C(100000)
 
 struct ios_yield_state
@@ -39,6 +41,10 @@ static inline int ios_yield_should_park( struct ios_yield_state *s, uint64_t now
 static inline void ios_yield_did_park( struct ios_yield_state *s, uint64_t now )
 {
     s->last_ns = now;
+#if defined(IOS_YIELD_REARM_AFTER_PARK) && IOS_YIELD_REARM_AFTER_PARK
+    s->start_ns = now;
+    s->calls = 0;
+#endif
 }
 
 #endif

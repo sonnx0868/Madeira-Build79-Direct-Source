@@ -6,6 +6,7 @@ import argparse, json, os, shutil, subprocess, sys, tempfile
 root = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser()
 parser.add_argument('--require-darwin', action='store_true')
+parser.add_argument('--yield-matrix', action='store_true')
 args = parser.parse_args()
 cc = os.environ.get('CC') or shutil.which('clang')
 assert cc, 'clang required'
@@ -336,7 +337,11 @@ int main(void){
 #include <mach/thread_switch.h>
 #include <pthread/qos.h>
 #define STATUS_NO_YIELD_PERFORMED 0x40000024
-'''+(root/'build/ntdll-unix/ios_yield_policy.h').read_text()+scheduler+old_body+yield_body+(root/'tests/host/yield-handoff.c').read_text()
+'''+(root/'build/ntdll-unix/ios_yield_policy.h').read_text()+r'''
+#ifdef IOS_YIELD_BENCH_SCHED
+static inline NTSTATUS ios_scheduler_yield(void){sched_yield();return STATUS_SUCCESS;}
+#else
+'''+scheduler+'\n#endif\n'+old_body+yield_body+(root/'tests/host/yield-handoff.c').read_text()
         bench_file=folder/'handoff.c';bench_file.write_text(bench)
         binary=folder/'handoff'
         subprocess.run([cc,'-std=c11','-O2','-DWINE_IOS=1',str(bench_file),'-o',str(binary)],check=True)
@@ -352,5 +357,27 @@ int main(void){
             Path(deploy,'yield-handoff-benchmark.json').write_text(json.dumps({
                 'scope':'native macOS host; not game FPS or iPad power',
                 'samples':samples},indent=2)+'\n')
+        if args.yield_matrix:
+            variants=[('legacy',[],None),('elapsed',[],None),
+                ('nuts-sched-50',['-DIOS_YIELD_BENCH_SCHED=1'],'50'),
+                ('nuts-sched-100',['-DIOS_YIELD_BENCH_SCHED=1'],'100'),
+                ('rearm32-100',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
+                ('rearm128-100',['-DIOS_YIELD_BUDGET_NS=128000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
+                ('rearm32-50',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'50')]
+            matrix=[]
+            for variant,flags,sleep_us in variants:
+                candidate=folder/variant
+                subprocess.run([cc,'-std=c11','-O2','-DWINE_IOS=1',*flags,str(bench_file),'-o',str(candidate)],check=True)
+                env=dict(os.environ)
+                if sleep_us:env['TEST_YIELD_SLEEP']=sleep_us
+                for case in ('rapid','jobs','poll'):
+                    for repeat in range(3):
+                        result=subprocess.check_output([str(candidate),variant,case],text=True,env=env,timeout=30)
+                        record=json.loads(result.strip().splitlines()[-1]);record.update(variant=variant,repeat=repeat)
+                        matrix.append(record);print('YIELD_MATRIX '+json.dumps(record),flush=True)
+            if deploy:
+                Path(deploy,'yield-policy-matrix.json').write_text(json.dumps({
+                    'scope':'native macOS policy trade-off experiment; not measured iPad power or game FPS',
+                    'samples':matrix},indent=2)+'\n')
     else:
         print('SKIP: real Darwin sleep/QoS execution requires macOS; CI requires it')
