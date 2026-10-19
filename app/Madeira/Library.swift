@@ -506,6 +506,11 @@ struct LibraryEntry: Codable, Identifiable {
             setenv("MADEIRA_FASTSYNC", mode, 1)
             setenv("MADEIRA_FASTSYNC_SEM", semaphoreFastPath == true ? "1" : "0", 1)
             fputs("[startup-sync] requested=\(mode) unity=\(unityProfile ? 1 : 0) configured=\(SyncEngine.current.rawValue)\n", stderr)
+        } else {
+            // A later launch may select a different engine in the same host.
+            // Do not carry the preceding game's exported Fastsync switches.
+            unsetenv("MADEIRA_FASTSYNC")
+            unsetenv("MADEIRA_FASTSYNC_SEM")
         }
         ThermalPacingController.request(effectiveFPSMode)
         fputs("[frontend] launch profile applied\n", stderr)
