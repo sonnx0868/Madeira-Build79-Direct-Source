@@ -235,6 +235,7 @@ checks() {
   python3 tests/host/check-game-memory.py --require-swift
   python3 tests/host/check-game-pointer.py --require-swift
   python3 tests/host/check-presented-input.py --require-swift
+  python3 tests/host/check-input-wake.py --require-darwin
   python3 tests/host/check-thermal-pacing.py --require-swift
   python3 tests/host/check-runtime-profilers.py
   python3 tests/host/check-profile-display.py --require-objc

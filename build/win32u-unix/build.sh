@@ -75,20 +75,31 @@ if [[ "${1:-all}" = window-only || "${1:-all}" = renpy-gl-only || "${1:-all}" = 
         compile_one "$WINE_SRC/dlls/win32u/window.c" "$name"
     elif [[ "$1" = input-only ]]; then
         name=driver
-        marker=presented-input-v1
+        marker=input-wake-v1
+        cp "$APP_LIB" "$OBJ_DIR/input-wake-base.a"
+        python3 "$REPO_ROOT/tests/host/check-input-wake.py" --require-darwin
         compile_one "$BUILD_DIR/driver_ios.c" "$name"
+        compile_one "$BUILD_DIR/message_ios.c" message
     else
         name=opengl_ios
         marker=renpy-wgl-probe-v1
         compile_one "$BUILD_DIR/opengl_ios.c" "$name"
     fi
+    [[ "$FAILED" = 0 ]] || { echo 'Native refresh compilation failed; existing archive preserved'; exit 1; }
     candidate="$OBJ_DIR/libwin32u_refresh.a"
     cp "$APP_LIB" "$candidate"
     ar d "$candidate" "$name.o"
     ar r "$candidate" "$OBJ_DIR/$name.o"
+    if [[ "$1" = input-only ]]; then
+        ar d "$candidate" message.o
+        ar r "$candidate" "$OBJ_DIR/message.o"
+    fi
     test "$(ar t "$candidate" | awk -v member="$name.o" '$0 == member {n++} END {print n+0}')" = 1
     grep -a -q "$marker" "$candidate"
     cp "$candidate" "$APP_LIB"
+    if [[ "$1" = input-only ]]; then
+        python3 "$REPO_ROOT/tools/win32u-input-wake-bundle.py" --root "$REPO_ROOT" --stamp --base "$OBJ_DIR/input-wake-base.a"
+    fi
     echo "Refreshed $name.o; preserved other native archive members"
     exit 0
 fi
