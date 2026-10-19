@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CryptoKit
 
 struct ReleaseVersion: Comparable, Equatable {
     let parts: [Int]
@@ -24,7 +25,12 @@ struct MadeiraUpdateManifest: Decodable {
 }
 
 struct MadeiraRelease: Decodable {
-    struct Asset: Decodable { let name: String; let browser_download_url: String }
+    struct Asset: Decodable {
+        let name: String
+        let browser_download_url: String
+        let size: Int64?
+        let digest: String?
+    }
     let tag_name: String
     let name: String?
     let draft: Bool
@@ -47,16 +53,166 @@ enum UpdateRules {
         if let commit, !installedCommit.isEmpty, commit == installedCommit { return false }
         return (build ?? 0) > installedBuild
     }
+
+    static func downloadRedirect(_ url: URL) -> Bool {
+        guard url.scheme == "https", url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443 else { return false }
+        return url.host == "github.com" || url.host == "release-assets.githubusercontent.com" || url.host == "objects.githubusercontent.com"
+    }
+}
+
+enum AppUpdateDownload {
+    static let maximumBytes: Int64 = 2 * 1024 * 1024 * 1024
+
+    enum Failure: LocalizedError {
+        case invalidFile, oversized, sizeMismatch, checksumMismatch, redirect, http(Int)
+        var errorDescription: String? {
+            switch self {
+            case .invalidFile: return "The server did not return an IPA file. Retry the download."
+            case .oversized: return "The update exceeds the supported download size."
+            case .sizeMismatch: return "The IPA download is incomplete. Retry the download."
+            case .checksumMismatch: return "The IPA failed its SHA-256 check. Retry the download."
+            case .redirect: return "GitHub redirected the download to an unsupported address."
+            case .http(let code): return "The IPA server returned HTTP \(code). Retry the download."
+            }
+        }
+    }
+
+    private final class ProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+        let expectedBytes: Int64?
+        let progress: @Sendable (Int64, Int64?) -> Void
+        private let lock = NSLock()
+        private var storedFailure: Failure?
+        private var lastUpdate = Date.distantPast
+        var failure: Failure? { lock.lock(); defer { lock.unlock() }; return storedFailure }
+        init(expectedBytes: Int64?, progress: @escaping @Sendable (Int64, Int64?) -> Void) {
+            self.expectedBytes = expectedBytes; self.progress = progress
+        }
+        private func fail(_ failure: Failure, task: URLSessionTask) {
+            lock.lock(); storedFailure = failure; lock.unlock()
+            task.cancel()
+        }
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                        totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+            if totalBytesWritten > AppUpdateDownload.maximumBytes || totalBytesExpectedToWrite > AppUpdateDownload.maximumBytes {
+                fail(.oversized, task: downloadTask); return
+            }
+            if let expectedBytes, totalBytesWritten > expectedBytes {
+                fail(.sizeMismatch, task: downloadTask); return
+            }
+            let now = Date()
+            guard now.timeIntervalSince(lastUpdate) >= 0.2 else { return }
+            lastUpdate = now
+            progress(totalBytesWritten, expectedBytes ?? (totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil))
+        }
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            guard let url = request.url, UpdateRules.downloadRedirect(url) else {
+                fail(.redirect, task: task); completionHandler(nil); return
+            }
+            completionHandler(request)
+        }
+    }
+
+    // The app passes a release asset URL validated by UpdateRules.assetURL.
+    // Keep the transfer independent of the view so dismissal never discards the file.
+    static func fetch(from url: URL, expectedBytes: Int64?, digest: String?, directory: URL,
+                      progress: @escaping @Sendable (Int64, Int64?) -> Void) async throws -> URL {
+        guard url.pathExtension.lowercased() == "ipa" else { throw Failure.invalidFile }
+        if let expectedBytes, expectedBytes <= 0 || expectedBytes > maximumBytes { throw Failure.oversized }
+        let delegate = ProgressDelegate(expectedBytes: expectedBytes, progress: progress)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 1800
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.setValue("Madeira-IPA-Download", forHTTPHeaderField: "User-Agent")
+        let temporary: URL
+        let response: URLResponse
+        do {
+            (temporary, response) = try await session.download(for: request, delegate: delegate)
+        } catch {
+            if let failure = delegate.failure { throw failure }
+            throw error
+        }
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        if let failure = delegate.failure { throw failure }
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else { throw Failure.invalidFile }
+        guard http.statusCode == 200 else { throw Failure.http(http.statusCode) }
+        let bytes = (try temporary.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0
+        guard bytes > 4 else { throw Failure.invalidFile }
+        guard bytes <= maximumBytes else { throw Failure.oversized }
+        if let expectedBytes, Int64(bytes) != expectedBytes { throw Failure.sizeMismatch }
+        let file = try FileHandle(forReadingFrom: temporary)
+        defer { try? file.close() }
+        guard try file.read(upToCount: 4) == Data([0x50, 0x4b, 0x03, 0x04]) else { throw Failure.invalidFile }
+        try file.seek(toOffset: 0)
+        var hash = SHA256()
+        while let block = try file.read(upToCount: 1024 * 1024), !block.isEmpty {
+            try Task.checkCancellation()
+            hash.update(data: block)
+        }
+        let checksum = hash.finalize().map { String(format: "%02x", $0) }.joined()
+        if let digest, digest.lowercased() != "sha256:" + checksum { throw Failure.checksumMismatch }
+        try Task.checkCancellation()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(url.lastPathComponent)
+        // Only replace an earlier download after the new file has passed every check.
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+        } else {
+            try FileManager.default.moveItem(at: temporary, to: destination)
+        }
+        progress(Int64(bytes), Int64(bytes))
+        return destination
+    }
 }
 
 @MainActor final class AppUpdateModel: ObservableObject {
-    struct Available { let title: String; let url: URL }
+    static let shared = AppUpdateModel()
+    struct Available { let title: String; let url: URL; let bytes: Int64?; let digest: String? }
     @Published var busy = false
     @Published var status: String?
     @Published var available: Available?
+    @Published private(set) var downloading = false
+    @Published private(set) var receivedBytes: Int64 = 0
+    @Published private(set) var totalBytes: Int64?
+    @Published private(set) var downloadedIPA: URL?
+    private var downloadTask: Task<Void, Never>?
+    private let directory: URL?
+    init(directory: URL? = nil) { self.directory = directory }
+
+    func download() {
+        guard !busy, !downloading, let available else { return }
+        downloading = true; receivedBytes = 0; totalBytes = available.bytes; status = nil
+        downloadTask = Task {
+            defer { downloading = false; downloadTask = nil }
+            do {
+                let folder = try directory ?? FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
+                                                                     appropriateFor: nil, create: true).appendingPathComponent("Updates", isDirectory: true)
+                let file = try await AppUpdateDownload.fetch(from: available.url, expectedBytes: available.bytes,
+                                                            digest: available.digest, directory: folder) { [weak self] received, total in
+                    Task { @MainActor in
+                        guard let self, self.downloading else { return }
+                        self.receivedBytes = max(self.receivedBytes, received); self.totalBytes = total
+                    }
+                }
+                downloadedIPA = file
+                status = "IPA saved in Files → Madeira → Updates. Share it with your sideloading tool to install."
+            } catch {
+                if Task.isCancelled { status = "Download cancelled. You can retry." }
+                else { status = "IPA download failed: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    func cancelDownload() { downloadTask?.cancel() }
 
     func check(includeTestBuilds: Bool) async {
-        guard !busy else { return }
+        guard !busy, !downloading else { return }
         busy = true; status = nil; available = nil
         defer { busy = false }
         do {
@@ -79,6 +235,7 @@ enum UpdateRules {
                 var remoteVersion = release.tag_name
                 var remoteBuild: Int?
                 var remoteCommit: String?
+                var selectedIPA = firstIPA
                 if let asset = release.assets.first(where: { $0.name == "madeira-update.json" }),
                    let url = UpdateRules.assetURL(asset.browser_download_url) {
                     let (manifestData, manifestResponse) = try await URLSession.shared.data(from: url)
@@ -88,11 +245,12 @@ enum UpdateRules {
                     let manifest = try JSONDecoder().decode(MadeiraUpdateManifest.self, from: manifestData)
                     guard let ipa = release.assets.first(where: { $0.name == manifest.ipa }),
                           let verifiedURL = UpdateRules.assetURL(ipa.browser_download_url), manifest.build > 0 else { continue }
-                    ipaURL = verifiedURL; remoteVersion = manifest.version; remoteBuild = manifest.build; remoteCommit = manifest.commit
+                    ipaURL = verifiedURL; selectedIPA = ipa
+                    remoteVersion = manifest.version; remoteBuild = manifest.build; remoteCommit = manifest.commit
                 }
                 if UpdateRules.newer(version: remoteVersion, build: remoteBuild, commit: remoteCommit,
                                      installedVersion: version, installedBuild: build, installedCommit: commit) {
-                    available = Available(title: release.name ?? release.tag_name, url: ipaURL)
+                    available = Available(title: release.name ?? release.tag_name, url: ipaURL, bytes: selectedIPA.size, digest: selectedIPA.digest)
                     status = "A new Madeira build is available."
                     return
                 }

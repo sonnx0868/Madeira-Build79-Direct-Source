@@ -92,26 +92,40 @@ struct DiagnosticUploadView: View {
 }
 
 struct AppUpdateSection: View {
-    @StateObject private var updates = AppUpdateModel()
+    @StateObject private var updates = AppUpdateModel.shared
     @AppStorage("madeira.updates.testBuilds") private var testBuilds = true
-    @Environment(\.openURL) private var openURL
     var body: some View {
         Section {
             LabeledContent("Installed", value: BuildStamp.text)
             Toggle("Include test builds", isOn: $testBuilds)
-                .disabled(updates.busy).onChange(of: testBuilds) { _ in updates.available = nil; updates.status = nil }
+                .disabled(updates.busy || updates.downloading).onChange(of: testBuilds) { _ in updates.available = nil; updates.status = nil }
             Button { Task { await updates.check(includeTestBuilds: testBuilds) } } label: {
                 if updates.busy { HStack { ProgressView(); Text("Checking…") } }
                 else { Label("Check for updates", systemImage: "arrow.triangle.2.circlepath") }
-            }.disabled(updates.busy)
+            }.disabled(updates.busy || updates.downloading)
             if let available = updates.available {
                 Text(available.title).font(.subheadline)
-                Button("Download IPA in browser") { openURL(available.url) }
+                if updates.downloading {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let total = updates.totalBytes, total > 0 {
+                            ProgressView("Downloading IPA…", value: Double(updates.receivedBytes), total: Double(total))
+                            Text("\(ByteCountFormatter.string(fromByteCount: updates.receivedBytes, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
+                                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        } else { ProgressView("Downloading IPA…") }
+                        Button("Cancel download", role: .cancel) { updates.cancelDownload() }
+                    }
+                } else {
+                    Button { updates.download() } label: { Label("Download IPA", systemImage: "arrow.down.circle") }
+                }
+                Link("Download using browser instead", destination: available.url).font(.footnote)
+            }
+            if let ipa = updates.downloadedIPA {
+                ShareLink(item: ipa) { Label("Share / Save IPA", systemImage: "square.and.arrow.up") }
             }
             if let status = updates.status { Text(status).font(.footnote).foregroundStyle(.secondary) }
             Link("Open GitHub Releases", destination: UpdateRules.releasesURL)
         } header: { Text("App updates") } footer: {
-            Text("Downloads open in your browser. Install the IPA with your usual sideloading tool.")
+            Text("Keep Madeira open while downloading. The IPA is saved in Files → Madeira → Updates. Install it with your usual sideloading tool.")
         }
     }
 }

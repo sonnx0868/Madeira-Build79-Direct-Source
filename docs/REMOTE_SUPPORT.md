@@ -190,8 +190,12 @@ Trên máy khác, yêu cầu Codex mở Site theo project ID trên bằng Sites 
 
 **Settings → App updates → Check for updates** kiểm tra GitHub Releases của
 `sonnx0868/Madeira-Build79-Direct-Source`. **Include test builds** bật mặc định
-vì các IPA hiện tại là prerelease. Nút **Download IPA in browser** mở asset
-IPA trên GitHub. Cài IPA bằng công cụ sideload bạn vẫn dùng.
+vì các IPA hiện tại là prerelease. Nút **Download IPA** tải trực tiếp trong app,
+hiện tiến độ và cho hủy/tải lại. File được kiểm tra kích thước, định dạng ZIP và
+SHA-256 khi GitHub cung cấp digest, rồi mới lưu vào **Files → Madeira → Updates**.
+**Share / Save IPA** mở bảng chia sẻ của iPad để lưu/chuyển sang công cụ sideload.
+Đóng trang cài đặt không làm mất trạng thái tải; giữ app mở đến khi tải xong.
+**Download using browser instead** vẫn có để tải bằng trình duyệt khi cần.
 
 Mỗi workflow Codemagic tạo cả IPA và `build/release-info/madeira-update.json`.
 Khi đăng release thủ công, đính kèm cả hai asset. Manifest ghi version, build,

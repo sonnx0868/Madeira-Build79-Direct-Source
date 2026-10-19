@@ -19,6 +19,21 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: a23c5e83bc82d22cce4d4d7cc30829c834ce79c1023be46255aa77ff81e1cd7f
 
 workflows:
+  madeira-update-download-check:
+    title: Check the IPA downloader with local failures and a real GitHub asset
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                python3 tests/host/check-app-update-download.py --require-swift --live-asset
+
   madeira-nutssync-check:
     title: Validate production NutsSync semantics and contention on Apple Silicon
     steps:
