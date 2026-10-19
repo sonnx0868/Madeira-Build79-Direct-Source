@@ -27,6 +27,11 @@
       "change": "None. Madeira already has a tested producer deadline limiter; adding a second wait would not establish a performance benefit."
     },
     {
+      "component": "Background instance priority",
+      "evidence": "The periodic block for _nutsemu_set_front_instance (0x10000fd14) identifies a thread's Windows instance. At 0x10000ff08 it calls thread_policy_set with flavor 5 and priority 0x1000 for a non-front instance, or zero for the front instance. Apple's thread_policy.h defines these as THREAD_BACKGROUND_POLICY and THREAD_BACKGROUND_POLICY_DARWIN_BG.",
+      "conclusion": "This is foreground/background scheduling for multitasking, not performance-core affinity or an overclock. Madeira's latest REPLACED report already shows priority 47 for its critical threads; this observation does not prove background demotion is its FPS regression."
+    },
+    {
       "component": "CPU priority",
       "evidence": "Calls to pthread_attr_set_qos_class_np at 0x100011aa4 and 0x1000122b4 pass QoS 0x21 and relative priority zero.",
       "conclusion": "The observed priority matches Madeira USER_INTERACTIVE paths. It is not evidence for a new higher priority or a performance-core pinning mechanism."

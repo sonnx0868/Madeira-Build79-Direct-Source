@@ -661,7 +661,10 @@ check('madeira_exit_is_helper' not in bridge and '.exe"' not in block(bridge, 'v
       'no program-name list in the exit report')
 check('MADEIRA_PROMOTE' not in fps and 'DisplayRateSettings' not in lib,
       'removed display-rate override cannot be enabled by saved settings')
-check('if mode == 1 || mode == 3 { return 0 }' in fps, 'capped 60/30 FPS sessions release the display link')
+# Capped display behavior is exercised by check-remote-support.py and the real
+# UIKit fixture in check-capped-frame-intent.py, including the REPLACED session
+# override. Matching the previous implementation's source text would reject
+# that intentional change without testing behavior.
 check('__attribute__((weak)) void madeira_set_display_max_fps' in shim and 'ProMotionIntent.has30Cap' in fps
       and 'ProMotionIntent.has30Cap || mode == 3' in lib, 'the 30 FPS cap is offered only with DXMT support')
 check('LibraryView(play: launchLibraryEntry' in content, 'ContentView shows the library when it is the chosen interface')
