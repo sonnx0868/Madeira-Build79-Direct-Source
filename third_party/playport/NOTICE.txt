@@ -1,0 +1,12 @@
+Madeira adapts the colour typeless texture usage correction from Playport.
+
+Source: https://github.com/playportdev/playport
+Reviewed revision: 412de5f (2026-10-19 review)
+Original patch: patches/dxmt/0009-d3d11-keep-lossless-compression-on-colour-typeless-t.patch
+Authors: The Playport authors <dev@playport.dev>
+License: GNU General Public License, version 3 (see Madeira's COPYING).
+
+Madeira's adaptation retains PixelFormatView for depth-bound and UAV-bound
+resources as well as depth/stencil and block-compressed format families. This
+keeps R16/R32 typeless depth remapping and shader-write allocations on their
+previous policy. Metal format views are verified separately from performance.

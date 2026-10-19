@@ -1,0 +1,35 @@
+Retain lossless compression eligibility on same-layout colour typeless views.
+Adapted from playportdev/playport patches/dxmt/0009 at commit 412de5f.
+Playport authors, GPL-3.0; retain the additional depth-bind and UAV guards here.
+
+--- a/src/d3d11/d3d11_resource_helper.cpp
++++ b/src/d3d11/d3d11_resource_helper.cpp
+@@ -4,6 +4,7 @@
+ #include "d3d11_resource.hpp"
+ #include "d3d11_1.h"
+ #include "util_math.hpp"
++#include "util_env.hpp"
+ 
+ namespace dxmt {
+ 
+@@ -369,8 +370,18 @@
+   }
+ 
+   if (metal_format.Flag & MTL_DXGI_FORMAT_TYPELESS) {
+-    // well this is necessary for passing validation layer
+-    metal_usage |= WMTTextureUsagePixelFormatView;
++    /* Adapted from Playport's DXMT 0009. Colour-family views keep their
++     * component layout, so Metal does not require PixelFormatView. On Apple
++     * GPUs that unnecessary flag disables lossless framebuffer compression.
++     * Keep depth/stencil and BC views unchanged, plus UAV resources where
++     * ShaderWrite already rules compression out. BindFlags matters here:
++     * R16/R32 TYPELESS can have been remapped to a depth pixel format above.
++     * The explicit escape hatch restores the preceding allocation policy. */
++    static const bool always_pfv = env::getEnvVar("DXMT_TYPELESS_PFV") == "1";
++    if (always_pfv || (BindFlags & (D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_UNORDERED_ACCESS)) ||
++        (metal_format.Flag & (MTL_DXGI_FORMAT_DEPTH_PLANER | MTL_DXGI_FORMAT_STENCIL_PLANER |
++                              MTL_DXGI_FORMAT_BC)))
++      metal_usage |= WMTTextureUsagePixelFormatView;
+   }
+ 
+   if (metal_format.Flag & (MTL_DXGI_FORMAT_DEPTH_PLANER | MTL_DXGI_FORMAT_STENCIL_PLANER)) {

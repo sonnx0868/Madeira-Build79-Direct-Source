@@ -19,6 +19,22 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: 9f4850a08adccb2fe9111b46f31785f3fc36f53267920ca40a89f28f2cd6faa9
 
 workflows:
+  madeira-color-view-check:
+    title: Validate lossless colour-view policy and actual Metal pixels
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                git submodule update --init dxmt
+                python3 tests/host/check-lossless-color-views.py --require-darwin
+
   madeira-texture-headroom-check:
     title: Validate native texture pressure against Metal performance budget
     steps:
