@@ -46,7 +46,8 @@ int main(int argc,char **argv)
         getrusage(RUSAGE_SELF,&a);uint64_t start=bench_now();
         while (bench_now()-start<120000000) yield_call();
         uint64_t end=bench_now();getrusage(RUSAGE_SELF,&b);
-        assert(ios_xp_yield_slept>0);
+        /* A real scheduler may itself leave >100 us between calls. The
+         * deterministic tests check the park decision; record real cost here. */
         printf("{\"engine\":\"%s\",\"case\":\"poll\",\"wall_ms\":%.3f,\"cpu_ms\":%.3f,\"yields\":%lld,\"parks\":%lld}\n",
                argv[1],(end-start)/1e6,cpu_ms(&a,&b),ios_xp_yield,ios_xp_yield_slept);
         return 0;

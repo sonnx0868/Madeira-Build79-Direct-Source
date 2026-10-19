@@ -364,14 +364,19 @@ static inline NTSTATUS ios_scheduler_yield(void){sched_yield();return STATUS_SUC
                 ('rearm32-100',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
                 ('rearm128-100',['-DIOS_YIELD_BUDGET_NS=128000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'100'),
                 ('rearm32-50',['-DIOS_YIELD_BUDGET_NS=32000','-DIOS_YIELD_REARM_AFTER_PARK=1'],'50')]
-            matrix=[]
+            matrix=[];candidates=[]
             for variant,flags,sleep_us in variants:
                 candidate=folder/variant
                 subprocess.run([cc,'-std=c11','-O2','-DWINE_IOS=1',*flags,str(bench_file),'-o',str(candidate)],check=True)
                 env=dict(os.environ)
                 if sleep_us:env['TEST_YIELD_SLEEP']=sleep_us
-                for case in ('rapid','jobs','poll'):
-                    for repeat in range(3):
+                candidates.append((variant,candidate,env))
+            for case in ('rapid','jobs','poll'):
+                for repeat in range(3):
+                    # Pair the policies within each trial instead of comparing
+                    # all cold samples of one with warmed samples of another.
+                    order=candidates if repeat%2==0 else list(reversed(candidates))
+                    for variant,candidate,env in order:
                         result=subprocess.check_output([str(candidate),variant,case],text=True,env=env,timeout=30)
                         record=json.loads(result.strip().splitlines()[-1]);record.update(variant=variant,repeat=repeat)
                         matrix.append(record);print('YIELD_MATRIX '+json.dumps(record),flush=True)
