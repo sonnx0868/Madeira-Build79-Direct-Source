@@ -1686,7 +1686,9 @@ final class LibraryModel: ObservableObject {
             return
         }
         DiagnosticEvents.sample()
-        if madeira_frame_count() >= launchPresent + 3 { madeira_session_priority_rendering() }
+        if madeira_frame_count() >= launchPresent + 3 || winios_surface_present_count() > launchSurface {
+            madeira_session_priority_rendering()
+        }
         let dockStart = DockStartScreen.shared
         if dockStart.active {
             // A Dock start: the desktop's own frames (explorer, the host's console window)
