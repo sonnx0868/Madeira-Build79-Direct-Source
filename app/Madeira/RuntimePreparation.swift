@@ -132,8 +132,11 @@ enum RuntimeScanner {
         guard RuntimeFiles.inside(executable, drive), RuntimeFiles.matches(executable, bits: bits) else {
             throw RuntimePreparationError.message("The executable is missing or has an unsupported architecture.")
         }
-        let root = executable.deletingLastPathComponent()
-        var report = RuntimeReport(), modules = [executable], watched = Set<URL>()
+        // Directory enumeration resolves aliases such as macOS /var ->
+        // /private/var. Use one identity for graph edges and relative paths.
+        let entryModule = executable.resolvingSymlinksInPath()
+        let root = entryModule.deletingLastPathComponent()
+        var report = RuntimeReport(), modules = [entryModule], watched = Set<URL>()
         let walker = RuntimeFiles.manager.enumerator(at: root, includingPropertiesForKeys: [.isSymbolicLinkKey, .isDirectoryKey], options: [.skipsHiddenFiles])
         watched.insert(root)
         var count = 0
@@ -225,7 +228,7 @@ enum RuntimeScanner {
         // Only ordinary imports reachable from the chosen EXE establish a
         // startup dependency. Unity plugins and delay imports can be loaded
         // later; their presence on disk does not prove that code path is used.
-        var startup: Set<URL> = [executable], pending = [executable]
+        var startup: Set<URL> = [entryModule], pending = [entryModule]
         while let module = pending.popLast() {
             for child in startupEdges[module] ?? [] where startup.insert(child).inserted { pending.append(child) }
         }
