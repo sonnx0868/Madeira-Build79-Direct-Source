@@ -82,7 +82,7 @@ def block(source, start_marker):
 # ---------------------------------------------------------------- Part A
 library_swift = [
     'SteamInstall.swift', 'SteamOwnedLibrary.swift', 'SteamDownloadBackground.swift', 'SteamGames.swift',
-    'SwiftSteam/Core/CMServerList.swift', 'SwiftSteam/Core/LicenseListBox.swift', 'SwiftSteam/Core/SteamCMSession.swift',
+    'SwiftSteam/Core/CMServerList.swift', 'SwiftSteam/Core/SteamNetworkDNS.swift', 'SwiftSteam/Core/LicenseListBox.swift', 'SwiftSteam/Core/SteamCMSession.swift',
     'SwiftSteam/Core/SteamConnection.swift', 'SwiftSteam/Core/SteamMessageCodec.swift', 'SwiftSteam/Core/SteamProtocol.swift',
     'SwiftSteam/Core/SteamSession.swift', 'SwiftSteam/Content/ContentDecryptor.swift', 'SwiftSteam/Content/DepotDownloader.swift',
     'SwiftSteam/Content/DepotManifest.swift', 'SwiftSteam/Library/SteamAppInfo.swift',
@@ -523,6 +523,14 @@ nonisolated(unsafe) var loggedEvents: [String] = []
 enum SteamLog {
     static func trace(_ m: @autoclosure () -> String) {}
     static func event(_ m: String) { loggedEvents.append(m) }
+}
+
+// The cross-platform depot fixture exercises HTTP against its local server.
+// Apple's real encrypted DNS/failover implementation runs in check-cdn-routing.py.
+enum SteamNetworkDNS {
+    static func data(from url: URL, session: URLSession = .shared) async throws -> (Data, URLResponse) {
+        try await session.data(from: url)
+    }
 }
 enum SteamSignIn {
     static func flag(_ name: String, default fallback: Bool) -> Bool { getenv(name).map { String(cString: $0) != "0" } ?? fallback }

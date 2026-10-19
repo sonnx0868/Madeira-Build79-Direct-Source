@@ -58,7 +58,7 @@ signin_files = {'SteamSignIn.swift', 'SteamSignInView.swift', 'SteamAuthAPI.swif
                 'SteamQRAuth.swift', 'SteamTokenStore.swift', 'SteamError.swift', 'SteamProtoMessages.swift',
                 'SteamDevice.swift', 'SteamLog.swift'}
 # The owned library and downloads (docs/STEAM_LIBRARY.md). SteamError and SteamProtoMessages are shared.
-library_files = {'CMServerList.swift', 'LicenseListBox.swift', 'SteamCMSession.swift', 'SteamConnection.swift', 'SteamMessageCodec.swift',
+library_files = {'CMServerList.swift', 'SteamNetworkDNS.swift', 'LicenseListBox.swift', 'SteamCMSession.swift', 'SteamConnection.swift', 'SteamMessageCodec.swift',
                  'SteamProtocol.swift', 'SteamSession.swift', 'ContentDecryptor.swift', 'DepotDownloader.swift',
                  'DepotManifest.swift', 'SteamAppInfo.swift', 'SteamLibraryFetcher.swift', 'AppManifestWriter.swift'}
 shared_files = {'SteamError.swift', 'SteamProtoMessages.swift'}

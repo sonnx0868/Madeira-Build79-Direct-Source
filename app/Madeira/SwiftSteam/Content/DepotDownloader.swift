@@ -441,7 +441,7 @@ final class DepotDownloader {
 
     private nonisolated static func download(_ urlString: String) async throws -> Data {
         guard let url = URL(string: urlString) else { throw SteamError.chunkDownloadFailed("Invalid content URL.") }
-        let (data, response) = try await http.data(from: url)
+        let (data, response) = try await SteamNetworkDNS.data(from: url, session: http)
         guard let status = (response as? HTTPURLResponse)?.statusCode, (200...299).contains(status) else {
             throw SteamError.chunkDownloadFailed("Content server returned HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0).")
         }
@@ -454,7 +454,11 @@ final class DepotDownloader {
                                key: Data, hosts: [String]) async throws -> DepotManifest {
         let requestCode = try await manifestRequestCode(depotID: depotID, appID: appID, manifestGID: manifestGID)
         var lastError: Error = SteamError.manifestFetchFailed("No content server returned the manifest.")
-        for host in hosts.prefix(6) {
+        // The directory can return twenty regional edges. Its final HTTPS
+        // fallback used to be cut off by prefix(6), so six failed edges could
+        // abort every repair before any file was checked. Reserve the fallback
+        // slot just as the chunk downloader does.
+        for host in Self.contentPool(hosts, limit: hostPoolSize) {
             try Task.checkCancellation()
             let auth = await cdnAuthFragment(depotID: depotID, appID: appID, host: host)
             let code = requestCode == 0 ? "" : "/\(requestCode)"
@@ -476,8 +480,12 @@ final class DepotDownloader {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                let failure = error as NSError
+                if failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled {
+                    throw CancellationError()
+                }
                 lastError = error
-                SteamLog.trace("manifest from a content server failed: \(error.localizedDescription)")
+                SteamLog.event("[steam-cdn] stage=manifest-failed host=\(URL(string: host)?.host ?? "invalid") domain=\(failure.domain) code=\(failure.code)")
             }
         }
         throw lastError
@@ -635,7 +643,7 @@ final class DepotDownloader {
             guard let url = URL(string: "https://api.steampowered.com/IContentServerDirectoryService/GetServersForSteamPipe/v1/?cell_id=\(session.cellID)&max_servers=20") else {
                 throw SteamError.chunkDownloadFailed("Bad content directory URL")
             }
-            let (data, response) = try await Self.http.data(from: url)
+            let (data, response) = try await SteamNetworkDNS.data(from: url, session: Self.http)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 throw SteamError.chunkDownloadFailed("Content directory HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
             }

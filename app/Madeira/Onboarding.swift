@@ -645,7 +645,7 @@ struct SteamSettingsSection: View {
         } header: {
             Text("Steam")
         } footer: {
-            Text("Madeira keeps a Steam sign-in token in this device's Keychain. Signing out removes it. Encrypted DNS covers app downloads and the next Dock session. It can help when names are blocked, but cannot fix blocked network routes. Automatic uses Cloudflare for downloads; choose Google if needed. Your public IP and download route stay the same.")
+                    Text("Madeira keeps a Steam sign-in token in this device's Keychain. Signing out removes it. Encrypted DNS covers app downloads and the next Dock session. It can help when names are blocked, but cannot fix blocked network routes. Automatic tries Cloudflare, then Google if a Steam HTTPS request fails. Your public IP and download route stay the same.")
         }
         .confirmationDialog("Sign out of Steam?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { signIn.signOut() }

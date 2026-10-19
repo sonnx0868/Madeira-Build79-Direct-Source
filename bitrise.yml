@@ -19,6 +19,22 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: a23c5e83bc82d22cce4d4d7cc30829c834ce79c1023be46255aa77ff81e1cd7f
 
 workflows:
+  madeira-cdn-recovery-check:
+    title: Validate Steam HTTPS recovery and manifest fallback
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                python3 tests/host/check-cdn-routing.py --require-swift
+                python3 tests/host/check-frontend.py
+
   madeira-session-priority-check:
     title: Validate foreground session priority and background restoration
     steps:
