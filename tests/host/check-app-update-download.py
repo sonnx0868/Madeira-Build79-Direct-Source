@@ -80,7 +80,7 @@ final class ProgressCounter: @unchecked Sendable {
         let legacyAsset = try JSONDecoder().decode(MadeiraRelease.Asset.self, from: oldAPI)
         assert(legacyAsset.digest == nil)
         let file = try await AppUpdateDownload.fetch(from: base.appendingPathComponent("good.ipa"), expectedBytes: size,
-                                                   digest: digest, directory: folder, progress: progress.update)
+                                                   digest: digest, directory: folder, progress: { progress.update($0, $1) })
         assert(progress.bytes == size && file.pathExtension == "ipa")
         let original = try Data(contentsOf: file)
         assert(original.count == size)
@@ -113,7 +113,7 @@ final class ProgressCounter: @unchecked Sendable {
         let cancelledProgress = ProgressCounter()
         let cancelled = Task {
             try await AppUpdateDownload.fetch(from: base.appendingPathComponent("slow.ipa"), expectedBytes: size,
-                                              digest: digest, directory: folder, progress: cancelledProgress.update)
+                                              digest: digest, directory: folder, progress: { cancelledProgress.update($0, $1) })
         }
         while cancelledProgress.bytes == 0 { try await Task.sleep(nanoseconds: 20_000_000) }
         cancelled.cancel()

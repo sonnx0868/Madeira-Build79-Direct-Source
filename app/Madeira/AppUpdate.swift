@@ -82,17 +82,58 @@ enum AppUpdateDownload {
         let expectedBytes: Int64?
         let progress: @Sendable (Int64, Int64?) -> Void
         private let lock = NSLock()
-        private var storedFailure: Failure?
+        private var storedFailure: Error?
+        private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+        private var task: URLSessionDownloadTask?
+        private var stagedFile: URL?
+        private var cancelled = false
         private var lastUpdate = Date.distantPast
-        var failure: Failure? { lock.lock(); defer { lock.unlock() }; return storedFailure }
         init(expectedBytes: Int64?, progress: @escaping @Sendable (Int64, Int64?) -> Void) {
             self.expectedBytes = expectedBytes; self.progress = progress
         }
-        private func fail(_ failure: Failure, task: URLSessionTask) {
+        private func fail(_ failure: Error, task: URLSessionTask) {
             lock.lock(); storedFailure = failure; lock.unlock()
             task.cancel()
         }
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+        func start(session: URLSession, request: URLRequest) async throws -> (URL, URLResponse) {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                guard !cancelled else { lock.unlock(); continuation.resume(throwing: CancellationError()); return }
+                let task = session.downloadTask(with: request)
+                self.continuation = continuation; self.task = task
+                lock.unlock()
+                task.resume()
+            }
+        }
+        func cancel() {
+            lock.lock(); cancelled = true; let task = task; lock.unlock()
+            task?.cancel()
+        }
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+            // URLSession deletes its file when this callback returns. Retain it
+            // before resuming the async caller; validation runs off the UI thread.
+            let staged = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".ipa-download")
+            do {
+                try FileManager.default.moveItem(at: location, to: staged)
+                lock.lock(); stagedFile = staged; lock.unlock()
+            } catch { fail(error, task: downloadTask) }
+        }
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            lock.lock()
+            let continuation = continuation; self.continuation = nil; self.task = nil
+            let file = stagedFile; stagedFile = nil
+            let failure = storedFailure ?? error ?? (cancelled ? CancellationError() : nil)
+            lock.unlock()
+            if let failure {
+                if let file { try? FileManager.default.removeItem(at: file) }
+                continuation?.resume(throwing: failure)
+            } else if let file, let response = task.response {
+                continuation?.resume(returning: (file, response))
+            } else {
+                if let file { try? FileManager.default.removeItem(at: file) }
+                continuation?.resume(throwing: Failure.invalidFile)
+            }
+        }
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                         totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
             if totalBytesWritten > AppUpdateDownload.maximumBytes || totalBytesExpectedToWrite > AppUpdateDownload.maximumBytes {
@@ -125,20 +166,14 @@ enum AppUpdateDownload {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 1800
-        let session = URLSession(configuration: configuration)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue("Madeira-IPA-Download", forHTTPHeaderField: "User-Agent")
-        let temporary: URL
-        let response: URLResponse
-        do {
-            (temporary, response) = try await session.download(for: request, delegate: delegate)
-        } catch {
-            if let failure = delegate.failure { throw failure }
-            throw error
-        }
+        let (temporary, response) = try await withTaskCancellationHandler {
+            try await delegate.start(session: session, request: request)
+        } onCancel: { delegate.cancel() }
         defer { try? FileManager.default.removeItem(at: temporary) }
-        if let failure = delegate.failure { throw failure }
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse else { throw Failure.invalidFile }
         guard http.statusCode == 200 else { throw Failure.http(http.statusCode) }
@@ -188,7 +223,7 @@ enum AppUpdateDownload {
     func download() {
         guard !busy, !downloading, let available else { return }
         downloading = true; receivedBytes = 0; totalBytes = available.bytes; status = nil
-        downloadTask = Task {
+        downloadTask = Task { [self] in
             defer { downloading = false; downloadTask = nil }
             do {
                 let folder = try directory ?? FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
