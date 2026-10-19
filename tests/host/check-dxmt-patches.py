@@ -18,6 +18,7 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-texture-headroom.patch",
                "patches/dxmt-lossless-color-views.patch",
                "patches/dxmt-frameflow.patch",
+               "patches/dxmt-retirement-lifetime.patch",
                "patches/dxmt-gpu-stages.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",
@@ -29,7 +30,8 @@ SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.
                 "src/airconv/nt/dxbc_converter_base.cpp", "src/airconv/nt/air_builder.cpp",
                 "src/airconv/airconv_context.cpp", "src/d3d11/d3d11_resource_helper.cpp",
                 "src/dxmt/dxmt_resource_initializer.cpp", "src/dxmt/dxmt_resource_initializer.hpp",
-                "src/dxmt/dxmt_staging.cpp", "src/dxmt/dxmt_staging.hpp")
+                "src/dxmt/dxmt_staging.cpp", "src/dxmt/dxmt_staging.hpp",
+                "src/dxmt/dxmt_command_queue.cpp")
 
 
 def patched_sources(root):
@@ -84,8 +86,12 @@ def patched_sources(root):
         stage_patch = patches[-1]
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(stage_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(stage_patch)], check=True)
-        for path in patches[:-1]:
+        retirement_patch = patches[-2]
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(retirement_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(retirement_patch)], check=True)
+        for path in patches[:-2]:
             subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(path)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", str(retirement_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(stage_patch)], check=True)
         return {name: (checkout / name).read_text(encoding="utf-8") for name in SOURCE_FILES}
 

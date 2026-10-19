@@ -1,0 +1,135 @@
+--- a/src/dxmt/dxmt_command_queue.cpp
++++ b/src/dxmt/dxmt_command_queue.cpp
+@@ -174,6 +174,11 @@
+     dxmt::atomic_wait(ready_for_commit, internal_seq, std::memory_order_acquire);
+     if (stopped.load())
+       break;
++    // Metal/Foundation temporaries are thread-local. The encoding thread's
++    // pool cannot drain objects produced by this persistent retirement thread.
++    // Keep the pool through GPU completion, callbacks and resource destruction;
++    // drain each submission rather than retaining temporaries until thread exit.
++    auto retirement_pool = WMT::MakeAutoreleasePool();
+     auto &chunk = chunks[internal_seq % kCommandChunkCount];
+     if (chunk.attached_cmdbuf.status() <= WMTCommandBufferStatusScheduled) {
+       chunk.attached_cmdbuf.waitUntilCompleted();
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -25,6 +25,7 @@
+ #include "../../../build/dxmt-ios/swapchain_hook_abi.h"
+ #include <atomic>
+ #include <cfloat>
++#include "../../../build/dxmt-ios/present_waits.hpp"
+ #include <format>
+ 
+ /**
+@@ -725,8 +726,14 @@
+     }
+   };
+ 
++  Presenter::PresentState SynchronizeLayerProperties() {
++    madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Layer);
++    return presenter->synchronizeLayerProperties();
++  }
++
+   SyncFrameState SyncFrame(uint64_t current_frame_id) {
+     if (frame_latency_fence_) {
++      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::FrameFence);
+       if (current_frame_id > frame_latency)
+         frame_latency_fence_->wait(current_frame_id - frame_latency);
+       return SyncFrameState(current_frame_id, frame_latency_fence_.get());
+@@ -764,6 +771,18 @@
+             madeira_gap_count_, madeira_gap_sum_ms_ / 64.0, madeira_gap_max_ms_,
+             madeira_inside_sum_ms_ / 64.0, madeira_inside_max_ms_,
+             madeira_gap_sync_min_, madeira_gap_sync_max_));
++        Logger::info(std::format(
++            "[PRESENT_WAIT] #{} device_lock={:.2f}ms prepare={:.2f}ms submit={:.2f}ms "
++            "layer={:.2f}ms frame_fence={:.2f}ms commit={:.2f}ms queue={:.2f}ms",
++            madeira_gap_count_,
++            madeira_present_waits_.get(madeira::PresentWait::DeviceLock) / 64.0,
++            madeira_present_waits_.get(madeira::PresentWait::Prepare) / 64.0,
++            madeira_present_waits_.get(madeira::PresentWait::Submit) / 64.0,
++            madeira_present_waits_.get(madeira::PresentWait::Layer) / 64.0,
++            madeira_present_waits_.get(madeira::PresentWait::FrameFence) / 64.0,
++            madeira_present_waits_.get(madeira::PresentWait::Commit) / 64.0,
++            madeira_present_waits_.get(madeira::PresentWait::Queue) / 64.0));
++        madeira_present_waits_.clear();
+         madeira_gap_sum_ms_ = 0; madeira_gap_max_ms_ = 0;
+         madeira_inside_sum_ms_ = 0; madeira_inside_max_ms_ = 0;
+         madeira_gap_sync_min_ = ~0u; madeira_gap_sync_max_ = 0;
+@@ -796,9 +815,15 @@
+     if (should_exit_fs)
+       SetFullscreenState(FALSE, nullptr);
+ 
+-    std::unique_lock<d3d11_device_mutex> lock(device_->mutex);
+-
+-    device_context_->PrepareFlush();
++    std::unique_lock<d3d11_device_mutex> lock(device_->mutex, std::defer_lock);
++    {
++      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::DeviceLock);
++      lock.lock();
++    }
++    {
++      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Prepare);
++      device_context_->PrepareFlush();
++    }
+     if (hr == DXGI_STATUS_OCCLUDED) {
+       // flush commands without presenting
+       device_context_->Commit();
+@@ -826,8 +851,10 @@
+      * uncapped the same scenes ran at 62-100 FPS. Committing the tail here
+      * lets the GPU draw it during the drawable wait; the present then only
+      * adds the blit. */
+-    if (commit_before_present_ && cmd_queue.CurrentChunk()->hasCommands())
++    if (commit_before_present_ && cmd_queue.CurrentChunk()->hasCommands()) {
++      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Submit);
+       device_context_->Commit();
++    }
+     auto chunk = cmd_queue.CurrentChunk();
+     chunk->signal_frame_latency_fence_ = cmd_queue.CurrentFrameSeq();
+     if (target_) {
+@@ -839,7 +866,7 @@
+         this, vsync_duration, backbuffer = backbuffer_->texture(),
+         sync_state = SyncFrame(++presentation_count_),
+         upscaled = upscaled_backbuffer_->texture(),
+-        scaler = this->metalfx_scaler, state = presenter->synchronizeLayerProperties()
++        scaler = this->metalfx_scaler, state = SynchronizeLayerProperties()
+       ](ArgumentEncodingContext &ctx) mutable {
+         auto &scaler_info = ctx.currentFrameStatistics().last_scaler_info;
+         scaler_info.type = ScalerType::Spatial;
+@@ -854,7 +881,7 @@
+       });
+     } else {
+       chunk->emitcc([
+-        this, vsync_duration, state = presenter->synchronizeLayerProperties(),
++        this, vsync_duration, state = SynchronizeLayerProperties(),
+         sync_state = SyncFrame(++presentation_count_),
+         backbuffer = backbuffer_->texture()
+       ](ArgumentEncodingContext &ctx) mutable {
+@@ -863,11 +890,17 @@
+         this->UpdateStatistics(ctx.queue().statistics, ctx.currentFrameId());
+       });
+     }
+-    device_context_->Commit();
++    {
++      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Commit);
++      device_context_->Commit();
++    }
+ 
+     lock.unlock(); // since PresentBoundary() will and should only stall current thread
+ 
+-    cmd_queue.PresentBoundary();
++    {
++      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Queue);
++      cmd_queue.PresentBoundary();
++    }
+ 
+     {
+       double inside_ms = std::chrono::duration<double, std::milli>(
+@@ -1141,6 +1174,7 @@
+   /* [PRESENT_GAP] accumulators — Present1 is only called from the game
+    * thread, so plain members are fine. */
+   std::chrono::steady_clock::time_point madeira_gap_last_entry_{};
++  madeira::PresentWaits madeira_present_waits_;
+   uint64_t madeira_gap_count_ = 0;
+   double madeira_gap_sum_ms_ = 0, madeira_gap_max_ms_ = 0;
+   double madeira_inside_sum_ms_ = 0, madeira_inside_max_ms_ = 0;

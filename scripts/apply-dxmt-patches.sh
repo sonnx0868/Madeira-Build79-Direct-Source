@@ -9,6 +9,10 @@ stage_patch="$root/patches/dxmt-gpu-stages.patch"
 if git -C "$root/dxmt" apply --reverse --check "$stage_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$stage_patch"
 fi
+retirement_patch="$root/patches/dxmt-retirement-lifetime.patch"
+if git -C "$root/dxmt" apply --reverse --check "$retirement_patch" >/dev/null 2>&1; then
+    git -C "$root/dxmt" apply --reverse "$retirement_patch"
+fi
 for name in patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.patch \
             patches/dxmt-gameplay-performance.patch build/dxmt-ios/clean-build.patch \
             build/dxmt-ios/pipeline-cache.patch patches/dxmt-metal-public-atomic.patch \
@@ -36,6 +40,8 @@ for name in patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.
         exit 1
     fi
 done
+git -C "$root/dxmt" apply --check "$retirement_patch"
+git -C "$root/dxmt" apply "$retirement_patch"
 git -C "$root/dxmt" apply --check "$stage_patch"
 git -C "$root/dxmt" apply "$stage_patch"
 echo 'Applied DXMT stage timestamp hooks'

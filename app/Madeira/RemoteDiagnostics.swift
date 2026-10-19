@@ -386,7 +386,8 @@ enum DiagnosticEvents {
         let identity = (entry.title + " " + entry.relativePath).lowercased()
         let investigatingPerformance = ["replaced", "hollow knight", "silksong", "silver pines", "sliver pines", "primal planet"]
             .contains { identity.contains($0) }
-        let gpuTiming = investigatingPerformance ||
+        let investigatingPresent = ["liar's bar", "liars bar"].contains { identity.contains($0) }
+        let gpuTiming = investigatingPerformance || investigatingPresent ||
             MadeiraConfig.flag("MADEIRA_GPU_TIMING", fallback: false)
         madeira_replaced_metrics_prepare(identity.contains("replaced") &&
             MadeiraConfig.flag("MADEIRA_REPLACED_METRICS") ? 1 : 0)
