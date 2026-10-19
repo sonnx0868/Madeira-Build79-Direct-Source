@@ -22,6 +22,8 @@ fixture=r'''
 #include <stdio.h>
 #include <assert.h>
 #include <unistd.h>
+#include "SessionPriorityAPI.h"
+#include "SessionPriority.h"
 static uint32_t g_presented_pid;
 static uint64_t g_presented_exit;
 static int g_session_close_exited;
@@ -36,6 +38,10 @@ int main(void) { @autoreleasepool {
     started(32,@"C:\\Steam\\steam.exe");assert(!g_game_pid);
     started(44,@"C:\\Steam\\steamapps\\common\\Party Animals\\crashhandler.exe");assert(!g_game_pid);
     started(52,@"\\??\\C:\\STEAM\\steamapps\\common\\Party Animals\\PartyAnimals.EXE");assert(g_game_pid==52);
+    assert(msp_session.target==52 && !msp_session.target_peb); // parent announcement
+    madeira_session_priority_thread(52,52,0,(void *)0x1000);
+    started(52,@"C:\\Steam\\steamapps\\common\\Party Animals\\PartyAnimals.exe");
+    assert(msp_session.target_peb==0x1000); // child binds itself even after the first CAS
     wine_session_process_did_exit(32,(int)0xc000001du);assert(!wine_game_process_has_exited());
     wine_session_process_did_exit(52,(int)0xc0000005u);uint32_t status;
     assert(wine_game_process_has_exited() && wine_game_process_exit_status(&status) && status==0xc0000005u);
@@ -51,5 +57,5 @@ int main(void) { @autoreleasepool {
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-game-process-') as tmp:
     p=Path(tmp);(p/'check.m').write_text(fixture,encoding='utf-8')
-    subprocess.run(['clang','-fobjc-arc','-fblocks',str(p/'check.m'),'-framework','Foundation','-o',str(p/'check')],check=True)
+    subprocess.run(['clang','-fobjc-arc','-fblocks','-I'+str(root/'app/Madeira'),str(p/'check.m'),'-framework','Foundation','-o',str(p/'check')],check=True)
     subprocess.run([str(p/'check')],check=True)

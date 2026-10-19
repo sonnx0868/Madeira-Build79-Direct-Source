@@ -33,6 +33,8 @@ workflows:
                 set -euo pipefail
                 cd "$BITRISE_SOURCE_DIR"
                 python3 tests/host/check-session-priority.py --require-darwin
+                python3 tests/host/check-game-process.py --require-objc
+                python3 tests/host/check-frontend.py --c-only
       - deploy-to-bitrise-io@2:
           inputs:
             - is_compress: 'true'

@@ -59,6 +59,11 @@ void madeira_session_priority_image(unsigned pid,const uint16_t *image,size_t le
     pthread_mutex_lock(&msp_lock);
     MSPProcess *p=msp_find(&msp_session,pid,msp_self.peb);
     if (p && p->kind!=kind) { p->kind=kind; msp_changed(); }
+    /* CreateProcess may announce the selected image on its parent before the
+     * child's pthread exists. Bind its identity only from that child itself. */
+    if (p && msp_session.active && msp_session.target==pid && !msp_session.target_peb) {
+        msp_session.target_peb=msp_self.peb; msp_changed();
+    }
     pthread_mutex_unlock(&msp_lock);
     madeira_session_priority_poll_current(0);
 }
@@ -70,10 +75,12 @@ void madeira_session_priority_begin(void) {
     fprintf(stderr,"[session-priority-v1] begin native-wait-poll=required background=known-ui-only shared-services=preserved\n");
 }
 void madeira_session_priority_select(unsigned pid) {
-    if (msp_self.pid!=pid || !msp_self.peb) return;
+    if (!pid) return;
     pthread_mutex_lock(&msp_lock);
     if (msp_session.active) {
-        msp_session.target=pid; msp_session.target_peb=msp_self.peb; msp_session.presented=0; msp_changed();
+        msp_session.target=pid;
+        msp_session.target_peb=msp_self.pid==pid?msp_self.peb:0;
+        msp_session.presented=0; msp_changed();
         atomic_store(&msp_waiting_for_surface,1);
     }
     pthread_mutex_unlock(&msp_lock);

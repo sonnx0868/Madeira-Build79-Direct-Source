@@ -519,6 +519,7 @@ c_src = r'''
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+static void madeira_session_priority_presented(unsigned pid) { (void)pid; }
 '''
 start = bridge.index('static uint64_t g_launch_exit')
 end = bridge.index('static char *g_prefix_path')

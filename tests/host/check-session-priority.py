@@ -96,7 +96,6 @@ static void *worker(void *arg) {
     unsigned id=(unsigned)(uintptr_t)arg,pid=id==0?100:id==1?20:10;
     madeira_session_priority_thread(pid,pid,id==1?10:0,(void *)(uintptr_t)pid);
     image(pid,id==0?"REPLACED.exe":id==1?"steamwebhelper.exe":"steam.exe");
-    if(id==0)madeira_session_priority_select(pid);
     atomic_fetch_add(&registered,1);
     for(int next=0;next<7;++next) {
         while(atomic_load(&stage)!=next)usleep(500);
@@ -122,10 +121,12 @@ static void *late(void *arg) {
 }
 int main(void) {
     madeira_session_priority_begin();madeira_session_priority_foreground(1);
+    madeira_session_priority_select(100); // parent observes CreateProcess before child initialization
     pthread_attr_t attr;assert(!pthread_attr_init(&attr));
     assert(!pthread_attr_set_qos_class_np(&attr,QOS_CLASS_USER_INTERACTIVE,0));
     pthread_t threads[3];for(unsigned i=0;i<3;++i)assert(!pthread_create(&threads[i],&attr,worker,(void *)(uintptr_t)i));
     while(atomic_load(&registered)!=3)usleep(500);
+    assert(msp_session.target==100 && msp_session.target_peb==100);
     for(int phase=0;phase<7;++phase) {
         if(phase==1){madeira_session_priority_presented(100);madeira_session_priority_rendering();}
         if(phase==2)madeira_session_priority_foreground(0);
