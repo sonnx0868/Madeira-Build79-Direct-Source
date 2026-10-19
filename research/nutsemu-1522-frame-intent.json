@@ -1,0 +1,43 @@
+{
+  "review_date": "2026-10-19",
+  "input": {
+    "filename": "NutsEmu-v0.0.1-build1522.ipa",
+    "sha256": "091d5733f0eb1bb68a9da13affbb89802b15b19671cb9bad65f3d731405a5399"
+  },
+  "method": "Inspect purchased IPA configuration, symbols and machine instructions; implement public API behavior independently. No proprietary binaries or decompiled source are distributed here.",
+  "observations": [
+    {
+      "component": "Window and process management",
+      "evidence": "NutsProcess.appex declares EXRequiresMultiInstance. Host and extension symbols include NutsRemoteProcess, spawn/socket/reply methods and auxiliary host/vendor protocols. NutsWindow tracks client/frame views, window owner and instance, maximized/minimized/closed state.",
+      "conclusion": "The package contains a window manager and infrastructure for multiple Windows processes. This is consistent with the reported Chrome and multitasking behavior; it does not prove full Windows kernel virtualization or faster rendering."
+    },
+    {
+      "component": "Display intent",
+      "evidence": {
+        "creation": "NutsEmu 0x1000224dc-0x100022598 creates a CADisplayLink and adds it to the main run loop in common modes.",
+        "rate_change": "_nutsemu_display_set_frame_cap at 0x10001da1c dispatches a main-queue rate update. Its block at 0x10001da70 calls CAFrameRateRangeMake(cap, cap, cap) for positive caps and (60, 120, 120) for an uncapped request.",
+        "callback": "-[NutsFrameRate tick:] at 0x10001da18 returns without rendering.",
+        "madeira_before": "ProMotionIntent.maxHz returned zero in capped 60 and 30 FPS modes, releasing its CADisplayLink."
+      },
+      "change": "For REPLACED only, publish and retain a display link matching the selected 60 or 30 FPS cap, bounded by the panel maximum. Preserve MAX behavior, reuse an unchanged link, and clear session state on quit. The callback remains empty; the native renderer still owns all frames and pacing."
+    },
+    {
+      "component": "Producer pacing",
+      "evidence": "-[NutsMetalLayer nextDrawable] at 0x10001dadc waits on an absolute Mach deadline before acquiring a drawable under a positive cap.",
+      "change": "None. Madeira already has a tested producer deadline limiter; adding a second wait would not establish a performance benefit."
+    },
+    {
+      "component": "CPU priority",
+      "evidence": "Calls to pthread_attr_set_qos_class_np at 0x100011aa4 and 0x1000122b4 pass QoS 0x21 and relative priority zero.",
+      "conclusion": "The observed priority matches Madeira USER_INTERACTIVE paths. It is not evidence for a new higher priority or a performance-core pinning mechanism."
+    }
+  ],
+  "validation": {
+    "production_controller": "tests/host/check-capped-frame-intent.py executes the production Swift controller using a real UIKit CADisplayLink on iPad Simulator; it checks selected rates, reuse, quit and switching games.",
+    "policy": "tests/host/check-remote-support.py covers 60 Hz and 120 Hz panels.",
+    "separate_experiment": "CAMetalDisplayLink mailbox prototype stays in tests/host/MetalFrameScheduler.h and is not part of the shipping app.",
+    "physical_ipad_fps_or_thermal_improvement_proven": false,
+    "principal_reason_for_replaced_efficiency_core_migration_proven": false
+  },
+  "scope": "This is a narrow candidate based on an observed implementation difference, not proof of the principal FPS regression. Earlier device reports where MAX did not restore FPS also limit how much can be attributed to capped display intent alone."
+}

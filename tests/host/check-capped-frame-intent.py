@@ -42,8 +42,8 @@ func madeira_dxmt_has_display_pacing() -> Int32 { 1 }
         return Mirror(reflecting: value).children.first?.value as? CADisplayLink
     }
     func range(_ link: CADisplayLink?) -> [Float] {
-        guard let value = link?.preferredFrameRateRange else { return [] }
-        return [value.minimum, value.maximum, value.preferred]
+        guard let value = link?.preferredFrameRateRange, let preferred = value.preferred else { return [] }
+        return [value.minimum, value.maximum, preferred]
     }
     func exercise() throws {
         let panel = ProMotionIntent.panelMaxFPS
