@@ -641,12 +641,12 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
    "smooth":["file":"smooth.gputrace","complete":true,"frames":2]],folder:folder)
   let archive=try await GPUTraceFiles.export(folder:folder,directory:root)
   let extracted=try unpackComparison(archive,into:root.appendingPathComponent("extracted"))
-  let trace=extracted.appendingPathComponent("smooth.gputrace"), prefix=original.path+"/"
-  let walker=fm.enumerator(at:original,includingPropertiesForKeys:[.isDirectoryKey])!
+  let trace=extracted.appendingPathComponent("smooth.gputrace")
+  let walker=fm.enumerator(atPath:original.path)!
   var files=0
-  for case let file as URL in walker {
+  for case let relative as String in walker {
+   let file=original.appendingPathComponent(relative)
    if try file.resourceValues(forKeys:[.isDirectoryKey]).isDirectory==true {continue}
-   let relative=String(file.path.dropFirst(prefix.count))
    let expected=try Data(contentsOf:file),actual=try Data(contentsOf:trace.appendingPathComponent(relative))
    assert(expected==actual,"Exported Metal resource changed: "+relative);files+=1
   }
