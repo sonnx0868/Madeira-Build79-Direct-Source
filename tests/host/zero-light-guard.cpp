@@ -17,7 +17,8 @@ struct Fixture {
   SmallVector<CallInst *, 4> taps;
   Fixture(Module &module, StringRef name) {
     auto &c = module.getContext(); IRBuilder<> ir(c);
-    auto *f = ir.getFloatTy(), *i32 = ir.getInt32Ty();
+    auto *f = ir.getFloatTy();
+    auto *i32 = ir.getInt32Ty();
     auto *v3 = FixedVectorType::get(f, 3), *v2 = FixedVectorType::get(f, 2);
     auto *p1 = PointerType::get(c, 1), *p2 = PointerType::get(c, 2);
     auto *pair = StructType::get(f, ir.getInt8Ty());
