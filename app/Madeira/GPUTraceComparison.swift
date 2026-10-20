@@ -354,10 +354,8 @@ enum GPUTraceNative {
 
 enum GPUTraceFiles {
     private static let queue = DispatchQueue(label: "madeira.gpu-trace.files", qos: .utility)
-    private static func isTraceResourceAlias(_ file: URL, in folder: URL) -> Bool {
-        let root = folder.path + "/"
-        guard file.path.hasPrefix(root) else { return false }
-        let relative = file.path.dropFirst(root.count).split(separator: "/")
+    private static func isTraceResourceAlias(_ file: URL, relativePath: String) -> Bool {
+        let relative = relativePath.split(separator: "/")
         guard relative.count > 1, relative[0] == "smooth.gputrace" || relative[0] == "slow.gputrace",
               let name = try? FileManager.default.destinationOfSymbolicLink(atPath: file.path),
               !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\") else { return false }
@@ -449,9 +447,9 @@ enum GPUTraceFiles {
                     guard canonicalFolder == folder.standardizedFileURL else {
                         throw SupportError.message("The GPU comparison folder must not be a symbolic link.")
                     }
-                    // Foundation can enumerate /var using its /private/var
-                    // spelling. Use the validated canonical root throughout;
-                    // resolving child URLs would hide the links we must check.
+                    // Keep the validated root for all reads. Enumerate relative
+                    // paths below: Foundation can spell equivalent absolute
+                    // roots as either /var or /private/var even after resolving.
                     let folder = canonicalFolder
                     _ = try completeManifest(folder: folder)
                     NSLog("[gpu-trace-pair] export-start pair=%@", folder.lastPathComponent)
@@ -459,18 +457,20 @@ enum GPUTraceFiles {
                                                 "smooth-stages.json", "slow-stages.json"]
                     let children = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
                     guard children.allSatisfy({ allowed.contains($0.lastPathComponent) }),
-                          let walker = fm.enumerator(at: folder, includingPropertiesForKeys: [.isSymbolicLinkKey]) else {
+                          let walker = fm.enumerator(atPath: folder.path) else {
                         throw SupportError.message("The comparison folder contains unexpected files.")
                     }
                     var count = 0
-                    for case let file as URL in walker {
+                    for case let relative as String in walker {
                         count += 1
-                        let relative = String(file.path.dropFirst(folder.path.count + 1))
+                        // The path enumerator supplies descendants relative to
+                        // this root and does not follow directory symlinks.
+                        let file = folder.appendingPathComponent(relative)
                         guard count <= 100_000 else {
                             throw SupportError.message("The comparison exceeds the 100,000-file limit at \(relative).")
                         }
                         if try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true,
-                           !isTraceResourceAlias(file, in: folder) {
+                           !isTraceResourceAlias(file, relativePath: relative) {
                             throw SupportError.message("The comparison contains an unsupported symbolic link: \(relative).")
                         }
                     }

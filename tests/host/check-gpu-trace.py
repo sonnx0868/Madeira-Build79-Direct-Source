@@ -129,6 +129,7 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   }
   GPUTraceFiles.writeManifest(manifest,folder:folder)
   GPUTraceFiles.snapshot(log:log,folder:folder)
+  print("GPU export path fixture input=\(folder.path), standardized=\(folder.standardizedFileURL.path), resolved=\(folder.resolvingSymlinksInPath().path)")
   let zip=try await GPUTraceFiles.export(folder:folder)
   defer { try? fm.removeItem(at:zip) }
   let header=try FileHandle(forReadingFrom:zip);let signature=try header.read(upToCount:4);try header.close()
