@@ -130,3 +130,10 @@ with tempfile.TemporaryDirectory(prefix='madeira-light-graphics-') as work:
   subprocess.run([swiftc,str(source),'-o',str(binary)],check=True,timeout=60);subprocess.run([str(binary)],check=True)
  elif '--require-swift' in sys.argv:raise SystemExit('Swift compiler required')
  else:print('SKIP: Swift launch policy requires the Mac runner')
+ if sys.platform=='darwin':
+  binary=folder/'metal-check'
+  subprocess.run(['xcrun','clang','-fobjc-arc','-O2','-I'+str(root/'build/dxmt-ios'),
+   str(root/'tests/host/light-filtering-metal.m'),'-framework','Foundation','-framework','Metal',
+   '-framework','CoreGraphics','-framework','ImageIO','-o',str(binary)],check=True)
+  output=Path(os.environ.get('BITRISE_DEPLOY_DIR',str(folder)));output.mkdir(parents=True,exist_ok=True)
+  subprocess.run([str(binary),str(output)],check=True,timeout=90)
