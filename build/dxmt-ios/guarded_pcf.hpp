@@ -49,6 +49,13 @@ inline bool isPureMath(const llvm::Instruction &instruction) {
                    llvm::ShuffleVectorInst, llvm::CmpInst, llvm::SelectInst>(instruction);
 }
 
+inline bool isSafeSpanInstruction(const llvm::Instruction &instruction) {
+  if (auto *load = llvm::dyn_cast<llvm::LoadInst>(&instruction))
+    return !load->isVolatile() && !load->isAtomic();
+  return isExplicitCompare(instruction) || isPureMath(instruction) ||
+         llvm::isa<llvm::GetElementPtrInst>(instruction);
+}
+
 struct Chain {
   llvm::BasicBlock *block;
   llvm::DenseMap<llvm::Instruction *, bool> dependent;
@@ -57,9 +64,8 @@ struct Chain {
   bool valid = true;
   explicit Chain(llvm::BasicBlock *block) : block(block) {}
 
-  // Only sample-dependent operations move. Coordinate, weight and pointer
-  // setup stays at its old position, so all external operands dominate the
-  // new block without speculating loads or duplicating any calculation.
+  // First find the mandatory sample-dependent operations. Private pure setup
+  // can join this set after the span and exclusive-use checks below.
   bool visit(llvm::Value *value, unsigned depth = 0) {
     auto *instruction = llvm::dyn_cast<llvm::Instruction>(value);
     if (!instruction || instruction->getParent() != block || llvm::isa<llvm::PHINode>(instruction)) return false;
@@ -105,19 +111,46 @@ inline bool guardSelect(llvm::SelectInst &select) {
     }
   }
 
-  llvm::SmallVector<llvm::Instruction *, 64> ordered;
-  bool started = false;
+  // Work only after the last write, atomic, barrier, derivative or unknown
+  // operation before the select. Every mandatory node must be in this window;
+  // an optional producer before it stays where it was. Loads and GEPs may be
+  // crossed under the existing span proof, but are never setup candidates.
+  llvm::SmallVector<llvm::Instruction *, 64> window;
+  llvm::SmallPtrSet<llvm::Instruction *, 32> inWindow;
   for (auto &instruction : *block) {
     if (&instruction == &select) break;
-    if (chain.moved.count(&instruction)) { started = true; ordered.push_back(&instruction); }
-    if (!started) continue;
-    // Delaying a readonly texture call across a write, atomic, barrier,
-    // derivative or unknown call would need a separate proof. Reject it.
-    if (auto *load = llvm::dyn_cast<llvm::LoadInst>(&instruction)) {
-      if (load->isVolatile() || load->isAtomic()) return false;
-    } else if (!isExplicitCompare(instruction) && !isPureMath(instruction) &&
-               !llvm::isa<llvm::GetElementPtrInst>(instruction)) return false;
+    if (!isSafeSpanInstruction(instruction)) { window.clear(); inWindow.clear(); }
+    else { window.push_back(&instruction); inWindow.insert(&instruction); }
   }
+  for (auto *instruction : chain.moved) if (!inWindow.count(instruction)) return false;
+
+  // Sink only pure producers whose complete user set is already moving. This
+  // keeps shared coordinates, predicates, memory reads and GEPs in
+  // place. Seed in source order so the bounded subset is repeatable. Requeue
+  // operands when adding a user: an earlier failed diamond ancestor can then
+  // become exclusive. Reaching the cap leaves the remaining setup in place.
+  llvm::SmallVector<llvm::Instruction *, 64> pending;
+  auto enqueueOperands = [&](llvm::Instruction *instruction) {
+    for (auto &operand : instruction->operands())
+      if (auto *producer = llvm::dyn_cast<llvm::Instruction>(operand.get()))
+        if (inWindow.count(producer) && !chain.moved.count(producer)) pending.push_back(producer);
+  };
+  for (auto *instruction : window) if (chain.moved.count(instruction)) enqueueOperands(instruction);
+  for (unsigned index = 0; index < pending.size() && chain.moved.size() < 256; ++index) {
+    auto *producer = pending[index];
+    if (chain.moved.count(producer) || !isPureMath(*producer)) continue;
+    bool exclusive = true;
+    for (auto *user : producer->users()) {
+      auto *instruction = llvm::dyn_cast<llvm::Instruction>(user);
+      if (!instruction || !chain.moved.count(instruction)) { exclusive = false; break; }
+    }
+    if (!exclusive) continue;
+    chain.moved.insert(producer);
+    enqueueOperands(producer);
+  }
+
+  llvm::SmallVector<llvm::Instruction *, 64> ordered;
+  for (auto *instruction : window) if (chain.moved.count(instruction)) ordered.push_back(instruction);
   if (ordered.size() != chain.moved.size()) return false;
 
   llvm::SmallVector<std::pair<unsigned, llvm::MDNode *>, 4> metadata;

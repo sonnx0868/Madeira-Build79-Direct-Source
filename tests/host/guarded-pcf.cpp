@@ -25,6 +25,8 @@ struct Fixture {
   SelectInst *select;
   SmallVector<CallInst *, 16> calls;
   SmallVector<Instruction *, 16> values;
+  SmallVector<Instruction *, 32> setup, mustMove, mustStay;
+  std::function<void(BasicBlock *)> inspect;
   Fixture(Module &module, StringRef name, unsigned count = 9, bool bits = false,
           bool reverse = false, bool fakeLoop = false) : module(module) {
     auto &context = module.getContext(); IRBuilder<> ir(context);
@@ -44,9 +46,12 @@ struct Fixture {
     auto *predicate = ir.CreateICmpNE(function->getArg(0), ir.getInt32(0), "inside");
     Value *sum = ConstantFP::get(f32, 0);
     for (unsigned i = 0; i < count; ++i) {
-      auto *x = ir.CreateFAdd(function->getArg(1), ConstantFP::get(f32, double(i) / 16), "coord.x");
+      auto *x = cast<Instruction>(ir.CreateFAdd(function->getArg(1), ConstantFP::get(f32, double(i) / 16), "coord.x"));
+      setup.push_back(x);
       Value *uv = ir.CreateInsertElement(PoisonValue::get(v2f), x, ir.getInt32(0));
+      setup.push_back(cast<Instruction>(uv));
       uv = ir.CreateInsertElement(uv, ConstantFP::get(f32, double(i) / 32), ir.getInt32(1));
+      setup.push_back(cast<Instruction>(uv));
       auto *call = ir.CreateCall(sampler, {ConstantPointerNull::get(p1), ConstantPointerNull::get(p2), ir.getInt32(1),
         uv, ConstantFP::get(f32, .5), ir.getTrue(), Constant::getNullValue(v2i), ir.getTrue(),
         ConstantFP::get(f32, 0), ConstantFP::get(f32, 0), ir.getInt32(0)}, "tap");
@@ -72,6 +77,35 @@ struct Fixture {
   }
 };
 
+static SmallVector<Instruction *, 4> diamondSetup(Fixture &fixture) {
+  IRBuilder<> ir(fixture.setup[0]); auto *f32 = ir.getFloatTy();
+  auto *root = cast<Instruction>(ir.CreateFMul(fixture.function->getArg(1), ConstantFP::get(f32, .25), "diamond.root"));
+  auto *left = cast<Instruction>(ir.CreateFAdd(root, ConstantFP::get(f32, .125), "diamond.left"));
+  // The deeper right arm makes the first worklist visit to root fail. Adding
+  // bridge must reconsider root after both of its users have moved.
+  auto *bridge = cast<Instruction>(ir.CreateFAdd(root, ConstantFP::get(f32, .0625), "diamond.bridge"));
+  auto *right = cast<Instruction>(ir.CreateFMul(bridge, ConstantFP::get(f32, .5), "diamond.right"));
+  auto *joined = cast<Instruction>(ir.CreateFAdd(left, right, "diamond.join"));
+  fixture.setup[0]->setOperand(0, joined);
+  return {root, left, bridge, right, joined};
+}
+
+static SmallVector<Instruction *, 32> cappedSetup(Fixture &fixture) {
+  SmallVector<Instruction *, 32> result;
+  for (unsigned tap = 0; tap < fixture.calls.size(); ++tap) {
+    auto *coordinate = fixture.setup[tap * 3]; IRBuilder<> ir(coordinate);
+    Value *value = fixture.function->getArg(1);
+    // Nine short chains exceed the optional-move cap without exceeding the
+    // mandatory chain visitor's separate depth limit.
+    for (unsigned i = 0; i < 30; ++i) {
+      value = ir.CreateFAdd(value, ConstantFP::get(ir.getFloatTy(), 1.0 / 4096), "bounded.setup");
+      result.push_back(cast<Instruction>(value));
+    }
+    coordinate->setOperand(0, value);
+  }
+  return result;
+}
+
 static unsigned tests = 0;
 static void check(StringRef name, unsigned expected,
                   std::function<void(Fixture &)> edit = {}, unsigned samples = 9,
@@ -80,6 +114,9 @@ static void check(StringRef name, unsigned expected,
   if (edit) edit(fixture);
   require(!verifyModule(module, &errs()), name + ": invalid input");
   auto before = dump(module);
+  auto *originalBlock = fixture.select->getParent();
+  SmallVector<std::pair<Instruction *, BasicBlock *>, 16> unchanged;
+  for (auto *instruction : fixture.mustStay) unchanged.emplace_back(instruction, instruction->getParent());
   auto *condition = fixture.select->getCondition();
   bool floating = isa<FPMathOperator>(fixture.select);
   bool contract = floating && fixture.select->getFastMathFlags().allowContract();
@@ -92,16 +129,21 @@ static void check(StringRef name, unsigned expected,
   require(!verifyModule(module, &errs()), name + ": invalid output");
   if (!expected) require(dump(module) == before, name + ": rejected candidate mutated");
   else {
-    auto *branch = cast<BranchInst>(fixture.function->getEntryBlock().getTerminator());
+    auto *branch = cast<BranchInst>(originalBlock->getTerminator());
     auto *frozen = dyn_cast<FreezeInst>(branch->getCondition());
     require(frozen && frozen->getOperand(0) == condition, name + ": predicate was not frozen");
     require(branch->getMetadata(LLVMContext::MD_prof) == profile &&
       branch->getMetadata(LLVMContext::MD_unpredictable) == unpredictable, name + ": branch metadata lost");
     BasicBlock *sample = branch->getSuccessor(reverse ? 1 : 0);
     require(sample->getName().startswith("pcf.sample"), name + ": branch arms changed");
+    for (auto *instruction : fixture.mustMove)
+      require(instruction->getParent() == sample, name + ": private setup did not move");
+    for (const auto &entry : unchanged)
+      require(entry.first->getParent() == entry.second, name + ": shared or unsafe setup moved");
     unsigned index = 0;
     for (auto &instruction : *sample) if (auto *call = dyn_cast<CallInst>(&instruction)) {
       if (call->getCalledFunction() == fixture.sampler) {
+        require(index < fixture.calls.size(), name + ": unexpected extra tap");
         require(call == fixture.calls[index++], name + ": sample order changed");
         require(call->getMetadata(LLVMContext::MD_annotation) != nullptr, name + ": sample metadata lost");
       } else require(call->getFastMathFlags().allowContract(), name + ": math flags lost");
@@ -112,6 +154,7 @@ static void check(StringRef name, unsigned expected,
     require(phi && (!floating || phi->getFastMathFlags().allowContract() == contract), name + ": select flags lost");
     require(phi->getMetadata(LLVMContext::MD_fpmath) == accuracy &&
       phi->getMetadata(LLVMContext::MD_annotation) == annotation, name + ": select metadata lost");
+    if (fixture.inspect) fixture.inspect(sample);
   }
   ++tests;
 }
@@ -143,7 +186,7 @@ static void regressions() {
   check("strict-fp", 0, [](Fixture &f) { f.function->addFnAttr(Attribute::StrictFP); });
   check("shared-sample", 0, [](Fixture &f) { IRBuilder<> ir(f.select->getNextNode()); ir.CreateStore(f.values[0], f.memory); });
   check("used-residency", 0, [](Fixture &f) { IRBuilder<> ir(f.calls[0]->getNextNode()); ir.CreateExtractValue(f.calls[0], 1, "residency"); });
-  check("shared-sum", 0, [](Fixture &f) { IRBuilder<> ir(f.select); ir.CreateStore(f.select->getTrueValue(), f.memory); });
+  check("shared-sum", 0, [](Fixture &f) { IRBuilder<> ir(f.select->getNextNode()); ir.CreateStore(f.select->getTrueValue(), f.memory); });
   check("sample-dependent-predicate", 0, [](Fixture &f) {
     IRBuilder<> ir(f.select); f.select->setCondition(ir.CreateFCmpOGT(f.values[0], ConstantFP::get(ir.getFloatTy(), 0)));
   });
@@ -169,8 +212,70 @@ static void regressions() {
     f.select->setMetadata(LLVMContext::MD_fpmath, MDNode::get(c, ConstantAsMetadata::get(ConstantFP::get(ir.getFloatTy(), 2.5))));
     f.select->setMetadata(LLVMContext::MD_annotation, MDNode::get(c, MDString::get(c, "preserve-select")));
   });
+  check("private-coordinate-and-weight-setup", 1, [](Fixture &f) {
+    f.mustMove.append(f.setup.begin(), f.setup.end());
+    IRBuilder<> ir(f.calls[0]);
+    auto *index = cast<BinaryOperator>(ir.CreateAdd(f.function->getArg(0), ir.getInt32(4), "private.index"));
+    index->setHasNoSignedWrap(true);
+    auto *converted = cast<Instruction>(ir.CreateSIToFP(index, ir.getFloatTy(), "private.index.float"));
+    auto *weight = cast<Instruction>(ir.CreateFMul(converted, ConstantFP::get(ir.getFloatTy(), .02), "private.weight"));
+    FastMathFlags flags; flags.setAllowContract(); weight->setFastMathFlags(flags);
+    auto *annotation = MDNode::get(f.module.getContext(), MDString::get(f.module.getContext(), "private-weight"));
+    weight->setMetadata(LLVMContext::MD_annotation, annotation);
+    cast<CallInst>(f.values[0]->getNextNode())->setArgOperand(1, weight);
+    f.mustMove.append({index, converted, weight});
+    f.inspect = [index, weight, annotation](BasicBlock *) {
+      require(index->hasNoSignedWrap() && weight->getFastMathFlags().allowContract(), "private setup flags lost");
+      require(weight->getMetadata(LLVMContext::MD_annotation) == annotation, "private setup metadata lost");
+    };
+  });
+  check("shared-coordinate-after-select", 1, [](Fixture &f) {
+    IRBuilder<> ir(f.select->getNextNode()); ir.CreateStore(f.setup[0], f.memory);
+    f.mustStay.push_back(f.setup[0]); f.mustMove.append({f.setup[1], f.setup[2]});
+  });
+  check("coordinate-used-by-predicate", 1, [](Fixture &f) {
+    IRBuilder<> ir(f.select);
+    auto *predicate = cast<Instruction>(ir.CreateFCmpOGT(f.setup[0], ConstantFP::get(ir.getFloatTy(), 0)));
+    f.select->setCondition(predicate); f.mustStay.append({f.setup[0], predicate});
+    f.mustMove.append({f.setup[1], f.setup[2]});
+  });
+  check("normal-load-and-gep-stay", 1, [](Fixture &f) {
+    IRBuilder<> ir(f.setup[0]);
+    auto *pointer = GetElementPtrInst::Create(ir.getFloatTy(), f.memory, {ir.getInt32(0)}, "coord.pointer", f.setup[0]);
+    auto *load = ir.CreateLoad(ir.getFloatTy(), pointer, "coord.load");
+    f.setup[0]->setOperand(0, load); f.mustStay.append({pointer, load});
+    f.mustMove.append({f.setup[0], f.setup[1], f.setup[2]});
+  });
+  check("phi-stays", 1, [](Fixture &f) {
+    auto *body = &f.function->getEntryBlock();
+    auto *before = BasicBlock::Create(f.module.getContext(), "predecessor", f.function, body);
+    IRBuilder<> ir(before); ir.CreateBr(body);
+    auto *phi = PHINode::Create(ir.getFloatTy(), 1, "coord.phi", &body->front());
+    phi->addIncoming(f.function->getArg(1), before); f.setup[0]->setOperand(0, phi);
+    f.mustStay.push_back(phi); f.mustMove.append({f.setup[0], f.setup[1], f.setup[2]});
+  });
+  for (const char *name : {"air.wg.barrier", "unknown.early.read"})
+    check(name, 1, [name](Fixture &f) {
+      IRBuilder<> ir(f.setup[0]); auto *f32 = ir.getFloatTy();
+      auto *before = cast<Instruction>(ir.CreateFAdd(f.function->getArg(1), ConstantFP::get(f32, .125), "before.boundary"));
+      auto unknown = f.module.getOrInsertFunction(name, FunctionType::get(ir.getVoidTy(), {}, false));
+      auto *boundary = ir.CreateCall(unknown); boundary->addFnAttr(Attribute::ReadOnly);
+      boundary->addFnAttr(Attribute::NoUnwind); boundary->addFnAttr(Attribute::WillReturn);
+      if (StringRef(name).startswith("air.")) boundary->addFnAttr(Attribute::Convergent);
+      auto *after = cast<Instruction>(ir.CreateFMul(before, ConstantFP::get(f32, .5), "after.boundary"));
+      f.setup[0]->setOperand(0, after); f.mustStay.append({before, boundary});
+      f.mustMove.append({after, f.setup[0], f.setup[1], f.setup[2]});
+    });
+  check("diamond-setup-reconsidered", 1, [](Fixture &f) {
+    auto nodes = diamondSetup(f); f.mustMove.append(nodes.begin(), nodes.end());
+    f.mustMove.append(f.setup.begin(), f.setup.end());
+  });
+  check("optional-setup-cap-retains-guard", 1, [](Fixture &f) {
+    auto nodes = cappedSetup(f); f.mustStay.push_back(nodes.front()); f.mustMove.push_back(nodes.back());
+    f.inspect = [](BasicBlock *sample) { require(sample->size() == 257, "optional setup did not stop at 256 moved nodes"); };
+  });
   LLVMContext context; Module module("fake-loop", context); Fixture fixture(module, "fake", 9, true, false, true);
-  require(dxmt::shaderopt::guardConstantPCFSampling(*fixture.function) == 0, "cross-block chain was accepted without proof");
+  require(dxmt::shaderopt::guardConstantPCFSampling(*fixture.function) == 0, "single local tap did not meet the four-tap threshold");
   cleanup(module);
   require(dxmt::shaderopt::guardConstantPCFSampling(*fixture.function) == 1, "actual CFG prepass did not expose nine-tap chain");
   require(!verifyModule(module, &errs()), "CFG prepass generated invalid IR"); ++tests;
@@ -178,8 +283,9 @@ static void regressions() {
 
 static void emitNative(StringRef path) {
   LLVMContext context; Module module("pcf-native-parity", context); Function *sampler = nullptr, *fma = nullptr;
-  for (unsigned i = 0; i < 4; ++i) for (bool guard : {false, true}) {
+  for (unsigned i = 0; i < 8; ++i) for (bool guard : {false, true}) {
     Fixture fixture(module, (guard ? "guarded_" : "baseline_") + std::to_string(i), 9, i & 1, i & 2);
+    if (i >= 4) { if (i & 1) cappedSetup(fixture); else diamondSetup(fixture); }
     if (guard) require(dxmt::shaderopt::guardConstantPCFSampling(*fixture.function) == 1, "native fixture was not guarded");
     sampler = fixture.sampler; fma = fixture.fma;
   }

@@ -42,14 +42,14 @@ harness = r'''
 #include <string.h>
 extern unsigned sample_calls;
 #define DECLARE(i) extern float baseline_##i(int,float),guarded_##i(int,float)
-DECLARE(0);DECLARE(1);DECLARE(2);DECLARE(3);
+DECLARE(0);DECLARE(1);DECLARE(2);DECLARE(3);DECLARE(4);DECLARE(5);DECLARE(6);DECLARE(7);
 typedef float (*kernel)(int,float);
 static uint32_t bits(float value) {uint32_t result;memcpy(&result,&value,4);return result;}
 int main(void) {
-  kernel baseline[]={baseline_0,baseline_1,baseline_2,baseline_3};
-  kernel guarded[]={guarded_0,guarded_1,guarded_2,guarded_3};
+  kernel baseline[]={baseline_0,baseline_1,baseline_2,baseline_3,baseline_4,baseline_5,baseline_6,baseline_7};
+  kernel guarded[]={guarded_0,guarded_1,guarded_2,guarded_3,guarded_4,guarded_5,guarded_6,guarded_7};
   unsigned inside=0,outside=0;
-  for(unsigned k=0;k<4;k++)for(unsigned i=0;i<132;i++) {
+  for(unsigned k=0;k<sizeof(baseline)/sizeof(baseline[0]);k++)for(unsigned i=0;i<132;i++) {
     // Alternating predicates model both paths and mixed lanes. This CPU test
     // does not claim SIMD convergence or Metal timing coverage.
     int predicate=i&1,constant=(k&2)?predicate:!predicate;
