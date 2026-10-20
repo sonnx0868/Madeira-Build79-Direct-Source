@@ -364,7 +364,7 @@ expect(ExternalGameCompatibility.prepare(compatReplaced).contains("il2cpp-strict
 expect(env("FEX_VECTORTSOENABLED") == "1" && env("FEX_MEMCPYSETTSOENABLED") == "1" && env("FEX_HALFBARRIERTSOENABLED") == "0", "vector/REP ordering and safe unaligned path")
 expect(env("MADEIRA_REAL_SUSPEND") == "1", "REPLACED keeps native suspend holds instead of snapshot-only suspend")
 var compatSteamUnity = LibraryEntry(title: "Steam Unity", relativePath: compatRelative, bits: 64)
-compatSteamUnity.steamAppID = 3097560
+compatSteamUnity.steamAppID = 123456789 // neutral fixture, outside the Liar's Bar residency profile
 expect(ExternalGameCompatibility.prepare(compatSteamUnity).contains("unity-mip-pressure") && env("MADEIRA_MIP_CLAMP_AUTO") == "1",
        "Steam folder launches receive the same pressure-aware texture protection as imported Unity games")
 compatSteamUnity.unityOptimizations = false
@@ -384,6 +384,20 @@ _ = ExternalGameCompatibility.prepare(compatSteamUnity)
 _ = ExternalGameCompatibility.prepare(game)
 expect(env("MADEIRA_MIP_CLAMP_AUTO") == nil && env("_MADEIRA_AUTO_MIP_CLAMP") == nil,
        "an unrelated next game does not inherit Unity's automatic texture protection")
+var compatLiars = compatSteamUnity
+compatLiars.steamAppID = 3097560
+let liarsApplied = ExternalGameCompatibility.prepare(compatLiars)
+expect(env("MADEIRA_TEXTURE_RESIDENCY") == "1" && env("_MADEIRA_RESIDENCY_PROFILE") == "1" &&
+       env("MADEIRA_MIP_CLAMP_AUTO") == nil && !liarsApplied.contains("unity-mip-pressure"),
+       "Liar's Bar selects lossless cold residency without automatic mip reduction")
+MadeiraConfig.values = ["env.MADEIRA_TEXTURE_RESIDENCY": "0"]
+expect(ExternalGameCompatibility.prepare(compatLiars).contains("unity-mip-pressure") &&
+       env("MADEIRA_TEXTURE_RESIDENCY") == "0",
+       "explicit residency opt-out restores the original Unity pressure policy")
+MadeiraConfig.values = [:]
+_ = ExternalGameCompatibility.prepare(game)
+expect(env("MADEIRA_TEXTURE_RESIDENCY") == "0" && env("_MADEIRA_RESIDENCY_PROFILE") == "0",
+       "unrelated games never inherit the preceding game's residency profile")
 var replacedMemory = compatReplaced
 replacedMemory.realSuspend = false; replacedMemory.swapMB = 0
 replacedMemory.applyEnvironment()
@@ -442,7 +456,7 @@ expect(decoded?.fpsMode == 3 && decoded?.reducedX87 == true && decoded?.touchCon
        "decodes a file with unknown keys (including the fork's cpuCount and fastSync)")
 expect(decoded?.displayMode == .fit && decoded?.controlOpacity == nil, "older files: Fit, default controls")
 expect(decoded?.swapMB == nil && decoded?.realSuspend == nil, "older files inherit shared memory and suspension settings")
-expect(decoded?.readingProgress == nil && decoded?.readingProgressPosition == nil, "older profiles keep reading progress disabled")
+expect(decoded?.readingProgress == nil && decoded?.readingProgressPosition == nil, "older profiles preserve automatic reading-progress selection")
 var readingGame = game
 readingGame.readingProgress = true
 readingGame.readingProgressPosition = ReadingProgressPosition(x: 0.23, y: 0.78)
