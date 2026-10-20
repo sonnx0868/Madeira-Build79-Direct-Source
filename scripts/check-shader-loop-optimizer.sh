@@ -5,6 +5,9 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$BITRISE_DEPLOY_DIR"
 mkdir -p "$out" "$root/toolchains/llvm15-macos"
 exec > >(tee "$out/shader-loop-check.log") 2>&1
+if [[ "${MADEIRA_TEXTURE_RESIDENCY_CHECK:-0}" == "1" ]]; then
+  exec bash "$root/scripts/check-texture-residency.sh"
+fi
 if [[ "${MADEIRA_GPU_FIXTURE:-0}" == "1" ]]; then
   exec python3 "$root/tools/check-private-metal-fixture.py"
 fi

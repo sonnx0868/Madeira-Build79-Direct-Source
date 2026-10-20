@@ -1,0 +1,181 @@
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -47,6 +47,7 @@
+ #define WINEMETAL_API
+ #include "../winemetal_thunks.h"
+ #include "../airconv_thunks.h"
++#include "../../../../build/dxmt-ios/texture_residency.m"
+ 
+ #if TARGET_OS_IOS
+ /* Optional one-frame public-Metal stage timing; no PE ABI changes. */
+@@ -547,6 +548,7 @@
+     wmtr_call(RM_OP_COMMIT, &a, sizeof a, 0, 0, 0);
+     return STATUS_SUCCESS;
+   }
++  if (!mdr_commit((id<MTLCommandBuffer>)params->handle)) return STATUS_SUCCESS;
+ #if TARGET_OS_IOS
+   extern void madeira_gpu_submit_begin(void);
+   extern void madeira_gpu_submit_end(void);
+@@ -602,7 +604,7 @@
+     wmtr_rb_drain(params->handle);   /* ml820: GPU results back before the guest reads them */
+     return STATUS_SUCCESS;
+   }
+-  [(id<MTLCommandBuffer>)params->handle waitUntilCompleted];
++  if (!mdr_failed((id)params->handle)) [(id<MTLCommandBuffer>)params->handle waitUntilCompleted];
+   return STATUS_SUCCESS;
+ }
+ 
+@@ -616,7 +618,7 @@
+     if (params->ret >= WMTCommandBufferStatusCompleted) wmtr_rb_drain(params->handle);   /* ml820 */
+     return STATUS_SUCCESS;
+   }
+-  params->ret = [(id<MTLCommandBuffer>)params->handle status];
++  params->ret = mdr_failed((id)params->handle) ? MTLCommandBufferStatusError : [(id<MTLCommandBuffer>)params->handle status];
+   return STATUS_SUCCESS;
+ }
+ 
+@@ -1146,6 +1148,7 @@
+   fill_texture_descriptor(desc, info);
+ 
+   id<MTLTexture> ret = [device newTextureWithDescriptor:desc];
++  mdr_register(ret, NO);
+   params->ret = (obj_handle_t)ret;
+   info->gpu_resource_id = [ret gpuResourceID]._impl;
+   info->mach_port = 0;
+@@ -1257,6 +1260,7 @@
+                              slices:NSMakeRange(params->slice_start, params->slice_count)
+                             swizzle:to_metal_swizzle(params->swizzle, params->format)];
+   params->ret = (obj_handle_t)ret;
++  mdr_register_view(texture, ret);
+   params->gpu_resource_id = [ret gpuResourceID]._impl;
+   return STATUS_SUCCESS;
+ 
+@@ -1431,11 +1435,12 @@
+       id<MTLBlitCommandEncoder> encoder = [(id<MTLCommandBuffer>)params->handle blitCommandEncoderWithDescriptor:descriptor];
+       madeira_gpu_stage_encoder_created((void *)params->handle, encoder);
+       [descriptor release];
+-      if (encoder) { params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(1, 0, 0, 0); return STATUS_SUCCESS; }
++      if (encoder) { mdr_encoder((id)params->handle, encoder); params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(1, 0, 0, 0); return STATUS_SUCCESS; }
+     } else [descriptor release];
+   }
+ #endif
+   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle blitCommandEncoder];
++  mdr_encoder((id)params->handle, (id)params->ret);
+   if (params->ret && madeira_frame_hooks_on()) ios_frame_pass(1, 0, 0, 0);
+   return STATUS_SUCCESS;
+ }
+@@ -1461,12 +1466,13 @@
+       id<MTLComputeCommandEncoder> encoder = [(id<MTLCommandBuffer>)params->handle computeCommandEncoderWithDescriptor:descriptor];
+       madeira_gpu_stage_encoder_created((void *)params->handle, encoder);
+       [descriptor release];
+-      if (encoder) { params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0); return STATUS_SUCCESS; }
++      if (encoder) { mdr_encoder((id)params->handle, encoder); params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0); return STATUS_SUCCESS; }
+     } else [descriptor release];
+   }
+ #endif
+   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle
+       computeCommandEncoderWithDispatchType:params->arg ? MTLDispatchTypeConcurrent : MTLDispatchTypeSerial];
++  mdr_encoder((id)params->handle, (id)params->ret);
+   if (params->ret && madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0);
+   return STATUS_SUCCESS;
+ }
+@@ -1553,6 +1559,8 @@
+     }
+   }
+ #endif
++
++  mdr_encoder((id)params->handle, (id)params->ret);
+ 
+   /* Count realized native passes, including clears and the final present.
+    * No new PE ABI or emulated hot-path counters are needed. */
+@@ -2182,6 +2190,7 @@
+       if (!texture_upload_pitch_ok(dst, body->size.width, body->bytes_per_row))
+         break;
+       wmt_stale_check(body->src, "blit copy src"); wmt_stale_check(body->dst, "blit copy dst");
++      if (!mdr_use(encoder, dst, YES)) break;
+       [encoder copyFromBuffer:(id<MTLBuffer>)body->src
+                  sourceOffset:body->src_offset
+             sourceBytesPerRow:body->bytes_per_row
+@@ -2203,6 +2212,7 @@
+        * (all-zero DepthTarget files in ph-rdr55). */
+       if (!body->options && !texture_upload_pitch_ok(src, body->size.width, body->bytes_per_row))
+         break;
++      if (!mdr_use(encoder, src, NO)) break;
+       [encoder copyFromTexture:src
+                        sourceSlice:body->slice
+                        sourceLevel:body->level
+@@ -2217,6 +2227,7 @@
+     }
+     case WMTBlitCommandCopyFromTextureToTexture: {
+       struct wmtcmd_blit_copy_from_texture_to_texture *body = (struct wmtcmd_blit_copy_from_texture_to_texture *)next;
++      if (!mdr_use(encoder, (id)body->src, NO) || !mdr_use(encoder, (id)body->dst, YES)) break;
+       [encoder copyFromTexture:(id<MTLTexture>)body->src
+                    sourceSlice:body->src_slice
+                    sourceLevel:body->src_level
+@@ -2230,6 +2241,7 @@
+     }
+     case WMTBlitCommandGenerateMipmaps: {
+       struct wmtcmd_blit_generate_mipmaps *body = (struct wmtcmd_blit_generate_mipmaps *)next;
++      if (!mdr_use(encoder, (id)body->texture, YES)) break;
+       [encoder generateMipmapsForTexture:(id<MTLTexture>)body->texture];
+       break;
+     }
+@@ -2239,6 +2251,7 @@
+      * StretchRect scale path issues this before sampling its source. */
+     case WMTBlitCommandOptimizeContentsForGPUAccess: {
+       struct wmtcmd_blit_optimize_contents *body = (struct wmtcmd_blit_optimize_contents *)next;
++      if (!mdr_use(encoder, (id)body->texture, YES)) break;
+       [encoder optimizeContentsForGPUAccess:(id<MTLTexture>)body->texture
+                                       slice:body->slice
+                                       level:body->level];
+@@ -2385,6 +2398,7 @@
+     case WMTComputeCommandUseResource: {
+       struct wmtcmd_compute_useresource *body = (struct wmtcmd_compute_useresource *)next;
+       wmt_stale_check(body->resource, "compute useResource");
++      if (!mdr_use(encoder, (id)body->resource, body->usage & MTLResourceUsageWrite)) break;
+       [encoder useResource:(id<MTLResource>)body->resource usage:(MTLResourceUsage)body->usage];
+       break;
+     }
+@@ -2396,6 +2410,7 @@
+     }
+     case WMTComputeCommandSetTexture: {
+       struct wmtcmd_compute_settexture *body = (struct wmtcmd_compute_settexture *)next;
++      if (!mdr_use(encoder, (id)body->texture, NO)) break;
+       [encoder setTexture:(id<MTLTexture>)body->texture atIndex:body->index];
+       break;
+     }
+@@ -2506,6 +2521,7 @@
+     case WMTRenderCommandUseResource: {
+       struct wmtcmd_render_useresource *body = (struct wmtcmd_render_useresource *)next;
+       wmt_stale_check(body->resource, "render useResource");
++      if (!mdr_use(encoder, (id)body->resource, body->usage & MTLResourceUsageWrite)) break;
+       [encoder useResource:(id<MTLResource>)body->resource
+                      usage:(MTLResourceUsage)body->usage
+                     stages:(MTLRenderStages)body->stages];
+@@ -2563,6 +2579,7 @@
+     }
+     case WMTRenderCommandSetFragmentTexture: {
+       struct wmtcmd_render_settexture *body = (struct wmtcmd_render_settexture *)next;
++      if (!mdr_use(encoder, (id)body->texture, NO)) break;
+       [encoder setFragmentTexture:(id<MTLTexture>)body->texture atIndex:body->index];
+       break;
+     }
+@@ -2571,6 +2588,7 @@
+      * an argument buffer, so these four had no caller until now. */
+     case WMTRenderCommandSetVertexTexture: {
+       struct wmtcmd_render_settexture *body = (struct wmtcmd_render_settexture *)next;
++      if (!mdr_use(encoder, (id)body->texture, NO)) break;
+       [encoder setVertexTexture:(id<MTLTexture>)body->texture atIndex:body->index];
+       break;
+     }
+@@ -4515,7 +4533,9 @@
+ static NTSTATUS
+ _MTLCommandBuffer_error(void *obj) {
+   struct unixcall_generic_obj_obj_ret *params = obj;
+-  params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle error];
++  params->ret = (obj_handle_t)(mdr_failed((id)params->handle)
++      ? [NSError errorWithDomain:@"MadeiraTextureResidency" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Unable to restore texture backing"}]
++      : [(id<MTLCommandBuffer>)params->handle error]);
+   return STATUS_SUCCESS;
+ }
+ 
