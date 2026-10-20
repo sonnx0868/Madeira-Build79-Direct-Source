@@ -93,9 +93,20 @@ func unpackComparison(_ archive: URL, into directory: URL) throws -> URL {
 }
 '''
         source=out/'export.swift';binary=out/'export'
-        source.write_text('import Foundation\n'+error+snapshot+files+unpack+r'''
+        source.write_text('import Foundation\nimport Darwin\n'+error+snapshot+files+unpack+r'''
 enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } }
 @main struct Check {
+ static func inspect(_ url: URL, label: String) {
+  let fm=FileManager.default
+  var info=stat();errno=0
+  let result=url.path.withCString { lstat($0,&info) },code=errno
+  NSLog("GPU alias diagnostic \(label): path=\(url.path), standardized=\(url.standardizedFileURL.path), resolved=\(url.resolvingSymlinksInPath().path), lstat=\(result), errno=\(code), mode=\(info.st_mode)")
+  do { NSLog("GPU alias diagnostic \(label) attributes=\(try fm.attributesOfItem(atPath:url.path))") }
+  catch { NSLog("GPU alias diagnostic \(label) attributes error=\(error as NSError)") }
+  do { NSLog("GPU alias diagnostic \(label) resourceValues=\(try url.resourceValues(forKeys:[.isSymbolicLinkKey,.isRegularFileKey,.isDirectoryKey]))") }
+  catch { NSLog("GPU alias diagnostic \(label) resourceValues error=\(error as NSError)") }
+  if let target=try? fm.destinationOfSymbolicLink(atPath:url.path) { NSLog("GPU alias diagnostic \(label) readlink=\(target)") }
+ }
  static func reject(_ folder: URL, path: String? = nil) async {
   do { let zip=try await GPUTraceFiles.export(folder:folder);try? FileManager.default.removeItem(at:zip);assertionFailure("Unsafe fixture exported") }
   catch { if let path { assert(error.localizedDescription.contains("symbolic link: "+path), error.localizedDescription) } }
@@ -129,7 +140,13 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   }
   GPUTraceFiles.writeManifest(manifest,folder:folder)
   GPUTraceFiles.snapshot(log:log,folder:folder)
-  print("GPU export path fixture input=\(folder.path), standardized=\(folder.standardizedFileURL.path), resolved=\(folder.resolvingSymlinksInPath().path)")
+  inspect(folder,label:"root")
+  let probeTrace=folder.appendingPathComponent("slow.gputrace")
+  NSLog("GPU alias diagnostic slow directory=\(try fm.contentsOfDirectory(atPath:probeTrace.path))")
+  inspect(probeTrace.appendingPathComponent("MTLBuffer-77048-0"),label:"target")
+  inspect(probeTrace.appendingPathComponent("MTLBuffer-77048-1"),label:"alias")
+  let probeWalker=fm.enumerator(at:folder,includingPropertiesForKeys:nil)!
+  for case let url as URL in probeWalker where url.lastPathComponent=="MTLBuffer-77048-1" { inspect(url,label:"URL enumerator alias") }
   let zip=try await GPUTraceFiles.export(folder:folder)
   defer { try? fm.removeItem(at:zip) }
   let header=try FileHandle(forReadingFrom:zip);let signature=try header.read(upToCount:4);try header.close()

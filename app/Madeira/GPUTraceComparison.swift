@@ -474,6 +474,7 @@ enum GPUTraceFiles {
                             throw SupportError.message("The comparison contains an unsupported symbolic link: \(relative).")
                         }
                     }
+                    NSLog("[gpu-trace-pair] export-validated pair=%@ entries=%d", folder.lastPathComponent, count)
                     let sessionLog = folder.appendingPathComponent("session.txt")
                     // Keep the log of the captured test after a restart or a
                     // different game launch. Never replace it with that run.
