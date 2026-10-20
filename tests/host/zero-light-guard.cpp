@@ -82,7 +82,23 @@ int main(int argc,char **argv) {
   };
   Fixture baseline(module,"baseline"),guarded(module,"guarded");
   check(guarded,1);check(guarded,0); // idempotent
-  for(unsigned kind=0;kind<10;kind++) {
+  {
+    FunctionAnalysisManager analyses;
+    unsigned applied=0;
+    dxmt::shaderopt::ComputeZeroLightPass pass(&applied);
+    Fixture compute(module,"compute_entry"),fragment(module,"fragment_entry"),helper(module,"helper");
+    module.getOrInsertNamedMetadata("air.kernel")->addOperand(MDNode::get(c,ValueAsMetadata::get(compute.function)));
+    module.getOrInsertNamedMetadata("air.fragment")->addOperand(MDNode::get(c,ValueAsMetadata::get(fragment.function)));
+    pass.run(*fragment.function,analyses);pass.run(*helper.function,analyses);
+    require(applied==0,"non-compute stage changed");
+    pass.run(*compute.function,analyses);require(applied==1,"production compute gate missed");
+    pass.run(*compute.function,analyses);require(applied==1,"production guard is not idempotent");
+    require(!verifyModule(module,&errs()),"production wrapper verification failed");
+    module.eraseNamedMetadata(module.getNamedMetadata("air.kernel"));
+    module.eraseNamedMetadata(module.getNamedMetadata("air.fragment"));
+    compute.function->eraseFromParent();fragment.function->eraseFromParent();helper.function->eraseFromParent();
+  }
+  for(unsigned kind=0;kind<11;kind++) {
     Fixture negative(module,"negative_"+std::to_string(kind));
     IRBuilder<> ir(negative.work->getTerminator());
     auto *memory=new GlobalVariable(module,ir.getInt32Ty(),false,GlobalValue::InternalLinkage,ir.getInt32(0),"memory");
@@ -108,6 +124,15 @@ int main(int argc,char **argv) {
       auto *call=ir.CreateCall(unknown);call->setDoesNotAccessMemory();call->setDoesNotThrow();
       call->addFnAttr(Attribute::WillReturn);break;
     }
+    case 10: {
+      // A pre-test exit must not lose an unrelated nonzero contribution.
+      auto *old=negative.work->getTerminator();
+      IRBuilder<> edge(old);
+      edge.CreateCondBr(negative.function->getArg(4),negative.test,negative.exit);
+      old->eraseFromParent();
+      negative.result->addIncoming(ConstantFP::get(ir.getFloatTy(),1),negative.work);
+      break;
+    }
     }
     check(negative,0);
     negative.function->eraseFromParent();
@@ -127,5 +152,5 @@ int main(int argc,char **argv) {
   ir.CreateRet(ir.CreateCall(intrinsic,{maximum->getArg(0),maximum->getArg(1)}));
   require(!verifyModule(module,&errs()),"invalid emitted native fixture");
   std::error_code error;raw_fd_ostream out(argv[1],error);require(!error,"output file");module.print(out,nullptr);
-  outs()<<"PASS: zero-light guard, idempotence, 10 rejected unsafe variants, LLVM verification\n";
+  outs()<<"PASS: zero-light guard, idempotence, 11 rejected unsafe variants, LLVM verification\n";
 }

@@ -48,12 +48,14 @@ def object_fixture(production_symbol=True):
     # Controlled Mach-O object with a defined run symbol. It is not executable
     # shader code; actual production object/compiler tests run separately.
     name = b'__ZN4llvm6detail9PassModelINS_8FunctionEN4dxmt9shaderopt14ComputePCFPassEE3runE\0'
-    strings = b'\0' + name
-    payload = b'SinkingPass\0LoopRotatePass\0pcf.sample\0pcf.condition\0fixture-only\0'
+    second = b'__ZN4llvm6detail9PassModelINS_8FunctionEN4dxmt9shaderopt20ComputeZeroLightPassEE3runE\0'
+    strings = b'\0' + name + second
+    payload = b'SinkingPass\0LoopRotatePass\0pcf.sample\0pcf.condition\0lighting.nonzero\0lighting.zero\0fixture-only\0'
     header = struct.pack('<8I', 0xfeedfacf, 0x100000c, 0, 1, 1, 24, 0, 0)
-    command = struct.pack('<6I', 2, 24, 56, 1, 72, len(strings))
+    command = struct.pack('<6I', 2, 24, 56, 2, 88, len(strings))
     symbol = struct.pack('<IBBHQ', 1, 0x0f if production_symbol else 1, 1 if production_symbol else 0, 0, 0)
-    return header + command + symbol + strings + payload
+    symbol2 = struct.pack('<IBBHQ', 1 + len(name), 0x0f, 1, 0, 0)
+    return header + command + symbol + symbol2 + strings + payload
 
 
 def archive(path, objects):
@@ -96,6 +98,7 @@ def replace_objects(base, output, replacements):
 
 def source_fixture(folder):
     names = set(bundle.SOURCES) | set(depth.SOURCES)
+    names.update(bundle.module(ROOT, 'dxmt-upload-batching-bundle').SOURCES)
     for receipt in depth.PARENTS:
         names.update(depth.producer_sources(ROOT, receipt))
     for path in (ROOT / 'tools').glob('*.py'):
@@ -114,6 +117,8 @@ def source_fixture(folder):
     # a substitute for those source hashes.
     expected = bundle.legacy_source_hashes(ROOT)
     bundle.legacy_source_hashes = lambda root: expected
+    zero_expected = bundle.zero_source_hashes(ROOT)
+    bundle.zero_source_hashes = lambda root: zero_expected
     pin = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', bundle.BASE_COMMIT + ':wine'], text=True).strip()
     target = folder / 'wine/dlls/ntdll/signal_arm64ec.c'
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -133,7 +138,7 @@ def synthetic_inspection(root, require_depth):
     return libraries, [{'abi': 'fixture'}], [{'symbol': 'fixture-depth', 'rva': 1}]
 
 
-def synthetic_baseline(folder, legacy_sources):
+def synthetic_baseline(folder, legacy_sources, zero=False):
     depth.inspect_frontends = synthetic_inspection
     real_module = bundle.module
     bundle.module = lambda root, name: depth if name == 'dxmt-depth-retention-bundle' else real_module(root, name)
@@ -148,6 +153,9 @@ def synthetic_baseline(folder, legacy_sources):
         path.write_bytes(b'controlled PE ' + name.encode())
     bundle.BASE_ARCHIVE_SHA256 = bundle.sha(folder / bundle.ARCHIVE)
     bundle.BASE_NTDLL_SHA256 = bundle.sha(folder / bundle.NTDLL)
+    bundle.ZERO_BASE_ARCHIVE = bundle.sha(folder / bundle.ARCHIVE)
+    bundle.ZERO_BASE_CONTEXT = bundle.digest(b'old optimizer')
+    bundle.ZERO_BASE_COMPILER = 'a' * 64
     bundle.write_json(folder / bundle.RENPY_RECEIPT, {'fixture': 'unchanged native callback receipt'})
     state = depth.collect(folder, True)
     parents = {}
@@ -165,6 +173,9 @@ def synthetic_baseline(folder, legacy_sources):
         if name == bundle.RECEIPT:
             parent.update(format='madeira-shader-optimizer-v1', sources={s: legacy_sources[s] for s in bundle.LEGACY_SOURCES},
                           contextObjectSHA256=bundle.digest(b'old optimizer'), compilerID='a' * 64)
+            if zero:
+                parent.update(format='madeira-shader-optimizer-v2',
+                              sources={s: bundle.zero_source_hashes(folder)[s] for s in bundle.PCF_SOURCES})
         if name == 'build/dxmt-ios/shader-vector-load.json':
             parent['compilerID'] = 'a' * 64
         parents[name] = parent
@@ -190,16 +201,17 @@ def exercise(folder):
     parents = copy.deepcopy(snapshot['parents'])
     # Preparation must reject a stale/missing source field before writes.
     old = copy.deepcopy(parents[bundle.RECEIPT])
+    validate_old = bundle.validate_legacy if snapshot['legacy_migration'] else bundle.validate_zero_parent
     bad = copy.deepcopy(old)
     bad['sources'][bundle.CONTEXT] = '0' * 64
-    rejected(lambda: bundle.validate_legacy(folder, bad, snapshot['state']))
+    rejected(lambda: validate_old(folder, bad, snapshot['state']))
     bad['sources'] = {key: value for key, value in old['sources'].items() if key != bundle.CONTEXT}
-    rejected(lambda: bundle.validate_legacy(folder, bad, snapshot['state']))
-    rejected(lambda: bundle.validate_legacy(folder, old, dict(snapshot['state'], native_archives={})))
+    rejected(lambda: validate_old(folder, bad, snapshot['state']))
+    rejected(lambda: validate_old(folder, old, dict(snapshot['state'], native_archives={})))
     source = folder / bundle.CONTEXT
     before_source = source.read_bytes()
     source.write_bytes(before_source + b'\n// unrelated source modification\n')
-    rejected(lambda: bundle.validate_legacy(folder, old, snapshot['state']))
+    rejected(lambda: validate_old(folder, old, snapshot['state']))
     source.write_bytes(before_source)
     cache = out / 'cache.o'
     cache.write_bytes(b'rebuilt controlled cache\0' + snapshot['compilerID'].encode() + b'\0')
@@ -208,12 +220,16 @@ def exercise(folder):
     def transition(after=state, receipts=parents, prepared=snapshot):
         return bundle.transition(folder, base, prepared, after, receipts, 'new-optimizer-producer')
     updates = transition()
-    assert set(updates) == set(depth.NATIVE_PARENTS) | {depth.RECEIPT}
+    expected_receipts = set(depth.NATIVE_PARENTS) | {depth.RECEIPT}
+    if 'upload_receipt' in snapshot:
+        expected_receipts.add('build/dxmt-pe/upload-batching.json')
+    assert set(updates) == expected_receipts
     for name, updated in updates.items():
         if name == bundle.RECEIPT:
             assert updated['producer_commit'] == 'new-optimizer-producer'
             continue
-        original = snapshot['depth_receipt'] if name == depth.RECEIPT else parents[name]
+        original = (snapshot['depth_receipt'] if name == depth.RECEIPT else
+                    snapshot['upload_receipt'] if name == 'build/dxmt-pe/upload-batching.json' else parents[name])
         assert updated['producer_commit'] == original['producer_commit']
         expected = copy.deepcopy(original)
         expected.update(archive_sha256=state['native_archives'][bundle.ARCHIVE], members=state['members'],
@@ -273,12 +289,15 @@ def exercise(folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-zip', type=Path)
+    parser.add_argument('--zero-baseline', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='madeira-optimizer-receipts-') as work:
         folder = Path(work)
         legacy_sources = source_fixture(folder)
         if args.baseline_zip:
-            assert bundle.sha(args.baseline_zip) == 'a4ed742120877cb9789ad0c01195d29f3293e829967f3881576c8a764809f1c7', 'expected verified862 native bundle'
+            expected_zip = ('41c4a98894a82c767bb69194bd6d5ba8882facbaec7d74b85b5d8357bf50453c' if args.zero_baseline else
+                            'a4ed742120877cb9789ad0c01195d29f3293e829967f3881576c8a764809f1c7')
+            assert bundle.sha(args.baseline_zip) == expected_zip, 'expected hash-pinned native bundle'
             with zipfile.ZipFile(args.baseline_zip) as archive_file:
                 for entry in archive_file.infolist():
                     parts = Path(entry.filename).parts
@@ -292,9 +311,9 @@ def main():
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with archive_file.open(entry) as source, target.open('wb') as out:
                         shutil.copyfileobj(source, out)
-            print('Real862 fixture: checking all native objects, all Windows payloads, depth ABI and compiled native callback bypass')
+            print('Real bundle: checking all native objects, all Windows payloads, depth ABI and compiled native callback bypass')
         else:
-            synthetic_baseline(folder, legacy_sources)
+            synthetic_baseline(folder, legacy_sources, zero=args.zero_baseline)
         exercise(folder)
 
 

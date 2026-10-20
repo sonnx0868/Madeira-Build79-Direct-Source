@@ -108,6 +108,7 @@ if [[ "$mode" = bootstrap ]]; then
   timed cdn-policy python3 tests/host/check-cdn-routing.py --require-swift
   timed diagnostics-policy python3 tests/host/check-remote-support.py --require-swift
   timed frontend-policy python3 tests/host/check-frontend.py
+  timed reading-progress python3 tests/host/check-reading-progress.py --require-swift
   timed shader-inventory python3 tests/host/check-translation-tools.py
   timed native-bootstrap bash scripts/bootstrap-native-deps.sh
   timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
@@ -201,6 +202,7 @@ checks() {
   python3 tools/dxmt-pacing-bundle.py --root "$root"
   if [[ -f build/dxmt-ios/shader-vector-load.json ]]; then python3 tools/dxmt-srv-bundle.py --root "$root"; fi
   python3 tests/host/check-optimizer-receipts.py
+  python3 tests/host/check-optimizer-receipts.py --zero-baseline
   if [[ -f build/dxmt-ios/shader-optimizer.json ]]; then python3 tools/dxmt-optimizer-bundle.py --root "$root"; fi
   python3 tools/dxmt-query-bundle.py --root "$root"
   python3 tools/dxmt-swapchain-bundle.py --root "$root"
@@ -237,6 +239,7 @@ checks() {
   python3 tests/host/check-version.py
   python3 tests/host/check-native-wrapper.py
   python3 tests/host/check-renpy-renderer.py
+  python3 tests/host/check-reading-progress.py --require-swift
   python3 tests/host/check-renpy-wgl-probe.py
   python3 tests/host/check-native-dll-fallback.py
   python3 tests/host/check-module-path.py

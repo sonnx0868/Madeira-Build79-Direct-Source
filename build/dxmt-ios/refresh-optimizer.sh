@@ -29,6 +29,13 @@ baseline=5a40a8c50bb191bf8cea343028125640f6cf9147
 if ! git -C "$root" cat-file -e "$baseline^{commit}"; then
   git -C "$root" fetch --depth 1 origin "$baseline"
 fi
+python3 "$root/tests/host/check-zero-light-guard.py" \
+  --llvm-config "$llvm/bin/llvm-config" \
+  --cxx "$(xcrun --find clang++)" --cc "$(xcrun --find clang)"
+baseline875=82d08f2e1080671efc399bdcdedf56c4a36a3056
+if ! git -C "$root" cat-file -e "$baseline875^{commit}"; then
+  git -C "$root" fetch --depth 1 origin "$baseline875"
+fi
 cp "$archive" "$out/base.a"
 for shader in air_msad air_samplepos air_tessellation; do
   xcrun -sdk macosx metal -o "$out/shader-headers/$shader.air" -c "$root/dxmt/src/airconv/shaders/$shader.metal" \

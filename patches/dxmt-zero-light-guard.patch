@@ -1,0 +1,16 @@
+diff --git a/src/airconv/airconv_context.cpp b/src/airconv/airconv_context.cpp
+--- a/src/airconv/airconv_context.cpp
++++ b/src/airconv/airconv_context.cpp
+@@ -1,4 +1,5 @@
+ #include "guarded_pcf.hpp"
++#include "zero_light_guard.hpp"
+ #include "llvm/IR/Constants.h"
+ #include "llvm/IR/DerivedTypes.h"
+ #include "llvm/IR/IRBuilder.h"
+@@ -167,5 +168,6 @@ runOptimizationPasses(llvm::Module &M) {
+   // back into unconditional samples followed by a select.
+   MPM.addPass(createModuleToFunctionPassAdaptor(shaderopt::ComputePCFPass(), true));
++  MPM.addPass(createModuleToFunctionPassAdaptor(shaderopt::ComputeZeroLightPass(), true));
+ 
+   // Optimize the IR!
+   MPM.run(M, MAM);

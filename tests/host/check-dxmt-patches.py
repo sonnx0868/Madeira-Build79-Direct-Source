@@ -19,6 +19,7 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-lossless-color-views.patch",
                "patches/dxmt-frameflow.patch",
                "patches/dxmt-light-graphics.patch", "patches/dxmt-guarded-pcf.patch",
+               "patches/dxmt-zero-light-guard.patch",
                "patches/dxmt-retirement-lifetime.patch",
                "patches/dxmt-gpu-stages.patch", "patches/dxmt-present-resource-lifetime.patch",
                "patches/dxmt-depth-rename-retention.patch",
@@ -90,6 +91,8 @@ def patched_sources(root):
         # Verify the dependent top layer first, then validate all older layers
         # against the exact source they extend. Restore it before returning.
         upload_batching_patch = patches[-1]
+        zero_patch = folder / "patches/dxmt-zero-light-guard.patch"
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(zero_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(upload_batching_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(upload_batching_patch)], check=True)
         depth_retention_patch = patches[-2]
@@ -105,12 +108,15 @@ def patched_sources(root):
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(retirement_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(retirement_patch)], check=True)
         for path in patches[:-5]:
+            if path == zero_patch:
+                continue
             subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(path)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(retirement_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(stage_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(present_resource_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(depth_retention_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(upload_batching_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", str(zero_patch)], check=True)
         return {name: (checkout / name).read_text(encoding="utf-8") for name in SOURCE_FILES}
 
 

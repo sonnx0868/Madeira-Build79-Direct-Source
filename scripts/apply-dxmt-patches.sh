@@ -2,6 +2,10 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+zero_light_patch="$root/patches/dxmt-zero-light-guard.patch"
+if git -C "$root/dxmt" apply --reverse --check "$zero_light_patch" >/dev/null 2>&1; then
+    git -C "$root/dxmt" apply --reverse "$zero_light_patch"
+fi
 upload_batching_patch="$root/patches/dxmt-upload-batching.patch"
 if git -C "$root/dxmt" apply --reverse --check "$upload_batching_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$upload_batching_patch"
@@ -53,6 +57,8 @@ for name in patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.
         exit 1
     fi
 done
+git -C "$root/dxmt" apply --check "$zero_light_patch"
+git -C "$root/dxmt" apply "$zero_light_patch"
 git -C "$root/dxmt" apply --check "$retirement_patch"
 git -C "$root/dxmt" apply "$retirement_patch"
 git -C "$root/dxmt" apply --check "$stage_patch"

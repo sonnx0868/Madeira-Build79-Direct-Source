@@ -222,10 +222,10 @@ int main(int argc,char **argv) {
       // or localized CFG cleanup. Unrelated kernels receive neither pass.
       FunctionPassManager candidate;
       candidate.addPass(dxmt::shaderopt::ComputePCFPass(mode!="pcf-control", &pcfGuarded));
+      if(mode=="zero") candidate.addPass(dxmt::shaderopt::ComputeZeroLightPass(&zeroGuarded));
       ModulePassManager finish;
       finish.addPass(createModuleToFunctionPassAdaptor(std::move(candidate)));
       finish.run(*m,mam);
-      if(mode=="zero") for(auto &function:*m) zeroGuarded+=dxmt::shaderopt::zero_light::run(function);
     }
     if(mode=="embed") {
       for(auto &function:*m) {

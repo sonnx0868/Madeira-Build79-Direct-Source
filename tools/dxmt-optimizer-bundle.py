@@ -23,8 +23,15 @@ SOURCES = ('build/dxmt-ios/explicit_lod_guard.hpp', 'patches/dxmt-explicit-lod-g
            'dxmt/src/airconv/airconv_context.cpp', 'build/dxmt-ios/refresh-optimizer.sh',
            'build/dxmt-ios/guarded_pcf.hpp', 'patches/dxmt-guarded-pcf.patch',
            'dxmt/src/winemetal/unix/cache.c', 'tools/shader-compiler-identity.py',
-           'tools/dxmt-optimizer-bundle.py')
+           'tools/dxmt-optimizer-bundle.py',
+           'build/dxmt-ios/zero_light_guard.hpp', 'patches/dxmt-zero-light-guard.patch')
 LEGACY_SOURCES = SOURCES[:4]
+PCF_SOURCES = SOURCES[:-2]
+ZERO_BASE_COMMIT = '82d08f2e1080671efc399bdcdedf56c4a36a3056'
+ZERO_PATCH = 'patches/dxmt-zero-light-guard.patch'
+ZERO_BASE_ARCHIVE = 'f367ec5d55bc80ca5f92cffec0c226273a460f385c7892692c72837465f166e4'
+ZERO_BASE_CONTEXT = '22dcf2b11a801f7bfd6677a020609b1cabd9e437aa3c195a7e8efdacc70145c8'
+ZERO_BASE_COMPILER = '89c0064b50e7807ac53b60bbb0cf93fd15d4d3d6f8c1b1c40e45b78a447fa032'
 BASE_COMMIT = '5a40a8c50bb191bf8cea343028125640f6cf9147'
 BASE_ARCHIVE_SHA256 = '1f10df6007e7e688a95472715e267973fb6170c222bfbd26e301df7cb6c4bf65'
 BASE_NTDLL_SHA256 = '0ce6d741e85252960dfa9c8aaabc96f588de580c184e6b1015ac8a9672e7b24f'
@@ -109,9 +116,12 @@ def replacement_proof(data):
     assert at == 32 + size
     selected = sorted(name for name in symbols if 'ComputePCFPass' in name and '3runE' in name)
     assert selected, 'missing defined production ComputePCFPass run implementation'
-    for marker in (b'SinkingPass', b'LoopRotatePass', b'pcf.sample', b'pcf.condition'):
+    zero_symbols = sorted(name for name in symbols if 'ComputeZeroLightPass' in name and '3runE' in name)
+    assert zero_symbols, 'missing defined production ComputeZeroLightPass run implementation'
+    for marker in (b'SinkingPass', b'LoopRotatePass', b'pcf.sample', b'pcf.condition', b'lighting.nonzero', b'lighting.zero'):
         assert marker in data, ('missing prior optimizer or PCF implementation', marker)
-    return {'format': 'arm64-mach-o-compute-pcf-v1', 'defined_run_symbols': selected,
+    return {'format': 'arm64-mach-o-compute-lighting-v2', 'defined_run_symbols': selected,
+            'zero_light_run_symbols': zero_symbols,
             'contextObjectSHA256': digest(data), 'semantics_proved_by_object_scan': False}
 
 
@@ -119,22 +129,22 @@ def git_bytes(root, revision, name):
     return subprocess.check_output(['git', '-C', str(root), 'show', revision + ':' + name])
 
 
-def legacy_source_hashes(root):
+def frozen_source_hashes(root, revision, sources):
     """Reconstruct old context/cache from frozen git + frozen patch order.
 
     The current dirty submodule and the current patch list are never the old
     source authority. A missing baseline commit fails instead of accepting a
     stale receipt merely because it contains the expected filenames.
     """
-    script = git_bytes(root, BASE_COMMIT, 'tests/host/check-dxmt-patches.py')
+    script = git_bytes(root, revision, 'tests/host/check-dxmt-patches.py')
     tree = ast.parse(script)
     lists = [ast.literal_eval(node.value) for node in ast.walk(tree)
              if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and
              target.id == 'PATCH_NAMES' for target in node.targets)]
-    assert len(lists) == 1 and PATCH not in lists[0]
-    pin = subprocess.check_output(['git', '-C', str(root), 'rev-parse', BASE_COMMIT + ':dxmt'], text=True).strip()
-    hashes = {name: digest(git_bytes(root, BASE_COMMIT, name).replace(b'\r\n', b'\n'))
-              for name in LEGACY_SOURCES if name != CONTEXT}
+    assert len(lists) == 1
+    pin = subprocess.check_output(['git', '-C', str(root), 'rev-parse', revision + ':dxmt'], text=True).strip()
+    hashes = {name: digest(git_bytes(root, revision, name).replace(b'\r\n', b'\n'))
+              for name in sources if name not in (CONTEXT, CACHE)}
     with tempfile.TemporaryDirectory(prefix='madeira-optimizer-base-') as work:
         folder = Path(work)
         for name in (CONTEXT, CACHE):
@@ -143,7 +153,7 @@ def legacy_source_hashes(root):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(git_bytes(root / 'dxmt', pin, relative).replace(b'\r\n', b'\n'))
         for index, name in enumerate(lists[0]):
-            data = git_bytes(root, BASE_COMMIT, name).replace(b'\r\n', b'\n')
+            data = git_bytes(root, revision, name).replace(b'\r\n', b'\n')
             if not any(('+++ b/' + target.removeprefix('dxmt/') + '\n').encode() in data
                        for target in (CONTEXT, CACHE)):
                 continue
@@ -153,6 +163,43 @@ def legacy_source_hashes(root):
                             '--include=src/winemetal/unix/cache.c', str(patch)], check=True, capture_output=True)
         hashes.update({name: source_sha(folder / name.removeprefix('dxmt/')) for name in (CONTEXT, CACHE)})
     return hashes
+
+
+def legacy_source_hashes(root):
+    return frozen_source_hashes(root, BASE_COMMIT, LEGACY_SOURCES)
+
+
+def zero_source_hashes(root):
+    return frozen_source_hashes(root, ZERO_BASE_COMMIT, PCF_SOURCES)
+
+
+def reverse_zero_overlay(root, folder, source):
+    data = (root / ZERO_PATCH).read_bytes().replace(b'\r\n', b'\n')
+    assert re.findall(rb'^\+\+\+ b/([^\r\n]+)$', data, re.M) == [CONTEXT.removeprefix('dxmt/').encode()]
+    patch = folder / 'zero.patch'
+    patch.write_bytes(data)
+    subprocess.run(['git', '-C', str(folder), 'apply', '--reverse', str(patch)], check=True, capture_output=True)
+
+
+def validate_zero_parent(root, parent, state):
+    assert parent['format'] == 'madeira-shader-optimizer-v2'
+    assert set(parent['sources']) == set(PCF_SOURCES)
+    assert state['native_archives'][ARCHIVE] == ZERO_BASE_ARCHIVE, 'zero-light refresh requires verified875 renderer'
+    assert parent['contextObjectSHA256'] == ZERO_BASE_CONTEXT
+    assert parent['compilerID'] == ZERO_BASE_COMPILER
+    expected = zero_source_hashes(root)
+    assert parent['sources'] == {name: expected[name] for name in PCF_SOURCES}, 'unverified875 optimizer sources'
+    metadata = {CONTEXT, 'build/dxmt-ios/refresh-optimizer.sh', 'tools/shader-compiler-identity.py',
+                'tools/dxmt-optimizer-bundle.py'}
+    for name in set(PCF_SOURCES) - metadata:
+        assert source_sha(root / name) == expected[name], ('unrelated optimizer source changed', name)
+    with tempfile.TemporaryDirectory(prefix='madeira-zero-overlay-') as work:
+        folder = Path(work)
+        source = folder / CONTEXT.removeprefix('dxmt/')
+        source.parent.mkdir(parents=True)
+        source.write_bytes((root / CONTEXT).read_bytes().replace(b'\r\n', b'\n'))
+        reverse_zero_overlay(root, folder, source)
+        assert source_sha(source) == expected[CONTEXT], 'zero overlay includes unrelated context changes'
 
 
 def validate_legacy(root, parent, state):
@@ -171,12 +218,14 @@ def validate_legacy(root, parent, state):
         source = folder / CONTEXT.removeprefix('dxmt/')
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_bytes((root / CONTEXT).read_bytes().replace(b'\r\n', b'\n'))
+        reverse_zero_overlay(root, folder, source)
         patch = folder / 'pcf.patch'
         patch.write_bytes(data)
         subprocess.run(['git', '-C', str(folder), 'apply', '--reverse', str(patch)], check=True, capture_output=True)
         assert source_sha(source) == expected[CONTEXT], 'PCF overlay hides an unrelated optimizer change'
         subprocess.run(['git', '-C', str(folder), 'apply', str(patch)], check=True, capture_output=True)
-        assert source_sha(source) == source_sha(root / CONTEXT), 'PCF source transition is not reversible'
+        subprocess.run(['git', '-C', str(folder), 'apply', str(folder / 'zero.patch')], check=True, capture_output=True)
+        assert source_sha(source) == source_sha(root / CONTEXT), 'optimizer source transition is not reversible'
 
 
 def payload_hashes(root):
@@ -213,13 +262,16 @@ def collect(root):
     return state
 
 
-def validate_parents(root, parents, state, legacy=False):
+def validate_parents(root, parents, state, legacy=False, zero=False):
     depth = module(root, 'dxmt-depth-retention-bundle')
     srv = module(root, 'dxmt-srv-bundle')
     assert set(parents) == set(depth.PARENTS), 'optimizer refresh requires the complete verified parent chain'
     adjusted = copy.deepcopy(parents)
     if legacy:
         validate_legacy(root, parents[RECEIPT], state)
+        adjusted[RECEIPT]['sources'] = state['optimizer_sources']
+    elif zero:
+        validate_zero_parent(root, parents[RECEIPT], state)
         adjusted[RECEIPT]['sources'] = state['optimizer_sources']
     depth.validate_parents(root, adjusted, state)
     identity = compiler_id(srv.object_bytes(root / ARCHIVE, 'cache.o'))
@@ -242,7 +294,8 @@ def prepare(root, base, replacement):
     state = collect(root)
     parents = depth.read_parents(root)
     legacy = set(parents[RECEIPT]['sources']) == set(LEGACY_SOURCES)
-    validate_parents(root, parents, state, legacy=legacy)
+    zero = set(parents[RECEIPT]['sources']) == set(PCF_SOURCES)
+    validate_parents(root, parents, state, legacy=legacy, zero=zero)
     validate_depth_record(root, state, parents)
     validate_renpy(root)
     proof = replacement_proof(replacement.read_bytes())
@@ -250,9 +303,15 @@ def prepare(root, base, replacement):
     identity = digest(('madeira-compute-pcf-v1\0' + old + '\0' + proof['contextObjectSHA256']).encode())
     assert identity != old
     prepared = {'format': 'madeira-shader-optimizer-base-v2', 'state': state, 'parents': parents,
-                'depth_receipt': read_json(root / depth.RECEIPT), 'legacy_migration': legacy,
+                'depth_receipt': read_json(root / depth.RECEIPT), 'legacy_migration': legacy, 'zero_migration': zero,
                 'oldCompilerID': old, 'compilerID': identity, 'object_proof': proof,
                 'contextObjectSHA256': proof['contextObjectSHA256']}
+    upload = module(root, 'dxmt-upload-batching-bundle')
+    if (root / upload.RECEIPT).exists():
+        saved_upload = read_json(root / upload.RECEIPT)
+        expected_upload = upload.record_for(root, upload.collect(root))
+        assert all(saved_upload.get(k) == v for k, v in expected_upload.items()), 'stale upload receipt before optimizer refresh'
+        prepared['upload_receipt'] = saved_upload
     folder = root / FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     write_json(folder / 'prepared.json', prepared)
@@ -299,6 +358,9 @@ def transition(root, base, snapshot, state, parents, commit):
     if snapshot['legacy_migration']:
         validate_legacy(root, parents[RECEIPT], old)
         adjusted[RECEIPT]['sources'] = old['optimizer_sources']
+    elif snapshot.get('zero_migration'):
+        validate_zero_parent(root, parents[RECEIPT], old)
+        adjusted[RECEIPT]['sources'] = old['optimizer_sources']
     depth.validate_parents(root, adjusted, old)
     assert parents[RECEIPT]['compilerID'] == snapshot['oldCompilerID']
     assert parents[RECEIPT]['contextObjectSHA256'] == digest(srv.object_bytes(base, 'airconv_context.o'))
@@ -327,6 +389,17 @@ def transition(root, base, snapshot, state, parents, commit):
     depth_record.update(archive_sha256=after[ARCHIVE], members=current, optimizer_refresh=binding)
     validate_depth_record(root, state, final_parents, depth_record)
     updates[depth.RECEIPT] = depth_record
+    if 'upload_receipt' in snapshot:
+        upload = module(root, 'dxmt-upload-batching-bundle')
+        original = snapshot['upload_receipt']
+        assert read_json(root / upload.RECEIPT) == original, 'upload receipt changed during optimizer refresh'
+        expected = upload.record_for(root, upload.collect(root))
+        for key, value in expected.items():
+            if key not in ('archive_sha256', 'members'):
+                assert original[key] == value, ('optimizer changed upload implementation', key)
+        updated = copy.deepcopy(original)
+        updated.update(archive_sha256=after[ARCHIVE], members=current, optimizer_refresh=binding)
+        updates[upload.RECEIPT] = updated
     return updates
 
 
