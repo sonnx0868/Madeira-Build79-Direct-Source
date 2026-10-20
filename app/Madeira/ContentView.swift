@@ -3881,6 +3881,13 @@ final class ControlsWindow: UIWindow {
         // button, its performance overlay and the touch controls do.
         let library = LibraryModel.shared
         if library.current != nil {
+            let reading = ReadingProgressModel.shared
+            if !library.blocksGameplayTouch && !m.editing && reading.enabled {
+                let circle = reading.hitRect
+                if !circle.isEmpty && hypot(point.x - circle.midX, point.y - circle.midY) <= circle.width / 2 {
+                    return super.hitTest(point, with: event)
+                }
+            }
             if library.menu || library.launching || library.quitting || library.menuButtonRect.contains(point) ||
                 (library.performance && library.performanceRect.contains(point)) {
                 return super.hitTest(point, with: event)

@@ -178,6 +178,9 @@ struct LibraryEntry: Codable, Identifiable {
     var reducedX87 = false
     var liveLogs = false
     var performance = false
+    /// Opt-in dialogue coverage for Ren'Py; absent in older profiles.
+    var readingProgress: Bool?
+    var readingProgressPosition: ReadingProgressPosition?
     var touchControls = false
     var controls: [TouchControl]?
     /// The named layout (TouchControlPresets.swift) `controls` came from, so the
@@ -1755,6 +1758,7 @@ final class LibraryModel: ObservableObject {
         displayMode = entry.displayMode
         GlassSkin.sessionChanged(active: true)
         activeEntry = entry; current = entry.id; menu = false; performance = entry.performance; liveLogs = entry.liveLogs
+        ReadingProgressModel.shared.begin(entry)
         LogStore.shared.setDisplayActive(entry.liveLogs)
         fpsMode = entry.fpsMode; sessionMessage = "Starting…"
         opacity = min(max(entry.controlOpacity ?? 0.7, 0.15), 1)
@@ -1968,6 +1972,7 @@ final class LibraryModel: ObservableObject {
         }
     }
     private func finish() {
+        ReadingProgressModel.shared.end()
         madeira_session_priority_end()
         madeira_flush_pipeline_cache()
         DiagnosticEvents.phase("session-finished")
@@ -4231,6 +4236,11 @@ struct LibraryDetail: View {
                 }
                 Section("On screen") {
                     Toggle("Performance overlay", isOn: $entry.performance)
+                    if ReadingProgressModel.supports(entry) || entry.readingProgress == true {
+                        Toggle("Reading progress bubble", isOn: Binding(get: { entry.readingProgress ?? false }, set: { entry.readingProgress = $0 }))
+                        Text("Ren’Py: dialogue seen across all playthroughs, not ending or gallery completion. Drag the bubble to move it. Applies when you next start this game.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Toggle("Live logs", isOn: $entry.liveLogs)
                     Toggle("Touch controls", isOn: $entry.touchControls)
                     if GamepadInput.keyboardMouseAvailable {
@@ -4881,6 +4891,9 @@ struct LibraryHUD: View {
                         .scaleEffect(launchVisible || reduceMotion ? 1 : 0.96)
                 }
                 if !model.launching && model.performance { LibraryFloatingItem(isMenu: false, viewport: geo.size, insets: geo.safeAreaInsets) }
+                if !model.blocksGameplayTouch {
+                    ReadingProgressOverlay(viewport: geo.size, insets: geo.safeAreaInsets)
+                }
                 if model.liveLogs && !model.launching { LibraryLiveLogs().frame(maxWidth: 550, maxHeight: 140).padding(.top, Self.topInset(geo) + 60).padding(.horizontal, 12).allowsHitTesting(false) }
                 if !model.sessionMessage.isEmpty { Text(model.sessionMessage).font(.caption).padding(10).background(.regularMaterial, in: Capsule()).frame(maxWidth: .infinity).padding(.top, Self.topInset(geo) + 12).allowsHitTesting(false) }
                 if !model.launching { LibraryFloatingItem(isMenu: true, viewport: geo.size, insets: geo.safeAreaInsets) }
@@ -5102,6 +5115,7 @@ struct LibraryHUD: View {
                 LibraryPointerSettings()
                 Divider()
                 Toggle("Performance overlay", isOn: $model.performance)
+                ReadingProgressMenuRow()
                 if model.performance {
                     ForEach(["FPS", "Frame time", "RAM", "Battery"], id: \.self) { field in
                         Toggle(field, isOn: Binding(get: { model.overlayFields.contains(field) }, set: { on in

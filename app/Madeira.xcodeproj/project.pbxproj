@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        D1876001 /* ReadingProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2876001; };
+        D1876002 /* ReadingProgressData.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2876002; };
+        D1876003 /* MadeiraReadingProgress.rpy in Resources */ = {isa = PBXBuildFile; fileRef = D2876003; };
         D1100721 /* mono in Resources */ = {isa = PBXBuildFile; fileRef = D2100721 /* mono */; };
         D1100705 /* GameMakerCompatibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100705 /* GameMakerCompatibility.swift */; };
         D1100704 /* LibraryGenreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2100704 /* LibraryGenreViews.swift */; };
@@ -210,6 +213,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        D2876001 /* ReadingProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgress.swift; sourceTree = "<group>"; };
+        D2876002 /* ReadingProgressData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgressData.swift; sourceTree = "<group>"; };
+        D2876003 /* MadeiraReadingProgress.rpy */ = {isa = PBXFileReference; lastKnownFileType = text; path = MadeiraReadingProgress.rpy; sourceTree = "<group>"; };
         D2100721 /* mono */ = {isa = PBXFileReference; lastKnownFileType = folder; path = mono; sourceTree = "<group>"; };
         D2100705 /* GameMakerCompatibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameMakerCompatibility.swift; sourceTree = "<group>"; };
         D2100704 /* LibraryGenreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryGenreViews.swift; sourceTree = "<group>"; };
@@ -552,6 +558,9 @@
 				A2000200 /* LogPattern.swift */,
 				A2000201 /* LogTail.swift */,
 				A2000202 /* FPSOverlay.swift */,
+                D2876001 /* ReadingProgress.swift */,
+                D2876002 /* ReadingProgressData.swift */,
+                D2876003 /* MadeiraReadingProgress.rpy */,
 				A2000400 /* Library.swift */,
 				A2000401 /* GuestDisplay.swift */,
 				A2000004 /* JITAllocator.c */,
@@ -769,6 +778,7 @@
 				A1000040 /* prefix-template.tar.gz in Resources */,
 				A1000094 /* cacert.pem in Resources */,
 				A1000910 /* Assets.xcassets in Resources */,
+                D1876003 /* MadeiraReadingProgress.rpy in Resources */,
 				B1000004 /* madeira-jit.js in Resources */,
 				B1000051 /* Madeira JIT.shortcut in Resources */,
 			);
@@ -905,6 +915,8 @@
 				A1000200 /* LogPattern.swift in Sources */,
 				A1000201 /* LogTail.swift in Sources */,
 				A1000202 /* FPSOverlay.swift in Sources */,
+                D1876001 /* ReadingProgress.swift in Sources */,
+                D1876002 /* ReadingProgressData.swift in Sources */,
 				A1000400 /* Library.swift in Sources */,
 				A1000401 /* GuestDisplay.swift in Sources */,
 				A1000004 /* JITAllocator.c in Sources */,
