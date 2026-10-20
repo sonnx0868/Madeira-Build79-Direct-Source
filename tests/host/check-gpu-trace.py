@@ -308,6 +308,17 @@ extension GPUTraceComparison {
  @MainActor var fixtureFolder: URL { activeFolder! }
 }
 @main struct CheckModel {
+ static func assertSavedFolder(_ actual:URL?,_ expected:URL) throws {
+  guard let actual else {assertionFailure("Completed raw recording was not selected");return}
+  let fm=FileManager.default,left=try fm.attributesOfItem(atPath:actual.path),right=try fm.attributesOfItem(atPath:expected.path)
+  // Foundation discovery may spell the same Darwin directory /private/var
+  // while capture creation spells it /var. Require the actual same inode,
+  // device and recording ID, rather than lexical URL equality.
+  assert(actual.lastPathComponent==expected.lastPathComponent &&
+   left[.systemNumber] as? NSNumber == right[.systemNumber] as? NSNumber &&
+   left[.systemFileNumber] as? NSNumber == right[.systemFileNumber] as? NSNumber,
+   "Saved recording identity differs: selected=\(actual.path), captured=\(expected.path)")
+ }
  @MainActor static func main() async throws {
   let fm=FileManager.default, docs=fm.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
   let root=docs.appendingPathComponent("GPUTraces")
@@ -411,7 +422,7 @@ extension GPUTraceComparison {
   assert(raw["complete"] as? Bool == true && raw["frames"] as? Int == 2 && raw["buffers"] as? Int == 4)
   assert(raw["captureUptime"] as? Double == 123 && raw["error"] as? String == "")
   assert((recovered["context"] as! [String:Any])["gameTitle"] as? String == "Liar's Bar")
-  assert(model.savedFolder==completedBeforeMenu)
+  try assertSavedFolder(model.savedFolder,completedBeforeMenu)
   let recoveredZIP=try await model.export(folder:completedBeforeMenu);defer {try? fm.removeItem(at:recoveredZIP)}
   // A genuinely unfinished raw trace remains incomplete and unexportable.
   GPUTraceNative.nextResult=(3,1,1,124,"",false)
@@ -424,7 +435,8 @@ extension GPUTraceComparison {
   assert((stopped["smooth"] as! [String:Any])["complete"] as? Bool == false)
   var rejectedIncomplete=false
   do {_=try await GPUTraceFiles.export(folder:incomplete)}catch{rejectedIncomplete=true}
-  assert(rejectedIncomplete && model.savedFolder==completedBeforeMenu)
+  assert(rejectedIncomplete)
+  try assertSavedFolder(model.savedFolder,completedBeforeMenu)
   print("PASS: menu/session interruption preserves finished raw capture while timings are pending, ignores stale callbacks, blocks overlapping requests and rejects incomplete raw captures")
   print("PASS: Liar's Bar title/EXE eligibility, idle capture off, one low-FPS scene at11, completed single ZIP and unknown-mode rejection")
   print("PASS: actual GPU comparison model restores727 recording, preserves it across a new start/stop and exports/caches its original ZIP and session")
