@@ -19,6 +19,31 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: ac5afe4e37b6a79a51cc099ebd6b8fec2876a08ee166298c55aff5868a29638b
 
 workflows:
+  madeira-v016-upload-batching-refresh:
+    title: Rebuild dependency-safe buffer upload batching and IPA
+    description: Refresh ARM64EC D3D11 while preserving the verified native shader compiler and runtime.
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh upload-batching-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-upload-batching-check:
     title: Validate dependency-safe upload scheduling on Metal
     description: Run production dependency controls and native byte parity without producing an IPA.

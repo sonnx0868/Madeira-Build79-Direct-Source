@@ -85,6 +85,8 @@ elif [[ "${1:-}" = --refresh-gpu ]]; then
   bash "$root/build/dxmt-ios/refresh-gpu.sh"
 elif [[ "${1:-}" = --refresh-optimizer ]]; then
   bash "$root/build/dxmt-ios/refresh-optimizer.sh"
+elif [[ "${1:-}" = --refresh-upload-batching ]]; then
+  bash "$root/scripts/refresh-upload-batching.sh"
 elif [[ "${1:-}" = --refresh-sync ]]; then
   bash "$root/build/madsync/refresh.sh"
 elif [[ -n "${1:-}" ]]; then

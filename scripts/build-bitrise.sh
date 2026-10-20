@@ -21,6 +21,7 @@ if [[ "$mode" = cached && "${MADEIRA_NTDLL_LOADER_REFRESH:-0}" = 1 ]]; then mode
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_RUNTIME_REFRESH:-0}" = 1 ]]; then mode=runtime-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_GPU_PIPELINE_REFRESH:-0}" = 1 ]]; then mode=gpu-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_SHADER_OPTIMIZER_REFRESH:-0}" = 1 ]]; then mode=optimizer-refresh; fi
+if [[ "$mode" = cached && "${MADEIRA_UPLOAD_BATCHING_REFRESH:-0}" = 1 ]]; then mode=upload-batching-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NUTSSYNC_REFRESH:-0}" = 1 ]]; then mode=sync-refresh; fi
 case "$mode" in
   cached) ipa=Madeira-v0.1.6-source.ipa ;;
@@ -43,6 +44,7 @@ case "$mode" in
   runtime-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   gpu-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   optimizer-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  upload-batching-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   sync-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh|input-refresh|signal-refresh|pacing-refresh' >&2; exit 2 ;;
 esac
@@ -121,7 +123,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = resource-input-refresh || "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
+  if [[ "$mode" = resource-input-refresh || "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = upload-batching-refresh || "$mode" = sync-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
@@ -140,6 +142,7 @@ else
     [[ "$mode" != runtime-refresh ]] || refresh=--refresh-runtime
     [[ "$mode" != gpu-refresh ]] || refresh=--refresh-gpu
     [[ "$mode" != optimizer-refresh ]] || refresh=--refresh-optimizer
+    [[ "$mode" != upload-batching-refresh ]] || refresh=--refresh-upload-batching
     [[ "$mode" != sync-refresh ]] || refresh=--refresh-sync
     timed native-restore bash scripts/restore-native-deps.sh "$refresh"
     timed native-package bash scripts/package-native-deps.sh "$out/madeira-v0.1.6-native-deps.zip"
@@ -160,6 +163,9 @@ if [[ -n "${MADEIRA_WOW64_ADDON_URL:-}" ]]; then
 fi
 
 checks() {
+  python3 tests/host/check-upload-batching.py
+  python3 tests/host/check-upload-batching-receipts.py
+  python3 tools/dxmt-upload-batching-bundle.py --root "$root"
   python3 tests/host/check-depth-rename-retention.py
   python3 tests/host/check-depth-retention-bundle.py
   python3 tests/host/check-xinput-host-authority.py
