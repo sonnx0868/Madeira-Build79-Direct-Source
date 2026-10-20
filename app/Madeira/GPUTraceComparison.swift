@@ -354,15 +354,22 @@ enum GPUTraceNative {
 
 enum GPUTraceFiles {
     private static let queue = DispatchQueue(label: "madeira.gpu-trace.files", qos: .utility)
-    private static func isTraceResourceAlias(_ file: URL, relativePath: String) -> Bool {
+    private struct ExportEntry {
+        let relative: String
+        let source: URL?
+        let device: UInt64
+        let inode: UInt64
+    }
+    private static func traceResourceAliasTarget(_ file: URL, relativePath: String) -> URL? {
         let relative = relativePath.split(separator: "/")
         guard relative.count > 1, relative[0] == "smooth.gputrace" || relative[0] == "slow.gputrace",
               let name = try? FileManager.default.destinationOfSymbolicLink(atPath: file.path),
-              !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\") else { return false }
+              !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\") else { return nil }
         let target = file.deletingLastPathComponent().appendingPathComponent(name)
         guard target.resolvingSymlinksInPath().standardizedFileURL == target.standardizedFileURL,
-              let values = try? target.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
-        return values.isRegularFile == true && values.isSymbolicLink != true
+              let values = try? target.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true, values.isSymbolicLink != true else { return nil }
+        return target
     }
     static func savedComparisons(in root: URL) async -> [GPUTraceSavedComparison] {
         await withCheckedContinuation { continuation in
@@ -460,21 +467,36 @@ enum GPUTraceFiles {
                           let walker = fm.enumerator(atPath: folder.path) else {
                         throw SupportError.message("The comparison folder contains unexpected files.")
                     }
-                    var count = 0
+                    var entries: [ExportEntry] = []
                     for case let relative as String in walker {
-                        count += 1
                         // The path enumerator supplies descendants relative to
                         // this root and does not follow directory symlinks.
                         let file = folder.appendingPathComponent(relative)
-                        guard count <= 100_000 else {
+                        guard entries.count < 100_000 else {
                             throw SupportError.message("The comparison exceeds the 100,000-file limit at \(relative).")
                         }
-                        if try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true,
-                           !isTraceResourceAlias(file, relativePath: relative) {
-                            throw SupportError.message("The comparison contains an unsupported symbolic link: \(relative).")
+                        let values = try file.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+                        let source: URL
+                        if values.isSymbolicLink == true {
+                            guard let target = traceResourceAliasTarget(file, relativePath: relative) else {
+                                throw SupportError.message("The comparison contains an unsupported symbolic link: \(relative).")
+                            }
+                            source = target
+                        } else if values.isDirectory == true {
+                            entries.append(ExportEntry(relative: relative, source: nil, device: 0, inode: 0))
+                            continue
+                        } else {
+                            source = file
                         }
+                        let identity = try fm.attributesOfItem(atPath: source.path)
+                        guard identity[.type] as? FileAttributeType == .typeRegular,
+                              let device = identity[.systemNumber] as? NSNumber,
+                              let inode = identity[.systemFileNumber] as? NSNumber else {
+                            throw SupportError.message("The comparison contains an unsupported file: \(relative).")
+                        }
+                        entries.append(ExportEntry(relative: relative, source: source, device: device.uint64Value, inode: inode.uint64Value))
                     }
-                    NSLog("[gpu-trace-pair] export-validated pair=%@ entries=%d", folder.lastPathComponent, count)
+                    NSLog("[gpu-trace-pair] export-validated pair=%@ entries=%d", folder.lastPathComponent, entries.count)
                     let sessionLog = folder.appendingPathComponent("session.txt")
                     // Keep the log of the captured test after a restart or a
                     // different game launch. Never replace it with that run.
@@ -486,12 +508,41 @@ enum GPUTraceFiles {
                     let destination = directory ?? fm.temporaryDirectory
                     try fm.createDirectory(at: destination, withIntermediateDirectories: true)
                     let target = destination.appendingPathComponent("Madeira-GPU-\(folder.lastPathComponent)-\(UUID().uuidString).zip")
+                    var ready = false
+                    defer { if !ready { try? fm.removeItem(at: target) } }
+                    // Foundation's uploader fails on Metal's relative aliases.
+                    // Stage regular hardlinks beside the capture (same volume),
+                    // preserving the original document and avoiding a second
+                    // multi-gigabyte copy. Alias names link the validated target.
+                    let staging = folder.deletingLastPathComponent().appendingPathComponent(".GPUTraceExport-\(UUID().uuidString)", isDirectory: true)
+                    try fm.createDirectory(at: staging, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+                    defer { try? fm.removeItem(at: staging) }
+                    let stagedFolder = staging.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+                    try fm.createDirectory(at: stagedFolder, withIntermediateDirectories: false)
+                    for entry in entries {
+                        let staged = stagedFolder.appendingPathComponent(entry.relative)
+                        if let source = entry.source {
+                            try fm.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            try fm.linkItem(at: source, to: staged)
+                            let identity = try fm.attributesOfItem(atPath: staged.path)
+                            guard identity[.type] as? FileAttributeType == .typeRegular,
+                                  (identity[.systemNumber] as? NSNumber)?.uint64Value == entry.device,
+                                  (identity[.systemFileNumber] as? NSNumber)?.uint64Value == entry.inode else {
+                                throw SupportError.message("A GPU recording resource changed during export: \(entry.relative).")
+                            }
+                        } else {
+                            try fm.createDirectory(at: staged, withIntermediateDirectories: true)
+                        }
+                    }
+                    NSLog("[gpu-trace-pair] export-staged pair=%@ entries=%d", folder.lastPathComponent, entries.count)
                     var coordinationError: NSError?, copyError: Error?, copied = false
-                    NSFileCoordinator().coordinate(readingItemAt: folder, options: .forUploading, error: &coordinationError) { archive in
+                    NSFileCoordinator().coordinate(readingItemAt: stagedFolder, options: .forUploading, error: &coordinationError) { archive in
                         do { try fm.copyItem(at: archive, to: target); copied = true } catch { copyError = error }
                     }
                     if let error = coordinationError ?? (copyError as NSError?) { throw error }
                     guard copied else { throw SupportError.message("The GPU trace ZIP could not be created.") }
+                    try fm.removeItem(at: staging)
+                    ready = true
                     NSLog("[gpu-trace-pair] export-ready file=%@", target.lastPathComponent)
                     continuation.resume(returning: target)
                 } catch {

@@ -93,20 +93,39 @@ func unpackComparison(_ archive: URL, into directory: URL) throws -> URL {
 }
 '''
         source=out/'export.swift';binary=out/'export'
-        source.write_text('import Foundation\nimport Darwin\n'+error+snapshot+files+unpack+r'''
+        # Wrap only the uploader boundary: run the production staging code,
+        # verify actual inode sharing, then invoke the real Foundation ZIP.
+        source.write_text('import Foundation\nimport Darwin\n'+error+snapshot+files.replace('NSFileCoordinator()', 'CheckedCoordinator()')+unpack+r'''
 enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } }
-@main struct Check {
- static func inspect(_ url: URL, label: String) {
+final class CheckedCoordinator {
+ static var fail=false
+ static var staging:URL?
+ func coordinate(readingItemAt folder:URL,options:NSFileCoordinator.ReadingOptions,error:UnsafeMutablePointer<NSError?>,byAccessor body:@escaping (URL)->Void) {
   let fm=FileManager.default
-  var info=stat();errno=0
-  let result=url.path.withCString { lstat($0,&info) },code=errno
-  NSLog("GPU alias diagnostic \(label): path=\(url.path), standardized=\(url.standardizedFileURL.path), resolved=\(url.resolvingSymlinksInPath().path), lstat=\(result), errno=\(code), mode=\(info.st_mode)")
-  do { NSLog("GPU alias diagnostic \(label) attributes=\(try fm.attributesOfItem(atPath:url.path))") }
-  catch { NSLog("GPU alias diagnostic \(label) attributes error=\(error as NSError)") }
-  do { NSLog("GPU alias diagnostic \(label) resourceValues=\(try url.resourceValues(forKeys:[.isSymbolicLinkKey,.isRegularFileKey,.isDirectoryKey]))") }
-  catch { NSLog("GPU alias diagnostic \(label) resourceValues error=\(error as NSError)") }
-  if let target=try? fm.destinationOfSymbolicLink(atPath:url.path) { NSLog("GPU alias diagnostic \(label) readlink=\(target)") }
+  Self.staging=folder.deletingLastPathComponent()
+  let original=Self.staging!.deletingLastPathComponent().appendingPathComponent(folder.lastPathComponent)
+  let walker=fm.enumerator(atPath:folder.path)!
+  do {
+   for case let path as String in walker {
+    let staged=folder.appendingPathComponent(path),attributes=try fm.attributesOfItem(atPath:staged.path)
+    assert(attributes[.type] as? FileAttributeType != .typeSymbolicLink)
+    if attributes[.type] as? FileAttributeType == .typeDirectory {continue}
+    assert(attributes[.type] as? FileAttributeType == .typeRegular)
+    var source=original.appendingPathComponent(path)
+    if let name=try? fm.destinationOfSymbolicLink(atPath:source.path) {source=source.deletingLastPathComponent().appendingPathComponent(name)}
+    let input=try fm.attributesOfItem(atPath:source.path)
+    for key in [FileAttributeKey.systemNumber,.systemFileNumber,.size] {
+     assert(attributes[key] as? NSNumber == input[key] as? NSNumber)
+    }
+   }
+  } catch let failure {error.pointee=failure as NSError;return}
+  if Self.fail {error.pointee=NSError(domain:"GPUExportFixture",code:123);return}
+  var failure:NSError?
+  NSFileCoordinator().coordinate(readingItemAt:folder,options:options,error:&failure,byAccessor:body)
+  error.pointee=failure
  }
+}
+@main struct Check {
  static func reject(_ folder: URL, path: String? = nil) async {
   do { let zip=try await GPUTraceFiles.export(folder:folder);try? FileManager.default.removeItem(at:zip);assertionFailure("Unsafe fixture exported") }
   catch { if let path { assert(error.localizedDescription.contains("symbolic link: "+path), error.localizedDescription) } }
@@ -140,15 +159,9 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   }
   GPUTraceFiles.writeManifest(manifest,folder:folder)
   GPUTraceFiles.snapshot(log:log,folder:folder)
-  inspect(folder,label:"root")
-  let probeTrace=folder.appendingPathComponent("slow.gputrace")
-  NSLog("GPU alias diagnostic slow directory=\(try fm.contentsOfDirectory(atPath:probeTrace.path))")
-  inspect(probeTrace.appendingPathComponent("MTLBuffer-77048-0"),label:"target")
-  inspect(probeTrace.appendingPathComponent("MTLBuffer-77048-1"),label:"alias")
-  let probeWalker=fm.enumerator(at:folder,includingPropertiesForKeys:nil)!
-  for case let url as URL in probeWalker where url.lastPathComponent=="MTLBuffer-77048-1" { inspect(url,label:"URL enumerator alias") }
   let zip=try await GPUTraceFiles.export(folder:folder)
   defer { try? fm.removeItem(at:zip) }
+  assert(!fm.fileExists(atPath:CheckedCoordinator.staging!.path))
   let header=try FileHandle(forReadingFrom:zip);let signature=try header.read(upToCount:4);try header.close()
   assert(signature==Data([0x50,0x4b,0x03,0x04]))
   let extracted=try unpackComparison(zip,into:root.appendingPathComponent("extracted"))
@@ -158,7 +171,21 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
    let texture=try Data(contentsOf:trace.appendingPathComponent("nested/MTLTexture-1-1"))
    assert(buffer==Data((kind+" BUFFER PAYLOAD").utf8))
    assert(texture==Data((kind+" TEXTURE PAYLOAD").utf8))
+   let original=folder.appendingPathComponent(kind+".gputrace")
+   let bufferAlias=try fm.destinationOfSymbolicLink(atPath:original.appendingPathComponent("MTLBuffer-77048-1").path)
+   let textureAlias=try fm.destinationOfSymbolicLink(atPath:original.appendingPathComponent("nested/MTLTexture-1-1").path)
+   assert(bufferAlias=="MTLBuffer-77048-0" && textureAlias=="MTLTexture-1-0")
   }
+  let failureDirectory=root.appendingPathComponent("failed-exports",isDirectory:true)
+  CheckedCoordinator.fail=true
+  do {_=try await GPUTraceFiles.export(folder:folder,directory:failureDirectory);assertionFailure("Injected coordination failure exported")}
+  catch {assert((error as NSError).domain=="GPUExportFixture")}
+  CheckedCoordinator.fail=false
+  assert(!fm.fileExists(atPath:CheckedCoordinator.staging!.path))
+  let failedExports=try fm.contentsOfDirectory(atPath:failureDirectory.path)
+  let remaining=try fm.contentsOfDirectory(atPath:root.path)
+  assert(failedExports.isEmpty && !remaining.contains { $0.hasPrefix(".GPUTraceExport-") })
+  print("PASS: uploader receives only regular hardlinks with original inode/size; source aliases remain intact and staging/failed ZIP cleanup completes")
   try Data("DIFFERENT GAME SESSION".utf8).write(to:log)
   let zip2=try await GPUTraceFiles.export(folder:folder.resolvingSymlinksInPath());defer {try? fm.removeItem(at:zip2)}
   let capturedLog=try String(contentsOf:folder.appendingPathComponent("session.txt"),encoding:.utf8)
@@ -190,6 +217,11 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
   await reject(folder)
   try fm.removeItem(at:injected)
   let trace=folder.appendingPathComponent("smooth.gputrace")
+  let fifo=trace.appendingPathComponent("unsupported-fifo")
+  assert(fifo.path.withCString {mkfifo($0,mode_t(0o600))}==0)
+  do {_=try await GPUTraceFiles.export(folder:folder);assertionFailure("FIFO exported")}
+  catch {assert(error.localizedDescription.contains("unsupported file: smooth.gputrace/unsupported-fifo"))}
+  try fm.removeItem(at:fifo)
   for (name,target) in [
    ("absolute-external",log.path), ("parent-external","../../input.txt"),
    ("absolute-internal",trace.appendingPathComponent("capture.bin").path),
