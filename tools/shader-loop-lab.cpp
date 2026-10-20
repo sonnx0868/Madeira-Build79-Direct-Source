@@ -215,13 +215,14 @@ int main(int argc,char **argv) {
     else return 8;
     pm.run(*m,mam);
     if(mode=="pcf" || mode=="pcf-control") {
-      // Captured AIR can contain constant-backedge loops separating PCF taps.
-      // Give the candidate and its control exactly the same CFG cleanup.
-      ModulePassManager cleanup;
-      if(auto err=pb.parsePassPipeline(cleanup,"function(simplifycfg)")) {
-        consumeError(std::move(err));return 7;
-      }
-      cleanup.run(*m,mam);
+      // Use the exact compute-only integration hook after loop rotation/sink.
+      // The control differs only by disabling the final guard, not its gates
+      // or localized CFG cleanup. Unrelated kernels receive neither pass.
+      FunctionPassManager candidate;
+      candidate.addPass(dxmt::shaderopt::ComputePCFPass(mode=="pcf", &pcfGuarded));
+      ModulePassManager finish;
+      finish.addPass(createModuleToFunctionPassAdaptor(std::move(candidate)));
+      finish.run(*m,mam);
     }
     if(mode=="embed") {
       for(auto &function:*m) {
@@ -243,10 +244,6 @@ int main(int argc,char **argv) {
       ModulePassManager cleanup;cleanup.addPass(createModuleToFunctionPassAdaptor(std::move(finish)));cleanup.run(*m,mam);
     }
   }
-  // This experiment runs the shipping explicit-LOD/loop pipeline first. Only
-  // the new mode guards the discarded PCF arm; it is not enabled in the app.
-  if(mode=="pcf") for(auto &function:*m)
-    if(!function.isDeclaration()) pcfGuarded+=dxmt::shaderopt::guardConstantPCFSampling(function);
   if(verifyModule(*m,&errs())) return 9;
   auto ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
   std::error_code error;

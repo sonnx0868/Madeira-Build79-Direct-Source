@@ -18,7 +18,8 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-texture-headroom.patch",
                "patches/dxmt-lossless-color-views.patch",
                "patches/dxmt-frameflow.patch",
-               "patches/dxmt-light-graphics.patch", "patches/dxmt-retirement-lifetime.patch",
+               "patches/dxmt-light-graphics.patch", "patches/dxmt-guarded-pcf.patch",
+               "patches/dxmt-retirement-lifetime.patch",
                "patches/dxmt-gpu-stages.patch", "patches/dxmt-present-resource-lifetime.patch",
                "patches/dxmt-depth-rename-retention.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",

@@ -17,6 +17,7 @@ test "$("$llvm/bin/llvm-config" --version)" = 15.0.7
 git -C "$root" submodule update --init dxmt
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tests/host/check-dxmt-patches.py"
+python3 "$root/tests/host/check-optimizer-receipts.py"
 xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
   -I"$root/dxmt/src/airconv" -I"$root/build/dxmt-ios" \
   "$root/tests/host/air-sample-convergence.cpp" "$root/dxmt/src/airconv/nt/air_builder.cpp" \

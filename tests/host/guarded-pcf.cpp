@@ -1,6 +1,8 @@
-// Exercise the actual experimental pass. The emitted native fixture replaces
+// Exercise the PCF transform and compute hook. The emitted native fixture replaces
 // AIR sampling only AFTER transforming, so it can count the calls that survive.
 #include "guarded_pcf.hpp"
+#include "explicit_lod_guard.hpp"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
@@ -17,6 +19,9 @@ static void require(bool value, const Twine &message) {
 }
 static std::string dump(Module &module) {
   std::string result; raw_string_ostream stream(result); module.print(stream, nullptr); return result;
+}
+static std::string dump(Function &function) {
+  std::string result; raw_string_ostream stream(result); function.print(stream); return result;
 }
 struct Fixture {
   Module &module;
@@ -170,6 +175,93 @@ static void cleanup(Module &module) {
   pm.run(module, mam);
 }
 
+static void markStage(Function &function, StringRef stage = "air.kernel") {
+  function.getParent()->getOrInsertNamedMetadata(stage)->addOperand(
+    MDNode::get(function.getContext(), ValueAsMetadata::get(&function)));
+}
+
+static unsigned runComputeHook(Module &module, bool enableGuard = true) {
+  LoopAnalysisManager lam; FunctionAnalysisManager fam; CGSCCAnalysisManager cgam; ModuleAnalysisManager mam;
+  PassBuilder pb; pb.registerModuleAnalyses(mam); pb.registerCGSCCAnalyses(cgam);
+  pb.registerFunctionAnalyses(fam); pb.registerLoopAnalyses(lam); pb.crossRegisterProxies(lam, fam, cgam, mam);
+  unsigned guarded = 0;
+  FunctionPassManager functions;
+  // Populate a CFG analysis before the hook, then verify it afterwards. This
+  // exercises invalidation through the nested cleanup/guard pass manager.
+  functions.addPass(RequireAnalysisPass<DominatorTreeAnalysis, Function>());
+  functions.addPass(dxmt::shaderopt::ComputePCFPass(enableGuard, &guarded));
+  functions.addPass(DominatorTreeVerifierPass());
+  ModulePassManager pipeline;
+  pipeline.addPass(createModuleToFunctionPassAdaptor(std::move(functions)));
+  pipeline.run(module, mam);
+  require(!verifyModule(module, &errs()), "compute hook generated invalid IR");
+  return guarded;
+}
+
+static void integrationRegressions() {
+  {
+    LLVMContext context; Module module("compute-stage-membership", context);
+    Fixture compute(module, "compute", 9, false, false, true);
+    Fixture fragment(module, "fragment", 9, false, false, true);
+    markStage(*compute.function); markStage(*fragment.function, "air.fragment");
+    auto fragmentBefore = dump(*fragment.function);
+    require(dxmt::shaderopt::guardConstantPCFSampling(*compute.function) == 0,
+            "raw guard unexpectedly crossed the eight-plus-one split");
+    require(runComputeHook(module) == 1, "shared compute hook did not expose the nine-tap chain");
+    require(dump(*fragment.function) == fragmentBefore, "compute hook changed an unlisted fragment function");
+    unsigned blocks = 0, taps = 0;
+    for (auto &block : *compute.function) if (block.getName().startswith("pcf.sample")) {
+      ++blocks;
+      for (auto &instruction : block) taps += dxmt::shaderopt::pcf_detail::isExplicitCompare(instruction);
+    }
+    require(blocks == 1 && taps == 9, "compute hook did not retain all nine samples"); ++tests;
+  }
+  {
+    LLVMContext context; Module module("compute-control", context);
+    Fixture fixture(module, "control", 9, false, false, true); markStage(*fixture.function);
+    require(runComputeHook(module, false) == 0 && fixture.function->size() == 1,
+            "compute control did not perform matching cleanup without a guard");
+    require(dxmt::shaderopt::guardConstantPCFSampling(*fixture.function) == 1,
+            "compute control cleanup did not expose the same nine-tap chain"); ++tests;
+  }
+  auto unchanged = [](StringRef name, unsigned count, std::function<void(Fixture &)> edit) {
+    LLVMContext context; Module module(name, context);
+    Fixture fixture(module, "candidate", count, false, false, true); markStage(*fixture.function);
+    if (edit) edit(fixture);
+    auto before = dump(module);
+    require(runComputeHook(module) == 0, name + ": unexpected production guard");
+    require(dump(module) == before, name + ": ineligible function received CFG cleanup"); ++tests;
+  };
+  unchanged("no-kernel-metadata", 9, [](Fixture &f) {
+    f.module.eraseNamedMetadata(f.module.getNamedMetadata("air.kernel"));
+  });
+  unchanged("compute-three-taps", 3, {});
+  unchanged("compute-no-unshadowed-select", 9, [](Fixture &f) {
+    f.select->setFalseValue(ConstantFP::get(f.select->getType(), .5));
+  });
+  unchanged("compute-strict-fp", 9, [](Fixture &f) { f.function->addFnAttr(Attribute::StrictFP); });
+  unchanged("compute-mixed-implicit-convergence", 9, [](Fixture &f) {
+    f.sampler->addFnAttr(Attribute::Convergent);
+    f.calls[0]->setArgOperand(7, ConstantInt::getFalse(f.module.getContext()));
+    auto before = dump(f.module);
+    require(dxmt::shaderopt::relaxExplicitLODSampling(f.module) == 0 && f.sampler->isConvergent(),
+            "shipping LOD proof relaxed a mixed explicit/implicit declaration");
+    require(dump(f.module) == before, "mixed explicit/implicit proof modified the module");
+  });
+  {
+    LLVMContext context; Module module("compute-prefilter-only", context);
+    Fixture fixture(module, "shared", 9, false, false, true); markStage(*fixture.function);
+    IRBuilder<> ir(fixture.select->getNextNode()); ir.CreateStore(fixture.select->getTrueValue(), fixture.memory);
+    require(fixture.function->size() == 3, "prefilter fixture lost its fake loop");
+    require(runComputeHook(module) == 0 && fixture.function->size() == 1,
+            "prefilter-positive shared sum should receive only CFG cleanup");
+    unsigned taps = 0;
+    for (auto &block : *fixture.function) for (auto &instruction : block)
+      taps += dxmt::shaderopt::pcf_detail::isExplicitCompare(instruction);
+    require(taps == 9, "prefilter-only cleanup lost sample calls"); ++tests;
+  }
+}
+
 static void regressions() {
   for (bool bits : {false, true}) for (bool reverse : {false, true}) check("valid-arms", 1, {}, 9, bits, reverse);
   check("four-taps", 1, {}, 4); check("three-taps", 0, {}, 3); check("too-many-taps", 0, {}, 33);
@@ -286,9 +378,10 @@ static void emitNative(StringRef path) {
   for (unsigned i = 0; i < 8; ++i) for (bool guard : {false, true}) {
     Fixture fixture(module, (guard ? "guarded_" : "baseline_") + std::to_string(i), 9, i & 1, i & 2);
     if (i >= 4) { if (i & 1) cappedSetup(fixture); else diamondSetup(fixture); }
-    if (guard) require(dxmt::shaderopt::guardConstantPCFSampling(*fixture.function) == 1, "native fixture was not guarded");
+    if (guard) markStage(*fixture.function);
     sampler = fixture.sampler; fma = fixture.fma;
   }
+  require(runComputeHook(module) == 8, "shared compute hook did not guard every native fixture");
   IRBuilder<> ir(context);
   auto *counter = new GlobalVariable(module, ir.getInt32Ty(), false, GlobalValue::ExternalLinkage, ir.getInt32(0), "sample_calls");
   // These definitions are a test oracle for call count and arithmetic parity,
@@ -312,6 +405,6 @@ static void emitNative(StringRef path) {
   module.print(output, nullptr);
 }
 int main(int argc, char **argv) {
-  require(argc == 2, "usage: guarded-pcf-check native-fixture.ll"); regressions(); emitNative(argv[1]);
-  outs() << "PASS: " << tests << " production PCF transform/CFG/poison/metadata/rejection checks\n";
+  require(argc == 2, "usage: guarded-pcf-check native-fixture.ll"); regressions(); integrationRegressions(); emitNative(argv[1]);
+  outs() << "PASS: " << tests << " production PCF transform/stage/pipeline/CFG/poison/metadata/rejection checks\n";
 }

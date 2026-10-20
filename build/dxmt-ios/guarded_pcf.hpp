@@ -5,8 +5,10 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 
 namespace dxmt::shaderopt {
 namespace pcf_detail {
@@ -189,9 +191,8 @@ inline bool guardSelect(llvm::SelectInst &select) {
 }
 } // namespace pcf_detail
 
-// Experimental: not in the production pipeline until captured-kernel compiler
-// checks and nonzero Metal fixtures demonstrate parity and a useful benefit.
-// Run after CFG cleanup and the existing explicit-LOD convergence proof.
+// The local transform assumes CFG cleanup and the existing explicit-LOD
+// convergence proof have already run. Integration uses ComputePCFPass below.
 inline unsigned guardConstantPCFSampling(llvm::Function &function) {
   if (function.hasFnAttribute(llvm::Attribute::StrictFP)) return 0;
   llvm::SmallVector<llvm::SelectInst *, 16> candidates;
@@ -203,8 +204,53 @@ inline unsigned guardConstantPCFSampling(llvm::Function &function) {
 }
 
 struct GuardedPCFPass : llvm::PassInfoMixin<GuardedPCFPass> {
+  unsigned *guardedCount;
+  explicit GuardedPCFPass(unsigned *guardedCount = nullptr) : guardedCount(guardedCount) {}
   llvm::PreservedAnalyses run(llvm::Function &function, llvm::FunctionAnalysisManager &) {
-    return guardConstantPCFSampling(function) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+    const unsigned count = guardConstantPCFSampling(function);
+    if (guardedCount) *guardedCount += count;
+    return count ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+  }
+};
+
+struct ComputePCFPass : llvm::PassInfoMixin<ComputePCFPass> {
+  bool enableGuard;
+  unsigned *guardedCount;
+  explicit ComputePCFPass(bool enableGuard = true, unsigned *guardedCount = nullptr)
+      : enableGuard(enableGuard), guardedCount(guardedCount) {}
+
+  llvm::PreservedAnalyses run(llvm::Function &function, llvm::FunctionAnalysisManager &analyses) {
+    if (function.isDeclaration() || function.hasFnAttribute(llvm::Attribute::StrictFP) || !function.getParent())
+      return llvm::PreservedAnalyses::all();
+    auto *kernels = function.getParent()->getNamedMetadata("air.kernel");
+    bool isKernel = false;
+    if (kernels) for (auto *entry : kernels->operands()) {
+      if (!entry->getNumOperands()) continue;
+      if (auto *value = llvm::dyn_cast_or_null<llvm::ValueAsMetadata>(entry->getOperand(0).get()))
+        isKernel |= value->getValue() == &function;
+    }
+    if (!isKernel) return llvm::PreservedAnalyses::all();
+
+    unsigned samples = 0;
+    bool hasSelect = false;
+    for (auto &block : function) for (auto &instruction : block) {
+      if (pcf_detail::isExplicitCompare(instruction)) ++samples;
+      if (auto *select = llvm::dyn_cast<llvm::SelectInst>(&instruction))
+        hasSelect |= select->getCondition()->getType()->isIntegerTy(1) &&
+                     (pcf_detail::isUnshadowed(select->getTrueValue()) !=
+                      pcf_detail::isUnshadowed(select->getFalseValue()));
+    }
+    if (samples < 4 || !hasSelect) return llvm::PreservedAnalyses::all();
+
+    // This is only a cheap prefilter. A candidate may receive CFG cleanup
+    // and still fail the local exclusivity/span proof. Functions failing the
+    // stage, strict-FP or prefilter gates receive neither pass. The lab control
+    // uses identical cleanup with guarding disabled; production uses defaults.
+    llvm::FunctionPassManager pipeline;
+    pipeline.addPass(llvm::SimplifyCFGPass());
+    if (enableGuard) pipeline.addPass(GuardedPCFPass(guardedCount));
+    // The nested manager invalidates analyses between cleanup and guarding.
+    return pipeline.run(function, analyses);
   }
 };
 } // namespace dxmt::shaderopt

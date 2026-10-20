@@ -20,6 +20,15 @@ xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
   $("$llvm/bin/llvm-config" --ldflags --system-libs --libs core passes) \
   -Wl,-rpath,"$llvm/lib" -o "$out/convergence-check"
 "$out/convergence-check"
+python3 "$root/tests/host/check-guarded-pcf.py" \
+  --llvm-config "$llvm/bin/llvm-config" \
+  --cxx "$(xcrun --find clang++)" --cc "$(xcrun --find clang)"
+# Source migration is checked against the verified862 git tree and patch
+# order, never against a possibly modified submodule working directory.
+baseline=5a40a8c50bb191bf8cea343028125640f6cf9147
+if ! git -C "$root" cat-file -e "$baseline^{commit}"; then
+  git -C "$root" fetch --depth 1 origin "$baseline"
+fi
 cp "$archive" "$out/base.a"
 for shader in air_msad air_samplepos air_tessellation; do
   xcrun -sdk macosx metal -o "$out/shader-headers/$shader.air" -c "$root/dxmt/src/airconv/shaders/$shader.metal" \

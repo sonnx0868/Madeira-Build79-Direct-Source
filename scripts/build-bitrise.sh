@@ -191,6 +191,7 @@ checks() {
   python3 tests/host/check-d3d11-query-park.py
   python3 tools/dxmt-pacing-bundle.py --root "$root"
   if [[ -f build/dxmt-ios/shader-vector-load.json ]]; then python3 tools/dxmt-srv-bundle.py --root "$root"; fi
+  python3 tests/host/check-optimizer-receipts.py
   if [[ -f build/dxmt-ios/shader-optimizer.json ]]; then python3 tools/dxmt-optimizer-bundle.py --root "$root"; fi
   python3 tools/dxmt-query-bundle.py --root "$root"
   python3 tools/dxmt-swapchain-bundle.py --root "$root"

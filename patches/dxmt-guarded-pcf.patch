@@ -1,0 +1,20 @@
+diff --git a/src/airconv/airconv_context.cpp b/src/airconv/airconv_context.cpp
+--- a/src/airconv/airconv_context.cpp
++++ b/src/airconv/airconv_context.cpp
+@@ -1,3 +1,4 @@
++#include "guarded_pcf.hpp"
+ #include "llvm/IR/Constants.h"
+ #include "llvm/IR/DerivedTypes.h"
+ #include "llvm/IR/IRBuilder.h"
+@@ -162,6 +163,11 @@ runOptimizationPasses(llvm::Module &M) {
+ 
+   // MPM.addPass(VerifierPass());
+ 
++  // Only eligible compute entries can skip discarded explicit-LOD PCF work.
++  // Keep this last: later CFG cleanup could turn the conditional sampling
++  // back into unconditional samples followed by a select.
++  MPM.addPass(createModuleToFunctionPassAdaptor(shaderopt::ComputePCFPass(), true));
++
+   // Optimize the IR!
+   MPM.run(M, MAM);
+ }
