@@ -12,6 +12,15 @@ if [[ -n "${MADEIRA_NATIVE_INPUT_URL:-}" ]]; then
   export MADEIRA_NATIVE_DEPS_SHA256="$MADEIRA_NATIVE_INPUT_SHA256"
   export MADEIRA_NATIVE_DEPS_INNER_SHA256="${MADEIRA_NATIVE_INPUT_INNER_SHA256:-}"
 fi
+# An explicit refresh wins over legacy flags embedded in a stored workflow
+# (the app-only workflow still sets the runtime refresh flag inline).
+if [[ "$mode" = cached && -n "${MADEIRA_NATIVE_REFRESH_MODE:-}" ]]; then
+  case "$MADEIRA_NATIVE_REFRESH_MODE" in
+    optimizer-refresh|upload-batching-refresh|alias-refresh|runtime-refresh)
+      mode="$MADEIRA_NATIVE_REFRESH_MODE" ;;
+    *) echo 'Unsupported explicit native refresh mode' >&2; exit 2 ;;
+  esac
+fi
 # Allow the existing stored Bitrise workflow to request this source refresh.
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_SIGNAL_REFRESH:-0}" = 1 ]]; then mode=signal-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_PACING_REFRESH:-0}" = 1 ]]; then mode=pacing-refresh; fi
