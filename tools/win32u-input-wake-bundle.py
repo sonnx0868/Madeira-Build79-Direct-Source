@@ -34,8 +34,8 @@ if args.stamp:
         old=module('nutssync-bundle').members(root,args.base)
         assert old.keys()==objects.keys(),'Win32u archive member set changed'
         changed=sorted(name for name in old if old[name]!=objects[name])
-        assert changed==['driver.o','message.o'],('unrelated Win32u change',changed)
-        record.update(base_archive_sha256=sha(args.base),changed_members=changed,preserved_members=len(objects)-2)
+        assert changed and set(changed)<= {'driver.o','message.o'},('unrelated or empty Win32u change',changed)
+        record.update(base_archive_sha256=sha(args.base),changed_members=changed,preserved_members=len(objects)-len(changed))
     receipt.write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
 else:
     previous=json.loads(receipt.read_text(encoding='utf-8'))

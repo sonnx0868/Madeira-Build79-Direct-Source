@@ -193,5 +193,7 @@ python3 "$root/tools/dxmt-frameflow-bundle.py" --root "$root" --stamp
 python3 "$root/tools/dxmt-retirement-bundle.py" --root "$root" --stamp
 python3 "$root/tools/dxmt-present-resource-bundle.py" --root "$root" --stamp
 python3 "$root/tools/win32u-input-wake-bundle.py" --root "$root" --stamp
+python3 "$root/tools/dxmt-depth-retention-bundle.py" --root "$root" --stamp
+python3 "$root/tools/xinput-host-authority-bundle.py" --root "$root" --stamp
 bash "$root/scripts/check-ios-build.sh"
 echo "Upstream Madeira native dependencies are ready."

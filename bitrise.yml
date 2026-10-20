@@ -19,6 +19,29 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: 8eabe11216f284c5d4fbde6b2a86231bdcc9ba55f9a26ce7c3d89aa282fe8527
 
 workflows:
+  madeira-v016-resource-input-refresh:
+    title: Retire unused depth backings and remove redundant controller discovery
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh resource-input-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+
   madeira-v016-game-graphics-refresh:
     title: Rebuild verified game graphics preferences without changing the renderer
     steps:

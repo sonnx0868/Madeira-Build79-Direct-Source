@@ -1,0 +1,36 @@
+--- a/include/ntuser.h
++++ b/include/ntuser.h
+@@ -1241,6 +1241,9 @@
+ {
+     NtUserGamepadOp_State,   /* buffer: XINPUT_STATE        (16 bytes, out) */
+     NtUserGamepadOp_Caps,    /* buffer: XINPUT_CAPABILITIES (20 bytes, out) */
++    /* Backend capability, independent of connected slots. buffer: DWORD.
++     * Madeira iOS writes 0x4d475031 (MGP1); other backends return FALSE. */
++    NtUserGamepadOp_Backend,
+ };
+ 
+ /* Returns TRUE when a pad is connected in `index` and `buffer` was filled.
+--- a/dlls/xinput1_3/main.c
++++ b/dlls/xinput1_3/main.c
+@@ -771,6 +771,21 @@
+ static void start_update_thread(void)
+ {
+     static INIT_ONCE init_once = INIT_ONCE_STATIC_INIT;
++    static LONG reported;
++    DWORD backend = 0;
++
++    /* Disconnected host slots are not missing backend support. All iOS
++     * physical and touch pads enter the host snapshot; probing slots 1-3
++     * must not start a second HID discovery/message-pump thread. The
++     * capability remains true with zero pads, so hot-plug still works via
++     * the normal snapshot query. Other platforms and older hosts keep HID. */
++    if (NtUserGetGamepadState(0, NtUserGamepadOp_Backend, &backend) && backend == 0x4d475031)
++    {
++        if (!InterlockedExchange(&reported, 1))
++            TRACE("xinput-host-authority-v1: host owns controller enumeration\n");
++        return;
++    }
++
+     InitOnceExecuteOnce(&init_once, start_update_thread_once, NULL, NULL);
+ }
+ 

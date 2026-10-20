@@ -13,6 +13,8 @@ rm -f "$output"
   build/dxmt-ios/frameflow.json \
   build/dxmt-ios/retirement.json \
   build/dxmt-ios/present-resource.json \
+  build/dxmt-pe/depth-retention.json \
+  build/wine-pe/xinput-host-authority.json \
   build/win32u-unix/input-wake.json \
   build/wine-pe/exec-callback-pe.version \
   build/wine-pe/exec-callback-pe.json \

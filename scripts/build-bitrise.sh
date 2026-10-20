@@ -36,6 +36,7 @@ case "$mode" in
   retirement-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   present-resource-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   game-graphics-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  resource-input-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   srv-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
@@ -120,7 +121,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
+  if [[ "$mode" = resource-input-refresh || "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
@@ -132,6 +133,7 @@ else
     [[ "$mode" != retirement-refresh ]] || refresh=--refresh-retirement
     [[ "$mode" != present-resource-refresh ]] || refresh=--refresh-present-resource
     [[ "$mode" != game-graphics-refresh ]] || refresh=--refresh-game-graphics
+    [[ "$mode" != resource-input-refresh ]] || refresh=--refresh-resource-input
     [[ "$mode" != srv-refresh ]] || refresh=--refresh-srv
     [[ "$mode" != query-refresh ]] || refresh=--refresh-query
     [[ "$mode" != loader-refresh ]] || refresh=--refresh-loader
@@ -158,6 +160,11 @@ if [[ -n "${MADEIRA_WOW64_ADDON_URL:-}" ]]; then
 fi
 
 checks() {
+  python3 tests/host/check-depth-rename-retention.py
+  python3 tests/host/check-depth-retention-bundle.py
+  python3 tests/host/check-xinput-host-authority.py
+  python3 tools/dxmt-depth-retention-bundle.py --root "$root"
+  python3 tools/xinput-host-authority-bundle.py --root "$root"
   python3 tests/host/check-stackwalk-alias.py
   python3 tools/ntdll-stackwalk-bundle.py --root "$root"
   python3 tests/host/check-dxmt-boundary-lineage.py

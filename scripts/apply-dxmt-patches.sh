@@ -2,6 +2,10 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+depth_retention_patch="$root/patches/dxmt-depth-rename-retention.patch"
+if git -C "$root/dxmt" apply --reverse --check "$depth_retention_patch" >/dev/null 2>&1; then
+    git -C "$root/dxmt" apply --reverse "$depth_retention_patch"
+fi
 present_resource_patch="$root/patches/dxmt-present-resource-lifetime.patch"
 if git -C "$root/dxmt" apply --reverse --check "$present_resource_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$present_resource_patch"
@@ -52,3 +56,6 @@ echo 'Applied DXMT stage timestamp hooks'
 git -C "$root/dxmt" apply --check "$present_resource_patch"
 git -C "$root/dxmt" apply "$present_resource_patch"
 echo 'Applied DXMT Present lock and native creation lifetime fix'
+git -C "$root/dxmt" apply --check "$depth_retention_patch"
+git -C "$root/dxmt" apply "$depth_retention_patch"
+echo 'Applied completed depth backing retirement'

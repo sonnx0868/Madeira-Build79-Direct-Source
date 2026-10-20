@@ -2379,6 +2379,9 @@ struct client_surface *nulldrv_client_surface_create( HWND hwnd )
 /* ml1920: same-task controller snapshots supplied by the app. */
 #include "../../app/Madeira/Winios/WiniosGamepad.h"
 
+/* Bundle validation checks that the native capability and PE guard ship together. */
+static const char ios_gamepad_backend_version[] __attribute__((used)) = "xinput-host-authority-v1";
+
 /* Byte-for-byte XINPUT_STATE (a DWORD packet number followed by
  * XINPUT_GAMEPAD). Not #included from xinput.h: that is a PE-side SDK header
  * and this is the unix half of win32u. */
@@ -2415,10 +2418,10 @@ C_ASSERT( sizeof(struct winios_gamepad) == 20 );
  *
  * The body of NtUserCallTwoParam_GetGamepadState. `index` is the XInput user
  * index (0-3) and `op` selects the payload; see NtUserGamepadOp_* in
- * wine/include/ntuser.h. Returns 1 when a pad is connected in that slot and
- * `buffer` was filled, 0 otherwise — which is also what an upstream,
- * non-Madeira win32u returns for a code it does not know, so xinput1_3's
- * runtime probe falls back to the existing HID path.
+ * wine/include/ntuser.h. State/caps return 1 only for a connected slot.
+ * Backend capability returns a version marker independently of connected
+ * slots, so a missing pad does not trigger the raw HID fallback. Older and
+ * non-Madeira hosts return 0 for that query and retain the existing HID path.
  */
 ULONG_PTR ios_gamepad_query( UINT index, UINT op, void *buffer )
 {
@@ -2426,6 +2429,14 @@ ULONG_PTR ios_gamepad_query( UINT index, UINT op, void *buffer )
     static unsigned int query_count, miss_count, active_count;
     unsigned int n;
 
+    /* NtUserGamepadOp_Backend: the host owns discovery even while every
+     * slot is disconnected. Keep this before the per-slot presence query. */
+    if (op == 2)
+    {
+        if (!buffer || index) return 0;
+        *(DWORD *)buffer = 0x4d475031; /* MGP1, pointer-free 32/64-bit ABI */
+        return 1;
+    }
     if (!buffer || index >= 4) return 0;
     n = __atomic_load_n( &query_count, __ATOMIC_RELAXED );
     if (n < 8) n = __atomic_add_fetch( &query_count, 1, __ATOMIC_RELAXED );

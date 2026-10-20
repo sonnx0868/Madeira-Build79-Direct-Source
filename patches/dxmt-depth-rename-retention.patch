@@ -1,0 +1,69 @@
+Retire completed, unused depth rename backings without reducing active capacity.
+
+--- a/src/dxmt/dxmt_allocation.hpp
++++ b/src/dxmt/dxmt_allocation.hpp
+@@ -22,6 +22,12 @@
+     return false;
+   }
+ 
++  // Written and inspected by the encoding thread. The completion watermark
++  // comes from the retirement thread; it does not write this allocation field.
++  uint64_t lastRetainedSeqId() const {
++    return last_retained_seq_id;
++  }
++
+ private:
+   std::atomic<uint32_t> refcount_ = {0u};
+   uint64_t last_retained_seq_id = 0;
+--- a/src/dxmt/dxmt_texture.hpp
++++ b/src/dxmt/dxmt_texture.hpp
+@@ -305,7 +305,7 @@
+ public:
+   void incRef();
+   void decRef();
+-  Rc<TextureAllocation> getNext(uint64_t frame_);
++  Rc<TextureAllocation> getNext(uint64_t frame_, uint64_t coherent_seq = 0);
+ 
+   RenamableTexturePool(Texture *texture, size_t capacity,Flags<TextureAllocationFlag> allocation_flags);
+ 
+--- a/src/dxmt/dxmt_texture.cpp
++++ b/src/dxmt/dxmt_texture.cpp
+@@ -5,5 +5,6 @@
+ #include <cassert>
+ #include "dxmt_mem_census.hpp"
++#include "../../../build/dxmt-ios/depth_rename_retention.hpp"
+ 
+ namespace dxmt {
+ 
+@@ -376,8 +377,19 @@
+ };
+ 
+ Rc<TextureAllocation>
+-RenamableTexturePool::getNext(uint64_t frame) {
++RenamableTexturePool::getNext(uint64_t frame, uint64_t coherent_seq) {
+   if (frame > last_frame_) {
++    // A scene-loading burst can fill all 32 backing slots. Keep that active
++    // capacity, but release the pool's references to long-idle, completed tail
++    // slots. Use the allocation's last actual encoded use, not merely the last
++    // clear: draws can still reference the selected backing after a rename.
++    // Outstanding command chunks and the texture's current name retain their
++    // own references. This loop neither waits for the GPU nor changes content.
++    for (size_t i = madeira::depth_rename_warm_slots; i < allocations_.size(); ++i) {
++      auto &allocation = allocations_[i];
++      if (allocation && madeira::retire_depth_rename_slot(i, allocation->lastRetainedSeqId(), coherent_seq))
++        allocation = nullptr;
++    }
+     last_frame_ = frame;
+     current_index_ = 0;
+   }
+--- a/src/d3d11/d3d11_context_impl.cpp
++++ b/src/d3d11/d3d11_context_impl.cpp
+@@ -4318,7 +4318,7 @@
+           renamable = pDepthStencilView->renamable(), array_length = props.RenderTargetArrayLength,
+           ClearFlags = ClearFlags & 0b11, Depth, Stencil](ArgumentEncodingContext &enc) mutable {
+       if (renamable.ptr() && ClearFlags == DepthStencilPlanarFlags(texture->pixelFormat())) {
+-        texture->rename(renamable->getNext(enc.currentSeqId()));
++        texture->rename(renamable->getNext(enc.currentSeqId(), enc.queue().CoherentSeqId()));
+       }
+       enc.clearDepthStencil(forward_rc(texture), view, array_length, ClearFlags, Depth, Stencil);
+     });

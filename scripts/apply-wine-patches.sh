@@ -23,6 +23,16 @@ else
     exit 1
 fi
 
+host_authority_patch="$root/patches/wine-xinput-host-authority.patch"
+if git -C "$root/wine" apply --reverse --check "$host_authority_patch" >/dev/null 2>&1; then
+    echo "Wine XInput host authority already applied"
+elif git -C "$root/wine" apply --check "$host_authority_patch"; then
+    git -C "$root/wine" apply "$host_authority_patch"
+else
+    echo "Wine source does not match the XInput host authority adapter" >&2
+    exit 1
+fi
+
 patch="$root/patches/wine-timed-sleep.patch"
 host_gamepad_patch="$root/patches/wine-wgi-host-gamepad.patch"
 if git -C "$root/wine" apply --reverse --check "$host_gamepad_patch" >/dev/null 2>&1; then

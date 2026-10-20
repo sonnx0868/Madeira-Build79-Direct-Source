@@ -17,6 +17,10 @@ types = r'''
 #include <pthread.h>
 #include <stdatomic.h>
 #include <string.h>
+#include <stdio.h>
+#if defined(_WIN32)
+#define dprintf(fd,...) fprintf(stderr,__VA_ARGS__)
+#endif
 typedef uint8_t BYTE;
 typedef uint16_t WORD;
 typedef int16_t SHORT;
@@ -61,7 +65,9 @@ int main(void) {
     assert(ios_gamepad_query(0, 1, &caps));
     assert(caps.type == 1 && caps.sub_type == 1 && caps.flags == 0);
     assert(caps.left_motor_speed == 0 && caps.right_motor_speed == 0);
-    assert(!ios_gamepad_query(0, 2, &caps) && !ios_gamepad_query(4, 0, &output));
+    DWORD backend = 0;
+    assert(ios_gamepad_query(0, 2, &backend) && backend == 0x4d475031);
+    assert(!ios_gamepad_query(0, 3, &caps) && !ios_gamepad_query(4, 0, &output));
     assert(!ios_gamepad_query(0, 0, NULL));
     for (int i = 1; i < 4; ++i) {
         state.buttons = (uint16_t)(1 << i);
@@ -95,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix='madeira-gamepad-') as tmp:
     source = Path(tmp) / 'check.c'
     binary = Path(tmp) / 'check'
     source.write_text(types + query + tests)
-    subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-Wall', '-Wextra', '-Werror',
+    subprocess.run([os.environ.get('CC', 'cc'), *(['-static'] if os.name == 'nt' else []), '-std=c11', '-Wall', '-Wextra', '-Werror',
                     '-O2', '-pthread', '-I', str(root / 'build/win32u-unix'), str(source),
                     str(root / 'app/Madeira/Winios/WiniosGamepad.c'), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
