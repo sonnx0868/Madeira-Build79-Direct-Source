@@ -602,10 +602,12 @@ enum GameGraphicsPreferences {
         dll == dllDigest && metadata == metadataDigest
     }
     static func digest(_ url: URL) -> String? {
-        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .fileResourceIdentifierKey]),
-              let bytes = values.fileSize, bytes > 0, bytes < 128 * 1024 * 1024,
-              let modified = values.contentModificationDate else { return nil }
-        let key = url.standardizedFileURL.path + "|\(bytes)|\(modified.timeIntervalSince1970)|\(String(describing: values.fileResourceIdentifier))"
+        // URL.resourceValues caches stat data on the URL instance. Read fresh
+        // attributes so a Steam update cannot reuse a previous version's hash.
+        guard let values = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let bytes = (values[.size] as? NSNumber)?.intValue, bytes > 0, bytes < 128 * 1024 * 1024,
+              let modified = values[.modificationDate] as? Date else { return nil }
+        let key = url.standardizedFileURL.path + "|\(bytes)|\(modified.timeIntervalSince1970)|\(String(describing: values[.systemFileNumber]))|\(String(describing: values[.systemNumber]))"
         lock.lock()
         var cache = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String] ?? [:]
         let saved = cache[key]

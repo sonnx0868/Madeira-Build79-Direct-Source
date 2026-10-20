@@ -27,9 +27,9 @@ typedef int32_t NTSTATUS;typedef uint16_t WCHAR;typedef uint32_t DWORD,ULONG;typ
 typedef struct{uint16_t Length,MaximumLength;WCHAR *Buffer;}UNICODE_STRING;
 typedef enum{KeyFullInformation=2,KeyNameInformation=3,KeyCachedInformation=4}KEY_INFORMATION_CLASS;
 typedef enum{KeyValueBasicInformation,KeyValueFullInformation,KeyValuePartialInformation,Unused3,KeyValuePartialInformationAlign64}KEY_VALUE_INFORMATION_CLASS;
-typedef struct{ULONG NameLength;WCHAR Name[512];}KEY_NAME_INFORMATION;
+typedef struct{ULONG NameLength;WCHAR Name[1];}KEY_NAME_INFORMATION;
 typedef struct{DWORD TitleIndex,Type,DataLength;unsigned char Data[4];}KEY_VALUE_PARTIAL_INFORMATION;
-typedef struct{DWORD TitleIndex,Type,DataOffset,DataLength,NameLength;WCHAR Name[128];}KEY_VALUE_FULL_INFORMATION;
+typedef struct{DWORD TitleIndex,Type,DataOffset,DataLength,NameLength;WCHAR Name[1];}KEY_VALUE_FULL_INFORMATION;
 typedef struct{uint64_t LastWriteTime;DWORD TitleIndex,ClassOffset,ClassLength,SubKeys,MaxNameLen,MaxClassLen,Values,MaxValueNameLen,MaxValueDataLen;WCHAR Class[1];}KEY_FULL_INFORMATION;
 typedef struct{uint64_t LastWriteTime;DWORD TitleIndex,SubKeys,MaxNameLen,Values,MaxValueNameLen,MaxValueDataLen,NameLength;}KEY_CACHED_INFORMATION;
 typedef struct{DWORD GrantedAccess;}OBJECT_BASIC_INFORMATION;
@@ -158,7 +158,8 @@ with tempfile.TemporaryDirectory(prefix='madeira-game-prefs-')as tmp:
     folder=Path(tmp);c=folder/'test.c';exe=folder/('check.exe'if os.name=='nt'else'check');c.write_text(fixture)
     flags=['-fsanitize=address,undefined']if platform.system()=='Darwin'else[]
     subprocess.run([cc,'-std=c11','-O1','-g','-Wall','-Wextra','-Werror',*flags,'-I'+str(header.parent),str(c),'-o',str(exe)],check=True)
-    subprocess.run([str(exe)],check=True,timeout=20)
+    subprocess.run([str(exe)],check=True,timeout=20,
+        env=dict(os.environ,UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1'))
     if os.environ.get('BITRISE_DEPLOY_DIR'):
         (Path(os.environ['BITRISE_DEPLOY_DIR'])/'game-graphics-preferences-validation.json').write_text(json.dumps({
             'productionPreferencePolicyExecuted':True,'boundedNativeReplies':True,'savedOriginalProtected':True,
