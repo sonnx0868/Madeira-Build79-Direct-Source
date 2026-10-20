@@ -5,6 +5,9 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$BITRISE_DEPLOY_DIR"
 mkdir -p "$out" "$root/toolchains/llvm15-macos"
 exec > >(tee "$out/shader-loop-check.log") 2>&1
+if [[ "${MADEIRA_GPU_FIXTURE:-0}" == "1" ]]; then
+  exec python3 "$root/tools/check-private-metal-fixture.py"
+fi
 llvm="$root/toolchains/llvm15-macos"
 if [[ ! -s "$llvm/include/llvm/IR/IRBuilder.h" ]]; then
   archive="${TMPDIR:-/tmp}/madeira-llvm15-macos.tar.xz"
