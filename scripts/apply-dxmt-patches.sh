@@ -2,6 +2,10 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+residency_patch="$root/patches/dxmt-texture-residency.patch"
+if git -C "$root/dxmt" apply --reverse --check "$residency_patch" >/dev/null 2>&1; then
+    git -C "$root/dxmt" apply --reverse "$residency_patch"
+fi
 zero_light_patch="$root/patches/dxmt-zero-light-guard.patch"
 if git -C "$root/dxmt" apply --reverse --check "$zero_light_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$zero_light_patch"
@@ -73,3 +77,6 @@ echo 'Applied completed depth backing retirement'
 git -C "$root/dxmt" apply --check "$upload_batching_patch"
 git -C "$root/dxmt" apply "$upload_batching_patch"
 echo 'Applied independent buffer upload batching'
+git -C "$root/dxmt" apply --check "$residency_patch"
+git -C "$root/dxmt" apply "$residency_patch"
+echo 'Applied lossless cold BC residency hooks'

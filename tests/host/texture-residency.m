@@ -3,6 +3,7 @@
 #include "../../build/dxmt-ios/texture_residency.m"
 #include <mach/mach.h>
 #include <assert.h>
+static id<MTLCommandQueue> game_queue;
 
 static uint64_t footprint(void) {
   task_vm_info_data_t vm = {0}; mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
@@ -22,7 +23,7 @@ static id<MTLTexture> make_texture(id<MTLDevice> device, MTLPixelFormat format, 
   MDRTexture *r = objc_getAssociatedObject(texture, &mdr_texture_key); assert(r);
   uint8_t *bytes = mdr_restore_buffer.contents;
   for (NSUInteger i = 0; i < r->bytes; ++i) bytes[i] = (uint8_t)(i * 17 + seed);
-  id<MTLCommandBuffer> cb = [mdr_queue commandBuffer];
+  id<MTLCommandBuffer> cb = [game_queue commandBuffer];
   id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder]; mdr_encoder(cb, blit);
   assert(mdr_use(blit, texture, YES));
   mdr_copy(blit, texture, r, mdr_restore_buffer, YES);
@@ -33,8 +34,9 @@ static id<MTLTexture> make_texture(id<MTLDevice> device, MTLPixelFormat format, 
 }
 
 static NSData *read_texture(id<MTLTexture> texture, BOOL view) {
+  (void)view;
   MDRTexture *r = objc_getAssociatedObject(texture, &mdr_texture_key); assert(r);
-  id<MTLCommandBuffer> cb = [mdr_queue commandBuffer];
+  id<MTLCommandBuffer> cb = [game_queue commandBuffer];
   id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder]; mdr_encoder(cb, blit);
   assert(mdr_use(blit, texture, NO));
   memset(mdr_restore_buffer.contents, 0, r->bytes);
@@ -56,10 +58,12 @@ int main(void) {
     setenv("MADEIRA_TEXTURE_RESIDENCY", "1", 1);
     id<MTLDevice> device = MTLCreateSystemDefaultDevice(); assert(device);
     assert(mdr_initialize(device));
+    game_queue = [device newCommandQueue];
     mdr_running = YES; // manually drive the SAME worker deterministically
     mdr_target = 0;
     unsigned parity_cases = 0;
     for (unsigned f = 0; f < 4; ++f) {
+      fprintf(stderr, "fixture: format %u begin\n", f);
       @autoreleasepool {
         MTLPixelFormat format[] = {MTLPixelFormatBC1_RGBA, MTLPixelFormatBC3_RGBA,
                                    MTLPixelFormatBC5_RGUnorm, MTLPixelFormatBC7_RGBAUnorm};
@@ -70,6 +74,7 @@ int main(void) {
         uint64_t resource_id = view.gpuResourceID._impl;
         make_cold(t);
         assert(mdr_checkpoint_one());
+        fprintf(stderr, "fixture: format %u first eviction\n", f);
         MDRTexture *r = objc_getAssociatedObject(t, &mdr_texture_key);
         assert(r->empty && r->backing && !r->users);
         NSData *after = read_texture(view, YES);
@@ -77,7 +82,7 @@ int main(void) {
         assert(view.gpuResourceID._impl == resource_id && !r->empty);
         ++parity_cases;
         // Pinning starts at ENCODE, before commit; shared views count once.
-        id<MTLCommandBuffer> hold = [[mdr_queue commandBuffer] retain];
+        id<MTLCommandBuffer> hold = [[game_queue commandBuffer] retain];
         id<MTLBlitCommandEncoder> enc = [hold blitCommandEncoder]; mdr_encoder(hold, enc);
         assert(mdr_use(enc, t, NO) && mdr_use(enc, view, NO));
         r->last_use = 0; assert(r->users == 1); assert(!mdr_checkpoint_one());
@@ -90,7 +95,7 @@ int main(void) {
         mdr_test_disk_failure = NO; make_cold(t); assert(mdr_checkpoint_one());
         // A write must restore untouched subresources first, then invalidate
         // the checkpoint. Update only one BC block in one array slice/mip.
-        id<MTLCommandBuffer> write = [mdr_queue commandBuffer];
+        id<MTLCommandBuffer> write = [game_queue commandBuffer];
         id<MTLBlitCommandEncoder> wb = [write blitCommandEncoder]; mdr_encoder(write, wb);
         assert(mdr_use(wb, t, YES)); assert(!r->empty && !r->backing);
         NSUInteger block = mdr_block_bytes(format[f]);
@@ -108,6 +113,7 @@ int main(void) {
         assert([expected isEqualToData:read_texture(view, YES)]);
         ++parity_cases;
         [expected release]; [before release]; [view release]; [t release];
+        fprintf(stderr, "fixture: format %u passed\n", f);
       }
     }
     // Native allocation/footprint reduction, not just a simulated byte counter.
@@ -119,6 +125,7 @@ int main(void) {
       }
     }
     uint64_t full = footprint(), metal_full = device.currentAllocatedSize;
+    fprintf(stderr, "fixture: large pool ready, footprint=%lluMiB\n", (unsigned long long)(full/MDR_MIB));
     uint64_t expected_bytes = mdr_registered;
     for (id<MTLTexture> t in pool) make_cold(t);
     unsigned evicted = 0;
@@ -136,7 +143,7 @@ int main(void) {
     // adapter reports device error rather than submitting undefined texels.
     id<MTLTexture> failed = pool[10];
     mdr_test_restore_failure = YES;
-    id<MTLCommandBuffer> cb = [mdr_queue commandBuffer];
+    id<MTLCommandBuffer> cb = [game_queue commandBuffer];
     id<MTLBlitCommandEncoder> enc = [cb blitCommandEncoder]; mdr_encoder(cb, enc);
     assert(!mdr_use(enc, failed, NO)); [enc endEncoding];
     assert(mdr_failed(cb) && !mdr_commit(cb));

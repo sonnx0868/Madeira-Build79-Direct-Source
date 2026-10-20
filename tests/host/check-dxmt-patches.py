@@ -61,6 +61,8 @@ def patched_sources(root):
             # Model macOS/Linux checkout regardless of the test host's autocrlf.
             path.write_bytes((root / name).read_bytes().replace(b"\r\n", b"\n"))
             patches.append(path)
+        residency_patch = folder / "patches/dxmt-texture-residency.patch"
+        residency_patch.write_bytes((root / "patches/dxmt-texture-residency.patch").read_bytes().replace(b"\r\n", b"\n"))
         legacy = folder / "build/dxmt-ios/legacy-metal-source-fallback.patch"
         legacy.write_bytes((root / "build/dxmt-ios/legacy-metal-source-fallback.patch").read_bytes().replace(b"\r\n", b"\n"))
         script = folder / "scripts/apply-dxmt-patches.sh"
@@ -91,6 +93,8 @@ def patched_sources(root):
         # Verify the dependent top layer first, then validate all older layers
         # against the exact source they extend. Restore it before returning.
         upload_batching_patch = patches[-1]
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(residency_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(residency_patch)], check=True)
         zero_patch = folder / "patches/dxmt-zero-light-guard.patch"
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(zero_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(upload_batching_patch)], check=True)
@@ -117,6 +121,7 @@ def patched_sources(root):
         subprocess.run(["git", "-C", str(checkout), "apply", str(depth_retention_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(upload_batching_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(zero_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", str(residency_patch)], check=True)
         return {name: (checkout / name).read_text(encoding="utf-8") for name in SOURCE_FILES}
 
 

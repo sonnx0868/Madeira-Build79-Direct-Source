@@ -247,6 +247,7 @@ static void mdr_copy(id<MTLBlitCommandEncoder> encoder, id<MTLTexture> texture,
 // Called with mdr_lock held. The preallocated restore buffer cannot contend
 // with the snapshot worker's separate buffer. Never wait on a game queue here.
 static BOOL mdr_restore(id<MTLTexture> texture, MDRTexture *record) {
+  @autoreleasepool {
   if (!record->empty) return YES;
   if (!record->backing) return NO;
 #ifdef MADEIRA_RESIDENCY_TEST
@@ -269,6 +270,7 @@ static BOOL mdr_restore(id<MTLTexture> texture, MDRTexture *record) {
   ++mdr_restores;
   mdr_restore_ns += (NSProcessInfo.processInfo.systemUptime - begin) * 1e9;
   return YES;
+  }
 }
 
 // Both texture views and base textures share a record. A lease is keyed by the
@@ -316,7 +318,8 @@ static void *mdr_checkpoint(MDRTexture *record, const void *data) {
   if (statfs(folder.fileSystemRepresentation, &space) ||
       (uint64_t)space.f_bavail * space.f_bsize < record->mapped_bytes + 2 * UINT64_C(1024) * MDR_MIB) return NULL;
   char path[PATH_MAX];
-  if (snprintf(path, sizeof(path), "%s/madeira-bc-XXXXXX", folder.fileSystemRepresentation) >= sizeof(path)) return NULL;
+  int path_length = snprintf(path, sizeof(path), "%s/madeira-bc-XXXXXX", folder.fileSystemRepresentation);
+  if (path_length < 0 || (size_t)path_length >= sizeof(path)) return NULL;
   int fd = mkstemp(path);
   if (fd < 0) return NULL;
   unlink(path);
@@ -339,6 +342,7 @@ static void *mdr_checkpoint(MDRTexture *record, const void *data) {
 // At most one worker owns the snapshot staging buffer. Selection, generation
 // checks and Empty transitions share the same lock as encoding and completion.
 static BOOL mdr_checkpoint_one(void) {
+  @autoreleasepool {
   id<MTLTexture> texture = nil;
   MDRTexture *record = nil;
   uint64_t generation = 0;
@@ -398,6 +402,7 @@ static BOOL mdr_checkpoint_one(void) {
   [record release]; [texture release];
   [mdr_lock unlock];
   return mapping != NULL;
+  }
 }
 
 static void mdr_schedule(void) {
@@ -428,7 +433,7 @@ static BOOL mdr_commit(id<MTLCommandBuffer> command) {
   MDRLease *lease = mdr_lease(command, NO);
   if (lease) {
     if (lease->failed) { [lease finish]; return NO; }
-    [command addCompletedHandler:^(id<MTLCommandBuffer> completed) { [lease finish]; }];
+    [command addCompletedHandler:^(id<MTLCommandBuffer> completed) { (void)completed; [lease finish]; }];
   }
   mdr_schedule();
   return YES;
