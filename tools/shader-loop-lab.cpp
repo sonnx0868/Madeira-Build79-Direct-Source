@@ -1,6 +1,7 @@
 // Offline shader compiler experiment. This tool is not linked into the app.
 #include "metallib_writer.hpp"
 #include "explicit_lod_guard.hpp"
+#include "guarded_pcf.hpp"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Instructions.h"
@@ -180,7 +181,8 @@ int main(int argc,char **argv) {
   auto before=stats(*m);
   const auto started=std::chrono::steady_clock::now();
   StringRef mode(argv[2]);
-  unsigned relaxed=mode=="guarded"?dxmt::shaderopt::relaxExplicitLODSampling(*m):0;
+  unsigned relaxed=(mode=="guarded" || mode=="pcf" || mode=="pcf-control")?dxmt::shaderopt::relaxExplicitLODSampling(*m):0;
+  unsigned pcfGuarded=0;
   unsigned folded=(mode=="specialize" || mode=="embed")?specialize(*m):0;
   unsigned embedded=(mode=="embed" || mode=="constant")?embedSRV(*m,mode=="embed"):0;
   if(mode!="baseline") {
@@ -194,7 +196,7 @@ int main(int argc,char **argv) {
     pb.registerFunctionAnalyses(fam); pb.registerLoopAnalyses(lam);
     pb.crossRegisterProxies(lam,fam,cgam,mam);
     ModulePassManager pm;
-    if(mode=="guarded") {
+    if(mode=="guarded" || mode=="pcf" || mode=="pcf-control") {
       if(auto err=pb.parsePassPipeline(pm,"function(loop-simplify,lcssa,loop(loop-rotate),sink)")) {
         consumeError(std::move(err));return 7;
       }
@@ -212,6 +214,15 @@ int main(int argc,char **argv) {
     } else if(mode=="o2" || mode=="specialize" || mode=="embed" || mode=="constant") pm=pb.buildPerModuleDefaultPipeline(OptimizationLevel::O2);
     else return 8;
     pm.run(*m,mam);
+    if(mode=="pcf" || mode=="pcf-control") {
+      // Captured AIR can contain constant-backedge loops separating PCF taps.
+      // Give the candidate and its control exactly the same CFG cleanup.
+      ModulePassManager cleanup;
+      if(auto err=pb.parsePassPipeline(cleanup,"function(simplifycfg)")) {
+        consumeError(std::move(err));return 7;
+      }
+      cleanup.run(*m,mam);
+    }
     if(mode=="embed") {
       for(auto &function:*m) {
         if(function.isDeclaration())continue;
@@ -232,6 +243,10 @@ int main(int argc,char **argv) {
       ModulePassManager cleanup;cleanup.addPass(createModuleToFunctionPassAdaptor(std::move(finish)));cleanup.run(*m,mam);
     }
   }
+  // This experiment runs the shipping explicit-LOD/loop pipeline first. Only
+  // the new mode guards the discarded PCF arm; it is not enabled in the app.
+  if(mode=="pcf") for(auto &function:*m)
+    if(!function.isDeclaration()) pcfGuarded+=dxmt::shaderopt::guardConstantPCFSampling(function);
   if(verifyModule(*m,&errs())) return 9;
   auto ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
   std::error_code error;
@@ -239,6 +254,6 @@ int main(int argc,char **argv) {
   dxmt::metallib::MetallibWriter().Write(*m,output);
   outs()<<formatv("{0}\n",json::Value(json::Object{{"mode",mode.str()},{"before",std::move(before)},
     {"after",stats(*m)},{"optimizer_ms",ms},{"folded_loads",int64_t(folded)},{"embedded_loads",int64_t(embedded)},
-    {"relaxed_explicit_samples",int64_t(relaxed)}}));
+    {"relaxed_explicit_samples",int64_t(relaxed)},{"guarded_pcf_chains",int64_t(pcfGuarded)}}));
   return 0;
 }

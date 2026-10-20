@@ -23,6 +23,9 @@ xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
   $("$llvm/bin/llvm-config" --ldflags --system-libs --libs core passes) \
   -Wl,-rpath,"$llvm/lib" -o "$out/convergence-check"
 "$out/convergence-check"
+python3 "$root/tests/host/check-guarded-pcf.py" \
+  --llvm-config "$llvm/bin/llvm-config" \
+  --cxx "$(xcrun --find clang++)" --cc "$(xcrun --find clang)"
 if ! xcrun --find metal-tt >/dev/null 2>&1; then
   xcodebuild -downloadComponent MetalToolchain
 fi

@@ -90,11 +90,17 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     archive = work / 'input.zip'
     run([work/'decrypt',encrypted,archive])
     inputs = work / 'inputs'; inputs.mkdir()
+    pcf_fixture = os.environ.get('MADEIRA_SHADER_LAB_PCF') == '1'
+    fixture_files = {'pcf-replay-profile.json', 'pcf-replay.m'} if pcf_fixture else set()
     with zipfile.ZipFile(archive) as z:
         assert len(z.infolist()) <= 64 and sum(i.file_size for i in z.infolist()) < 64 * 1024**2
+        names = [entry.filename for entry in z.infolist()]
+        assert len(names) == len(set(names))
+        assert fixture_files <= set(names)
         for entry in z.infolist():
-            assert re.fullmatch(r'[0-9A-F]{1,16}\.metallib', entry.filename)
-            assert entry.file_size < 4 * 1024**2
+            is_fixture = entry.filename in fixture_files
+            assert is_fixture or re.fullmatch(r'[0-9A-F]{1,16}\.metallib', entry.filename)
+            assert entry.file_size < (128 * 1024 if is_fixture else 4 * 1024**2)
         z.extractall(inputs)
     cppflags = subprocess.check_output([llvm/'bin/llvm-config','--cxxflags'], text=True).split()
     ldflags = subprocess.check_output([llvm/'bin/llvm-config','--ldflags','--system-libs','--libs','passes','bitwriter'], text=True).split()
@@ -103,19 +109,30 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
          *ldflags,'-Wl,-rpath,'+str(llvm/'lib'),'-o',work/'optimize'])
     transforms = []
     modes = ['baseline','loops','cfg','o2','guarded']
+    if pcf_fixture: modes += ['pcf-control', 'pcf']
     if os.environ.get('MADEIRA_SHADER_LAB_CONSTANTS'): modes += ['specialize']
     if os.environ.get('MADEIRA_SHADER_LAB_EMBEDDED_SRV'): modes += ['embed','constant']
     for mode in modes:
         folder = work / mode; folder.mkdir()
-        for input_path in sorted(inputs.iterdir()):
+        for input_path in sorted(inputs.glob('*.metallib')):
             result = run([work/'optimize',input_path,mode,folder/input_path.name], capture_output=True, text=True)
             transforms.append({'input':input_path.stem, **json.loads(result.stdout)})
+    if pcf_fixture:
+        # Keep the exact transformed AIR in private artifacts so a failed
+        # candidate can be inspected without another game capture.
+        (out/'pcf-transform-results.json').write_text(json.dumps(transforms, indent=2))
+        active = 'D7DA7DFC00C174B'
+        for mode in ['guarded', 'pcf-control', 'pcf']:
+            shutil.copyfile(work/mode/(active+'.metallib'), out/(mode+'-'+active+'.air.metallib'))
+        row = next(value for value in transforms if value['mode'] == 'pcf' and value['input'] == active)
+        if row['guarded_pcf_chains'] != 2:
+            raise RuntimeError('Expected both audited PCF chains in active lighting kernel: '+json.dumps(row))
     if os.environ.get('MADEIRA_SHADER_LAB_OFFLINE') == '1':
         native = []
         for row in transforms:
             # Check every captured compute kernel affected by the production
             # change, rather than only the fog/stress pair used during research.
-            if row['mode'] not in ['baseline','guarded']: continue
+            if row['mode'] not in (['baseline','guarded','pcf-control','pcf'] if pcf_fixture else ['baseline','guarded']): continue
             folder = work/row['mode']
             library = folder/(row['input']+'.metallib')
             script = folder/(row['input']+'.mtlp-json')
@@ -173,6 +190,14 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
         (out/'shader-native-results.json').write_text(json.dumps(report,indent=2))
         if any(row['returncode'] for row in native):
             raise RuntimeError('Captured compute shader rejected by the M2 compiler')
+        if pcf_fixture:
+            # The authenticated private fixture contains the captured kernel's
+            # controlled host, not texture payloads or an original-frame replay.
+            # Unlike the PSO marker harness, it dispatches f4c2 with all bindings
+            # and verifies nonzero lighting, both atlases and mixed predicates.
+            run(['xcrun','clang','-O2','-fobjc-arc',inputs/'pcf-replay.m',
+                 '-framework','Foundation','-framework','Metal','-o',work/'pcf-replay'])
+            run([work/'pcf-replay',work,inputs/'pcf-replay-profile.json',out/'pcf-replay-results.json'], timeout=1200)
         if os.environ.get('MADEIRA_SHADER_LAB_REPLAY'):
             profile=work/'replay-profile.json';profile.write_text(os.environ['MADEIRA_SHADER_LAB_REPLAY'])
             run(['xcrun','clang','-O2','-fobjc-arc',root/'tools/shader-fog-replay.m',
