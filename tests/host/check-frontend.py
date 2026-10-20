@@ -114,6 +114,8 @@ swift += block(gamepad, 'enum SDLGamepadPolicy') + '\n'
 swift += block(dock_source, 'struct DockGame: Identifiable') + '\n'
 swift += block(dock_source, 'struct DockExternalProgram: Equatable') + '\n'
 swift += 'enum MadeiraDock { static func validAppID(_ value: Int) -> Bool { value > 0 && UInt64(value) < UInt64(UInt32.max) } }\n'
+swift += block((root / 'app/Madeira/ReadingProgressData.swift').read_text(encoding='utf-8'),
+               'struct ReadingProgressPosition: Codable, Equatable') + '\n'
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
 swift += block(lib, 'enum LightEffectsPolicy') + '\n'
 swift += block(lib, 'enum GameGraphicsPreferences') + '\n'
@@ -440,6 +442,13 @@ expect(decoded?.fpsMode == 3 && decoded?.reducedX87 == true && decoded?.touchCon
        "decodes a file with unknown keys (including the fork's cpuCount and fastSync)")
 expect(decoded?.displayMode == .fit && decoded?.controlOpacity == nil, "older files: Fit, default controls")
 expect(decoded?.swapMB == nil && decoded?.realSuspend == nil, "older files inherit shared memory and suspension settings")
+expect(decoded?.readingProgress == nil && decoded?.readingProgressPosition == nil, "older profiles keep reading progress disabled")
+var readingGame = game
+readingGame.readingProgress = true
+readingGame.readingProgressPosition = ReadingProgressPosition(x: 0.23, y: 0.78)
+let readingBack = (try? JSONEncoder().encode(readingGame)).flatMap { try? JSONDecoder().decode(LibraryEntry.self, from: $0) }
+expect(readingBack?.readingProgress == true && readingBack?.readingProgressPosition == readingGame.readingProgressPosition,
+       "reading progress opt-in and dragged position survive profile encoding")
 var memoryGame = game
 memoryGame.swapMB = 4096; memoryGame.realSuspend = false
 let memoryBack = (try? JSONEncoder().encode(memoryGame)).flatMap { try? JSONDecoder().decode(LibraryEntry.self, from: $0) }
