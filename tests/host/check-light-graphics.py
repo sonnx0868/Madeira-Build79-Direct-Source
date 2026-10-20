@@ -101,8 +101,8 @@ int main(int argc,char **argv){
  for(unsigned n:{1u,2u,4u,8u}){
   input.Filter=0x55;input.MaxAnisotropy=n;assert(cache.CreateStateObject(&input,&b)==0 && b->sampler()->info.max_anisotroy==n);
  }
- assert(GetMipClampAutoConfig().enabled==!light);
- printf("PASS: light=%d ordinary16x=%u, shadow16x=16, point=1, LOD/descriptor/cache retained, full-mip profile=%d\n",light,sampler->info.max_anisotroy,light);
+ assert(GetMipClampAutoConfig().enabled); // Existing pressure protection survives either profile.
+ printf("PASS: light=%d ordinary16x=%u, shadow16x=16, point=1, LOD/descriptor/cache and texture safeguards retained\n",light,sampler->info.max_anisotroy);
 }
 '''.replace('__ADDRESS__',address).replace('__COMPARE__',compare).replace('__CREATION__',creation).replace('__AUTO__',auto_config)
 library=(root/'app/Madeira/Library.swift').read_text(encoding='utf-8')

@@ -17,26 +17,3 @@
    } else {
      info.max_anisotroy = 1;
    }
---- a/src/d3d11/d3d11_texture_device.cpp
-+++ b/src/d3d11/d3d11_texture_device.cpp
-@@ -458,7 +458,9 @@
-     MipClampAutoConfig c;
-     const std::string opt = Config::getInstance().getOption<std::string>("d3d11.mipClampAuto", "");
-     const std::string env_v = env::getEnvVar("MADEIRA_MIP_CLAMP_AUTO");
--    if (mip_clamp::IsOffValue(opt.c_str()) || mip_clamp::IsOffValue(env_v.c_str()))
-+    // This profile preserves full texture detail, including under pressure.
-+    if (env::getEnvVar("MADEIRA_LIGHT_EFFECTS") == "1" ||
-+        mip_clamp::IsOffValue(opt.c_str()) || mip_clamp::IsOffValue(env_v.c_str()))
-       c.enabled = false;
-     else if (!opt.empty() || !env_v.empty())
-       c.enabled = true;
-@@ -560,7 +562,8 @@
-   if constexpr (std::is_same_v<typename tag::DESC1, D3D11_TEXTURE2D_DESC1>) {
-     static int cached_clamp = -1;
-     if (cached_clamp < 0)
--      cached_clamp = std::max(0, std::min(4, Config::getInstance().getOption<int>("d3d11.mipClampBC", 0)));
-+      cached_clamp = env::getEnvVar("MADEIRA_LIGHT_EFFECTS") == "1" ? 0 :
-+          std::max(0, std::min(4, Config::getInstance().getOption<int>("d3d11.mipClampBC", 0)));
-     /* ml745: pInitialData is NO LONGER required. Requiring it meant the clamp
-      * could never fire for a title that creates BC textures empty and streams
-      * them later -- the case that actually matters here: 13 textures arrived

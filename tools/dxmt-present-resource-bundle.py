@@ -51,4 +51,4 @@ if a.stamp:
 else:
  previous=json.loads(receipt.read_text(encoding='utf-8'))
  for key,value in record.items():assert previous[key]==value,('stale Present/resource runtime',key)
-print('PASS: native creation pools, Present wait ordering and full-texture filtering sources match their binaries')
+print('PASS: native creation pools, Present wait ordering and original texture policy sources match their binaries')

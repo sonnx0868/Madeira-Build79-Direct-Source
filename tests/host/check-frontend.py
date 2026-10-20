@@ -542,6 +542,8 @@ lightProfile.applyEnvironment()
 expect(env("MADEIRA_LIGHT_EFFECTS") == "1" && env("_MADEIRA_LIGHT_EFFECTS_PROFILE") == "1",
        "targeted graphics profile reaches the real launch environment")
 expect(lightProfile.resolution == "1920x1080", "light filtering preserves the saved 1080p resolution")
+let unsupportedLight = LibraryEntry(title: "Other", relativePath: "Games/REPLACED/Replaced.exe", bits: 32)
+expect(!unsupportedLight.lightEffectsEnabled, "a 32-bit DLL farm is not advertised as the refreshed 64-bit filtering backend")
 lightProfile.lightEffects = false; lightProfile.applyEnvironment()
 expect(env("MADEIRA_LIGHT_EFFECTS") == "0", "explicit graphics opt-out wins over the target default")
 var ordinaryProfile = LibraryEntry(title: "Other", relativePath: "Games/Other/Other.exe", bits: 64)

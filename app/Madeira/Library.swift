@@ -258,10 +258,10 @@ struct LibraryEntry: Codable, Identifiable {
     /// nil = the application's own choice.
     var anisotropyLimit: Int?
     /// Nil selects the limited filtering profile for REPLACED and Liar's Bar.
-    /// The profile preserves render dimensions and all original texture mips.
+    /// The profile preserves render dimensions, texture settings and safeguards.
     var lightEffects: Bool?
     var lightEffectsEnabled: Bool {
-        desktop != true && LightEffectsPolicy.enabled(choice: lightEffects,
+        desktop != true && bits != 32 && LightEffectsPolicy.enabled(choice: lightEffects,
             appID: steamAppID, executable: launchRelativePath)
     }
     /// A Steam game (SteamGames.swift): Madeira Dock starts it by this App ID
@@ -491,7 +491,7 @@ struct LibraryEntry: Codable, Identifiable {
         let light = lightEffectsEnabled ? "1" : "0"
         setenv("MADEIRA_LIGHT_EFFECTS", light, 1)
         setenv("_MADEIRA_LIGHT_EFFECTS_PROFILE", light, 1)
-        LogStore.shared.log("[light-effects-v1] enabled=\(light) filtering-cap=\(light == "1" ? "8" : "game") resolution=\(resolution) texture-mips=\(light == "1" ? "original" : "game")")
+        LogStore.shared.log("[light-effects-v1] enabled=\(light) filtering-cap=\(light == "1" ? "8" : "game") resolution=\(resolution) texture-policy=unchanged")
         GameMemorySettings.apply(swapMB: swapMB, realSuspend: realSuspend,
                                  automaticSuspendRule: automaticThreadSuspensionRule)
 
@@ -4052,7 +4052,8 @@ struct LibraryDetail: View {
                         Text("On").tag("on")
                         Text("Game default").tag("off")
                     }
-                    Text("Keeps your resolution and original textures. Reduces ordinary 16× anisotropic filtering to 8×; shadow filtering stays unchanged. Automatic enables this for REPLACED and Liar’s Bar. Apply on the next launch.")
+                    .disabled(entry.bits == 32)
+                    Text("Keeps your resolution, texture settings and memory safeguards. Reduces ordinary 16× anisotropic filtering to 8× in 64-bit Direct3D 11 games; shadow filtering stays unchanged. Automatic enables this for REPLACED and Liar’s Bar. Apply on the next launch.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("OpenGL & memory compatibility") {
