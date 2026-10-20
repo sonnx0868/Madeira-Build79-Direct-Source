@@ -5,7 +5,14 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tree="$root/wine/build-arm64ec"
 tc="$root/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin"
 dest="$root/app/Madeira/arm64ec-windows"
-export PATH="$tc:$PATH"
+# refresh-dxmt-query runs in a child shell; its Homebrew PATH does not reach
+# this script. Wine's resource grammar requires Bison 3, not macOS's Bison 2.3.
+bison_bin="$(brew --prefix bison)/bin"
+flex_bin="$(brew --prefix flex)/bin"
+test -x "$bison_bin/bison"
+test -x "$flex_bin/flex"
+export PATH="$tc:$bison_bin:$flex_bin:$PATH"
+bison --version
 jobs="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 test -x "$tc/arm64ec-w64-mingw32-strip"
 test -f "$tree/config.status"
@@ -14,7 +21,7 @@ targets=()
 for module in "${modules[@]}"; do
     targets+=("dlls/$module/arm64ec-windows/$module.dll")
 done
-make -C "$tree" -j"$jobs" "${targets[@]}"
+make -C "$tree" -j"$jobs" BISON="$bison_bin/bison" "${targets[@]}"
 mkdir -p "$dest"
 for target in "${targets[@]}"; do
     name="$(basename "$target")"
