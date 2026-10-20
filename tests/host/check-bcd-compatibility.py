@@ -50,6 +50,9 @@ static BOOL enter_syscall_callback(void) {
     if(entered) return 0;
     entered=1; ++enters; return 1;
 }
+/* This fixture represents initialized EC threads. The separate native-context
+ * regression executes the production process gate for absent CPU areas too. */
+#define enter_process_syscall_callback(is_current) enter_syscall_callback()
 static void leave_syscall_callback(void) { assert(entered); entered=0; ++leaves; }
 static BOOL RtlIsCurrentProcess(HANDLE h) { return h==(HANDLE)1; }
 static BOOL ios_in_big_image(ULONG_PTR p) { (void)p; return 0; }

@@ -95,6 +95,8 @@ test -s "$root/build/dxmt-pe/color-views.json"
 (cd "$root" && zip -q "$output" build/dxmt-pe/color-views.json)
 test -s "$root/build/wine-pe/stackwalk-alias.json"
 (cd "$root" && zip -q "$output" build/wine-pe/stackwalk-alias.json)
+test -s "$root/build/wine-pe/native-callback-context.json"
+(cd "$root" && zip -q "$output" build/wine-pe/native-callback-context.json)
 test -s "$root/build/dxmt-ios/gpu-pipeline.json"
 (cd "$root" && zip -q "$output" build/dxmt-ios/gpu-pipeline.json)
 test -s "$root/build/dxmt-pe/swapchain-hooks.json"

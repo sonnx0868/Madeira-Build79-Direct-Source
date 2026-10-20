@@ -208,7 +208,7 @@ workflows:
             - notify_user_groups: none
             - always_notify_user_groups: none
   madeira-v016-stackwalk-refresh:
-    title: Fix ARM64EC JIT-alias stack walking and build IPA
+    title: Fix native helper callbacks and verify ARM64EC ntdll before building IPA
     steps:
       - git-clone@8:
           inputs:
@@ -222,6 +222,7 @@ workflows:
                 cd "$BITRISE_SOURCE_DIR"
                 git submodule update --init wine
                 python3 tests/host/check-stackwalk-alias.py
+                python3 tests/host/check-native-callback-context.py
                 bash scripts/build-bitrise.sh stackwalk-refresh
       - deploy-to-bitrise-io@2:
           is_always_run: true

@@ -1,0 +1,106 @@
+diff --git a/dlls/ntdll/signal_arm64ec.c b/dlls/ntdll/signal_arm64ec.c
+--- a/dlls/ntdll/signal_arm64ec.c
++++ b/dlls/ntdll/signal_arm64ec.c
+@@ -309,38 +309,32 @@
+     return NULL;
+ }
+ 
+-/* iOS-Madeira ml382: the CPU area can legitimately be NULL on this port.
+- *
+- * get_arm64ec_cpu_area() is NtCurrentTeb()->ChpeV2CpuAreaInfo, and
+- * init_thread_stack deliberately does NOT set it for the native-aarch64
+- * session — logged three times in the ml382 run:
+- *   "iOS arm64ec: NOT setting cpu_area (owner machine=0xaa64 session is_arm64ec=0)"
+- * But ARM64EC ntdll code still executes on those threads (every SYSCALL_API
+- * wrapper here calls enter/leave_syscall_callback), so the unguarded
+- * dereference is a NULL store.
+- *
+- * That is exactly what killed the SESSION process in ml380 AND ml382 — and
+- * killing the session kills the whole app, which is why it capped both runs.
+- * Decoded from our own ntdll at the faulting RVA 0x582e4:
+- *     ldr  x8, [x18, #0x1788]     ; x8 = TEB->ChpeV2CpuAreaInfo  == 0
+- *     strb wzr, [x8, #0x1]        ; InSyscallCallback = 0  -> FAULTS at 0x1
+- * matching the log's `addr=0x1 insn=3900051f` and
+- * `CPUArea(teb+0x1788)=0x0(ok=1)`.
+- *
+- * With no CPU area the thread is not running emulated code, so the
+- * re-entrancy flag is vacuous: report "not already in a callback" and skip the
+- * bookkeeping. Deliberately returning TRUE rather than FALSE — FALSE would
+- * route callers to the raw syscall and skip pNotifyMemoryAlloc, and stale FEX
+- * memory notifications are what caused the ml36 NOEXEC wall. Proceeding keeps
+- * behaviour identical to every thread that does have a CPU area. */
++/* Native ARM64 helpers can call these ARM64EC wrappers without a CPU area.
++ * They must execute the raw syscall, not the emulator's per-thread callbacks:
++ * those callbacks require the CPU area's ThreadState even when the native
++ * process shares an address space with an initialized ARM64EC game. Claiming
++ * callback ownership without an area let conhost's NtAllocateVirtualMemoryEx
++ * enter NotifyMemoryAlloc and read NULL + 0x38 during a console/version probe.
++ * Initialized ARM64EC threads still notify normally, and recursive calls keep
++ * the outer callback's flag. Loader-boundary image registration is separate;
++ * its intervals-only hook does not require a thread state. */
+ static inline BOOL enter_syscall_callback(void)
+ {
+     CHPE_V2_CPU_AREA_INFO *area = get_arm64ec_cpu_area();
+ 
+-    if (!area) return TRUE;
++    if (!area) return FALSE;
+     if (area->InSyscallCallback) return FALSE;
+     area->InSyscallCallback = 1;
+     return TRUE;
++}
++
++/* A native caller may still queue changes to a different emulated process.
++ * Sending that work does not enter its own emulator, and must not be confused
++ * with a recursive callback from an initialized ARM64EC thread. */
++static inline BOOL enter_process_syscall_callback( BOOL is_current )
++{
++    if (!get_arm64ec_cpu_area()) return !is_current;
++    return enter_syscall_callback();
+ }
+ 
+ static inline void leave_syscall_callback(void)
+@@ -1288,7 +1282,7 @@
+     BOOL is_current = RtlIsCurrentProcess( process );
+     NTSTATUS status;
+ 
+-    if (!enter_syscall_callback())
++    if (!enter_process_syscall_callback( is_current ))
+         return syscall_NtAllocateVirtualMemory( process, ret, zero_bits, size_ptr, type, protect );
+ 
+     if (!*ret && (type & MEM_COMMIT)) type |= MEM_RESERVE;
+@@ -1329,7 +1323,7 @@
+     BOOL is_current = RtlIsCurrentProcess( process );
+     NTSTATUS status;
+ 
+-    if (!enter_syscall_callback())
++    if (!enter_process_syscall_callback( is_current ))
+         return syscall_NtAllocateVirtualMemoryEx( process, ret, size_ptr, type, protect, parameters, count );
+ 
+     if (!*ret && (type & MEM_COMMIT)) type |= MEM_RESERVE;
+@@ -1368,7 +1362,7 @@
+ {
+     NTSTATUS status = syscall_NtFlushInstructionCache( process, addr, size );
+ 
+-    if (!status && enter_syscall_callback())
++    if (!status && enter_process_syscall_callback( RtlIsCurrentProcess( process ) ))
+     {
+         if (!RtlIsCurrentProcess( process ))
+             send_cross_process_notification( process, CrossProcessFlushCache, addr, size, 0 );
+@@ -1738,7 +1732,7 @@
+     BOOL is_current = RtlIsCurrentProcess( process );
+     NTSTATUS status;
+ 
+-    if (!enter_syscall_callback())
++    if (!enter_process_syscall_callback( is_current ))
+         return syscall_NtFreeVirtualMemory( process, addr_ptr, size_ptr, type );
+ 
+     if (!is_current) send_cross_process_notification( process, CrossProcessPreVirtualFree,
+@@ -2140,7 +2134,7 @@
+     BOOL is_current = RtlIsCurrentProcess( process );
+     NTSTATUS status;
+ 
+-    if (!enter_syscall_callback())
++    if (!enter_process_syscall_callback( is_current ))
+         return syscall_NtProtectVirtualMemory( process, addr_ptr, size_ptr, new_prot, old_prot );
+ 
+     if (!is_current) send_cross_process_notification( process, CrossProcessPreVirtualProtect,

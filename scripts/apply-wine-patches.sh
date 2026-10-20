@@ -88,6 +88,18 @@ else
     exit 1
 fi
 
+# Native helpers share this session's ntdll, but have no FEX CPU area.
+# Their syscalls must not enter emulator callbacks that dereference that area.
+patch="$root/patches/wine-native-callback-context.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine native callback context guard already applied"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the native callback context guard" >&2
+    exit 1
+fi
+
 patch="$root/patches/wine-stackwalk-jit-alias.patch"
 if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
     echo "Wine ARM64EC stack-walk alias lookup already applied"

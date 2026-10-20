@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rebuild the one ARM64EC ntdll that owns RtlWalkFrameChain.
+# Rebuild the ARM64EC ntdll containing frame walking and FEX callback routing.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 export HOMEBREW_NO_AUTO_UPDATE=1
@@ -24,7 +24,8 @@ mkdir -p "$out"
 cp "$root/app/Madeira/arm64ec-windows/ntdll.dll" "$out/base-ntdll.dll"
 bash "$root/build/wine-pe/build-ntdll.sh"
 python3 "$root/tools/ntdll-stackwalk-bundle.py" --root "$root" --stamp --base "$out/base-ntdll.dll"
+python3 "$root/tools/ntdll-native-callback-bundle.py" --root "$root" --stamp
 if ! python3 "$root/tools/wgi-gamepad-bundle.py" --root "$root" >/dev/null 2>&1; then
     bash "$root/build/wine-pe/build-wgi.sh"
 fi
-echo 'Refreshed only ARM64EC ntdll stack-walk alias handling; other loaders and native libraries preserved'
+echo 'Refreshed ARM64EC ntdll frame walking and native callback guard; other loaders and native libraries preserved'

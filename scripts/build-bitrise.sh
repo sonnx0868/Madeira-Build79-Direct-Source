@@ -167,6 +167,8 @@ checks() {
   python3 tools/xinput-host-authority-bundle.py --root "$root"
   python3 tests/host/check-stackwalk-alias.py
   python3 tools/ntdll-stackwalk-bundle.py --root "$root"
+  python3 tests/host/check-native-callback-context.py
+  python3 tools/ntdll-native-callback-bundle.py --root "$root"
   python3 tests/host/check-dxmt-boundary-lineage.py
   python3 tests/host/check-texture-headroom.py --require-darwin
   python3 tests/host/check-lossless-color-views.py --require-darwin
