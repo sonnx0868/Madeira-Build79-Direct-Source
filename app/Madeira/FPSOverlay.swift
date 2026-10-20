@@ -203,6 +203,7 @@ struct FPSOverlay: View {
     private let bufferCapacity = 50  // 5s @ 100ms
     /// ml606: live phys_footprint in MB, refreshed on the 250ms display tick.
     @State private var memMB: Int = 0
+    @State private var thermalState = ProcessInfo.processInfo.thermalState
 
     /// iOS jetsams this app at EXACTLY 4096MB of phys_footprint (memory:
     /// "Jetsam = EXACTLY 4096MB"). task_info(TASK_VM_INFO) reports the very
@@ -240,6 +241,7 @@ struct FPSOverlay: View {
                     Text(String(format: "%.1f", fps))
                         .foregroundColor(fpsColor)
                     pacingPill
+                    thermalPill
                     capturePill
                     ecoPill
                     fencePill
@@ -271,6 +273,7 @@ struct FPSOverlay: View {
                         .foregroundColor(fpsColor)
                         .frame(width: 40, alignment: .trailing)
                     pacingPill
+                    thermalPill
                     capturePill
                     ecoPill
                     fencePill
@@ -289,6 +292,27 @@ struct FPSOverlay: View {
         .onTapGesture { visible.toggle() }
         .onAppear { startTimers() }
         .onDisappear { stopTimers() }
+        .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)) { _ in
+            thermalState = ProcessInfo.processInfo.thermalState
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            thermalState = ProcessInfo.processInfo.thermalState
+        }
+    }
+
+    private var thermalPill: some View {
+        let label: String
+        let color: Color
+        switch thermalState {
+        case .nominal: label = "Normal"; color = .green
+        case .fair: label = "Fair"; color = .yellow
+        case .serious: label = "Serious"; color = .orange
+        case .critical: label = "Critical"; color = .red
+        @unknown default: label = "Unknown"; color = .secondary
+        }
+        return Text("Thermal: \(label)")
+            .foregroundColor(color)
+            .accessibilityLabel("Thermal condition: \(label)")
     }
 
     /// Pacing pill, cycles 60 → MAX(n) → 30 → 60. Shared by the wide
@@ -417,6 +441,7 @@ struct FPSOverlay: View {
         samples = [(now, c)]
         presentCount = c
         vsyncMode = madeira_get_vsync_locked()
+        thermalState = ProcessInfo.processInfo.thermalState
         ThermalPacingController.refresh()
 
         // 100ms sampling — keeps the buffer fresh

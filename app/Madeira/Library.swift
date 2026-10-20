@@ -439,6 +439,7 @@ struct LibraryEntry: Codable, Identifiable {
         ShaderPreparationSettings.apply(mode: shaderWarmupMode,
             automatic: desktop != true && unityOptimizations != false &&
                 MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS") &&
+                ControllerCompatibility.profile(for: self)?.name == "silksong" &&
                 ExternalGameCompatibility.isUnity(self),
             relativePath: launchRelativePath, identity: id.uuidString, drive: LibraryModel.drive)
         // DXMT's 64-bit default enumerates and prints its memory census every

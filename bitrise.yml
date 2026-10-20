@@ -19,6 +19,30 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: fceb0cccb7fc400bbefba8a869a8fe2c2a5e473477353157db665f91e86a1cda
 
 workflows:
+  madeira-present-resource-check:
+    title: Verify Present lock progress and native Metal creation lifetime
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                git submodule update --init dxmt
+                python3 tests/host/check-present-resource.py --require-darwin
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-present-resource-validation
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+
   madeira-input-wake-check:
     title: Reproduce idle game input wake and validate native pipe delivery
     steps:

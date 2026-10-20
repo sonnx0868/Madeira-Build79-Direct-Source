@@ -2,6 +2,10 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+present_resource_patch="$root/patches/dxmt-present-resource-lifetime.patch"
+if git -C "$root/dxmt" apply --reverse --check "$present_resource_patch" >/dev/null 2>&1; then
+    git -C "$root/dxmt" apply --reverse "$present_resource_patch"
+fi
 # Stage sampling extends methods already changed by the earlier lifecycle and
 # diagnostics patches. Remove this exact top layer before validating those
 # layers, then reapply it; unrelated working-tree changes are never discarded.
@@ -45,3 +49,6 @@ git -C "$root/dxmt" apply "$retirement_patch"
 git -C "$root/dxmt" apply --check "$stage_patch"
 git -C "$root/dxmt" apply "$stage_patch"
 echo 'Applied DXMT stage timestamp hooks'
+git -C "$root/dxmt" apply --check "$present_resource_patch"
+git -C "$root/dxmt" apply "$present_resource_patch"
+echo 'Applied DXMT Present lock and native creation lifetime fix'

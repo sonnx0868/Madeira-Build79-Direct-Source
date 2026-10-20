@@ -1,0 +1,164 @@
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -693,6 +693,8 @@
+ 
+ static NTSTATUS
+ _MTLDevice_newBuffer(void *obj) {
++  // Returned new* handles own +1; drain only temporary native objects here.
++  @autoreleasepool {
+   struct unixcall_mtldevice_newbuffer *params = obj;
+   if (wmtr_enabled()) {
+     struct WMTBufferInfo *bi = params->info.ptr;
+@@ -815,10 +817,14 @@
+   info->gpu_address = [buffer gpuAddress];
+   if (wmt_stale_probe_on()) wmt_freed_set((uintptr_t)buffer, 0);   /* ml1156: a new buffer at a recycled address is alive */
+   return STATUS_SUCCESS;
++
++  }
+ }
+ 
+ static NTSTATUS
+ _MTLDevice_newSamplerState(void *obj) {
++  // Returned new* handles own +1; drain only temporary native objects here.
++  @autoreleasepool {
+   struct unixcall_mtldevice_newsamplerstate *params = obj;
+   if (wmtr_enabled()) {
+     uint8_t buf[sizeof(struct rm_wmt_info) + sizeof(struct WMTSamplerInfo)];
+@@ -858,6 +864,8 @@
+   params->ret = (obj_handle_t)sampler;
+   [sampler_desc release];
+   return STATUS_SUCCESS;
++
++  }
+ }
+ 
+ static NTSTATUS
+@@ -1110,6 +1118,8 @@
+ 
+ static NTSTATUS
+ _MTLDevice_newTexture(void *obj) {
++  // Returned new* handles own +1; drain only temporary native objects here.
++  @autoreleasepool {
+   struct unixcall_mtldevice_newtexture *params = obj;
+   if (wmtr_enabled()) {
+     struct WMTTextureInfo *ti = params->info.ptr;
+@@ -1142,10 +1152,14 @@
+ 
+   [desc release];
+   return STATUS_SUCCESS;
++
++  }
+ }
+ 
+ static NTSTATUS
+ _MTLBuffer_newTexture(void *obj) {
++  // Returned new* handles own +1; drain only temporary native objects here.
++  @autoreleasepool {
+   struct unixcall_mtlbuffer_newtexture *params = obj;
+   id<MTLBuffer> buffer = (id<MTLBuffer>)params->buffer;
+   struct WMTTextureInfo *info = params->info.ptr;
+@@ -1178,6 +1192,8 @@
+ 
+   [desc release];
+   return STATUS_SUCCESS;
++
++  }
+ }
+ 
+ static inline MTLTextureSwizzleChannels
+@@ -1211,6 +1227,8 @@
+ 
+ static NTSTATUS
+ _MTLTexture_newTextureView(void *obj) {
++  // Returned new* handles own +1; drain only temporary native objects here.
++  @autoreleasepool {
+   struct unixcall_mtltexture_newtextureview *params = obj;
+   if (wmtr_enabled()) {
+     /* ml820: the swizzle was sent as 0 and the host built the view without
+@@ -1241,6 +1259,8 @@
+   params->ret = (obj_handle_t)ret;
+   params->gpu_resource_id = [ret gpuResourceID]._impl;
+   return STATUS_SUCCESS;
++
++  }
+ }
+ 
+ static NTSTATUS
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -731,11 +731,23 @@
+     return presenter->synchronizeLayerProperties();
+   }
+ 
+-  SyncFrameState SyncFrame(uint64_t current_frame_id) {
++  SyncFrameState SyncFrame(uint64_t current_frame_id, std::unique_lock<d3d11_device_mutex> &lock) {
+     if (frame_latency_fence_) {
+-      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::FrameFence);
+-      if (current_frame_id > frame_latency)
+-        frame_latency_fence_->wait(current_frame_id - frame_latency);
++      if (current_frame_id > frame_latency) {
++        const uint64_t completed_frame = current_frame_id - frame_latency;
++        // Keep another graphics/GC worker runnable while Metal finishes. This
++        // wait precedes PrepareFlush and CurrentChunk: no command-chunk pointer
++        // may survive the unlocked interval. present_mutex_ orders this swapchain.
++        lock.unlock();
++        {
++          madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::FrameFence);
++          frame_latency_fence_->wait(completed_frame);
++        }
++        {
++          madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::DeviceLock);
++          lock.lock();
++        }
++      }
+       return SyncFrameState(current_frame_id, frame_latency_fence_.get());
+     }
+     return SyncFrameState();
+@@ -745,6 +757,7 @@
+   STDMETHODCALLTYPE
+   MADEIRA_SWAPCHAIN_ENTRY Present1(UINT SyncInterval, UINT PresentFlags,
+            const DXGI_PRESENT_PARAMETERS *pPresentParameters) final {
++    std::lock_guard<dxmt::mutex> present_lock(present_mutex_);
+     if (SyncInterval > 4)
+       return DXGI_ERROR_INVALID_CALL;
+ 
+@@ -820,8 +833,13 @@
+       madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::DeviceLock);
+       lock.lock();
+     }
++
++    // Wait before touching this frame's immediate-context/queue state. A second
++    // same-swapchain Present remains serialized, but unrelated workers can run.
++    auto sync_state = hr == DXGI_STATUS_OCCLUDED ? SyncFrameState{} : SyncFrame(++presentation_count_, lock);
+     {
+       madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Prepare);
++
+       device_context_->PrepareFlush();
+     }
+     if (hr == DXGI_STATUS_OCCLUDED) {
+@@ -864,7 +882,7 @@
+     if constexpr (EnableMetalFX) {
+       chunk->emitcc([
+         this, vsync_duration, backbuffer = backbuffer_->texture(),
+-        sync_state = SyncFrame(++presentation_count_),
++        sync_state = std::move(sync_state),
+         upscaled = upscaled_backbuffer_->texture(),
+         scaler = this->metalfx_scaler, state = SynchronizeLayerProperties()
+       ](ArgumentEncodingContext &ctx) mutable {
+@@ -882,7 +900,7 @@
+     } else {
+       chunk->emitcc([
+         this, vsync_duration, state = SynchronizeLayerProperties(),
+-        sync_state = SyncFrame(++presentation_count_),
++        sync_state = std::move(sync_state),
+         backbuffer = backbuffer_->texture()
+       ](ArgumentEncodingContext &ctx) mutable {
+         ctx.present(backbuffer, presenter, vsync_duration, state.metadata);
+@@ -1179,6 +1197,7 @@
+   double madeira_gap_sum_ms_ = 0, madeira_gap_max_ms_ = 0;
+   double madeira_inside_sum_ms_ = 0, madeira_inside_max_ms_ = 0;
+   UINT madeira_gap_sync_min_ = ~0u, madeira_gap_sync_max_ = 0;
++  dxmt::mutex present_mutex_;
+   std::unique_ptr<CpuFence> frame_latency_fence_;
+   HWND hWnd;
+   HMONITOR monitor_;
