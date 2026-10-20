@@ -4,6 +4,7 @@ import UIKit
 import Darwin
 import ImageIO
 import Combine
+import CryptoKit
 
 // ============================================================================
 // Library front end.
@@ -491,6 +492,8 @@ struct LibraryEntry: Codable, Identifiable {
         let light = lightEffectsEnabled ? "1" : "0"
         setenv("MADEIRA_LIGHT_EFFECTS", light, 1)
         setenv("_MADEIRA_LIGHT_EFFECTS_PROFILE", light, 1)
+        GameGraphicsPreferences.apply(enabled: lightEffectsEnabled, appID: steamAppID,
+            location: LibraryModel.drive.appendingPathComponent(steamAppID == nil ? launchRelativePath : relativePath))
         LogStore.shared.log("[light-effects-v1] enabled=\(light) filtering-cap=\(light == "1" ? "8" : "game") resolution=\(resolution) texture-policy=unchanged")
         GameMemorySettings.apply(swapMB: swapMB, realSuspend: realSuspend,
                                  automaticSuspendRule: automaticThreadSuspensionRule)
@@ -582,6 +585,61 @@ enum LightEffectsPolicy {
         if appID == 3097560 { return true }
         let name = executable.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last?.lowercased() ?? ""
         return ["replaced", "replaced.exe", "liar's bar", "liar's bar.exe", "liarsbar.exe"].contains(name)
+    }
+}
+
+/// Only the exact IL2CPP pair examined for this profile enables the native
+/// PlayerPrefs view. Hashing runs before JIT startup on the launch worker;
+/// stable file identities reuse a bounded persistent digest cache.
+enum GameGraphicsPreferences {
+    static let profile = "liarsbar-542782a6-v1"
+    static let dllDigest = "542782a64107c13ff6ff12c5edf018bbbe614bea8bc03fa20093602e21d02d9c"
+    static let metadataDigest = "119f7f0e9a8a882d8fcfe92bb281025137e1b81bb2d6c8302bf237be3facd084"
+    private static let cacheKey = "madeiraGraphicsFileDigestsV1"
+    private static let lock = NSLock()
+
+    static func matches(dll: String?, metadata: String?) -> Bool {
+        dll == dllDigest && metadata == metadataDigest
+    }
+    static func digest(_ url: URL) -> String? {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .fileResourceIdentifierKey]),
+              let bytes = values.fileSize, bytes > 0, bytes < 128 * 1024 * 1024,
+              let modified = values.contentModificationDate else { return nil }
+        let key = url.standardizedFileURL.path + "|\(bytes)|\(modified.timeIntervalSince1970)|\(String(describing: values.fileResourceIdentifier))"
+        lock.lock()
+        var cache = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String] ?? [:]
+        let saved = cache[key]
+        lock.unlock()
+        if let saved, saved.count == 64 { return saved }
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        lock.lock()
+        cache = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String] ?? [:]
+        if cache.count >= 32 { cache.removeAll() }
+        cache[key] = digest
+        UserDefaults.standard.set(cache, forKey: cacheKey)
+        lock.unlock()
+        return digest
+    }
+    static func apply(enabled: Bool, appID: Int?, location: URL, readDigest: (URL) -> String? = GameGraphicsPreferences.digest) {
+        // Always publish an explicit disabled value to prevent a prior game or
+        // a global env export from leaking this profile into another launch.
+        var selected = "0"
+        let folder = location.pathExtension.lowercased() == "exe" ? location.deletingLastPathComponent() : location
+        let name = location.lastPathComponent.lowercased()
+        let candidate = appID == 3097560 || ["liar's bar.exe", "liarsbar.exe"].contains(name)
+        if enabled && candidate && readDigest(folder.appendingPathComponent("GameAssembly.dll")) == dllDigest,
+           let children = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) {
+            let dataFolders = children.filter { $0.lastPathComponent.hasSuffix("_Data") }
+            if dataFolders.count <= 8 && dataFolders.contains(where: {
+                matches(dll: dllDigest, metadata: readDigest($0.appendingPathComponent("il2cpp_data/Metadata/global-metadata.dat")))
+            }) { selected = profile }
+        }
+        setenv("MADEIRA_GAME_GRAPHICS_PROFILE", selected, 1)
+        setenv("_MADEIRA_GAME_GRAPHICS_PROFILE", selected, 1)
+        if candidate {
+            LogStore.shared.log("[game-effects-profile-v1] selected=\(selected) shadows=cap-medium aa=cap-fxaa texture-and-resolution=unchanged")
+        }
     }
 }
 
@@ -4045,7 +4103,7 @@ struct LibraryDetail: View {
                         ForEach(DisplayMode.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) }
                     }
                     FPSChoice(mode: $entry.fpsMode)
-                    Picker("Light filtering (Direct3D 11)", selection: Binding(
+                    Picker("Light effects (Direct3D 11)", selection: Binding(
                         get: { entry.lightEffects.map { $0 ? "on" : "off" } ?? "auto" },
                         set: { entry.lightEffects = $0 == "auto" ? nil : $0 == "on" })) {
                         Text("Automatic").tag("auto")
@@ -4053,7 +4111,7 @@ struct LibraryDetail: View {
                         Text("Game default").tag("off")
                     }
                     .disabled(entry.bits == 32)
-                    Text("Keeps your resolution, texture settings and memory safeguards. Reduces ordinary 16× anisotropic filtering to 8× in 64-bit Direct3D 11 games; shadow filtering stays unchanged. Automatic enables this for REPLACED and Liar’s Bar. Apply on the next launch.")
+                    Text("Keeps your resolution, texture settings and memory safeguards. Caps ordinary anisotropic filtering at 8×. The supported Liar’s Bar version also caps shadows at Medium and uses FXAA while retaining lower game settings. Game default restores the original preferences on the next launch. Automatic enables this for REPLACED and Liar’s Bar.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("OpenGL & memory compatibility") {

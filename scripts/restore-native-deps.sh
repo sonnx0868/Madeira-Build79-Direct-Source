@@ -37,7 +37,11 @@ if [[ -f "$root/app/Madeira/i386-windows/ntdll.dll" ]]; then
   python3 "$root/tools/check-wow64-addon.py" --root "$root" --receipt "$root/build/wine-i386/addon-receipt.json" \
     --write "${BITRISE_DEPLOY_DIR:-$root/build}/wow64-consumer-validation.json"
 fi
-if [[ "${1:-}" = --refresh-window ]]; then
+if [[ "${1:-}" = --refresh-game-graphics ]]; then
+  python3 "$root/tests/host/check-game-graphics-preferences.py"
+  python3 "$root/tests/host/check-game-graphics-fingerprint.py" --require-swift
+  bash "$root/build/ntdll-unix/build.sh" graphics-prefs-only
+elif [[ "${1:-}" = --refresh-window ]]; then
   bash "$root/build/win32u-unix/build.sh" window-only
 elif [[ "${1:-}" = --refresh-renpy-gl ]]; then
   bash "$root/build/win32u-unix/build.sh" renpy-gl-only

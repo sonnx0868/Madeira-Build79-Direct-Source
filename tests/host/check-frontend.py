@@ -116,6 +116,7 @@ swift += block(dock_source, 'struct DockExternalProgram: Equatable') + '\n'
 swift += 'enum MadeiraDock { static func validAppID(_ value: Int) -> Bool { value > 0 && UInt64(value) < UInt64(UInt32.max) } }\n'
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
 swift += block(lib, 'enum LightEffectsPolicy') + '\n'
+swift += block(lib, 'enum GameGraphicsPreferences') + '\n'
 swift += block(lib, 'enum GameMemorySettings') + '\n'
 swift += block(lib, 'enum GameExitReport') + '\n'
 translation = (root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8')

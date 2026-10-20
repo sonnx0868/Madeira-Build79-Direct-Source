@@ -1,0 +1,21 @@
+{
+  "profile": "liarsbar-542782a6-v1",
+  "gameAssemblySHA256": "542782a64107c13ff6ff12c5edf018bbbe614bea8bc03fa20093602e21d02d9c",
+  "metadataSHA256": "119f7f0e9a8a882d8fcfe92bb281025137e1b81bb2d6c8302bf237be3facd084",
+  "metadataVersion": 29,
+  "registry": "Software\\Curve Animation\\Liar's Bar",
+  "preferences": {
+    "shadowQualityIndex_h534661776": { "originalDefault": 2, "cap": 1, "meaning": "Main light tier Medium; other lights use tier max(setting - 1, 0). Shadows remain enabled." },
+    "antiAliasingIndex_h3690569407": { "originalDefault": 3, "cap": 1, "meaning": "HDRP FXAA. None and existing FXAA remain unchanged." }
+  },
+  "reviewedMethods": {
+    "UpdateGamePreferencesAcrossScenes.GetSettings": "0x53D490",
+    "UpdateGamePreferencesAcrossScenes.LightSettings": "0x53D550",
+    "UpdateGamePreferencesAcrossScenes.SetAntiAliasing": "0x53D810",
+    "UpdateGamePreferencesAcrossScenes.UpdateQuality": "0x53D880"
+  },
+  "resolutionModified": false,
+  "texturePreferencesModified": false,
+  "gameBinaryModified": false,
+  "physicalGameFPSMeasured": false
+}

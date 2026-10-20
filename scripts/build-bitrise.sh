@@ -35,6 +35,7 @@ case "$mode" in
   frameflow-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   retirement-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   present-resource-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  game-graphics-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   srv-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
@@ -119,7 +120,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
+  if [[ "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
@@ -130,6 +131,7 @@ else
     [[ "$mode" != frameflow-refresh ]] || refresh=--refresh-frameflow
     [[ "$mode" != retirement-refresh ]] || refresh=--refresh-retirement
     [[ "$mode" != present-resource-refresh ]] || refresh=--refresh-present-resource
+    [[ "$mode" != game-graphics-refresh ]] || refresh=--refresh-game-graphics
     [[ "$mode" != srv-refresh ]] || refresh=--refresh-srv
     [[ "$mode" != query-refresh ]] || refresh=--refresh-query
     [[ "$mode" != loader-refresh ]] || refresh=--refresh-loader
@@ -173,6 +175,9 @@ checks() {
   python3 tests/host/check-metal-layer-configuration.py --require-darwin
   python3 tests/host/check-runtime-scheduling-loader.py --require-darwin
   python3 tools/ntdll-runtime-bundle.py --root "$root"
+  python3 tools/ntdll-graphics-preferences-bundle.py --root "$root"
+  python3 tests/host/check-game-graphics-preferences.py
+  python3 tests/host/check-game-graphics-fingerprint.py --require-swift
   python3 tools/nutssync-bundle.py --root "$root"
   python3 tests/host/check-d3d11-query-park.py
   python3 tools/dxmt-pacing-bundle.py --root "$root"

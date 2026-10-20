@@ -15,6 +15,7 @@ for symbol in madeira_gpu_trace_will_create madeira_gpu_trace_did_create madeira
   fi
 done
 python3 "$root/tools/nutssync-bundle.py" --root "$root" || missing=1
+python3 "$root/tools/ntdll-graphics-preferences-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/check-compatibility-binaries.py" --root "$root" || missing=1
 python3 "$root/tools/loader-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/dxmt-frameflow-bundle.py" --root "$root" || missing=1

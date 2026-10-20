@@ -93,7 +93,21 @@ if [[ "${1:-all}" = sync-only ]]; then
     mv "$candidate" "$APP_LIB"
     exit 0
 fi
-[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|signal-only|runtime-only' >&2; exit 2; }
+if [[ "${1:-all}" = graphics-prefs-only ]]; then
+    test -s "$APP_LIB"
+    test -s "$WINE_BUILD/include/config.h"
+    compile_one "$BUILD_DIR/registry_ios.c" registry
+    [[ "$FAILED" = 0 ]] || exit 1
+    candidate="$OBJ_DIR/libntdll_graphics_preferences.a"
+    cp "$APP_LIB" "$candidate"
+    xcrun ar r "$candidate" "$OBJ_DIR/registry.o"
+    xcrun ranlib "$candidate"
+    python3 "$REPO_ROOT/tools/ntdll-graphics-preferences-bundle.py" --root "$REPO_ROOT" \
+        --stamp --archive "$candidate" --base "$APP_LIB"
+    mv "$candidate" "$APP_LIB"
+    exit 0
+fi
+[[ "${1:-all}" = all ]] || { echo 'Usage: build.sh all|signal-only|runtime-only|graphics-prefs-only' >&2; exit 2; }
 
 # iOS-Madeira 2026-07-05 (Steam S0): compile a DLL's unix side into
 # libntdll_unix.a. Args: src, obj-name, funcs-prefix, extra flags...
@@ -249,6 +263,9 @@ for src in $WINE_SRC/dlls/ntdll/unix/*.c; do
         thread)
             compile_one "$BUILD_DIR/thread_ios.c" "thread"
             ;;
+        registry)
+            compile_one "$BUILD_DIR/registry_ios.c" "registry"
+            ;;
         *)
             compile_one "$src" "$name"
             ;;
@@ -295,4 +312,5 @@ done
 echo "libntdll_unix.a: $(wc -c < "$APP_LIB" | tr -d ' ') bytes"
 python3 "$REPO_ROOT/tools/ntdll-signal-bundle.py" --stamp
 python3 "$REPO_ROOT/tools/ntdll-runtime-bundle.py" --stamp
+python3 "$REPO_ROOT/tools/ntdll-graphics-preferences-bundle.py" --root "$REPO_ROOT" --stamp
 echo "Done!"
