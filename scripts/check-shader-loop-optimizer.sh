@@ -15,6 +15,8 @@ if [[ ! -s "$llvm/include/llvm/IR/IRBuilder.h" ]]; then
 fi
 test "$("$llvm/bin/llvm-config" --version)" = 15.0.7
 git -C "$root" submodule update --init dxmt
+# The receipt regression reconstructs the frozen Ren'Py callback source too.
+git -C "$root" submodule update --init --depth 1 wine
 bash "$root/scripts/apply-dxmt-patches.sh"
 python3 "$root/tests/host/check-dxmt-patches.py"
 python3 "$root/tests/host/check-optimizer-receipts.py"
