@@ -10,7 +10,7 @@ enum RuntimeWire {
                        "FEX_TSOENABLED", "FEX_VECTORTSOENABLED", "FEX_MEMCPYSETTSOENABLED",
                        "FEX_HALFBARRIERTSOENABLED", "FEX_STRICTINPROCESSSPLITLOCKS", "MADEIRA_REAL_SUSPEND",
                        "DXMT_WSI_MODE_TABLE", "DXMT_WSI_MONITOR_IDENTITY", "DXMT_CENSUS_THROTTLE",
-                       "MADEIRA_SWAP_PRESSURE",
+                       "MADEIRA_SWAP_PRESSURE", "MADEIRA_LIGHT_EFFECTS",
                        "MADEIRA_MIP_CLAMP_AUTO", "SDL_OPENGL_ES_DRIVER", "LOVE_GRAPHICS_USE_OPENGLES",
                        "ANGLE_DEFAULT_PLATFORM", "RENPY_RENDERER", "WINEDLLOVERRIDES", "_MADEIRA_LUA51_GC64_PATH"]
     struct Status {
@@ -127,7 +127,7 @@ final class GameRuntime: ObservableObject {
     static func requiresDirectLaunch(_ entry: LibraryEntry) -> Bool {
         if entry.epicAppName != nil { return true }
         // Both native settings are latched at engine creation, including Off.
-        if entry.swapMB != nil || entry.realSuspend != nil { return true }
+        if entry.swapMB != nil || entry.realSuspend != nil || entry.lightEffectsEnabled { return true }
         // The cache file and instruction budget are latched at FEX creation.
         // These experiments need an isolated engine for the launch profile.
         if entry.cpuTranslationBudget != nil ||
@@ -173,7 +173,8 @@ final class GameRuntime: ObservableObject {
         // These are latched by Wine/FEX/native backends. A changed setting needs
         // a new engine, not a claimed live per-game toggle.
         ["x87=\(entry.reducedX87)", "fast=\(entry.fastSync ?? true)", "sem=\(entry.semaphoreFastPath ?? false)",
-         "aniso=\(entry.anisotropyLimit.map(String.init) ?? "auto")", "unity=\(entry.unityOptimizations != false)"]
+         "aniso=\(entry.anisotropyLimit.map(String.init) ?? "auto")", "unity=\(entry.unityOptimizations != false)",
+         "light-effects=\(entry.lightEffectsEnabled)"]
         .joined(separator: "|") + ["pool", "sync-engine", "inproc-sync", "env.MADEIRA_FASTSYNC", "d3d12"].map {
             "|\($0)=\(MadeiraConfig.get($0) ?? "default")"
         }.joined() + "|d3d9=\(MadeiraConfig.get("d3d9") ?? "default")" +

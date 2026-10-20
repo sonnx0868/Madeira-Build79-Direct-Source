@@ -257,6 +257,13 @@ struct LibraryEntry: Codable, Identifiable {
     /// D3D9 anisotropic filtering limit (DXMT_D9_ANISO_LIMIT: 1, 2, 4 or 8);
     /// nil = the application's own choice.
     var anisotropyLimit: Int?
+    /// Nil selects the limited filtering profile for REPLACED and Liar's Bar.
+    /// The profile preserves render dimensions and all original texture mips.
+    var lightEffects: Bool?
+    var lightEffectsEnabled: Bool {
+        desktop != true && LightEffectsPolicy.enabled(choice: lightEffects,
+            appID: steamAppID, executable: launchRelativePath)
+    }
     /// A Steam game (SteamGames.swift): Madeira Dock starts it by this App ID
     /// through Valve's client, with Steam's default launch option.
     /// `relativePath` is then its install folder, relative to drive_c.
@@ -481,6 +488,10 @@ struct LibraryEntry: Codable, Identifiable {
         else { setenv("MADEIRA_DINPUT_PAD", "0", 1) }
         let controllerPrefs = ControllerCompatibility.prepare(self)
         let externalCompatibility = ExternalGameCompatibility.prepare(self)
+        let light = lightEffectsEnabled ? "1" : "0"
+        setenv("MADEIRA_LIGHT_EFFECTS", light, 1)
+        setenv("_MADEIRA_LIGHT_EFFECTS_PROFILE", light, 1)
+        LogStore.shared.log("[light-effects-v1] enabled=\(light) filtering-cap=\(light == "1" ? "8" : "game") resolution=\(resolution) texture-mips=\(light == "1" ? "original" : "game")")
         GameMemorySettings.apply(swapMB: swapMB, realSuspend: realSuspend,
                                  automaticSuspendRule: automaticThreadSuspensionRule)
 
@@ -562,6 +573,15 @@ struct LibraryEntry: Codable, Identifiable {
         // (MADEIRA_SCREEN_W/H, source "knob"); for the Desktop entry it is the
         // same size as its /desktop= argument.
         GuestDisplay.configureSessionDefault(view: CGSize(width: 1280, height: 720), knob: resolution)
+    }
+}
+
+enum LightEffectsPolicy {
+    static func enabled(choice: Bool?, appID: Int?, executable: String) -> Bool {
+        if let choice { return choice }
+        if appID == 3097560 { return true }
+        let name = executable.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last?.lowercased() ?? ""
+        return ["replaced", "replaced.exe", "liar's bar", "liar's bar.exe", "liarsbar.exe"].contains(name)
     }
 }
 
@@ -4025,6 +4045,15 @@ struct LibraryDetail: View {
                         ForEach(DisplayMode.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) }
                     }
                     FPSChoice(mode: $entry.fpsMode)
+                    Picker("Light filtering (Direct3D 11)", selection: Binding(
+                        get: { entry.lightEffects.map { $0 ? "on" : "off" } ?? "auto" },
+                        set: { entry.lightEffects = $0 == "auto" ? nil : $0 == "on" })) {
+                        Text("Automatic").tag("auto")
+                        Text("On").tag("on")
+                        Text("Game default").tag("off")
+                    }
+                    Text("Keeps your resolution and original textures. Reduces ordinary 16× anisotropic filtering to 8×; shadow filtering stays unchanged. Automatic enables this for REPLACED and Liar’s Bar. Apply on the next launch.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("OpenGL & memory compatibility") {
                     Picker("OpenGL renderer", selection: Binding(get: { entry.glBackend ?? "auto" }, set: { entry.glBackend = $0 == "auto" ? nil : $0 })) {

@@ -752,6 +752,8 @@ static void madeira_prepare_opengl_backend(void) {
     // Per-game values are restored after madeira.cfg exports global env values.
     const char *warmup = getenv("_MADEIRA_SHADER_WARMUP_PROFILE");
     if (warmup) setenv("MADEIRA_SHADER_WARMUP", warmup, 1);
+    const char *light = getenv("_MADEIRA_LIGHT_EFFECTS_PROFILE");
+    if (light) setenv("MADEIRA_LIGHT_EFFECTS", light, 1);
     const char *pipelines = getenv("_MADEIRA_PIPELINE_CACHE_DIR_PROFILE");
     if (pipelines) setenv("MADEIRA_PIPELINE_CACHE_DIR", pipelines, 1);
     NSString *dir = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"gl"];

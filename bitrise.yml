@@ -34,11 +34,35 @@ workflows:
                 cd "$BITRISE_SOURCE_DIR"
                 git submodule update --init dxmt
                 python3 tests/host/check-present-resource.py --require-darwin
+                python3 tests/host/check-light-graphics.py --require-swift
       - deploy-to-bitrise-io@2:
           is_always_run: true
           inputs:
             - is_compress: 'true'
             - zip_name: Madeira-present-resource-validation
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+
+  madeira-v016-present-resource-refresh:
+    title: Rebuild Present wait progress and scoped Metal allocation lifetime
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh present-resource-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
             - is_enable_public_page: 'false'
             - notify_user_groups: none
             - always_notify_user_groups: none

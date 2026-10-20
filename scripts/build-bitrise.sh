@@ -34,6 +34,7 @@ case "$mode" in
   stackwalk-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   frameflow-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   retirement-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  present-resource-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   srv-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
@@ -118,7 +119,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
+  if [[ "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = sync-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
@@ -128,6 +129,7 @@ else
     [[ "$mode" != stackwalk-refresh ]] || refresh=--refresh-stackwalk
     [[ "$mode" != frameflow-refresh ]] || refresh=--refresh-frameflow
     [[ "$mode" != retirement-refresh ]] || refresh=--refresh-retirement
+    [[ "$mode" != present-resource-refresh ]] || refresh=--refresh-present-resource
     [[ "$mode" != srv-refresh ]] || refresh=--refresh-srv
     [[ "$mode" != query-refresh ]] || refresh=--refresh-query
     [[ "$mode" != loader-refresh ]] || refresh=--refresh-loader

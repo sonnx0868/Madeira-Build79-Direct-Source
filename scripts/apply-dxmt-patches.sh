@@ -26,7 +26,7 @@ for name in patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.
             patches/dxmt-swapchain-hook-abi.patch patches/dxmt-gpu-trace.patch \
             patches/dxmt-bounded-srv-vector-load.patch patches/dxmt-explicit-lod-guard.patch \
             patches/dxmt-texture-headroom.patch patches/dxmt-lossless-color-views.patch \
-            patches/dxmt-frameflow.patch; do
+            patches/dxmt-frameflow.patch patches/dxmt-light-graphics.patch; do
     patch="$root/$name"
     if git -C "$root/dxmt" apply --reverse --check "$patch" >/dev/null 2>&1; then
         echo "DXMT patch already applied: $name"

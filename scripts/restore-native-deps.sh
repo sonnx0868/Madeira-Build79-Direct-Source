@@ -56,6 +56,8 @@ elif [[ "${1:-}" = --refresh-frameflow ]]; then
   bash "$root/scripts/refresh-frameflow.sh"
 elif [[ "${1:-}" = --refresh-retirement ]]; then
   bash "$root/scripts/refresh-gpu-retirement.sh"
+elif [[ "${1:-}" = --refresh-present-resource ]]; then
+  bash "$root/scripts/refresh-present-resource.sh"
 elif [[ "${1:-}" = --refresh-srv ]]; then
   bash "$root/build/dxmt-ios/refresh-srv.sh"
 elif [[ "${1:-}" = --refresh-query ]]; then
