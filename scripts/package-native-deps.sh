@@ -90,6 +90,8 @@ fi
 if [[ -f "$root/build/dxmt-ios/shader-optimizer.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-ios/shader-optimizer.json)
 fi
+test -s "$root/build/dxmt-ios/texture-residency.json"
+(cd "$root" && zip -q "$output" build/dxmt-ios/texture-residency.json)
 if [[ -f "$root/build/dxmt-pe/query-park.json" ]]; then
   (cd "$root" && zip -q "$output" build/dxmt-pe/query-park.json)
 fi

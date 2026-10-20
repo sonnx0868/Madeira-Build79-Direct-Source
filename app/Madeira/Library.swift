@@ -993,6 +993,7 @@ enum ExternalGameCompatibility {
     static func prepare(_ entry: LibraryEntry) -> [String] {
         clearStrictMemory()
         clearAutomaticMipClamp()
+        let losslessResidency = configureTextureResidency(entry)
         SDLGamepadPolicy.clearPrevious()
         unsetenv("_MADEIRA_OPENGL_ANGLE_MODE")
         unsetenv("_MADEIRA_LUA51_GC64")
@@ -1029,7 +1030,7 @@ enum ExternalGameCompatibility {
         // Store entries name a directory and return below before EXE-only
         // compatibility work. Memory protection must also reach Unity games
         // launched by Steam, without enabling unrelated CPU/renderer tweaks.
-        if detectedEngine == "Unity", entry.unityOptimizations != false,
+        if detectedEngine == "Unity", !losslessResidency, entry.unityOptimizations != false,
            MadeiraConfig.flag("MADEIRA_UNITY_OPTIMIZATIONS"), enableUnityMipClamp() {
             applied.append("unity-mip-pressure")
         }
@@ -1145,6 +1146,26 @@ enum ExternalGameCompatibility {
             .appendingPathComponent(entry.launchRelativePath)
         return FileManager.default.fileExists(atPath:
             executable.deletingLastPathComponent().appendingPathComponent("UnityPlayer.dll").path)
+    }
+
+    private static func configureTextureResidency(_ entry: LibraryEntry) -> Bool {
+        // Clear only our prior automatic export; an explicit cfg/environment
+        // value wins. Apply before the first Metal resource is created.
+        if let previous = getenv("_MADEIRA_RESIDENCY_PROFILE").map({ String(cString: $0) }),
+           getenv("MADEIRA_TEXTURE_RESIDENCY").map({ String(cString: $0) }) == previous {
+            unsetenv("MADEIRA_TEXTURE_RESIDENCY")
+        }
+        let executable = URL(fileURLWithPath: entry.launchRelativePath).lastPathComponent.lowercased()
+        let candidate = entry.desktop != true && (entry.steamAppID == 3097560 ||
+            ["liar's bar.exe", "liarsbar.exe"].contains(executable))
+        let selected = MadeiraConfig.get("env.MADEIRA_TEXTURE_RESIDENCY") ??
+            getenv("MADEIRA_TEXTURE_RESIDENCY").map { String(cString: $0) } ?? (candidate ? "1" : "0")
+        setenv("MADEIRA_TEXTURE_RESIDENCY", selected, 1)
+        setenv("_MADEIRA_RESIDENCY_PROFILE", selected, 1)
+        if candidate {
+            LogStore.shared.log("[texture-residency-profile-v1] enabled=\(selected) cold-bc=lossless resolution-and-texture-size=unchanged")
+        }
+        return selected == "1"
     }
 
     /// DXMT leaves 64-bit textures alone by default. Unity streams many large

@@ -754,6 +754,8 @@ static void madeira_prepare_opengl_backend(void) {
     if (warmup) setenv("MADEIRA_SHADER_WARMUP", warmup, 1);
     const char *light = getenv("_MADEIRA_LIGHT_EFFECTS_PROFILE");
     if (light) setenv("MADEIRA_LIGHT_EFFECTS", light, 1);
+    const char *residency = getenv("_MADEIRA_RESIDENCY_PROFILE");
+    if (residency) setenv("MADEIRA_TEXTURE_RESIDENCY", residency, 1);
     const char *gameGraphics = getenv("_MADEIRA_GAME_GRAPHICS_PROFILE");
     setenv("MADEIRA_GAME_GRAPHICS_PROFILE", gameGraphics ? gameGraphics : "0", 1);
     const char *pipelines = getenv("_MADEIRA_PIPELINE_CACHE_DIR_PROFILE");

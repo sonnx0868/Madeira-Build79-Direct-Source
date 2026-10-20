@@ -24,6 +24,7 @@ python3 "$root/tools/dxmt-retirement-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/dxmt-present-resource-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/dxmt-depth-retention-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/dxmt-upload-batching-bundle.py" --root "$root" || missing=1
+python3 "$root/tools/dxmt-residency-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/xinput-host-authority-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/win32u-input-wake-bundle.py" --root "$root" || missing=1
 need() { if [[ ! -s "$root/$1" ]]; then echo "MISSING: $1"; missing=1; fi; }
