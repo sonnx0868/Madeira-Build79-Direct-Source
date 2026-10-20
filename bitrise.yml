@@ -15,13 +15,16 @@ app:
     - XCODE_SCHEME: Madeira
     - APP_CONFIGURATION: Debug
     - JOBS: '4'
-    - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build873-96c620b/Madeira-v0.1.6-native-deps-build873.zip
-    - MADEIRA_NATIVE_DEPS_SHA256: 7f424e1726393f31b777e011499528970b2683bb4cae124500c274b01f91c3dc
+    - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build875-82d08f2/Madeira-v0.1.6-native-deps-build875.zip
+    - MADEIRA_NATIVE_DEPS_SHA256: 41c4a98894a82c767bb69194bd6d5ba8882facbaec7d74b85b5d8357bf50453c
 
 workflows:
   madeira-v016-alias-refresh:
     title: Fix native helper alias overflow and build IPA
     description: Test alias registration with sanitizers and refresh virtual.o from the verified873 bundle.
+    envs:
+      - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build873-96c620b/Madeira-v0.1.6-native-deps-build873.zip
+      - MADEIRA_NATIVE_DEPS_SHA256: 7f424e1726393f31b777e011499528970b2683bb4cae124500c274b01f91c3dc
     steps:
       - git-clone@8:
           inputs:
@@ -48,7 +51,7 @@ workflows:
     title: Rebuild dependency-safe buffer upload batching and IPA
     description: Refresh ARM64EC D3D11 while preserving the verified native shader compiler and runtime.
     # The incremental refresh verifies the unmodified 868 baseline. Normal app
-    # builds consume the already verified 873 bundle pinned above.
+    # builds consume the already verified bundle pinned above.
     envs:
       - MADEIRA_NATIVE_DEPS_URL: https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build868-ed78eaf/Madeira-v0.1.6-native-deps-build868.zip
       - MADEIRA_NATIVE_DEPS_SHA256: ac5afe4e37b6a79a51cc099ebd6b8fec2876a08ee166298c55aff5868a29638b
