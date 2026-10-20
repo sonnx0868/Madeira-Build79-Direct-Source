@@ -130,7 +130,8 @@ MadeiraGPUTraceStatus madeira_gpu_trace_status(void) {
     pthread_mutex_lock(&trace_lock);
     if (madeira_trace_expired(&trace_policy, NSProcessInfo.processInfo.systemUptime))
         trace_finish(@"GPU capture exceeded 15 seconds; this sample is incomplete.");
-    MadeiraGPUTraceStatus result = {trace_policy.phase, trace_policy.buffers, trace_policy.frames, trace_policy.started};
+    MadeiraGPUTraceStatus result = {trace_policy.phase, trace_policy.buffers, trace_policy.frames,
+        trace_policy.started, trace_policy.phase == MGTraceComplete};
     if (result.phase == MGTraceComplete && stage_waiting()) result.phase = MGTraceRecording;
     pthread_mutex_unlock(&trace_lock); return result;
 }

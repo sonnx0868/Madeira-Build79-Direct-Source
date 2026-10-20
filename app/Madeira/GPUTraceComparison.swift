@@ -164,13 +164,10 @@ struct GPUTraceDropPolicy {
             GPUTraceNative.poll { [self] result in
                 guard token == generation, recording, let kind = lastCapture else { return }
                 polling = false
-                if result.0 == 4 || result.0 == 5 {
-                    manifest[kind] = ["file": "\(kind).gputrace", "complete": result.0 == 4, "buffers": result.1,
-                                      "frames": result.2, "captureUptime": result.3, "error": result.4,
-                                      "stageTimingsFile": "\(kind)-stages.json", "stageTimingsRole": "following-frame",
-                                      "finishedAt": ISO8601DateFormatter().string(from: Date())]
+                if result.phase == 4 || result.phase == 5 {
+                    manifest[kind] = captureRecord(kind, result)
                     lastCapture = nil
-                    if result.0 == 5 { interrupt(result.4); return }
+                    if result.phase == 5 { interrupt(result.error); return }
                     if kind == "smooth" && !singleSample {
                         policy.capturedReference(at: ProcessInfo.processInfo.systemUptime); canCaptureSlow = true
                         message = "Reference sample saved. Keep playing in the same scene; a sustained 20% FPS drop triggers the second sample, or use Capture low FPS now."
@@ -185,10 +182,16 @@ struct GPUTraceDropPolicy {
                         GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder)
                         if kind == "slow" || singleSample { restoreSaved(prefer: folder) }
                     }
-                    LogStore.shared.log("[gpu-trace-pair] sample=\(kind) complete=1 buffers=\(result.1) frames=\(result.2)")
+                    LogStore.shared.log("[gpu-trace-pair] sample=\(kind) complete=1 buffers=\(result.buffers) frames=\(result.frames)")
                 }
             }
         } else if !manualScheduled, let kind = policy.sample(fps: fps, at: now, eligible: usable) { capture(kind) }
+    }
+    private func captureRecord(_ kind: String, _ result: GPUTraceNative.Status) -> [String: Any] {
+        ["file": "\(kind).gputrace", "complete": result.captureComplete, "buffers": result.buffers,
+         "frames": result.frames, "captureUptime": result.started, "error": result.error,
+         "stageTimingsFile": "\(kind)-stages.json", "stageTimingsRole": "following-frame",
+         "finishedAt": ISO8601DateFormatter().string(from: Date())]
     }
     private func capture(_ kind: String) {
         guard recording, !busy, lastCapture == nil, let folder = activeFolder else { return }
@@ -239,11 +242,30 @@ struct GPUTraceDropPolicy {
         recording = false; busy = true; canCaptureSlow = false; polling = false; manualScheduled = false
         timer?.invalidate(); timer = nil; message = reason
         manifest["interrupted"] = reason
-        if let kind = lastCapture { manifest[kind] = ["file": "\(kind).gputrace", "complete": false, "error": reason] }
-        lastCapture = nil; persist()
-        if let folder = activeFolder { GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder) }
         let token = generation
-        GPUTraceNative.cancel { [self] in if token == generation { busy = false } }
+        // Metal may already have saved both frames while the following-frame
+        // timing pass (or its file write) still makes poll report recording.
+        // Read completion after serial cancellation before publishing metadata.
+        GPUTraceNative.cancel { [self] result in
+            guard token == generation else { return }
+            var completedRecording = false
+            if let kind = lastCapture {
+                manifest[kind] = captureRecord(kind, result)
+                if result.captureComplete {
+                    LogStore.shared.log("[gpu-trace-pair] sample=\(kind) complete=1 buffers=\(result.buffers) frames=\(result.frames) recording-interrupted=1")
+                    if kind == "slow" || singleSample {
+                        completedRecording = true
+                        message = "GPU sample saved. Share the completed recording using Share GPU trace ZIP."
+                    }
+                }
+            }
+            lastCapture = nil; persist()
+            if let folder = activeFolder {
+                GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder)
+                restoreSaved(prefer: completedRecording ? folder : savedFolder)
+            }
+            busy = false
+        }
     }
     private func persist() {
         guard let folder = activeFolder else { return }
@@ -292,6 +314,7 @@ struct GPUTraceDropPolicy {
 /// Enqueue synchronously from main so request/cancel/new-session cannot reorder
 /// across detached tasks. Metal stop/serialization never blocks UIKit's thread.
 enum GPUTraceNative {
+    typealias Status = (phase: Int, buffers: Int, frames: Int, started: Double, error: String, captureComplete: Bool)
     private static let queue = DispatchQueue(label: "madeira.gpu-trace.control", qos: .userInitiated)
     @MainActor static func request(_ file: URL, done: @escaping @MainActor (Bool, String) -> Void) {
         queue.async {
@@ -300,20 +323,49 @@ enum GPUTraceNative {
             DispatchQueue.main.async { done(accepted, error) }
         }
     }
-    @MainActor static func poll(_ done: @escaping @MainActor ((Int, Int, Int, Double, String)) -> Void) {
+    private static func status() -> Status {
+        let value = madeira_gpu_trace_status()
+        return (Int(value.phase), Int(value.buffers), Int(value.frames), value.started,
+                madeira_gpu_trace_error() ?? "", value.captureComplete != 0)
+    }
+    @MainActor static func poll(_ done: @escaping @MainActor (Status) -> Void) {
         queue.async {
-            let value = madeira_gpu_trace_status()
-            let result = (Int(value.phase), Int(value.buffers), Int(value.frames), value.started, madeira_gpu_trace_error() ?? "")
+            let result = status()
             DispatchQueue.main.async { done(result) }
         }
     }
-    @MainActor static func cancel(_ done: @escaping @MainActor () -> Void) {
-        queue.async { madeira_gpu_trace_cancel(); DispatchQueue.main.async { done() } }
+    @MainActor static func cancel(_ done: @escaping @MainActor (Status) -> Void) {
+        queue.async {
+            madeira_gpu_trace_cancel()
+            finishCancellation(done)
+        }
+    }
+    private static func finishCancellation(_ done: @escaping @MainActor (Status) -> Void) {
+        let result = status()
+        if result.captureComplete && result.phase == 3 {
+            // The cancelled timing sidecar writes on a utility queue. Keep
+            // sharing disabled until it is ready alongside the raw document.
+            queue.asyncAfter(deadline: .now() + .milliseconds(20)) { finishCancellation(done) }
+        } else {
+            DispatchQueue.main.async { done(result) }
+        }
     }
 }
 
 enum GPUTraceFiles {
     private static let queue = DispatchQueue(label: "madeira.gpu-trace.files", qos: .utility)
+    private static func isTraceResourceAlias(_ file: URL, in folder: URL) -> Bool {
+        let root = folder.standardizedFileURL.path + "/"
+        guard file.path.hasPrefix(root) else { return false }
+        let relative = file.path.dropFirst(root.count).split(separator: "/")
+        guard relative.count > 1, relative[0] == "smooth.gputrace" || relative[0] == "slow.gputrace",
+              let name = try? FileManager.default.destinationOfSymbolicLink(atPath: file.path),
+              !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\") else { return false }
+        let target = file.deletingLastPathComponent().appendingPathComponent(name)
+        guard target.resolvingSymlinksInPath().standardizedFileURL == target.standardizedFileURL,
+              let values = try? target.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
+        return values.isRegularFile == true && values.isSymbolicLink != true
+    }
     static func savedComparisons(in root: URL) async -> [GPUTraceSavedComparison] {
         await withCheckedContinuation { continuation in
             queue.async {
@@ -408,8 +460,13 @@ enum GPUTraceFiles {
                     var count = 0
                     for case let file as URL in walker {
                         count += 1
-                        guard count <= 100_000, try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else {
-                            throw SupportError.message("The comparison contains a symbolic link or too many files.")
+                        let relative = String(file.path.dropFirst(folder.path.count + 1))
+                        guard count <= 100_000 else {
+                            throw SupportError.message("The comparison exceeds the 100,000-file limit at \(relative).")
+                        }
+                        if try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true,
+                           !isTraceResourceAlias(file, in: folder) {
+                            throw SupportError.message("The comparison contains an unsupported symbolic link: \(relative).")
                         }
                     }
                     let sessionLog = folder.appendingPathComponent("session.txt")

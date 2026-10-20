@@ -1,7 +1,9 @@
 // Public Metal capture only. No register access, guest writes or frame skipping.
 #pragma once
 #include <stdint.h>
-typedef struct { int phase; unsigned buffers, frames; double started; } MadeiraGPUTraceStatus;
+// phase waits for the following-frame timing file; captureComplete describes
+// the raw Metal document independently, including while timings are cancelled.
+typedef struct { int phase; unsigned buffers, frames; double started; int captureComplete; } MadeiraGPUTraceStatus;
 int madeira_gpu_trace_request(const char *path);
 void madeira_gpu_trace_cancel(void);
 MadeiraGPUTraceStatus madeira_gpu_trace_status(void);
