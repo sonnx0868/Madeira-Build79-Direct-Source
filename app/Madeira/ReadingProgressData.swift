@@ -84,7 +84,9 @@ enum ReadingProgressFiles {
         let file = folder.appendingPathComponent(name)
         if let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
            attributes[.type] as? FileAttributeType == .typeSymbolicLink { throw Failure.unsafePath }
-        guard file.resolvingSymlinksInPath().standardizedFileURL.deletingLastPathComponent() == folder.resolvingSymlinksInPath().standardizedFileURL else {
+        // Foundation URL equality includes directory hints/trailing slashes.
+        // Compare canonical filesystem paths, as callers may omit that hint.
+        guard file.resolvingSymlinksInPath().standardizedFileURL.deletingLastPathComponent().path == folder.resolvingSymlinksInPath().standardizedFileURL.path else {
             throw Failure.unsafePath
         }
         return file
