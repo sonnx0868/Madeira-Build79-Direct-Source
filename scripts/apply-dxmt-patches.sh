@@ -2,6 +2,10 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+upload_batching_patch="$root/patches/dxmt-upload-batching.patch"
+if git -C "$root/dxmt" apply --reverse --check "$upload_batching_patch" >/dev/null 2>&1; then
+    git -C "$root/dxmt" apply --reverse "$upload_batching_patch"
+fi
 depth_retention_patch="$root/patches/dxmt-depth-rename-retention.patch"
 if git -C "$root/dxmt" apply --reverse --check "$depth_retention_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$depth_retention_patch"
@@ -60,3 +64,6 @@ echo 'Applied DXMT Present lock and native creation lifetime fix'
 git -C "$root/dxmt" apply --check "$depth_retention_patch"
 git -C "$root/dxmt" apply "$depth_retention_patch"
 echo 'Applied completed depth backing retirement'
+git -C "$root/dxmt" apply --check "$upload_batching_patch"
+git -C "$root/dxmt" apply "$upload_batching_patch"
+echo 'Applied independent buffer upload batching'

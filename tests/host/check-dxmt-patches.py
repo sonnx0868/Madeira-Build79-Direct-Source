@@ -21,7 +21,8 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-light-graphics.patch", "patches/dxmt-guarded-pcf.patch",
                "patches/dxmt-retirement-lifetime.patch",
                "patches/dxmt-gpu-stages.patch", "patches/dxmt-present-resource-lifetime.patch",
-               "patches/dxmt-depth-rename-retention.patch")
+               "patches/dxmt-depth-rename-retention.patch",
+               "patches/dxmt-upload-batching.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",
                 "src/d3d9/d3d9_shader.cpp", "src/dxmt/dxmt_tasks.hpp", "src/dxmt/dxmt_shader_cache.hpp",
@@ -88,24 +89,28 @@ def patched_sources(root):
         # including the lifecycle patch AFTER all gameplay changes have landed.
         # Verify the dependent top layer first, then validate all older layers
         # against the exact source they extend. Restore it before returning.
-        depth_retention_patch = patches[-1]
+        upload_batching_patch = patches[-1]
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(upload_batching_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(upload_batching_patch)], check=True)
+        depth_retention_patch = patches[-2]
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(depth_retention_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(depth_retention_patch)], check=True)
-        present_resource_patch = patches[-2]
+        present_resource_patch = patches[-3]
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(present_resource_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(present_resource_patch)], check=True)
-        stage_patch = patches[-3]
+        stage_patch = patches[-4]
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(stage_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(stage_patch)], check=True)
-        retirement_patch = patches[-4]
+        retirement_patch = patches[-5]
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(retirement_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(retirement_patch)], check=True)
-        for path in patches[:-4]:
+        for path in patches[:-5]:
             subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(path)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(retirement_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(stage_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(present_resource_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(depth_retention_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", str(upload_batching_patch)], check=True)
         return {name: (checkout / name).read_text(encoding="utf-8") for name in SOURCE_FILES}
 
 
