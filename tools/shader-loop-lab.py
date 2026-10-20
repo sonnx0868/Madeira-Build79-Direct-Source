@@ -91,6 +91,9 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     run([work/'decrypt',encrypted,archive])
     inputs = work / 'inputs'; inputs.mkdir()
     pcf_fixture = os.environ.get('MADEIRA_SHADER_LAB_PCF') == '1'
+    zero_fixture = os.environ.get('MADEIRA_SHADER_LAB_ZERO') == '1'
+    if zero_fixture and not pcf_fixture:
+        raise RuntimeError('Zero-light experiment requires the controlled lighting fixture')
     fixture_files = {'pcf-replay-profile.json', 'pcf-replay.m'} if pcf_fixture else set()
     with zipfile.ZipFile(archive) as z:
         assert len(z.infolist()) <= 64 and sum(i.file_size for i in z.infolist()) < 64 * 1024**2
@@ -110,6 +113,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
     transforms = []
     modes = ['baseline','loops','cfg','o2','guarded']
     if pcf_fixture: modes += ['pcf-control', 'pcf']
+    if zero_fixture: modes += ['zero']
     if os.environ.get('MADEIRA_SHADER_LAB_CONSTANTS'): modes += ['specialize']
     if os.environ.get('MADEIRA_SHADER_LAB_EMBEDDED_SRV'): modes += ['embed','constant']
     for mode in modes:
@@ -122,17 +126,21 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
         # candidate can be inspected without another game capture.
         (out/'pcf-transform-results.json').write_text(json.dumps(transforms, indent=2))
         active = 'D7DA7DFC00C174B'
-        for mode in ['guarded', 'pcf-control', 'pcf']:
+        for mode in ['guarded', 'pcf-control', 'pcf'] + (['zero'] if zero_fixture else []):
             shutil.copyfile(work/mode/(active+'.metallib'), out/(mode+'-'+active+'.air.metallib'))
         row = next(value for value in transforms if value['mode'] == 'pcf' and value['input'] == active)
         if row['guarded_pcf_chains'] != 2:
             raise RuntimeError('Expected both audited PCF chains in active lighting kernel: '+json.dumps(row))
+        if zero_fixture:
+            row = next(value for value in transforms if value['mode'] == 'zero' and value['input'] == active)
+            if row['zero_light_guards'] != 1:
+                raise RuntimeError('Expected one proven zero-light region: '+json.dumps(row))
     if os.environ.get('MADEIRA_SHADER_LAB_OFFLINE') == '1':
         native = []
         for row in transforms:
             # Check every captured compute kernel affected by the production
             # change, rather than only the fog/stress pair used during research.
-            if row['mode'] not in (['baseline','guarded','pcf-control','pcf'] if pcf_fixture else ['baseline','guarded']): continue
+            if row['mode'] not in ((['baseline','guarded','pcf-control','pcf'] + (['zero'] if zero_fixture else [])) if pcf_fixture else ['baseline','guarded']): continue
             folder = work/row['mode']
             library = folder/(row['input']+'.metallib')
             script = folder/(row['input']+'.mtlp-json')

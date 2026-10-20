@@ -32,6 +32,11 @@ xcrun clang++ $("$llvm/bin/llvm-config" --cxxflags) -std=c++20 -O2 \
 python3 "$root/tests/host/check-guarded-pcf.py" \
   --llvm-config "$llvm/bin/llvm-config" \
   --cxx "$(xcrun --find clang++)" --cc "$(xcrun --find clang)"
+if [[ "${MADEIRA_SHADER_LAB_ZERO:-0}" == "1" ]]; then
+  python3 "$root/tests/host/check-zero-light-guard.py" \
+    --llvm-config "$llvm/bin/llvm-config" \
+    --cxx "$(xcrun --find clang++)" --cc "$(xcrun --find clang)"
+fi
 if ! xcrun --find metal-tt >/dev/null 2>&1; then
   xcodebuild -downloadComponent MetalToolchain
 fi
