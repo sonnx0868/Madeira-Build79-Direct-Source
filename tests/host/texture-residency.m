@@ -53,12 +53,43 @@ static void make_cold(id<MTLTexture> t) {
   assert(r && !r->users); r->last_use = 0; r->retry_after = 0;
 }
 
+// Keep the actual view inside an argument buffer across Empty/restore. The
+// translator uses this indirect path, so byte readback alone is insufficient.
+static NSData *sample_view(id<MTLTexture> view, id<MTLBuffer> arguments,
+                           id<MTLComputePipelineState> pipeline) {
+  id<MTLBuffer> pixels = [mdr_device newBufferWithLength:32*16 options:MTLResourceStorageModeShared];
+  id<MTLCommandBuffer> cb = [game_queue commandBuffer];
+  id<MTLComputeCommandEncoder> encoder = [cb computeCommandEncoder]; mdr_encoder(cb, encoder);
+  assert(mdr_use(encoder, view, NO));
+  [encoder useResource:view usage:MTLResourceUsageRead];
+  [encoder setComputePipelineState:pipeline];
+  [encoder setBuffer:arguments offset:0 atIndex:0];
+  [encoder setBuffer:pixels offset:0 atIndex:1];
+  [encoder dispatchThreads:MTLSizeMake(32,1,1) threadsPerThreadgroup:MTLSizeMake(32,1,1)];
+  [encoder endEncoding]; assert(mdr_commit(cb)); [cb commit]; [cb waitUntilCompleted];
+  assert(cb.status == MTLCommandBufferStatusCompleted); [mdr_lease(cb, NO) finish];
+  NSData *result = [NSData dataWithBytes:pixels.contents length:pixels.length];
+  [pixels release]; return result;
+}
+
 int main(void) {
   @autoreleasepool {
     setenv("MADEIRA_TEXTURE_RESIDENCY", "1", 1);
     id<MTLDevice> device = MTLCreateSystemDefaultDevice(); assert(device);
     assert(mdr_initialize(device));
     game_queue = [device newCommandQueue];
+    NSError *shader_error = nil;
+    id<MTLLibrary> library = [device newLibraryWithSource:
+      @"#include <metal_stdlib>\nusing namespace metal;\n"
+       "struct Args { texture2d_array<float> image [[id(0)]]; };\n"
+       "kernel void probe(const device Args &args [[buffer(0)]], device float4 *out [[buffer(1)]],"
+       "uint i [[thread_position_in_grid]]) { out[i] = args.image.read(uint2(i%8,(i/8)%4),i%2,i%4); }"
+       options:nil error:&shader_error];
+    assert(library && !shader_error);
+    id<MTLFunction> function = [library newFunctionWithName:@"probe"];
+    id<MTLComputePipelineState> pipeline = [device newComputePipelineStateWithFunction:function error:&shader_error];
+    assert(pipeline && !shader_error);
+    id<MTLArgumentEncoder> argument_encoder = [function newArgumentEncoderWithBufferIndex:0];
     mdr_running = YES; // manually drive the SAME worker deterministically
     mdr_target = 0;
     unsigned parity_cases = 0;
@@ -71,12 +102,17 @@ int main(void) {
         NSData *before = [read_texture(t, NO) retain];
         id<MTLTexture> view = [t newTextureViewWithPixelFormat:format[f]];
         assert(view); mdr_register_view(t, view);
+        id<MTLBuffer> arguments = [device newBufferWithLength:argument_encoder.encodedLength options:MTLResourceStorageModeShared];
+        [argument_encoder setArgumentBuffer:arguments offset:0];
+        [argument_encoder setTexture:view atIndex:0];
+        NSData *pixels_before = [sample_view(view, arguments, pipeline) retain];
         uint64_t resource_id = view.gpuResourceID._impl;
         make_cold(t);
         assert(mdr_checkpoint_one());
         fprintf(stderr, "fixture: format %u first eviction\n", f);
         MDRTexture *r = objc_getAssociatedObject(t, &mdr_texture_key);
         assert(r->empty && r->backing && !r->users);
+        assert([pixels_before isEqualToData:sample_view(view, arguments, pipeline)]);
         NSData *after = read_texture(view, YES);
         assert([before isEqualToData:after]);
         assert(view.gpuResourceID._impl == resource_id && !r->empty);
@@ -88,6 +124,16 @@ int main(void) {
         r->last_use = 0; assert(r->users == 1); assert(!mdr_checkpoint_one());
         [enc endEncoding];
         [mdr_lease(hold, NO) finish]; [hold release];
+        // A submitted buffer waiting on a real GPU event must stay pinned.
+        id<MTLSharedEvent> gate = [device newSharedEvent];
+        id<MTLCommandBuffer> pending = [game_queue commandBuffer];
+        [pending encodeWaitForEvent:gate value:1];
+        id<MTLBlitCommandEncoder> pending_encoder = [pending blitCommandEncoder];
+        mdr_encoder(pending, pending_encoder); assert(mdr_use(pending_encoder, view, NO));
+        [pending_encoder endEncoding]; assert(mdr_commit(pending)); [pending commit];
+        r->last_use = 0; assert(r->users == 1 && !mdr_checkpoint_one());
+        gate.signaledValue = 1; [pending waitUntilCompleted]; [mdr_lease(pending, NO) finish];
+        assert(!r->users); [gate release];
         // Disk failure leaves the live texture untouched and readable.
         [r dropBacking]; make_cold(t); mdr_test_disk_failure = YES;
         assert(!mdr_checkpoint_one()); assert(!r->empty && !r->backing);
@@ -112,10 +158,44 @@ int main(void) {
         make_cold(t); assert(mdr_checkpoint_one());
         assert([expected isEqualToData:read_texture(view, YES)]);
         ++parity_cases;
+        if (f == 0) {
+          // A write after GPU readback but during file IO invalidates the
+          // checkpoint generation. No old bytes may be restored over it.
+          [r dropBacking]; make_cold(t);
+          dispatch_semaphore_t copied = dispatch_semaphore_create(0);
+          dispatch_semaphore_t proceed = dispatch_semaphore_create(0);
+          dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+          mdr_test_after_snapshot = ^{
+            dispatch_semaphore_signal(copied);
+            assert(!dispatch_semaphore_wait(proceed, dispatch_time(DISPATCH_TIME_NOW, 5*NSEC_PER_SEC)));
+          };
+          dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0), ^{
+            @autoreleasepool { mdr_checkpoint_one(); dispatch_semaphore_signal(finished); }
+          });
+          assert(!dispatch_semaphore_wait(copied, dispatch_time(DISPATCH_TIME_NOW, 5*NSEC_PER_SEC)));
+          id<MTLCommandBuffer> concurrent = [game_queue commandBuffer];
+          id<MTLBlitCommandEncoder> wc = [concurrent blitCommandEncoder]; mdr_encoder(concurrent, wc);
+          assert(mdr_use(wc, t, YES));
+          memset(mdr_restore_buffer.contents, 0x3c, 256);
+          [wc copyFromBuffer:mdr_restore_buffer sourceOffset:0 sourceBytesPerRow:256 sourceBytesPerImage:0
+                 sourceSize:MTLSizeMake(4,4,1) toTexture:t destinationSlice:0 destinationLevel:0
+           destinationOrigin:MTLOriginMake(0,0,0)];
+          [wc endEncoding]; assert(mdr_commit(concurrent)); [concurrent commit]; [concurrent waitUntilCompleted];
+          [mdr_lease(concurrent, NO) finish];
+          dispatch_semaphore_signal(proceed);
+          assert(!dispatch_semaphore_wait(finished, dispatch_time(DISPATCH_TIME_NOW, 5*NSEC_PER_SEC)));
+          mdr_test_after_snapshot = nil;
+          assert(!r->empty && !r->backing && !r->snapshot);
+          memset(expected.mutableBytes, 0x3c, block);
+          assert([expected isEqualToData:read_texture(t, NO)]);
+          dispatch_release(copied); dispatch_release(proceed); dispatch_release(finished);
+        }
+        [pixels_before release]; [arguments release];
         [expected release]; [before release]; [view release]; [t release];
         fprintf(stderr, "fixture: format %u passed\n", f);
       }
     }
+    [argument_encoder release]; [pipeline release]; [function release]; [library release];
     // Native allocation/footprint reduction, not just a simulated byte counter.
     NSMutableArray *pool = [NSMutableArray new];
     for (unsigned i = 0; i < 48; ++i) {
@@ -158,6 +238,8 @@ int main(void) {
     assert(!mdr_use(enc, failed, NO)); [enc endEncoding];
     assert(mdr_failed(cb) && !mdr_commit(cb));
     mdr_test_restore_failure = NO;
+    id<MTLCommandBuffer> next = [game_queue commandBuffer];
+    assert(!mdr_commit(next) && mdr_failed(next));
     printf("{\"actualMetal\":true,\"parityCases\":%u,\"coldTextures\":%u,\"beforeFootprint\":%llu,\"afterFootprint\":%llu,"
            "\"beforeMetalAllocated\":%llu,\"afterMetalAllocated\":%llu,\"emptyBytes\":%llu,\"backingBytes\":%llu,"
            "\"restores\":%llu,\"restoreTotalMs\":%.3f,\"gameFPSMeasured\":false}\n",

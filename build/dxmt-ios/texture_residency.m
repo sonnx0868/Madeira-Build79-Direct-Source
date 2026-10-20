@@ -40,6 +40,7 @@ typedef struct {
 } MDRSubresource;
 
 static NSRecursiveLock *mdr_lock;
+static NSLock *mdr_restore_lock;
 static NSMapTable *mdr_registry;
 static dispatch_queue_t mdr_worker;
 static uint64_t mdr_registered, mdr_empty, mdr_backed, mdr_evictions, mdr_restores;
@@ -51,10 +52,12 @@ static id<MTLDevice> mdr_device;
 static id<MTLCommandQueue> mdr_queue;
 static id<MTLBuffer> mdr_snapshot_buffer, mdr_restore_buffer;
 static _Atomic BOOL mdr_available;
+static _Atomic BOOL mdr_device_failed;
 static uint64_t mdr_target;
 static NSTimeInterval mdr_idle_seconds = 10.0;
 #ifdef MADEIRA_RESIDENCY_TEST
 static BOOL mdr_test_disk_failure, mdr_test_restore_failure;
+static void (^mdr_test_after_snapshot)(void);
 #endif
 
 @interface MDRTexture : NSObject {
@@ -143,7 +146,10 @@ static BOOL mdr_initialize(id<MTLDevice> device) {
   static dispatch_once_t once;
   dispatch_once(&once, ^{
     mdr_lock = [NSRecursiveLock new];
-    mdr_registry = [[NSMapTable weakToStrongObjectsMapTable] retain];
+    mdr_restore_lock = [NSLock new];
+    // The resource association owns its record. The registry must not keep
+    // file mappings/byte counters alive after the last resource/view dies.
+    mdr_registry = [[NSMapTable weakToWeakObjectsMapTable] retain];
     mdr_worker = dispatch_queue_create("madeira.texture-checkpoint", DISPATCH_QUEUE_SERIAL);
     dispatch_set_target_queue(mdr_worker, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
     if (!device.hasUnifiedMemory || !device.supportsBCTextureCompression) return;
@@ -209,6 +215,7 @@ static void mdr_register_view(id<MTLTexture> parent, id<MTLTexture> view) {
 }
 
 static MDRLease *mdr_lease(id object, BOOL create) {
+  if (!mdr_available) return nil;
   MDRLease *lease = objc_getAssociatedObject(object, &mdr_lease_key);
   if (!lease && create && mdr_available) {
     lease = [[MDRLease alloc] init];
@@ -244,31 +251,40 @@ static void mdr_copy(id<MTLBlitCommandEncoder> encoder, id<MTLTexture> texture,
   }
 }
 
-// Called with mdr_lock held. The preallocated restore buffer cannot contend
-// with the snapshot worker's separate buffer. Never wait on a game queue here.
+// A lease already pins the resource. Serialize the shared restore buffer but
+// never hold mdr_lock across GPU completion: game completion handlers need
+// that lock to release their leases, including on a driver's shared callback
+// thread. The record stays Empty until restoration completes, so another
+// reader/writer must join this same restore lock before encoding its work.
 static BOOL mdr_restore(id<MTLTexture> texture, MDRTexture *record) {
   @autoreleasepool {
-  if (!record->empty) return YES;
-  if (!record->backing) return NO;
+  [mdr_restore_lock lock];
+  [mdr_lock lock];
+  if (!record->empty) { [mdr_lock unlock]; [mdr_restore_lock unlock]; return YES; }
+  if (!record->backing) { [mdr_lock unlock]; [mdr_restore_lock unlock]; return NO; }
 #ifdef MADEIRA_RESIDENCY_TEST
-  if (mdr_test_restore_failure) return NO;
+  if (mdr_test_restore_failure) { [mdr_lock unlock]; [mdr_restore_lock unlock]; return NO; }
 #endif
+  [mdr_lock unlock];
   NSTimeInterval begin = NSProcessInfo.processInfo.systemUptime;
   memcpy(mdr_restore_buffer.contents, record->backing, record->bytes);
   madvise(record->backing, record->mapped_bytes, MADV_DONTNEED);
   id<MTLCommandBuffer> command = [mdr_queue commandBuffer];
   id<MTLBlitCommandEncoder> encoder = [command blitCommandEncoder];
-  if (!encoder) return NO;
+  if (!encoder) { [mdr_restore_lock unlock]; return NO; }
   [texture setPurgeableState:MTLPurgeableStateNonVolatile];
   mdr_copy(encoder, texture, record, mdr_restore_buffer, YES);
   [encoder endEncoding];
   [command commit];
   [command waitUntilCompleted];
-  if (command.status != MTLCommandBufferStatusCompleted) return NO;
+  if (command.status != MTLCommandBufferStatusCompleted) { [mdr_restore_lock unlock]; return NO; }
+  [mdr_lock lock];
   record->empty = NO;
   mdr_empty -= record->allocation_bytes;
   ++mdr_restores;
   mdr_restore_ns += (NSProcessInfo.processInfo.systemUptime - begin) * 1e9;
+  [mdr_lock unlock];
+  [mdr_restore_lock unlock];
   return YES;
   }
 }
@@ -277,6 +293,7 @@ static BOOL mdr_restore(id<MTLTexture> texture, MDRTexture *record) {
 // record identity (not the view); its key also retains the exact native resource
 // used, keeping the parent alive until the command completes or is abandoned.
 static BOOL mdr_use(id encoder, id<MTLResource> resource, BOOL write) {
+  if (!mdr_available) return YES;
   MDRTexture *record = objc_getAssociatedObject(resource, &mdr_texture_key);
   if (!record) return !mdr_failed(encoder);
   MDRLease *lease = mdr_lease(encoder, NO);
@@ -284,9 +301,8 @@ static BOOL mdr_use(id encoder, id<MTLResource> resource, BOOL write) {
   id<MTLTexture> root = (id<MTLTexture>)resource;
   while (root.parentTexture) root = root.parentTexture;
   [mdr_lock lock];
-  if (lease->failed || lease->retired || !mdr_restore(root, record)) {
+  if (lease->failed || lease->retired || mdr_device_failed) {
     lease->failed = YES;
-    fprintf(stderr, "[texture-residency-v1] restore failed; cancelling affected command buffer\n");
     [mdr_lock unlock];
     return NO;
   }
@@ -295,14 +311,37 @@ static BOOL mdr_use(id encoder, id<MTLResource> resource, BOOL write) {
     [lease->textures setObject:record forKey:root];
   }
   record->last_use = NSProcessInfo.processInfo.systemUptime;
+  BOOL restore = record->empty;
+  [mdr_lock unlock];
+  if (restore && !mdr_restore(root, record)) {
+    [mdr_lock lock]; lease->failed = YES; mdr_device_failed = YES; [mdr_lock unlock];
+    fprintf(stderr, "[texture-residency-v1] restore failed; cancelling affected and subsequent commands\n");
+    return NO;
+  }
+  [mdr_lock lock];
+  id<MTLCommandBuffer> snapshot_command = nil;
   if (write) {
     // A readback uses another queue. Serialize only a concurrent WRITE with
     // that readback, not ordinary sampling or the subsequent file write.
-    [record->snapshot_command waitUntilCompleted];
+    snapshot_command = [record->snapshot_command retain];
     ++record->generation;
     [record dropBacking];
   }
   [mdr_lock unlock];
+  [snapshot_command waitUntilCompleted];
+  [snapshot_command release];
+  return YES;
+}
+
+static BOOL mdr_make_empty(id<MTLTexture> texture, MDRTexture *record) {
+  [texture setPurgeableState:MTLPurgeableStateEmpty];
+  if ([texture setPurgeableState:MTLPurgeableStateKeepCurrent] != MTLPurgeableStateEmpty) {
+    record->retry_after = NSProcessInfo.processInfo.systemUptime + 30;
+    return NO;
+  }
+  record->empty = YES;
+  mdr_empty += record->allocation_bytes;
+  ++mdr_evictions;
   return YES;
 }
 
@@ -353,19 +392,19 @@ static BOOL mdr_checkpoint_one(void) {
     MDRTexture *r = [mdr_registry objectForKey:candidate];
     if (!r || r->users || r->empty || r->snapshot || now < r->retry_after ||
         now - r->last_use < mdr_idle_seconds) continue;
-    if (!record || r->last_use < record->last_use) { record = r; texture = candidate; }
+    if (!record || r->last_use < record->last_use) {
+      [texture release]; texture = [candidate retain]; record = r;
+    }
   }
   if (!record) { [mdr_lock unlock]; return NO; }
   if (record->backing) {
-    [texture setPurgeableState:MTLPurgeableStateEmpty];
-    record->empty = YES;
-    mdr_empty += record->allocation_bytes;
-    ++mdr_evictions;
+    BOOL evicted = mdr_make_empty(texture, record);
+    [texture release];
     [mdr_lock unlock];
-    return YES;
+    return evicted;
   }
-  if (mdr_backed + record->bytes > MDR_BACKING_LIMIT) { [mdr_lock unlock]; return NO; }
-  [texture retain]; [record retain];
+  if (mdr_backed + record->bytes > MDR_BACKING_LIMIT) { [texture release]; [mdr_lock unlock]; return NO; }
+  [record retain];
   record->snapshot = YES;
   generation = record->generation;
   selected_use = record->last_use;
@@ -380,6 +419,9 @@ static BOOL mdr_checkpoint_one(void) {
   }
   [mdr_lock unlock];
   [command waitUntilCompleted];
+#ifdef MADEIRA_RESIDENCY_TEST
+  if (mdr_test_after_snapshot) mdr_test_after_snapshot();
+#endif
   void *mapping = encoder && command.status == MTLCommandBufferStatusCompleted
                       ? mdr_checkpoint(record, mdr_snapshot_buffer.contents) : NULL;
   [mdr_lock lock];
@@ -389,10 +431,7 @@ static BOOL mdr_checkpoint_one(void) {
     record->backing = mapping;
     mdr_backed += record->bytes;
     if (!record->users && record->last_use == selected_use) {
-      [texture setPurgeableState:MTLPurgeableStateEmpty];
-      record->empty = YES;
-      mdr_empty += record->allocation_bytes;
-      ++mdr_evictions;
+      mdr_make_empty(texture, record);
     }
   } else {
     if (mapping) munmap(mapping, record->mapped_bytes);
@@ -431,7 +470,11 @@ static void mdr_schedule(void) {
 
 static BOOL mdr_commit(id<MTLCommandBuffer> command) {
   MDRLease *lease = mdr_lease(command, NO);
+  // Do not poison already committed buffers: their GPU work must finish
+  // before releasing resources. Cancel only new submissions after a failure.
+  if (mdr_device_failed && !lease) lease = mdr_lease(command, YES);
   if (lease) {
+    if (mdr_device_failed) lease->failed = YES;
     if (lease->failed) { [lease finish]; return NO; }
     [command addCompletedHandler:^(id<MTLCommandBuffer> completed) { (void)completed; [lease finish]; }];
   }
