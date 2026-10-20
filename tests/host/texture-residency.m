@@ -132,6 +132,16 @@ int main(void) {
     while (mdr_checkpoint_one()) ++evicted;
     assert(evicted == 48);
     uint64_t paged = footprint(), metal_paged = device.currentAllocatedSize;
+    fprintf(stderr, "fixture: after Empty footprint=%lluMiB allocated=%lluMiB beforeAllocated=%lluMiB\n",
+            (unsigned long long)(paged/MDR_MIB), (unsigned long long)(metal_paged/MDR_MIB),
+            (unsigned long long)(metal_full/MDR_MIB));
+    for (unsigned i = 0; i < 20 && full <= paged + 512*MDR_MIB; ++i) {
+      usleep(50000); paged = footprint();
+    }
+    NSUInteger states[5] = {0};
+    for (id<MTLTexture> t in pool) { NSUInteger state = [t setPurgeableState:MTLPurgeableStateKeepCurrent]; if (state < 5) ++states[state]; }
+    fprintf(stderr, "fixture: after settle footprint=%lluMiB states=%lu,%lu,%lu,%lu,%lu\n",
+            (unsigned long long)(paged/MDR_MIB), states[0], states[1], states[2], states[3], states[4]);
     assert(mdr_empty >= expected_bytes);
     // The resident allocation must actually leave physical memory. Allow
     // native allocator/bookkeeping variance, but require >512 MiB reclaimed.
