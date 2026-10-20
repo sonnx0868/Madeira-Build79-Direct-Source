@@ -98,10 +98,14 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
 @main struct Check {
  static func reject(_ folder: URL, path: String? = nil) async {
   do { let zip=try await GPUTraceFiles.export(folder:folder);try? FileManager.default.removeItem(at:zip);assertionFailure("Unsafe fixture exported") }
-  catch { if let path { assert(error.localizedDescription.contains(path), error.localizedDescription) } }
+  catch { if let path { assert(error.localizedDescription.contains("symbolic link: "+path), error.localizedDescription) } }
  }
  static func main() async throws {
-  let fm=FileManager.default, root=fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  let fm=FileManager.default, temporary=fm.temporaryDirectory.resolvingSymlinksInPath()
+  // Exercise the public /var spelling even when the runner's TMPDIR uses
+  // /private/var. Enumeration returns canonical URLs on Darwin.
+  let temporaryPath=temporary.path.hasPrefix("/private/var/") ? String(temporary.path.dropFirst("/private".count)) : temporary.path
+  let root=URL(fileURLWithPath:temporaryPath,isDirectory:true).appendingPathComponent(UUID().uuidString)
   try fm.createDirectory(at: root, withIntermediateDirectories: true)
   defer { try? fm.removeItem(at: root) }
   let log=root.appendingPathComponent("input.txt"), folder=root.appendingPathComponent("00000000-0000-0000-0000-000000000001",isDirectory:true)
@@ -138,7 +142,7 @@ enum DiagnosticCompanionLogs { struct Source { let url: URL; let name: String } 
    assert(texture==Data((kind+" TEXTURE PAYLOAD").utf8))
   }
   try Data("DIFFERENT GAME SESSION".utf8).write(to:log)
-  let zip2=try await GPUTraceFiles.export(folder:folder);defer {try? fm.removeItem(at:zip2)}
+  let zip2=try await GPUTraceFiles.export(folder:folder.resolvingSymlinksInPath());defer {try? fm.removeItem(at:zip2)}
   let capturedLog=try String(contentsOf:folder.appendingPathComponent("session.txt"),encoding:.utf8)
   assert(capturedLog=="ORIGINAL CAPTURED SESSION")
   // Reproduce 727: the latest pointer names a newer unfinished run, while

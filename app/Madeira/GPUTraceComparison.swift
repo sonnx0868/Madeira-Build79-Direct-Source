@@ -355,7 +355,7 @@ enum GPUTraceNative {
 enum GPUTraceFiles {
     private static let queue = DispatchQueue(label: "madeira.gpu-trace.files", qos: .utility)
     private static func isTraceResourceAlias(_ file: URL, in folder: URL) -> Bool {
-        let root = folder.standardizedFileURL.path + "/"
+        let root = folder.path + "/"
         guard file.path.hasPrefix(root) else { return false }
         let relative = file.path.dropFirst(root.count).split(separator: "/")
         guard relative.count > 1, relative[0] == "smooth.gputrace" || relative[0] == "slow.gputrace",
@@ -445,9 +445,14 @@ enum GPUTraceFiles {
             queue.async {
                 do {
                     let fm = FileManager.default
-                    guard folder.resolvingSymlinksInPath().standardizedFileURL == folder.standardizedFileURL else {
+                    let canonicalFolder = folder.resolvingSymlinksInPath().standardizedFileURL
+                    guard canonicalFolder == folder.standardizedFileURL else {
                         throw SupportError.message("The GPU comparison folder must not be a symbolic link.")
                     }
+                    // Foundation can enumerate /var using its /private/var
+                    // spelling. Use the validated canonical root throughout;
+                    // resolving child URLs would hide the links we must check.
+                    let folder = canonicalFolder
                     _ = try completeManifest(folder: folder)
                     NSLog("[gpu-trace-pair] export-start pair=%@", folder.lastPathComponent)
                     let allowed: Set<String> = ["smooth.gputrace", "slow.gputrace", "manifest.json", "session.txt",
