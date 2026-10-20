@@ -27,6 +27,12 @@ def config(*flags):
 
 if not config('--version').startswith('15.'):
     raise SystemExit('This regression requires LLVM15, matching the DXMT compiler')
+sdk_flags = []
+if sys.platform == 'darwin':
+    # xcrun normally supplies SDKROOT. The workflow passes absolute compiler
+    # paths, so carry the selected SDK explicitly into both compiler calls.
+    sdk = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
+    sdk_flags = ['-isysroot', sdk]
 
 harness = r'''
 #include <assert.h>
@@ -67,11 +73,11 @@ with tempfile.TemporaryDirectory(prefix='madeira-pcf-guard-') as temporary:
     cflags = shlex.split(config('--cxxflags'))
     libs = shlex.split(config('--ldflags', '--system-libs', '--libs', 'core', 'passes'))
     rpath = ['-Wl,-rpath,' + config('--libdir')] if sys.platform != 'win32' else []
-    subprocess.run([args.cxx, *cflags, '-std=c++17', '-O2', '-I' + str(root / 'build/dxmt-ios'),
+    subprocess.run([args.cxx, *cflags, *sdk_flags, '-std=c++17', '-O2', '-I' + str(root / 'build/dxmt-ios'),
                     str(root / 'tests/host/guarded-pcf.cpp'), *libs, *rpath, '-o', str(check)], check=True)
     subprocess.run([str(check), str(ir)], check=True, timeout=60)
     source = out / 'native.c'
     source.write_text(harness, encoding='utf-8')
     native = out / ('native.exe' if os.name == 'nt' else 'native')
-    subprocess.run([args.cc, '-O0', str(ir), str(source), '-lm', '-o', str(native)], check=True)
+    subprocess.run([args.cc, *sdk_flags, '-O0', str(ir), str(source), '-lm', '-o', str(native)], check=True)
     subprocess.run([str(native)], check=True, timeout=30)
