@@ -70,6 +70,7 @@ assert(q.reference == nil)
 print("PASS: stable gameplay baseline, sustained relative drop, menu exclusion and post-capture cooldown")
 assert(!q.setManualReference(.nan) && !q.setManualReference(0))
 assert(q.setManualReference(42) && q.reference == 42)
+assert(q.setManualReference(11) && q.reference == 11)
 ''',encoding='utf-8')
         subprocess.run([swift,str(source),'-o',str(binary)],check=True)
         subprocess.run([str(binary)],check=True)
@@ -153,18 +154,28 @@ enum UIApplication {
  static let willResignActiveNotification=Notification.Name("fixture-inactive")
  static let didBecomeActiveNotification=Notification.Name("fixture-active")
 }
-func madeira_frame_count() -> UInt64 { 0 }
+func madeira_frame_count() -> UInt64 { UInt64(ProcessInfo.processInfo.systemUptime * 11) }
 func madeira_get_vsync_locked() -> Int32 { 1 }
 enum GPUTraceNative {
+ @MainActor static var requests = 0
  @MainActor static func cancel(_ done: @escaping @MainActor () -> Void) { done() }
- @MainActor static func request(_ file: URL, done: @escaping @MainActor (Bool,String) -> Void) { done(true, "") }
- @MainActor static func poll(_ done: @escaping @MainActor ((Int,Int,Int,Double,String)) -> Void) { done((0,0,0,0,"")) }
+ @MainActor static func request(_ file: URL, done: @escaping @MainActor (Bool,String) -> Void) {
+  requests += 1
+  try! Data("CONTROLLED GPU CAPTURE FIXTURE; NOT REAL TIMINGS".utf8).write(to:file)
+  done(true, "")
+ }
+ @MainActor static func poll(_ done: @escaping @MainActor ((Int,Int,Int,Double,String)) -> Void) { done((4,2,2,ProcessInfo.processInfo.systemUptime,"")) }
 }
 @MainActor final class LogStore {
- static let shared=LogStore(); var source=URL(fileURLWithPath:"/unused")
+ static let shared=LogStore(); var source=URL(fileURLWithPath:"/unused");var title="REPLACED"
  func fileForUpload(previous:Bool)->URL {source}
- func metadataForUpload(previous:Bool)->[String:String] { ["gameTitle":"REPLACED","build":"fixture"] }
+ func metadataForUpload(previous:Bool)->[String:String] { ["gameTitle":title,"build":"fixture"] }
  func log(_ text:String) {print(text)}
+}
+// A command-line MainActor has no UIKit run loop. Drive the production tick
+// explicitly; the real five-second scheduling Task and export queue still run.
+extension GPUTraceComparison {
+ @MainActor func fixtureTick() { timer?.invalidate();timer=nil;tick() }
 }
 @main struct CheckModel {
  @MainActor static func main() async throws {
@@ -210,6 +221,41 @@ enum GPUTraceNative {
   assert(logAfter=="CAPTURED GAME SESSION")
   model.session(title:"Other game",executable:"Games/Other/Game.exe");model.gameDidBecomeVisible()
   assert(!model.eligibleSession && !model.canStartRecording && !model.start() && model.recordHint != nil)
+  // The production model accepts both title spellings and an EXE after a
+  // user renames the card. Merely opening this session does not start sampling.
+  for title in ["Liar's Bar", "Liar’s Bar"] {
+   model.session(title:title);assert(model.eligibleSession && !model.canStartRecording)
+  }
+  model.session(title:"Custom title",executable:"Games/LiarsBar/Liar's Bar.exe")
+  model.gameDidBecomeVisible();assert(model.canStartRecording && GPUTraceNative.requests==0)
+  LogStore.shared.title="Liar's Bar"
+  model.setMenuOpen(true)
+  assert(model.start(singleSample:true))
+  model.setMenuOpen(false)
+  for _ in 0..<300 {if !model.busy {break};try await Task.sleep(nanoseconds:10_000_000)}
+  model.fixtureTick()
+  for _ in 0..<30 {
+   if !model.busy && !model.recording && !model.findingSaved {break}
+   try await Task.sleep(nanoseconds:700_000_000);model.fixtureTick()
+  }
+  assert(!model.recording && !model.busy && !model.canCaptureSlow && GPUTraceNative.requests==1)
+  let single=model.savedFolder!;assert(single != original)
+  assert(model.savedComparisons.first?.title=="Liar's Bar")
+  let singleManifest=try JSONSerialization.jsonObject(with:Data(contentsOf:single.appendingPathComponent("manifest.json"))) as! [String:Any]
+  assert(singleManifest["sampleMode"] as? String == "single-scene")
+  assert(singleManifest["referenceSelection"] as? String == "manual-current-scene")
+  let lowFPS=singleManifest["referenceFPS"] as! Double
+  assert(lowFPS > 0 && lowFPS < 20)
+  assert(!fm.fileExists(atPath:single.appendingPathComponent("slow.gputrace").path))
+  let singleZIP=try await model.export(folder:single);defer {try? fm.removeItem(at:singleZIP)}
+  assert(fm.fileExists(atPath:singleZIP.path))
+  var invalidMode=singleManifest;invalidMode["sampleMode"]="unknown"
+  GPUTraceFiles.writeManifest(invalidMode,folder:single)
+  var rejectedMode=false
+  do {_=try await GPUTraceFiles.export(folder:single)}catch{rejectedMode=true}
+  assert(rejectedMode)
+  GPUTraceFiles.writeManifest(singleManifest,folder:single)
+  print("PASS: Liar's Bar title/EXE eligibility, idle capture off, one low-FPS scene at11, completed single ZIP and unknown-mode rejection")
   print("PASS: actual GPU comparison model restores727 recording, preserves it across a new start/stop and exports/caches its original ZIP and session")
   print("PASS: GPU record readiness rejects home/loading/other games, recognizes a renamed REPLACED by EXE path and enables after its first frame")
  }

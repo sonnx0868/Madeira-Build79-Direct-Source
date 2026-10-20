@@ -58,6 +58,7 @@ struct GPUTraceDropPolicy {
     @Published private var foreground = true
     private var timer: Timer?
     private var policy = GPUTraceDropPolicy()
+    private var singleSample = false
     private var previousFrames: UInt64 = 0
     private var previousTime: Double = 0
     private var fpsMode: Int32 = 0
@@ -71,7 +72,7 @@ struct GPUTraceDropPolicy {
     var canCaptureReference: Bool { recording && policy.reference == nil && lastCapture == nil && !manualScheduled }
     var canStartRecording: Bool { eligibleSession && gameVisible && foreground && !recording && !busy && !exporting }
     var recordHint: String? {
-        if !eligibleSession { return "Open REPLACED and enter the scene you want to compare, then tap Record FPS drop." }
+        if !eligibleSession { return "Open REPLACED or Liar's Bar, enter gameplay, then capture the current scene or record an FPS drop." }
         if !gameVisible { return "Wait for the game to display a frame, then enter the scene you want to compare." }
         return nil
     }
@@ -90,8 +91,9 @@ struct GPUTraceDropPolicy {
     }
     func session(title: String?, executable: String? = nil) {
         interrupt("The game session ended. Completed traces are still available.")
-        let identity = (title ?? "") + " " + (executable ?? "")
-        eligibleSession = identity.localizedCaseInsensitiveContains("replaced")
+        let identity = ((title ?? "") + " " + (executable ?? ""))
+            .filter { $0.isLetter || $0.isNumber }.lowercased()
+        eligibleSession = identity.contains("replaced") || identity.contains("liarsbar")
         gameVisible = false
     }
     func gameDidBecomeVisible() { if eligibleSession { gameVisible = true } }
@@ -100,8 +102,9 @@ struct GPUTraceDropPolicy {
         if open, lastCapture != nil { interrupt("The game menu opened during capture. Start a new comparison from gameplay.") }
         if !open { policy.resume(after: ProcessInfo.processInfo.systemUptime) }
     }
-    @discardableResult func start() -> Bool {
+    @discardableResult func start(singleSample: Bool = false) -> Bool {
         guard canStartRecording else { return false }
+        self.singleSample = singleSample
         generation = UUID(); let token = generation
         busy = true; message = "Preparing GPU comparison…"
         activeFolder = nil; manifest = [:]
@@ -124,6 +127,7 @@ struct GPUTraceDropPolicy {
                 guard token == generation, eligibleSession, foreground else { return }
                 activeFolder = folder
                 manifest = ["format": "madeira-gpu-comparison-v1", "context": metadata, "createdAt": ISO8601DateFormatter().string(from: Date()),
+                    "sampleMode": singleSample ? "single-scene" : "comparison",
                     "captureFrames": 2, "note": "Capture perturbs timing. Compare command structure and pre-capture FPS; replay timings are not original iPad hardware timings."]
                 policy = GPUTraceDropPolicy(); policy.resume(after: ProcessInfo.processInfo.systemUptime)
                 fpsMode = madeira_get_vsync_locked(); history = []; lastCapture = nil
@@ -134,7 +138,8 @@ struct GPUTraceDropPolicy {
                     Task { @MainActor in self.tick() }
                 }
                 persist()
-                LogStore.shared.log("[gpu-trace-pair] armed folder=GPUTraces/\(folder.lastPathComponent) mode=\(fpsMode) baseline-min-fps=50")
+                LogStore.shared.log("[gpu-trace-pair] armed folder=GPUTraces/\(folder.lastPathComponent) mode=\(fpsMode) sample-mode=\(singleSample ? "single-scene" : "comparison") baseline-min-fps=\(singleSample ? 0 : 50)")
+                if singleSample { scheduleManual(reference: true) }
             } catch { if token == generation { busy = false; message = error.localizedDescription; restoreSaved() } }
         }
         return true
@@ -166,17 +171,19 @@ struct GPUTraceDropPolicy {
                                       "finishedAt": ISO8601DateFormatter().string(from: Date())]
                     lastCapture = nil
                     if result.0 == 5 { interrupt(result.4); return }
-                    if kind == "smooth" {
+                    if kind == "smooth" && !singleSample {
                         policy.capturedReference(at: ProcessInfo.processInfo.systemUptime); canCaptureSlow = true
-                        message = "Smooth sample saved. Keep playing in the same scene; a sustained 20% FPS drop triggers the second sample."
+                        message = "Reference sample saved. Keep playing in the same scene; a sustained 20% FPS drop triggers the second sample, or use Capture low FPS now."
                     } else {
                         recording = false; canCaptureSlow = false; timer?.invalidate(); timer = nil
-                        message = "Both GPU samples saved. Open Madeira's menu and tap Share GPU trace ZIP."
+                        message = singleSample
+                            ? "Current scene saved. Open Madeira's menu and tap Share GPU trace ZIP."
+                            : "Both GPU samples saved. Open Madeira's menu and tap Share GPU trace ZIP."
                     }
                     persist()
                     if let folder = activeFolder {
                         GPUTraceFiles.snapshot(log: LogStore.shared.fileForUpload(previous: false), folder: folder)
-                        if kind == "slow" { restoreSaved(prefer: folder) }
+                        if kind == "slow" || singleSample { restoreSaved(prefer: folder) }
                     }
                     LogStore.shared.log("[gpu-trace-pair] sample=\(kind) complete=1 buffers=\(result.1) frames=\(result.2)")
                 }
@@ -189,7 +196,7 @@ struct GPUTraceDropPolicy {
         manifest["\(kind)BeforeCapture"] = history.suffix(15).map { $0 }
         if let reference = policy.reference { manifest["referenceFPS"] = reference }
         manifest["fpsMode"] = fpsMode
-        message = "Recording two complete \(kind == "smooth" ? "smooth" : "low FPS") frames… A brief pause is expected."
+        message = "Recording two complete \(kind == "smooth" ? "reference" : "low FPS") frames… A brief pause is expected."
         persist()
         let file = folder.appendingPathComponent("\(kind).gputrace")
         GPUTraceNative.request(file) { [self] accepted, error in
@@ -344,13 +351,19 @@ enum GPUTraceFiles {
         guard let object, object["format"] as? String == "madeira-gpu-comparison-v1" else {
             throw SupportError.message("GPU comparison metadata is missing.")
         }
-        for kind in ["smooth", "slow"] {
+        let kinds: [String]
+        switch object["sampleMode"] as? String {
+        case nil, "comparison": kinds = ["smooth", "slow"]
+        case "single-scene": kinds = ["smooth"]
+        default: throw SupportError.message("GPU recording mode is not supported.")
+        }
+        for kind in kinds {
             let sample = object[kind] as? [String: Any]
             guard sample?["complete"] as? Bool == true, sample?["frames"] as? Int == 2,
                   sample?["file"] as? String == "\(kind).gputrace",
                   let trace = try? folder.appendingPathComponent("\(kind).gputrace").resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]),
                   trace.isSymbolicLink != true, trace.isDirectory == true || trace.isRegularFile == true else {
-                throw SupportError.message("Record both complete GPU samples before exporting the comparison.")
+                throw SupportError.message("Finish the requested GPU samples before exporting the recording.")
             }
         }
         let log = try folder.appendingPathComponent("session.txt").resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
@@ -563,6 +576,12 @@ struct GPUTraceComparisonControls: View {
             }
             Button("Record FPS drop", systemImage: "waveform.path.ecg") { if trace.start() { resume() } }
                 .disabled(!trace.canStartRecording)
+            Button("Capture current scene", systemImage: "camera") { if trace.start(singleSample: true) { resume() } }
+                .disabled(!trace.canStartRecording)
+            if trace.canStartRecording {
+                Text("Already running slowly? Capture current scene records one sample after five seconds, at the current FPS, ready to share. A brief pause is expected.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let hint = trace.recordHint { Text(hint).font(.caption).foregroundStyle(.secondary) }
             if trace.canCaptureSlow {
                 Button("Capture low FPS now", systemImage: "camera") { trace.captureSlow(); resume() }
