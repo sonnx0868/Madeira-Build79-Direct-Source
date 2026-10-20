@@ -9,6 +9,7 @@ final class ReadingProgressModel: ObservableObject {
     @Published private(set) var message = "Waiting for dialogue…"
     @Published private(set) var enabled = false
     @Published private(set) var installed = false
+    @Published private(set) var available = false
     @Published private(set) var position = ReadingProgressPosition.initial
     var hitRect = CGRect.zero
     private let queue = DispatchQueue(label: "madeira.reading-progress", qos: .utility)
@@ -32,7 +33,10 @@ final class ReadingProgressModel: ObservableObject {
     }
 
     static func supports(_ entry: LibraryEntry) -> Bool {
-        entry.desktop != true && entry.temporarySession != true && entry.gameEngine == "Ren'Py"
+        guard entry.desktop != true, entry.temporarySession != true else { return false }
+        return ReadingProgressFiles.gameFolder(
+            location: LibraryModel.drive.appendingPathComponent(entry.launchRelativePath),
+            drive: LibraryModel.drive) != nil
     }
 
     /// Called before the process starts, including Steam/Epic launch routes.
@@ -40,15 +44,17 @@ final class ReadingProgressModel: ObservableObject {
     func begin(_ entry: LibraryEntry) {
         end()
         gameID = entry.id
-        enabled = entry.readingProgress == true
         position = (entry.readingProgressPosition ?? .initial).bounded
         foreground = UIApplication.shared.applicationState == .active
         guard entry.desktop != true, entry.temporarySession != true,
               let gameFolder = ReadingProgressFiles.gameFolder(
                 location: LibraryModel.drive.appendingPathComponent(entry.launchRelativePath), drive: LibraryModel.drive) else {
-            if enabled { message = "Reading progress is unavailable for this game." }
+            if entry.readingProgress == true { message = "Reading progress is unavailable for this game." }
             return
         }
+        available = true
+        enabled = ReadingProgressPolicy.enabled(preference: entry.readingProgress, supported: true)
+        if !enabled { message = "Enable reading progress, then restart this game to load its reader." }
         let token = UUID().uuidString
         do {
             // A few KB once before launch. The session token prevents stale
@@ -72,7 +78,7 @@ final class ReadingProgressModel: ObservableObject {
             queue.async { try? ReadingProgressFiles.setEnabled(false, folder: folder, session: session) }
         }
         session = nil; folder = nil; gameID = nil
-        snapshot = nil; installed = false; enabled = false
+        snapshot = nil; installed = false; available = false; enabled = false
         message = "Waiting for dialogue…"
     }
 
@@ -84,8 +90,9 @@ final class ReadingProgressModel: ObservableObject {
     }
 
     func setEnabled(_ value: Bool) {
-        guard let id = gameID, installed || !value else { return }
+        guard let id = gameID, available || !value else { return }
         enabled = value
+        if value && !installed { message = "Restart this game to load its reading progress reader." }
         if !value { hitRect = .zero }
         if var entry = LibraryModel.shared.entries.first(where: { $0.id == id }) {
             entry.readingProgress = value
@@ -143,7 +150,7 @@ struct ReadingProgressOverlay: View {
 struct ReadingProgressMenuRow: View {
     @ObservedObject private var model = ReadingProgressModel.shared
     var body: some View {
-        if model.installed || model.enabled {
+        if model.available || model.enabled {
             Toggle("Reading progress bubble", isOn: Binding(get: { model.enabled }, set: { model.setEnabled($0) }))
             Text(model.message).font(.caption).foregroundStyle(.secondary)
         }

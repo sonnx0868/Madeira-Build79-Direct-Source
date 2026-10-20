@@ -43,6 +43,9 @@ def traced_open(path, mode='r', *a, **kw):
 builtins.open = traced_open
 try:
     module = types.ModuleType('renpy')
+    module.__path__ = []
+    exports = types.ModuleType('renpy.exports')
+    module.exports = exports
     config = types.ModuleType('config')
     config.gamedir = tmp
     config.interact_callbacks = []
@@ -54,9 +57,12 @@ try:
     def seen():
         reads[1] += 1
         return counts[0]
-    module.count_dialogue_blocks = total
-    module.count_seen_dialogue_blocks = seen
+    # Actual Ren'Py 7/8 package layout: script-store `renpy` aliases exports,
+    # but Python's `import renpy` returns the engine package, without these APIs.
+    exports.count_dialogue_blocks = total
+    exports.count_seen_dialogue_blocks = seen
     sys.modules['renpy'] = module
+    sys.modules['renpy.exports'] = exports
     control = os.path.join(tmp, '.madeira-reading-session-v1.json')
     output = os.path.join(tmp, '.madeira-reading-progress-v1.json')
     token = '00000000-0000-0000-0000-000000000001'
@@ -115,14 +121,14 @@ try:
     # An engine API throwing must not crash the VN or retry every interaction.
     config.interact_callbacks = []
     def broken(): raise RuntimeError('fixture failure')
-    module.count_seen_dialogue_blocks = broken
+    exports.count_seen_dialogue_blocks = broken
     install()
     config.interact_callbacks[0]()
     clock[0] += 10
     config.interact_callbacks[0]()
     assert writes[0] == before
     config.interact_callbacks = []
-    module.count_seen_dialogue_blocks = None
+    exports.count_seen_dialogue_blocks = None
     install()
     assert config.interact_callbacks == []
     print('PASS Python %s: 100000 callbacks throttled; counts-only writes, enable/resume, session isolation, missing API and error containment' % sys.version.split()[0])
@@ -132,6 +138,11 @@ finally:
 '''
 
 swift_fixture = r'''
+assert(ReadingProgressPolicy.enabled(preference: nil, supported: true))
+assert(!ReadingProgressPolicy.enabled(preference: false, supported: true))
+assert(ReadingProgressPolicy.enabled(preference: true, supported: true))
+assert(!ReadingProgressPolicy.enabled(preference: nil, supported: false))
+assert(!ReadingProgressPolicy.enabled(preference: true, supported: false))
 let fm = FileManager.default
 let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -144,6 +155,9 @@ assert(ReadingProgressFiles.gameFolder(location: exe, drive: root)?.path == game
 assert(ReadingProgressFiles.gameFolder(location: exe, drive: gameRoot) == nil)
 let nested = gameRoot.appendingPathComponent("lib/windows-x86_64/VN.exe")
 assert(ReadingProgressFiles.gameFolder(location: nested, drive: root)?.path == game.resolvingSymlinksInPath().standardizedFileURL.path)
+let ordinary = root.appendingPathComponent("NotRenPy")
+try fm.createDirectory(at: ordinary.appendingPathComponent("game"), withIntermediateDirectories: true)
+assert(ReadingProgressFiles.gameFolder(location: ordinary.appendingPathComponent("game.exe"), drive: root) == nil)
 let source = game.appendingPathComponent(ReadingProgressFiles.script)
 let compiled = game.appendingPathComponent(ReadingProgressFiles.script + "c")
 let save = game.appendingPathComponent("persistent")

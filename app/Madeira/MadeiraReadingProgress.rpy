@@ -8,6 +8,7 @@ init 999 python hide:
             import os
             import time
             import renpy
+            import renpy.exports as reading_api
 
             folder = renpy.config.gamedir
             control = os.path.join(folder, ".madeira-reading-session-v1.json")
@@ -17,7 +18,12 @@ init 999 python hide:
             token = initial.get("session")
             if initial.get("schema") != 1 or not isinstance(token, type(u"")) or len(token) != 36:
                 return
-            if not callable(getattr(renpy, "count_dialogue_blocks", None)) or not callable(getattr(renpy, "count_seen_dialogue_blocks", None)):
+            # The name `renpy` exposed to game scripts is the exports module;
+            # Python's engine package imported above is NOT that script alias.
+            # Use the real public API, rather than silently exiting here.
+            count_total = getattr(reading_api, "count_dialogue_blocks", None)
+            count_seen = getattr(reading_api, "count_seen_dialogue_blocks", None)
+            if not callable(count_total) or not callable(count_seen):
                 return
 
             # The instance lives only in config's callback list, outside game
@@ -44,9 +50,9 @@ init 999 python hide:
                             return
                         if not settings.get("enabled"):
                             return
-                        if self.total is None:
-                            self.total = int(renpy.count_dialogue_blocks())
-                        seen = int(renpy.count_seen_dialogue_blocks())
+                        if self.total is None or self.total <= 0:
+                            self.total = int(count_total())
+                        seen = int(count_seen())
                         counts = (seen, self.total)
                         if counts == self.last_counts:
                             return

@@ -12,3 +12,6 @@ xcrun --sdk iphoneos clang -arch arm64 -isysroot "$sdk" -miphoneos-version-min=1
   -fno-objc-arc -fblocks -O2 -x objective-c -c "$root/build/dxmt-ios/texture_residency.m" \
   -o "$out/texture-residency-ios.o"
 echo 'PASS: native Metal paging/parity/failure fixtures and iOS compilation'
+python3 "$root/tests/host/check-reading-progress.py" --require-swift
+python3 "$root/tests/host/check-library-privacy.py" --require-swift
+python3 "$root/tests/host/check-access-reading-ios.py"

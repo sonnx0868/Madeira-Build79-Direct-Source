@@ -25,7 +25,8 @@ assert 'reportsHeaderAlignment = false' in library
 assert 'LibraryScenicBackground(sidebar: true)' in library and 'LibraryScenicBackground().ignoresSafeArea()' in access
 assert 'LibraryInlineSearch(text:' in library and 'sidebar.frame(width: 224)' in library
 
-assert '.onLongPressGesture(minimumDuration: 2)' in library
+assert '.onLongPressGesture(minimumDuration: LibraryAccess.logoHoldDuration)' in library
+assert 'static let logoHoldDuration = 0.7' in access
 assert 'onTapGesture(count: 3)' not in access
 assert 'var genreID: UUID?' in library and 'var privateGame: Bool?' in library
 assert 'access.request { browser = true }' not in library
@@ -72,7 +73,7 @@ for signature in ('func isPrivate(', 'func isVisible(', 'func steamVisible(', 'f
     fixture += function(signature) + '\n'
 fixture += '\n}\n'
 # Execute the exact background policy with UIKit-free model/access stubs.
-bg_start = access.index('    func background() {')
+bg_start = access.index('    func background(enteringBackground: Bool = false) {')
 bg_end = access.index('    private func query()', bg_start)
 background = access[bg_start:bg_end].replace('LibraryModel.shared', 'BackgroundModel.shared')
 fixture += r'''
@@ -86,11 +87,21 @@ final class BackgroundAccess {
     var epoch = 0
     var requested = false
     var afterAccess: (() -> Void)?
+    final class Context { var cancelled = false; func invalidate() { cancelled = true } }
+    var biometricContext: Context?
     func lock() { epoch += 1; unlocked = false; requested = false; afterAccess = nil }
 '''
 fixture += background + r'''
 }
 let backgroundAccess = BackgroundAccess()
+let prompt = BackgroundAccess.Context()
+backgroundAccess.biometricContext = prompt
+backgroundAccess.requested = true
+backgroundAccess.background()
+assert(backgroundAccess.requested && !prompt.cancelled && backgroundAccess.epoch == 0)
+backgroundAccess.background(enteringBackground: true)
+assert(prompt.cancelled && !backgroundAccess.requested && !backgroundAccess.unlocked)
+backgroundAccess.epoch = 0
 backgroundAccess.unlocked = true
 BackgroundModel.shared.current = "private game"
 backgroundAccess.background()
@@ -154,6 +165,18 @@ let record=LibraryPIN.Record(salt:salt,digest:digest,rounds:120_000)
 let correct=try LibraryPIN.verify("123456",record:record)
 let incorrect=try LibraryPIN.verify("123457",record:record)
 assert(correct && !incorrect)
+let oldRecord = Data(#"{"salt":"AAECAwQFBgcICQoLDA0ODw==","digest":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","rounds":120000}"#.utf8)
+let decodedOldRecord = try JSONDecoder().decode(LibraryPIN.Record.self, from: oldRecord)
+assert(decodedOldRecord.biometricDomain == nil)
+let enrolled = Data([1, 2, 3]), changed = Data([9, 8, 7])
+assert(LibraryBiometricPolicy.accepts(success:true,currentRequest:true,requested:true,backgrounded:false,enrolled:enrolled,current:enrolled))
+assert(!LibraryBiometricPolicy.accepts(success:false,currentRequest:true,requested:true,backgrounded:false,enrolled:enrolled,current:enrolled))
+assert(!LibraryBiometricPolicy.accepts(success:true,currentRequest:false,requested:true,backgrounded:false,enrolled:enrolled,current:enrolled))
+assert(!LibraryBiometricPolicy.accepts(success:true,currentRequest:true,requested:false,backgrounded:false,enrolled:enrolled,current:enrolled))
+assert(!LibraryBiometricPolicy.accepts(success:true,currentRequest:true,requested:true,backgrounded:true,enrolled:enrolled,current:enrolled))
+assert(!LibraryBiometricPolicy.accepts(success:true,currentRequest:true,requested:true,backgrounded:false,enrolled:enrolled,current:changed))
+assert(!LibraryBiometricPolicy.accepts(success:true,currentRequest:true,requested:true,backgrounded:false,enrolled:nil,current:enrolled))
+assert(!LibraryBiometricPolicy.accepts(success:true,currentRequest:true,requested:true,backgrounded:false,enrolled:enrolled,current:nil))
 print("PASS: legacy library decoding, persistent genres, hidden search/counts/Steam, relock cache invalidation and PBKDF2 PIN verification")
 '''
 with tempfile.TemporaryDirectory(prefix='madeira-privacy-') as scratch:

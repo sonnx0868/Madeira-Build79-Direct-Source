@@ -64,6 +64,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Madeira uses the local network to pair with this device for JIT, without a computer.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to open your private playlist when you enable biometric access.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>

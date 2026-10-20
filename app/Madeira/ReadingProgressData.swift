@@ -1,5 +1,13 @@
 import Foundation
 
+enum ReadingProgressPolicy {
+    /// An explicit per-game choice wins over automatic detection, including
+    /// profiles created before this feature existed (their preference is nil).
+    static func enabled(preference: Bool?, supported: Bool) -> Bool {
+        supported && preference != false
+    }
+}
+
 /// The engine's cumulative dialogue coverage, not route/gallery completion.
 struct ReadingProgressSnapshot: Codable, Equatable {
     let schema: Int

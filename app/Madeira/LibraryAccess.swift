@@ -1,17 +1,26 @@
 import SwiftUI
 import Security
+import LocalAuthentication
 
 final class LibraryAccess: ObservableObject {
     static let shared = LibraryAccess()
+    static let logoHoldDuration = 0.7
     @Published private(set) var unlocked = false
     @Published var requested = false
     @Published private(set) var configured = UserDefaults.standard.bool(forKey: "madeiraLibraryAccessConfigured")
+    @Published private(set) var biometricsEnabled = false
+    @Published private(set) var biometricsAvailable = false
+    @Published private(set) var biometricName = "Face ID / Touch ID"
+    @Published private(set) var biometricIcon = "faceid"
+    private var biometricContext: LAContext?
     private var epoch = 0
     private var afterAccess: (() -> Void)?
     var privateLibraryVisible = false
     private let service = "madeira.library.access.v1"
     private init() {
-        if !configured, (try? record()) != nil {
+        let saved = try? record()
+        biometricsEnabled = saved?.biometricDomain != nil
+        if !configured, saved != nil {
             configured = true
             UserDefaults.standard.set(true, forKey: "madeiraLibraryAccessConfigured")
         }
@@ -29,8 +38,12 @@ final class LibraryAccess: ObservableObject {
         if unlocked { action?(); return }
         afterAccess = action; requested = true
     }
+    func cancelRequest() {
+        epoch += 1; requested = false; afterAccess = nil
+        biometricContext?.invalidate(); biometricContext = nil
+    }
     func lock() {
-        epoch += 1; unlocked = false; requested = false; afterAccess = nil
+        cancelRequest(); unlocked = false
         privateLibraryVisible = false
         let model = LibraryModel.shared
         model.menu = false; model.showDetail = nil
@@ -44,7 +57,11 @@ final class LibraryAccess: ObservableObject {
             MetalHostView.shared.isHidden = true
         }
     }
-    func background() {
+    func background(enteringBackground: Bool = false) {
+        // Apple's biometric sheet temporarily makes the app inactive. Do not
+        // cancel that very authentication; a real app switch still cancels it.
+        if biometricContext != nil && !enteringBackground { return }
+        biometricContext?.invalidate(); biometricContext = nil
         // Cancel a pending PIN verification, but keep an authorized live game.
         // The switcher snapshot is covered separately. Quit locks the shelf.
         if LibraryModel.shared.current != nil || (unlocked && LibraryModel.shared.startingJIT != nil) {
@@ -65,6 +82,84 @@ final class LibraryAccess: ObservableObject {
             throw NSError(domain: "MadeiraAccess", code: Int(status))
         }
         return try JSONDecoder().decode(LibraryPIN.Record.self, from: data)
+    }
+    private func updateRecord(_ value: LibraryPIN.Record) throws {
+        let data = try JSONEncoder().encode(value)
+        let status = SecItemUpdate(query() as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        guard status == errSecSuccess else { throw NSError(domain: "MadeiraAccess", code: Int(status)) }
+    }
+    func refreshBiometrics() {
+        let context = LAContext()
+        biometricsAvailable = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        switch context.biometryType {
+        case .faceID: biometricName = "Face ID"; biometricIcon = "faceid"
+        case .touchID: biometricName = "Touch ID"; biometricIcon = "touchid"
+        default: biometricName = "Face ID / Touch ID"; biometricIcon = "faceid"
+        }
+    }
+    @MainActor func setBiometricsEnabled(_ enabled: Bool) async -> String? {
+        guard unlocked, configured, biometricContext == nil else { return "Unlock your private playlist with its PIN first." }
+        do {
+            guard var saved = try record() else { return "The private playlist PIN is unavailable." }
+            if !enabled {
+                saved.biometricDomain = nil
+                try updateRecord(saved); biometricsEnabled = false
+                return nil
+            }
+            let context = LAContext()
+            context.localizedFallbackTitle = ""
+            guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
+                return "Set up Face ID or Touch ID in device Settings first. You can still use your Madeira PIN."
+            }
+            let token = epoch
+            biometricContext = context
+            defer { if biometricContext === context { biometricContext = nil } }
+            let accepted = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+                localizedReason: "Use biometrics to open your private playlist.")
+            guard token == epoch, unlocked, UIApplication.shared.applicationState != .background else { return nil }
+            guard accepted, let domain = context.evaluatedPolicyDomainState, !domain.isEmpty else {
+                return "Biometric access could not be enabled. Your PIN is unchanged."
+            }
+            saved.biometricDomain = domain
+            try updateRecord(saved); biometricsEnabled = true
+            return nil
+        } catch { return "Biometric access was not changed. You can still use your Madeira PIN." }
+    }
+    @MainActor func authenticateBiometrics() async -> String? {
+        guard requested, !unlocked, biometricsEnabled, biometricContext == nil else { return nil }
+        let token = epoch
+        let context = LAContext()
+        context.localizedFallbackTitle = "Use Madeira PIN"
+        context.localizedCancelTitle = "Use PIN"
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
+            return "Biometrics are unavailable. Enter your Madeira PIN."
+        }
+        do {
+            guard let saved = try record(), let enrolled = saved.biometricDomain,
+                  enrolled == context.evaluatedPolicyDomainState else {
+                return "Biometric settings changed. Use your PIN, then enable biometric access again."
+            }
+            biometricContext = context
+            defer { if biometricContext === context { biometricContext = nil } }
+            let accepted = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics,
+                localizedReason: "Open your private playlist.")
+            guard LibraryBiometricPolicy.accepts(success: accepted, currentRequest: token == epoch,
+                requested: requested, backgrounded: UIApplication.shared.applicationState == .background,
+                enrolled: enrolled, current: context.evaluatedPolicyDomainState) else { return nil }
+            finishAccess()
+            return nil
+        } catch {
+            guard token == epoch else { return nil }
+            if let error = error as? LAError,
+               [.userCancel, .userFallback, .appCancel, .systemCancel].contains(error.code) { return nil }
+            return "Biometric verification did not complete. Enter your Madeira PIN."
+        }
+    }
+    private func finishAccess() {
+        unlocked = true; requested = false
+        let action = afterAccess; afterAccess = nil; action?()
+        if privateSession { MetalHostView.shared.isHidden = false }
+        LibraryPrivacyShield.shared.refresh()
     }
     @MainActor func submit(_ pin: String, confirmation: String) async -> String? {
         guard LibraryPIN.valid(pin) else { return "Enter a 6-digit PIN." }
@@ -111,10 +206,7 @@ final class LibraryAccess: ObservableObject {
             }
             defaults.removeObject(forKey: "madeiraLibraryAccessFailures")
             defaults.removeObject(forKey: "madeiraLibraryAccessRetryAt")
-            unlocked = true; requested = false
-            let action = afterAccess; afterAccess = nil; action?()
-            if privateSession { MetalHostView.shared.isHidden = false }
-            LibraryPrivacyShield.shared.refresh()
+            finishAccess()
             return nil
         } catch { return "Access could not be verified. Unlock this device and try again." }
     }
@@ -154,6 +246,12 @@ struct LibraryAccessView: View {
     private var heading: String {
         access.guarded ? "Enter Passcode" : enteringConfirmation ? "Confirm Passcode" : "Create Passcode"
     }
+    @MainActor private func useBiometrics() async {
+        guard !busy else { return }
+        busy = true; error = nil
+        error = await access.authenticateBiometrics()
+        busy = false
+    }
     private func digit(_ value: Int) {
         guard !busy, pin.count < 6 else { return }
         error = nil; pin += String(value)
@@ -191,6 +289,11 @@ struct LibraryAccessView: View {
             }
         }.foregroundStyle(.white).preferredColorScheme(.dark)
             .interactiveDismissDisabled(busy).presentationDragIndicator(.hidden)
+            .task {
+                access.refreshBiometrics()
+                if access.biometricsEnabled { await useBiometrics() }
+            }
+            .onDisappear { access.cancelRequest() }
     }
     private var keypad: some View {
         VStack(spacing: 22) {
@@ -216,7 +319,7 @@ struct LibraryAccessView: View {
                     HStack(spacing: 25) { ForEach(1..<4, id: \.self) { column in key(row * 3 + column) } }
                 }
                 HStack(spacing: 25) {
-                    Button("Cancel") { access.requested = false; dismiss() }
+                    Button("Cancel") { access.cancelRequest(); dismiss() }
                         .font(.caption).frame(width: 76, height: 76)
                         .background(.white.opacity(0.09), in: Circle()).keyboardShortcut(.cancelAction)
                     key(0)
@@ -225,12 +328,44 @@ struct LibraryAccessView: View {
                         .keyboardShortcut(.delete, modifiers: []).accessibilityLabel("Delete digit")
                 }.buttonStyle(.plain).disabled(busy)
             }
+            if access.biometricsEnabled {
+                Button {
+                    Task { @MainActor in await useBiometrics() }
+                } label: { Label("Use \(access.biometricName)", systemImage: access.biometricIcon) }
+                    .disabled(busy)
+            }
             if !access.guarded {
-                Text("Hold the Madeira logo for two seconds to open or hide your private playlist. Game files remain accessible in Files.")
+                Text("Briefly hold the Madeira logo to open or hide your private playlist. Game files remain accessible in Files.")
                     .font(.caption2).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
                     .frame(maxWidth: 300)
             }
         }.padding(.horizontal, 24).frame(maxWidth: .infinity)
+    }
+}
+
+/// Only shown inside an already unlocked playlist; no public-screen prompt.
+struct LibraryBiometricSetting: View {
+    @ObservedObject private var access = LibraryAccess.shared
+    @State private var busy = false
+    @State private var error: String?
+    var body: some View {
+        if access.unlocked {
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Unlock with \(access.biometricName)", isOn: Binding(
+                    get: { access.biometricsEnabled }, set: { value in
+                        guard !busy else { return }
+                        busy = true; error = nil
+                        Task { @MainActor in
+                            error = await access.setBiometricsEnabled(value)
+                            busy = false
+                        }
+                    }))
+                    .disabled(busy || (!access.biometricsAvailable && !access.biometricsEnabled))
+                Text(error ?? "Your Madeira PIN remains available as a fallback.")
+                    .font(.caption).foregroundStyle(error == nil ? Color.secondary : Color.orange)
+            }.frame(maxWidth: 360, alignment: .leading)
+                .task { access.refreshBiometrics() }
+        }
     }
 }
 
@@ -283,10 +418,10 @@ struct LibraryNeutralAccess: View {
     var showsAccess = true
     @ObservedObject private var access = LibraryAccess.shared
     var body: some View {
-        VStack { Text("Madeira").font(.largeTitle.bold()).onLongPressGesture(minimumDuration: 2) { access.toggle() } }
+        VStack { Text("Madeira").font(.largeTitle.bold()).onLongPressGesture(minimumDuration: LibraryAccess.logoHoldDuration) { access.toggle() } }
             .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color(uiColor: .systemBackground))
             .sheet(isPresented: Binding(get: { showsAccess && access.requested },
-                                       set: { if !$0 { access.requested = false } })) { LibraryAccessView() }
+                                       set: { if !$0 { access.cancelRequest() } })) { LibraryAccessView() }
     }
 }
 
@@ -295,9 +430,12 @@ struct LibraryAccessPresentation: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: Binding(get: { access.requested && !access.protectedSurface },
-                                       set: { if !$0 { access.requested = false } })) { LibraryAccessView() }
+                                       set: { if !$0 { access.cancelRequest() } })) { LibraryAccessView() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
                 LibraryPrivacyShield.shared.cover(); access.background()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                access.background(enteringBackground: true)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 LibraryPrivacyShield.shared.refresh()

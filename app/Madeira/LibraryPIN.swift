@@ -6,6 +6,7 @@ enum LibraryPIN {
         var salt: Data
         var digest: Data
         var rounds: UInt32
+        var biometricDomain: Data? = nil
     }
     static func valid(_ pin: String) -> Bool {
         pin.utf8.count == 6 && pin.utf8.allSatisfy { (48...57).contains($0) }
@@ -34,5 +35,16 @@ enum LibraryPIN {
         var difference: UInt8 = 0
         for (a, b) in zip(actual, record.digest) { difference |= a ^ b }
         return difference == 0
+    }
+}
+
+enum LibraryBiometricPolicy {
+    /// Enrolment changes require the app PIN again. A successful reply from an
+    /// old/cancelled request or from a backgrounded app cannot open the shelf.
+    static func accepts(success: Bool, currentRequest: Bool, requested: Bool,
+                        backgrounded: Bool, enrolled: Data?, current: Data?) -> Bool {
+        guard success, currentRequest, requested, !backgrounded,
+              let enrolled, !enrolled.isEmpty, let current else { return false }
+        return enrolled == current
     }
 }

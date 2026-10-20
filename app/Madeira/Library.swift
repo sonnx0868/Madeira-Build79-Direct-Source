@@ -2170,7 +2170,7 @@ struct LibraryTitleText: View {
         .offset(x: navigationAligned ? alignment.shift : 0)
         .background { if navigationAligned { LibraryTitleAnchor() } }   // after the offset: marks where the text is laid out
         .contentShape(Rectangle())
-        .onLongPressGesture(minimumDuration: 2) { LibraryAccess.shared.toggle() }
+        .onLongPressGesture(minimumDuration: LibraryAccess.logoHoldDuration) { LibraryAccess.shared.toggle() }
     }
 }
 
@@ -3390,7 +3390,7 @@ struct LibraryView: View {
                 Image(systemName: "bolt.fill").font(.system(size: 32, weight: .light)).foregroundStyle(LibraryTheme.accent)
                 Text("Madeira").font(.system(size: 22, weight: .semibold))
             }.contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 2) { access.toggle() }
+                .onLongPressGesture(minimumDuration: LibraryAccess.logoHoldDuration) { access.toggle() }
                 .padding(.horizontal, 12).padding(.top, 26).padding(.bottom, 34)
             navigationRow("Library", "square.grid.2x2.fill", selected: tab == 0 && !privatePlaylist && !recentOnly) {
                 tab = 0; privatePlaylist = false; recentOnly = false; genre = nil
@@ -3608,6 +3608,7 @@ struct LibraryView: View {
                     Button { privatePlaylist = false; recentOnly = false; genre = nil; search = "" } label: {
                         Label("Library", systemImage: "chevron.left").font(.subheadline)
                     }.buttonStyle(.plain)
+                    LibraryBiometricSetting()
                 }
                 if showContinuePlaying && !privatePlaylist && !recentOnly && !recentGames.isEmpty { continuePlaying }
                 Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
@@ -3853,6 +3854,7 @@ struct LibraryDetail: View {
     @State private var cpuCacheClearing = false
     @State private var cpuCacheMessage: String?
     @State private var automaticSuspendRule: String?
+    @State private var readingProgressSupported = false
     /// Settings › Sync engine, read when the details open: the fastsync switches
     /// below only apply while it is Fastsync.
     @State private var syncEngine = SyncEngine.current
@@ -4236,9 +4238,11 @@ struct LibraryDetail: View {
                 }
                 Section("On screen") {
                     Toggle("Performance overlay", isOn: $entry.performance)
-                    if ReadingProgressModel.supports(entry) || entry.readingProgress == true {
-                        Toggle("Reading progress bubble", isOn: Binding(get: { entry.readingProgress ?? false }, set: { entry.readingProgress = $0 }))
-                        Text("Ren’Py: dialogue seen across all playthroughs, not ending or gallery completion. Drag the bubble to move it. Applies when you next start this game.")
+                    if readingProgressSupported || entry.readingProgress == true {
+                        Toggle("Reading progress bubble", isOn: Binding(
+                            get: { ReadingProgressPolicy.enabled(preference: entry.readingProgress, supported: readingProgressSupported) },
+                            set: { entry.readingProgress = $0 }))
+                        Text("Automatically enabled for supported Ren’Py games. Counts dialogue seen across all playthroughs, not ending or gallery completion. Drag the bubble to move it. Your choice is remembered for this game and applies at its next launch.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Toggle("Live logs", isOn: $entry.liveLogs)
@@ -4330,6 +4334,14 @@ struct LibraryDetail: View {
             }
             .confirmationDialog("Remove this library entry? Your executable and saves stay in drive_c.", isPresented: $remove, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) { leaving = true; model.remove(entry.id); dismiss() }
+            }
+            .task(id: entry.launchRelativePath) {
+                let candidate = entry
+                let supported = await Task.detached(priority: .utility) {
+                    ReadingProgressModel.supports(candidate)
+                }.value
+                guard !Task.isCancelled else { return }
+                readingProgressSupported = supported
             }
             .task {
                 automaticSuspendRule = entry.automaticThreadSuspensionRule
