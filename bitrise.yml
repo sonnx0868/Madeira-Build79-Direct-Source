@@ -19,6 +19,29 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: a4ed742120877cb9789ad0c01195d29f3293e829967f3881576c8a764809f1c7
 
 workflows:
+  madeira-v016-optimizer-refresh:
+    title: Rebuild compute shader optimizer and cache from the verified native bundle
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh optimizer-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+
   madeira-v016-resource-input-refresh:
     title: Retire unused depth backings and remove redundant controller discovery
     steps:
