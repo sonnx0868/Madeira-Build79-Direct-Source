@@ -115,6 +115,7 @@ swift += block(dock_source, 'struct DockGame: Identifiable') + '\n'
 swift += block(dock_source, 'struct DockExternalProgram: Equatable') + '\n'
 swift += 'enum MadeiraDock { static func validAppID(_ value: Int) -> Bool { value > 0 && UInt64(value) < UInt64(UInt32.max) } }\n'
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
+swift += block(lib, 'enum LightEffectsPolicy') + '\n'
 swift += block(lib, 'enum GameMemorySettings') + '\n'
 swift += block(lib, 'enum GameExitReport') + '\n'
 translation = (root/'app/Madeira/TranslationTools.swift').read_text(encoding='utf-8')
@@ -535,6 +536,18 @@ expect(GameExitReport.message(status: 0x80000003, presented: true, expectsFrame:
 expect(GameExitReport.message(status: 1, presented: false, expectsFrame: true,
                              startupDialog: "SDL initialization failed")?.contains("SDL initialization failed") == true,
        "an observed startup dialog survives the return to the library")
+var lightProfile = LibraryEntry(title: "REPLACED", relativePath: "Games/REPLACED/Replaced.exe", bits: 64)
+lightProfile.resolution = "1920x1080"
+lightProfile.applyEnvironment()
+expect(env("MADEIRA_LIGHT_EFFECTS") == "1" && env("_MADEIRA_LIGHT_EFFECTS_PROFILE") == "1",
+       "targeted graphics profile reaches the real launch environment")
+expect(lightProfile.resolution == "1920x1080", "light filtering preserves the saved 1080p resolution")
+lightProfile.lightEffects = false; lightProfile.applyEnvironment()
+expect(env("MADEIRA_LIGHT_EFFECTS") == "0", "explicit graphics opt-out wins over the target default")
+var ordinaryProfile = LibraryEntry(title: "Other", relativePath: "Games/Other/Other.exe", bits: 64)
+ordinaryProfile.applyEnvironment()
+expect(env("MADEIRA_LIGHT_EFFECTS") == "0" && env("_MADEIRA_LIGHT_EFFECTS_PROFILE") == "0",
+       "the next game does not inherit the preceding filtering profile")
 exit(failed == 0 ? 0 : 1)
 '''
 
