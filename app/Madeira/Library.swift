@@ -4509,11 +4509,14 @@ struct FPSChoice: View {
             get: { mode == 2 ? 0 : mode }, set: { mode = $0 })) {
             // 30 needs DXMT's 30 FPS cap (ProMotionIntent.has30Cap); a saved 30 stays selectable.
             if ProMotionIntent.has30Cap || mode == 3 { Text("30 FPS").tag(3) }
-            Text("60 FPS").tag(1); Text("Display maximum").tag(0)
+            Text("60 FPS (save power)").tag(1)
+            Text("Display maximum (\(ProMotionIntent.panelMaxFPS) FPS)").tag(0)
         }.labelsHidden().pickerStyle(.menu) }
             Toggle("Reduce heat automatically", isOn: $adaptiveCooling)
                 .onChange(of: adaptiveCooling) { _, _ in ThermalPacingController.refresh() }
             Text("Off by default. When enabled, limits Display maximum to 60 FPS while hot and restores your selection after cooling. Your selected 60 or 30 FPS limit is preserved.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Low Power Mode limits Display maximum to 60 FPS independently, and restores your selection when turned off.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

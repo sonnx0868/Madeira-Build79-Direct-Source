@@ -9,11 +9,14 @@ struct ThermalPacingPolicy {
                        has30Cap: Bool, now: Double) -> Int32 {
         let requested = (0...3).contains(requested) ? requested : 1
         let base: Int32 = requested == 3 && !has30Cap ? 1 : requested
+        // Low Power Mode is an explicit system power preference. Cap the
+        // producer too, even when automatic thermal reduction is disabled.
+        if lowPower && (base == 0 || base == 2) { return 1 }
         guard enabled else { return base }
         // Reduce MAX/RAW to 60 under pressure without silently replacing the
         // user's 60 target with 30. iOS still manages hardware thermal limits.
         if thermal >= 2 { return base == 3 ? 3 : 1 }
-        if (thermal == 1 || lowPower) && (base == 0 || base == 2) { return 1 }
+        if thermal == 1 && (base == 0 || base == 2) { return 1 }
         return base
     }
 }
@@ -53,6 +56,9 @@ final class ThermalPacingController {
             _ = ProcessInfo.processInfo.thermalState // Required before observing changes.
             observers.append(NotificationCenter.default.addObserver(
                 forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.update() })
+            observers.append(NotificationCenter.default.addObserver(
+                forName: Notification.Name.NSProcessInfoPowerStateDidChange, object: nil, queue: .main
             ) { [weak self] _ in self?.update() })
             observers.append(NotificationCenter.default.addObserver(
                 forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -192,11 +198,10 @@ struct FPSOverlay: View {
     @State private var visible: Bool = true
     @State private var timer: Timer? = nil
     @State private var displayTimer: Timer? = nil
-    /// Mirrors DXMT's g_madeira_vsync_mode (read per present, live-safe).
-    /// 1 = locked 60, 0 = display max (120 ProMotion), 2 = raw (frame-skip
-    /// mailbox — game unthrottled, panel shows ≤ display rate), 3 = locked 30
-    /// (added 2026-09-15, same afterMinimumDuration mechanism as 60 — see
-    /// winemetal_unix.c's _MTLCommandBuffer_presentDrawable).
+    /// Mirrors DXMT's producer cap (read per present, live-safe).
+    /// 1 = 60, 0 = display maximum (120 on ProMotion), 2 = legacy alias of 0,
+    /// 3 = 30. Every completed frame is submitted; the native producer pacer
+    /// sleeps to an absolute deadline instead of adding a second display wait.
     @State private var vsyncMode: Int32 = 1
     /// Ring buffer of (timestamp, count) pairs, 100ms cadence, 5s window.
     @State private var samples: [(t: CFAbsoluteTime, c: UInt64)] = []

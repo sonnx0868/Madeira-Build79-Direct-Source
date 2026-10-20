@@ -10,6 +10,7 @@ root=Path(__file__).resolve().parents[2]
 source=(root/'app/Madeira/FPSOverlay.swift').read_text(encoding='utf-8')
 policy=source[source.index('struct ThermalPacingPolicy {'):source.index('/// Receives user intent')]
 assert 'ProcessInfo.thermalStateDidChangeNotification' in source
+assert 'Notification.Name.NSProcessInfoPowerStateDidChange' in source
 assert 'ProMotionIntent.shared.setActive(false)' in source
 assert 'static let preferenceKey = "madeiraAdaptiveCoolingOptInV2"' in source
 assert 'static let defaultEnabled = false' in source
@@ -51,11 +52,18 @@ assert(mode(0,0,310,lowPower:true)==1)
 assert(mode(1,0,310,lowPower:true)==1)
 assert(mode(3,0,310,lowPower:true)==3) // explicit user 30 is preserved
 assert(mode(0,0,311)==0)
+for thermal in 0...3 {
+    assert(mode(0,thermal,lowPower:true,enabled:false)==1)
+    assert(mode(2,thermal,lowPower:true,enabled:false)==1)
+    assert(mode(1,thermal,lowPower:true,enabled:false)==1)
+    assert(mode(3,thermal,lowPower:true,enabled:false)==3)
+    assert(mode(0,thermal,lowPower:false,enabled:false)==0) // restore requested MAX, not a saved 60
+}
 policy=ThermalPacingPolicy()
 assert(mode(0,2,0,supported:false)==1) // mode 3 must never become an uncapped fallback
 assert(mode(3,0,60,enabled:false,supported:false)==1)
 assert(mode(1,2,400)==1 && mode(1,0,401)==1)
-print("PASS: thermal FPS caps, immediate nominal restoration, low power preserves 60 FPS, explicit user 30, opt-out and unsupported backend")
+print("PASS: thermal FPS caps, immediate nominal restoration, low power caps MAX at 60 with cooling on/off, explicit user 30, opt-out and unsupported backend")
 '''
 compiler=shutil.which('swiftc')
 if not compiler:
