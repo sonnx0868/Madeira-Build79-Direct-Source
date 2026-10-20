@@ -49,6 +49,21 @@ compile_one() {
 
 # Rebuild the consumer paired with FEX's LRCPC2 emitter without rebuilding
 # unrelated native dependencies. Never archive an object after compile failure.
+if [[ "${1:-all}" = alias-only ]]; then
+    test -s "$APP_LIB"
+    test -s "$WINE_BUILD/include/config.h"
+    python3 "$REPO_ROOT/tests/host/check-fex-alias-policy.py" --sanitize
+    compile_one "$BUILD_DIR/virtual_ios.c" virtual
+    [[ "$FAILED" = 0 ]] || exit 1
+    candidate="$OBJ_DIR/libntdll_alias_refresh.a"
+    cp "$APP_LIB" "$candidate"
+    xcrun ar r "$candidate" "$OBJ_DIR/virtual.o"
+    xcrun ranlib "$candidate"
+    python3 "$REPO_ROOT/tools/ntdll-alias-bundle.py" --root "$REPO_ROOT" \
+        --stamp --archive "$candidate" --base "$APP_LIB"
+    mv "$candidate" "$APP_LIB"
+    exit 0
+fi
 if [[ "${1:-all}" = signal-only ]]; then
     test -s "$APP_LIB"
     test -s "$WINE_BUILD/include/config.h"
@@ -313,4 +328,5 @@ echo "libntdll_unix.a: $(wc -c < "$APP_LIB" | tr -d ' ') bytes"
 python3 "$REPO_ROOT/tools/ntdll-signal-bundle.py" --stamp
 python3 "$REPO_ROOT/tools/ntdll-runtime-bundle.py" --stamp
 python3 "$REPO_ROOT/tools/ntdll-graphics-preferences-bundle.py" --root "$REPO_ROOT" --stamp
+python3 "$REPO_ROOT/tools/ntdll-alias-bundle.py" --root "$REPO_ROOT" --stamp
 echo "Done!"

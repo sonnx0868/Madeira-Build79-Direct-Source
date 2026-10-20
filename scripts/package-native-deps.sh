@@ -24,6 +24,7 @@ rm -f "$output"
   build/ntdll-unix/lrcpc2-alias.json \
   build/ntdll-unix/runtime-scheduling-loader.json \
   build/ntdll-unix/game-graphics-preferences.json \
+  build/ntdll-unix/fex-alias-policy.json \
   build/madsync/native-receipt.json \
   app/Madeira/libwineserver.a app/Madeira/libntdll_unix.a \
   app/Madeira/libwin32u_unix.a app/Madeira/libdxmt_combined.a \

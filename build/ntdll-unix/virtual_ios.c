@@ -168,6 +168,7 @@ struct ios_jit_mapping {
                          * falling back to the NULL-owner (parent) entry. */
     unsigned short machine_cached;  /* ml349: PE machine word, read fault-safely once */
     unsigned char  machine_valid;   /* 0 = machine_cached not yet populated */
+    unsigned char native_arm64_alias; /* excludes native-only images from FEX's bounded table */
 };
 static struct ios_jit_mapping ios_jit_mappings[IOS_JIT_MAX_MAPPINGS];
 static int ios_jit_mapping_count = 0;
@@ -3086,9 +3087,20 @@ uint64_t ios_jit_reverse_translate( uint64_t addr, uint64_t *module_base )
  * code in their copies. */
 static void (*ios_jit_alias_pushback_cb)(unsigned long long, unsigned long long, unsigned long long) = NULL;
 
+#include "ios_fex_alias_policy.h"
+static struct ios_alias_history ios_fex_alias_history;
+
+static int ios_alias_read(uintptr_t address, void *out, size_t size)
+{
+    mach_vm_size_t got = 0;
+    return mach_vm_read_overwrite(mach_task_self(), address, size,
+                                 (mach_vm_address_t)out, &got) == KERN_SUCCESS && got == size;
+}
+
 void ios_jit_add_mapping(void *pe_base, void *jit_base, size_t size)
 {
     int i;
+    int native_arm64 = ios_alias_native_arm64((uintptr_t)pe_base, size, ios_alias_read);
 
     /* Task #33: purge every entry whose PE range OVERLAPS the new image's.
      * A fresh PE image at [pe_base, pe_base+size) proves any overlapping
@@ -3159,6 +3171,7 @@ void ios_jit_add_mapping(void *pe_base, void *jit_base, size_t size)
         ios_jit_mappings[slot].owner_peb = NULL;
         ios_jit_mappings[slot].machine_cached = 0;   /* ml349: slot reuse invalidates memo */
         ios_jit_mappings[slot].machine_valid = 0;
+        ios_jit_mappings[slot].native_arm64_alias = native_arm64;
         __sync_synchronize();
         ios_jit_mappings[slot].pe_base = pe_base;
         if (slot == ios_jit_mapping_count) ios_jit_mapping_count++;
@@ -3168,10 +3181,8 @@ void ios_jit_add_mapping(void *pe_base, void *jit_base, size_t size)
      * (via the unix_ios_push_jit_aliases unix-call), forward this new
      * mapping to it too. Early mappings (added before xtajit64 loads) are
      * picked up by the iteration in unix_ios_push_jit_aliases. */
-    if (ios_jit_alias_pushback_cb)
-        ios_jit_alias_pushback_cb((unsigned long long)(uintptr_t)pe_base,
-                                  (unsigned long long)(uintptr_t)jit_base,
-                                  (unsigned long long)size);
+    ios_alias_publish(&ios_fex_alias_history, ios_jit_alias_pushback_cb,
+                      (uintptr_t)pe_base, (uintptr_t)jit_base, size, native_arm64);
 }
 
 /* ml951: hand a sub-floor image window to FEX so QueryGuestExecutableRange can
@@ -3452,9 +3463,10 @@ NTSTATUS unixcall_ios_push_jit_aliases(void *args)
     for (i = 0; i < ios_jit_mapping_count; i++)
     {
         if (ios_jit_mappings[i].owner_peb) continue;
-        params->callback((unsigned long long)(uintptr_t)ios_jit_mappings[i].pe_base,
-                         (unsigned long long)(uintptr_t)ios_jit_mappings[i].jit_base,
-                         (unsigned long long)ios_jit_mappings[i].size);
+        ios_alias_publish(&ios_fex_alias_history, params->callback,
+                          (uintptr_t)ios_jit_mappings[i].pe_base,
+                          (uintptr_t)ios_jit_mappings[i].jit_base,
+                          ios_jit_mappings[i].size, ios_jit_mappings[i].native_arm64_alias);
     }
     /* ml613: the guaranteed init path — resolve both FEX exports here, where the
      * emulator module is certainly mapped, instead of from a diagnostic probe
@@ -3463,6 +3475,8 @@ NTSTATUS unixcall_ios_push_jit_aliases(void *args)
     ios_resolve_fex_exports();
     ERR("unixcall_ios_push_jit_aliases: registered callback + drained %d mappings\n",
         ios_jit_mapping_count);
+    dprintf(2, "[fex-alias-native-filter-v1] Wine mappings=%d FEX published=%u\n",
+            ios_jit_mapping_count, ios_fex_alias_history.count);
     return STATUS_SUCCESS;
 }
 
@@ -13461,6 +13475,7 @@ int ios_jit_copy_module_for_child(void *module_addr, void *child_peb)
         ios_jit_mappings[slot].reloc_rva = m->reloc_rva;
         ios_jit_mappings[slot].reloc_size = m->reloc_size;
         ios_jit_mappings[slot].owner_peb = child_peb;
+        ios_jit_mappings[slot].native_arm64_alias = m->native_arm64_alias;
         __sync_synchronize();
         ios_jit_mappings[slot].pe_base = m->pe_base;
         if (slot == ios_jit_mapping_count) ios_jit_mapping_count++;

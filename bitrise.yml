@@ -19,6 +19,31 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: 7f424e1726393f31b777e011499528970b2683bb4cae124500c274b01f91c3dc
 
 workflows:
+  madeira-v016-alias-refresh:
+    title: Fix native helper alias overflow and build IPA
+    description: Test alias registration with sanitizers and refresh virtual.o from the verified873 bundle.
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/build-bitrise.sh alias-refresh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-v0.1.6-artifacts
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-v016-upload-batching-refresh:
     title: Rebuild dependency-safe buffer upload batching and IPA
     description: Refresh ARM64EC D3D11 while preserving the verified native shader compiler and runtime.

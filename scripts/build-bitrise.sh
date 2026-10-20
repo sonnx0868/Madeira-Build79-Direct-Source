@@ -19,6 +19,7 @@ if [[ "$mode" = cached && "${MADEIRA_NATIVE_SRV_REFRESH:-0}" = 1 ]]; then mode=s
 if [[ "$mode" = cached && "${MADEIRA_D3D11_QUERY_REFRESH:-0}" = 1 ]]; then mode=query-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NTDLL_LOADER_REFRESH:-0}" = 1 ]]; then mode=loader-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_NATIVE_RUNTIME_REFRESH:-0}" = 1 ]]; then mode=runtime-refresh; fi
+if [[ "$mode" = cached && "${MADEIRA_NATIVE_ALIAS_REFRESH:-0}" = 1 ]]; then mode=alias-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_GPU_PIPELINE_REFRESH:-0}" = 1 ]]; then mode=gpu-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_SHADER_OPTIMIZER_REFRESH:-0}" = 1 ]]; then mode=optimizer-refresh; fi
 if [[ "$mode" = cached && "${MADEIRA_UPLOAD_BATCHING_REFRESH:-0}" = 1 ]]; then mode=upload-batching-refresh; fi
@@ -42,6 +43,7 @@ case "$mode" in
   query-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   loader-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   runtime-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  alias-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   gpu-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   optimizer-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   upload-batching-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
@@ -123,8 +125,9 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = resource-input-refresh || "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = upload-batching-refresh || "$mode" = sync-refresh ]]; then
+  if [[ "$mode" = alias-refresh || "$mode" = resource-input-refresh || "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = upload-batching-refresh || "$mode" = sync-refresh ]]; then
     refresh=--refresh-window
+    [[ "$mode" != alias-refresh ]] || refresh=--refresh-alias
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
     [[ "$mode" != input-refresh ]] || refresh=--refresh-input
     [[ "$mode" != signal-refresh ]] || refresh=--refresh-signal

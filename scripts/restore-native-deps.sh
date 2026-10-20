@@ -37,7 +37,9 @@ if [[ -f "$root/app/Madeira/i386-windows/ntdll.dll" ]]; then
   python3 "$root/tools/check-wow64-addon.py" --root "$root" --receipt "$root/build/wine-i386/addon-receipt.json" \
     --write "${BITRISE_DEPLOY_DIR:-$root/build}/wow64-consumer-validation.json"
 fi
-if [[ "${1:-}" = --refresh-resource-input ]]; then
+if [[ "${1:-}" = --refresh-alias ]]; then
+  bash "$root/build/ntdll-unix/build.sh" alias-only
+elif [[ "${1:-}" = --refresh-resource-input ]]; then
   bash "$root/scripts/refresh-resource-input.sh"
 elif [[ "${1:-}" = --refresh-game-graphics ]]; then
   python3 "$root/tests/host/check-game-graphics-preferences.py"
