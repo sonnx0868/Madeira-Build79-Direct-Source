@@ -22,11 +22,15 @@ state=block(swap,'  class SyncFrameState {')+';'
 wait=block(swap,'  SyncFrameState SyncFrame(')
 assert wait.count('lock.unlock();')==1 and wait.count('lock.lock();')==1
 present=block(swap,'  MADEIRA_SWAPCHAIN_ENTRY Present1(')
-assert present.index('SyncFrame(++presentation_count_, lock)')<present.index('device_context_->PrepareFlush()')
-assert present.index('SyncFrame(++presentation_count_, lock)')<present.index('cmd_queue.CurrentChunk()')
+assert present.index('device_context_->PrepareFlush()')<present.index('SyncFrame(++presentation_count_, lock)')
+assert present.index('if (commit_before_present_')<present.index('SyncFrame(++presentation_count_, lock)')
+assert present.index('SyncFrame(++presentation_count_, lock)')<present.index('auto chunk = cmd_queue.CurrentChunk();')
 assert present.count('sync_state = std::move(sync_state)')==2
 assert present.index('present_lock(present_mutex_)')<present.index('SyncInterval > 4')
 old_wait=wait.replace('SyncFrame(', 'OldSyncFrame(',1).replace('        lock.unlock();\n','').replace('          lock.lock();\n','')
+prefix=present[present.index('    {\n      madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Prepare);'):present.index('    auto chunk = cmd_queue.CurrentChunk();')]
+assert prefix.count('auto sync_state = SyncFrame(++presentation_count_, lock);')==1
+early_prefix='    auto sync_state = SyncFrame(++presentation_count_, lock);\n'+prefix.replace('    auto sync_state = SyncFrame(++presentation_count_, lock);\n','')
 fixture=r'''
 #include <atomic>
 #include <cassert>
@@ -42,15 +46,31 @@ using d3d11_device_mutex=std::mutex;
 struct CpuFence {
   std::mutex mutex;std::condition_variable changed;
   uint64_t value=0;unsigned signals=0;std::promise<void> entered;
-  void wait(uint64_t target){std::unique_lock<std::mutex> l(mutex);entered.set_value();changed.wait(l,[&]{return value>=target;});}
+  bool recording=false,submitted_when_wait=false;bool *observed_submit=nullptr;
+  void wait(uint64_t target){if(recording){assert(observed_submit);submitted_when_wait=*observed_submit;return;}std::unique_lock<std::mutex> l(mutex);entered.set_value();changed.wait(l,[&]{return value>=target;});}
   void signal(uint64_t target){std::lock_guard<std::mutex> l(mutex);assert(target>value);value=target;++signals;changed.notify_all();}
 };
+struct Chunk{bool pending=true;bool hasCommands(){return pending;}};
+struct Device{std::mutex mutex;Chunk chunk;bool submitted=false;Device&GetDXMTDevice(){return *this;}Device&queue(){return *this;}Chunk*CurrentChunk(){return &chunk;}};
+struct Context{Device*device;void PrepareFlush(){}void Commit(){device->submitted=true;device->chunk.pending=false;}};
+using HRESULT=int;using UINT=unsigned;
+constexpr HRESULT DXGI_STATUS_OCCLUDED=1;
 struct Swap {
   std::unique_ptr<CpuFence> frame_latency_fence_=std::make_unique<CpuFence>();
   unsigned frame_latency=1;madeira::PresentWaits madeira_present_waits_;
+  Device own_device;Device *device_=&own_device;Context own_context{device_};Context*device_context_=&own_context;
+  bool commit_before_present_=true;unsigned preferred_max_frame_rate=60;double init_refresh_rate_=60;uint64_t presentation_count_=1;
 __STATE__
 __OLD__;
 __NEW__;
+  HRESULT SubmitPrefix(UINT SyncInterval=0){HRESULT hr=0;std::unique_lock<d3d11_device_mutex>lock(device_->mutex);
+__PREFIX__
+    return hr;
+  }
+  HRESULT EarlySubmitPrefix(UINT SyncInterval=0){HRESULT hr=0;std::unique_lock<d3d11_device_mutex>lock(device_->mutex);
+__EARLY_PREFIX__
+    return hr;
+  }
 };
 static void run(bool baseline){
   Swap s;std::mutex device;auto entered=s.frame_latency_fence_->entered.get_future();
@@ -71,8 +91,16 @@ static void run(bool baseline){
   assert(s.frame_latency_fence_->value==2 && s.frame_latency_fence_->signals==2);
   printf("%s: shared-device-lock-available-during-GPU-wait=%d, fence-signals=%u\n",baseline?"before":"after",progress,s.frame_latency_fence_->signals);
 }
-int main(){run(true);run(false);Swap s;s.frame_latency_fence_.reset();std::mutex device;std::unique_lock<std::mutex> lock(device);auto state=s.SyncFrame(2,lock);assert(lock.owns_lock());}
-'''.replace('__STATE__',state).replace('__OLD__',old_wait).replace('__NEW__',wait)
+static void submission_order(bool early,bool enabled){
+ Swap s;s.commit_before_present_=enabled;s.frame_latency_fence_->recording=true;
+ s.frame_latency_fence_->observed_submit=&s.device_->submitted;
+ if(early)s.EarlySubmitPrefix();else s.SubmitPrefix();
+ assert(s.device_->submitted==enabled);
+ assert(s.frame_latency_fence_->submitted_when_wait==(enabled&&!early));
+ printf("%s: frame-tail-submitted-before-fence-wait=%d optional-commit=%d\n",early?"early-wait-negative-control":"production-submit-prefix",s.frame_latency_fence_->submitted_when_wait,enabled);
+}
+int main(){run(true);run(false);submission_order(true,true);submission_order(false,true);submission_order(false,false);Swap s;s.frame_latency_fence_.reset();std::mutex device;std::unique_lock<std::mutex> lock(device);auto state=s.SyncFrame(2,lock);assert(lock.owns_lock());}
+'''.replace('__STATE__',state).replace('__OLD__',old_wait).replace('__NEW__',wait).replace('__PREFIX__',prefix).replace('__EARLY_PREFIX__',early_prefix)
 
 for function in ('_MTLDevice_newBuffer','_MTLDevice_newTexture','_MTLBuffer_newTexture',
                  '_MTLTexture_newTextureView','_MTLDevice_newSamplerState'):
@@ -147,7 +175,8 @@ int main(){@autoreleasepool{id<MTLDevice>d=MTLCreateSystemDefaultDevice();assert
 compiler=os.environ.get('CXX') or shutil.which('clang++') or shutil.which('c++')
 assert compiler,'C++ compiler required'
 report={'productionFenceWaitExecuted':False,'deviceLockReleasedDuringWait':False,
-        'orderedFenceOwnershipPreserved':False,'nativeCreationRetainedReturnTested':False,
+        'orderedFenceOwnershipPreserved':False,'frameTailSubmittedBeforeFenceWait':False,
+        'earlyWaitNegativeControlDetected':False,'nativeCreationRetainedReturnTested':False,
         'iPadGameFPSMeasured':False,'iPadTotalRAMReductionMeasured':False}
 with tempfile.TemporaryDirectory(prefix='madeira-present-resource-') as work:
     folder=Path(work);source=folder/'test.cpp';source.write_text(fixture,encoding='utf-8')
@@ -156,7 +185,8 @@ with tempfile.TemporaryDirectory(prefix='madeira-present-resource-') as work:
     subprocess.run([compiler,'-std=c++20','-O1','-g','-pthread',*sanitize,*(['-static'] if os.name=='nt' else []),
         '-I'+str(root/'build/dxmt-ios'),str(source),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],check=True,timeout=20)
-    report.update(productionFenceWaitExecuted=True,deviceLockReleasedDuringWait=True,orderedFenceOwnershipPreserved=True)
+    report.update(productionFenceWaitExecuted=True,deviceLockReleasedDuringWait=True,orderedFenceOwnershipPreserved=True,
+                  frameTailSubmittedBeforeFenceWait=True,earlyWaitNegativeControlDetected=True)
     if sys.platform=='darwin':
         source=folder/'create.m';source.write_text(metal,encoding='utf-8');binary=folder/'native'
         subprocess.run(['xcrun','clang','-fno-objc-arc','-O1','-g',*sanitize,str(source),'-framework','Foundation','-framework','Metal','-o',str(binary)],check=True)

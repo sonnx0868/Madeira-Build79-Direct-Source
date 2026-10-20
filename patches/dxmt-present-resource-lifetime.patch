@@ -98,9 +98,9 @@
 -        frame_latency_fence_->wait(current_frame_id - frame_latency);
 +      if (current_frame_id > frame_latency) {
 +        const uint64_t completed_frame = current_frame_id - frame_latency;
-+        // Keep another graphics/GC worker runnable while Metal finishes. This
-+        // wait precedes PrepareFlush and CurrentChunk: no command-chunk pointer
-+        // may survive the unlocked interval. present_mutex_ orders this swapchain.
++        // Keep other graphics/resource workers runnable while Metal finishes.
++        // Frame-tail submission stays before this wait; acquire a fresh chunk
++        // afterward. present_mutex_ orders this swapchain across the unlock.
 +        lock.unlock();
 +        {
 +          madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::FrameFence);
@@ -122,20 +122,19 @@
      if (SyncInterval > 4)
        return DXGI_ERROR_INVALID_CALL;
  
-@@ -820,8 +833,13 @@
-       madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::DeviceLock);
-       lock.lock();
+@@ -855,7 +868,12 @@
+       madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Submit);
+       device_context_->Commit();
      }
 +
-+    // Wait before touching this frame's immediate-context/queue state. A second
-+    // same-swapchain Present remains serialized, but unrelated workers can run.
-+    auto sync_state = hr == DXGI_STATUS_OCCLUDED ? SyncFrameState{} : SyncFrame(++presentation_count_, lock);
-     {
-       madeira::PresentWaitScope timer(madeira_present_waits_, madeira::PresentWait::Prepare);
++    // Preserve GPU overlap: submit the recorded frame tail before waiting for
++    // the previous presentation. No chunk pointer survives the unlocked wait.
++    auto sync_state = SyncFrame(++presentation_count_, lock);
+     auto chunk = cmd_queue.CurrentChunk();
 +
-       device_context_->PrepareFlush();
-     }
-     if (hr == DXGI_STATUS_OCCLUDED) {
+     chunk->signal_frame_latency_fence_ = cmd_queue.CurrentFrameSeq();
+     if (target_) {
+       auto output = static_cast<MTLDXGIOutput *>(target_.ptr());
 @@ -864,7 +882,7 @@
      if constexpr (EnableMetalFX) {
        chunk->emitcc([
