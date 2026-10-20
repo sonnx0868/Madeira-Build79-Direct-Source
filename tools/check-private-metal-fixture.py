@@ -31,6 +31,12 @@ def main():
     key = os.environ['MADEIRA_GPU_FIXTURE_KEY']
     if not all(re.fullmatch('[0-9a-f]{64}', value) for value in (digest, key)):
         raise ValueError('Invalid fixture digest or transfer key')
+    # Full capture replay also restores resources and compiles the recorded
+    # pipelines. Give that explicit offline experiment a bounded larger budget;
+    # ordinary small shader fixtures keep their existing four-minute limit.
+    timeout = int(os.environ.get('MADEIRA_GPU_FIXTURE_TIMEOUT_SECONDS', '240'))
+    if not 60 <= timeout <= 1800:
+        raise ValueError('Fixture timeout must be between 60 and 1800 seconds')
     with tempfile.TemporaryDirectory(prefix='madeira-metal-fixture-') as temp:
         work = Path(temp)
         encrypted = work / 'input.aesgcm'
@@ -76,6 +82,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
         if not host.is_file() or not (inputs / 'pyramid-profile.json').is_file():
             raise ValueError('Expected audited pyramid fixture')
         receipt = {'fixtureSHA256': digest,
+                   'timeoutSeconds': timeout,
                    'files': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                              for p in sorted(inputs.iterdir())},
                    'gameFPSMeasured': False, 'iPadThermalMeasured': False}
@@ -84,7 +91,7 @@ try AES.GCM.open(box,using:SymmetricKey(data:Data(bytes))).write(to:URL(fileURLW
         run(['xcrun', 'clang', '-fobjc-arc', '-O2', '-framework', 'Foundation',
              '-framework', 'Metal', host, '-o', executable])
         run([executable, inputs, out / 'pyramid-results.json', '12'],
-            env=dict(os.environ, MTL_DEBUG_LAYER='1'), timeout=240)
+            env=dict(os.environ, MTL_DEBUG_LAYER='1'), timeout=timeout)
 
 
 if __name__ == '__main__':
