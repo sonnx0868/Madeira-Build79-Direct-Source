@@ -73,10 +73,32 @@ def object_proof(data, optimizer):
     assert struct.unpack_from('<4I', data)[3] == 1, 'not a relocatable object'
     # Object inclusion, not a semantic claim. Native Metal tests exercise the
     # exact included implementation, with indirect views and concurrent writes.
-    for marker in (b'OBJC_CLASS_$_MDRTexture', b'OBJC_CLASS_$_MDRLease',
-                   b'mdr_checkpoint_one', b'mdr_restore', b'texture-residency-v1'):
-        assert marker in data, ('missing compiled residency implementation', marker)
-    return {'format': 'arm64-mach-o-residency-v1', 'sha256': optimizer.digest(data)}
+    # The private checkpoint/restore functions may be inlined at -O2. Verify
+    # actual defined Objective-C implementations, not optional debug names.
+    commands, command_bytes = struct.unpack_from('<2I', data, 16)
+    at, defined = 32, set()
+    assert at + command_bytes <= len(data)
+    for _ in range(commands):
+        command, length = struct.unpack_from('<2I', data, at)
+        assert length >= 8 and at + length <= 32 + command_bytes
+        if command == 2:
+            offset, count, strings, string_bytes = struct.unpack_from('<4I', data, at + 8)
+            assert offset + count*16 <= len(data) and strings + string_bytes <= len(data)
+            for index in range(count):
+                name_at, kind, section, _, _ = struct.unpack_from('<IBBHQ', data, offset + index*16)
+                assert name_at < string_bytes
+                end = data.find(b'\0', strings + name_at, strings + string_bytes)
+                assert end >= 0
+                if not kind & 0xe0 and kind & 0x0e == 0x0e and section:
+                    defined.add(data[strings + name_at:end].decode())
+        at += length
+    assert at == 32 + command_bytes
+    required = {'_OBJC_CLASS_$_MDRTexture', '_OBJC_CLASS_$_MDRLease',
+                '-[MDRTexture dropBacking]', '-[MDRLease finish]'}
+    assert required <= defined, ('missing defined residency implementation', required-defined)
+    assert b'texture-residency-v1' in data
+    return {'format': 'arm64-mach-o-residency-v1', 'sha256': optimizer.digest(data),
+            'defined_symbols': sorted(required)}
 
 
 def prepare(root):
