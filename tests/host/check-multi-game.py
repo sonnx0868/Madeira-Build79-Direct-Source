@@ -132,6 +132,7 @@ struct LibraryEntry {
     var cpuCacheMode: String? = nil
     var swapMB: Int? = nil
     var realSuspend: Bool? = nil
+    var lightEffectsEnabled = false
     var epicAppName: String? = nil
 }
 enum MadeiraConfig { static func get(_ key: String) -> String? { nil } }
@@ -167,6 +168,7 @@ assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "Plain
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", swapMB: 4096)))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", realSuspend: false)))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", realSuspend: true)))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", lightEffectsEnabled: true)))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe", cpuTranslationBudget: 512)))
 try Data().write(to: routeDrive.appendingPathComponent("PlainGame/UnityPlayer.dll"))
 assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
