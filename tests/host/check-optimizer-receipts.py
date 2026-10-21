@@ -60,6 +60,20 @@ def object_fixture(production_symbol=True):
     return header + command + symbol + symbol2 + symbol3 + strings + payload
 
 
+def residency_object_fixture():
+    # Object-inclusion fixture only; real Metal paging tests run independently.
+    names = [b'_OBJC_CLASS_$_MDRTexture', b'_OBJC_CLASS_$_MDRLease',
+             b'-[MDRTexture dropBacking]', b'-[MDRLease finish]']
+    strings = b'\0'
+    symbols = []
+    for name in names:
+        symbols.append(struct.pack('<IBBHQ', len(strings), 0x0f, 1, 0, 0))
+        strings += name + b'\0'
+    header = struct.pack('<8I', 0xfeedfacf, 0x100000c, 0, 1, 1, 24, 0, 0)
+    command = struct.pack('<6I', 2, 24, 56, len(names), 56 + len(names)*16, len(strings))
+    return header + command + b''.join(symbols) + strings + b'texture-residency-v1\0fixture-only\0'
+
+
 def archive(path, objects):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('wb') as output:
@@ -98,8 +112,10 @@ def replace_objects(base, output, replacements):
         assert changed == set(replacements)
 
 
-def source_fixture(folder, phase=False):
+def source_fixture(folder, phase=False, residency=False):
     names = set(bundle.SOURCES) | set(depth.SOURCES)
+    if residency:
+        names.update(bundle.module(ROOT, 'dxmt-residency-bundle').SOURCES)
     names.update(bundle.module(ROOT, 'dxmt-upload-batching-bundle').SOURCES)
     for receipt in depth.PARENTS:
         names.update(depth.producer_sources(ROOT, receipt))
@@ -143,12 +159,12 @@ def synthetic_inspection(root, require_depth):
     return libraries, [{'abi': 'fixture'}], [{'symbol': 'fixture-depth', 'rva': 1}]
 
 
-def synthetic_baseline(folder, legacy_sources, zero=False, phase=False):
+def synthetic_baseline(folder, legacy_sources, zero=False, phase=False, residency=False):
     depth.inspect_frontends = synthetic_inspection
     real_module = bundle.module
     bundle.module = lambda root, name: depth if name == 'dxmt-depth-retention-bundle' else real_module(root, name)
     bundle.validate_renpy = lambda root: None  # Real compiled proof is exercised by --baseline-zip.
-    objects = [('winemetal_unix.o', b'unchanged'), ('airconv_context.o', b'old optimizer'),
+    objects = [('winemetal_unix.o', residency_object_fixture() if residency else b'unchanged'), ('airconv_context.o', b'old optimizer'),
                ('cache.o', b'old cache\0' + b'a' * 64 + b'\0'), ('duplicate.o', b'first'), ('duplicate.o', b'second')]
     archive(folder / bundle.ARCHIVE, objects)
     archive(folder / 'app/Madeira/unrelated.a', [('winemetal_unix.o', b'unrelated')])
@@ -191,6 +207,13 @@ def synthetic_baseline(folder, legacy_sources, zero=False, phase=False):
     record = depth.record_for(state, parents)
     record['producer_commit'] = 'original depth producer'
     bundle.write_json(folder / depth.RECEIPT, record)
+    if residency:
+        tool = bundle.module(folder, 'dxmt-residency-bundle')
+        bundle.write_json(folder / tool.RECEIPT, {
+            'format': 'madeira-texture-residency-v1', 'producer_commit': 'original residency producer',
+            'sources': {name: bundle.source_sha(folder / name) for name in tool.SOURCES},
+            'archive_sha256': state['native_archives'][bundle.ARCHIVE], 'members': state['members'],
+            'object_proof': tool.object_proof(residency_object_fixture(), bundle)})
 
 
 def exercise(folder):
@@ -232,13 +255,16 @@ def exercise(folder):
     expected_receipts = set(depth.NATIVE_PARENTS) | {depth.RECEIPT}
     if 'upload_receipt' in snapshot:
         expected_receipts.add('build/dxmt-pe/upload-batching.json')
+    if 'residency_receipt' in snapshot:
+        expected_receipts.add('build/dxmt-ios/texture-residency.json')
     assert set(updates) == expected_receipts
     for name, updated in updates.items():
         if name == bundle.RECEIPT:
             assert updated['producer_commit'] == 'new-optimizer-producer'
             continue
         original = (snapshot['depth_receipt'] if name == depth.RECEIPT else
-                    snapshot['upload_receipt'] if name == 'build/dxmt-pe/upload-batching.json' else parents[name])
+                    snapshot['upload_receipt'] if name == 'build/dxmt-pe/upload-batching.json' else
+                    snapshot['residency_receipt'] if name == 'build/dxmt-ios/texture-residency.json' else parents[name])
         assert updated['producer_commit'] == original['producer_commit']
         expected = copy.deepcopy(original)
         expected.update(archive_sha256=state['native_archives'][bundle.ARCHIVE], members=state['members'],
@@ -306,10 +332,11 @@ def main():
     parser.add_argument('--baseline-zip', type=Path)
     parser.add_argument('--zero-baseline', action='store_true')
     parser.add_argument('--phase-baseline', action='store_true')
+    parser.add_argument('--residency-baseline', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='madeira-optimizer-receipts-') as work:
         folder = Path(work)
-        legacy_sources = source_fixture(folder, phase=args.phase_baseline)
+        legacy_sources = source_fixture(folder, phase=args.phase_baseline, residency=args.residency_baseline)
         if args.baseline_zip:
             expected_zip = ('41c4a98894a82c767bb69194bd6d5ba8882facbaec7d74b85b5d8357bf50453c' if args.zero_baseline else
                             'a4ed742120877cb9789ad0c01195d29f3293e829967f3881576c8a764809f1c7')
@@ -329,7 +356,7 @@ def main():
                         shutil.copyfileobj(source, out)
             print('Real bundle: checking all native objects, all Windows payloads, depth ABI and compiled native callback bypass')
         else:
-            synthetic_baseline(folder, legacy_sources, zero=args.zero_baseline, phase=args.phase_baseline)
+            synthetic_baseline(folder, legacy_sources, zero=args.zero_baseline, phase=args.phase_baseline, residency=args.residency_baseline)
         exercise(folder)
 
 

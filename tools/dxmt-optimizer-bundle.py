@@ -332,6 +332,22 @@ def validate_depth_record(root, state, parents, record=None):
         assert saved[key] == value, ('stale depth receipt', key)
 
 
+def preserved_residency_receipt(root, archive, state):
+    residency = module(root, 'dxmt-residency-bundle')
+    path = root / residency.RECEIPT
+    if not path.exists():
+        return None
+    saved = read_json(path)
+    assert saved['format'] == 'madeira-texture-residency-v1'
+    expected = {'sources': {name: source_sha(root / name) for name in residency.SOURCES},
+                'archive_sha256': state['native_archives'][ARCHIVE], 'members': state['members'],
+                'object_proof': residency.object_proof(module(root, 'dxmt-srv-bundle').object_bytes(archive, 'winemetal_unix.o'),
+                                                      module(root, 'dxmt-optimizer-bundle'))}
+    for key, value in expected.items():
+        assert saved[key] == value, ('stale residency input before optimizer refresh', key)
+    return saved
+
+
 def prepare(root, base, replacement):
     assert sha(base) == sha(root / ARCHIVE), 'base archive is not the original restored archive'
     depth = module(root, 'dxmt-depth-retention-bundle')
@@ -358,6 +374,9 @@ def prepare(root, base, replacement):
         expected_upload = upload.record_for(root, upload.collect(root))
         assert all(saved_upload.get(k) == v for k, v in expected_upload.items()), 'stale upload receipt before optimizer refresh'
         prepared['upload_receipt'] = saved_upload
+    residency = preserved_residency_receipt(root, base, state)
+    if residency is not None:
+        prepared['residency_receipt'] = residency
     folder = root / FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     write_json(folder / 'prepared.json', prepared)
@@ -449,6 +468,17 @@ def transition(root, base, snapshot, state, parents, commit):
         updated = copy.deepcopy(original)
         updated.update(archive_sha256=after[ARCHIVE], members=current, optimizer_refresh=binding)
         updates[upload.RECEIPT] = updated
+    if 'residency_receipt' in snapshot:
+        residency = module(root, 'dxmt-residency-bundle')
+        original = snapshot['residency_receipt']
+        assert read_json(root / residency.RECEIPT) == original, 'residency receipt changed during optimizer refresh'
+        assert original['sources'] == {name: source_sha(root / name) for name in residency.SOURCES}
+        boundary = srv.object_bytes(root / ARCHIVE, 'winemetal_unix.o')
+        assert boundary == srv.object_bytes(base, 'winemetal_unix.o'), 'optimizer changed the residency implementation'
+        assert residency.object_proof(boundary, module(root, 'dxmt-optimizer-bundle')) == original['object_proof']
+        updated = copy.deepcopy(original)
+        updated.update(archive_sha256=after[ARCHIVE], members=current, optimizer_refresh=binding)
+        updates[residency.RECEIPT] = updated
     return updates
 
 
