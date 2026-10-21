@@ -58,6 +58,7 @@ static NSTimeInterval mdr_idle_seconds = 10.0;
 #ifdef MADEIRA_RESIDENCY_TEST
 static BOOL mdr_test_disk_failure, mdr_test_restore_failure;
 static void (^mdr_test_after_snapshot)(void);
+static uint64_t mdr_test_bursts, mdr_test_largest_burst;
 #endif
 
 @interface MDRTexture : NSObject {
@@ -444,6 +445,45 @@ static BOOL mdr_checkpoint_one(void) {
   }
 }
 
+// Drain a loading burst without depending on future game submissions. The old
+// one-texture-per-commit scan could only reclaim four allocations a second,
+// leaving thousands of cold textures resident long after scene loading ended.
+// Each turn is bounded; yield between turns so checkpoint IO cannot become an
+// unbounded background copy stream competing with the game's GPU work.
+static void mdr_drain(void) {
+  @autoreleasepool {
+    NSTimeInterval begin = NSProcessInfo.processInfo.systemUptime;
+    uint64_t bytes = 0, completed = 0;
+    for (unsigned i = 0; i < 8; ++i) {
+      [mdr_lock lock];
+      uint64_t before = mdr_empty;
+      BOOL failed = mdr_device_failed;
+      [mdr_lock unlock];
+      if (failed || !mdr_checkpoint_one()) break;
+      [mdr_lock lock];
+      uint64_t reclaimed = mdr_empty >= before ? mdr_empty - before : 0;
+      [mdr_lock unlock];
+      ++completed;
+      bytes += reclaimed;
+      // A concurrent user can pin a completed checkpoint. Let the next commit
+      // restart selection rather than continuously chasing changing resources.
+      if (!reclaimed || bytes >= 128*MDR_MIB ||
+          NSProcessInfo.processInfo.systemUptime - begin >= 0.025) break;
+    }
+    [mdr_lock lock];
+#ifdef MADEIRA_RESIDENCY_TEST
+    ++mdr_test_bursts;
+    mdr_test_largest_burst = MAX(mdr_test_largest_burst, completed);
+#endif
+    BOOL more = completed && !mdr_device_failed &&
+                mdr_registered - mdr_empty > mdr_target;
+    if (!more) mdr_running = NO;
+    [mdr_lock unlock];
+    if (more) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50*NSEC_PER_MSEC),
+                             mdr_worker, ^{ mdr_drain(); });
+  }
+}
+
 static void mdr_schedule(void) {
   if (!mdr_available) return;
   NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
@@ -459,12 +499,7 @@ static void mdr_schedule(void) {
       mdr_registered - mdr_empty < mdr_target + 256*MDR_MIB) { [mdr_lock unlock]; return; }
   mdr_last_scan = now;
   mdr_running = YES;
-  dispatch_async(mdr_worker, ^{
-    @autoreleasepool {
-      mdr_checkpoint_one();
-      [mdr_lock lock]; mdr_running = NO; [mdr_lock unlock];
-    }
-  });
+  dispatch_async(mdr_worker, ^{ mdr_drain(); });
   [mdr_lock unlock];
 }
 

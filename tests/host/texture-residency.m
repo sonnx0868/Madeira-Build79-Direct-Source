@@ -208,9 +208,22 @@ int main(void) {
     fprintf(stderr, "fixture: large pool ready, footprint=%lluMiB\n", (unsigned long long)(full/MDR_MIB));
     uint64_t expected_bytes = mdr_registered;
     for (id<MTLTexture> t in pool) make_cold(t);
-    unsigned evicted = 0;
-    while (mdr_checkpoint_one()) ++evicted;
+    // One game submission must drain the whole eligible burst, even when the
+    // game submits nothing else. Exercise the production delayed continuation,
+    // not a test-only loop calling checkpoint_one repeatedly.
+    uint64_t previous_evictions = mdr_evictions;
+    mdr_running = NO; mdr_last_scan = 0;
+    mdr_schedule();
+    NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + 20;
+    for (;;) {
+      [mdr_lock lock]; BOOL running = mdr_running; [mdr_lock unlock];
+      if (!running) break;
+      assert(NSProcessInfo.processInfo.systemUptime < deadline);
+      usleep(1000);
+    }
+    unsigned evicted = (unsigned)(mdr_evictions - previous_evictions);
     assert(evicted == 48);
+    assert(mdr_test_bursts > 1 && mdr_test_largest_burst <= 8);
     uint64_t paged = footprint(), metal_paged = device.currentAllocatedSize;
     fprintf(stderr, "fixture: after Empty footprint=%lluMiB allocated=%lluMiB beforeAllocated=%lluMiB\n",
             (unsigned long long)(paged/MDR_MIB), (unsigned long long)(metal_paged/MDR_MIB),

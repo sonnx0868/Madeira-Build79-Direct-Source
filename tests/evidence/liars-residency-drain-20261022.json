@@ -1,0 +1,93 @@
+{
+  "scope": "Actual Metal regression on Apple paravirtual Mac, not physical iPad or in-game FPS",
+  "sourceSHA256": "5a849ca95f5e9aa1858cfbbd73c3476e181a0ce78867c57fbaa18fe58d10d18d",
+  "run332": {
+    "actualMetal": true,
+    "parityCases": 8,
+    "coldTextures": 48,
+    "beforeFootprint": 1148667200,
+    "afterFootprint": 499369280,
+    "beforeMetalAllocated": 1142423552,
+    "afterMetalAllocated": 1142423552,
+    "emptyBytes": 895221760,
+    "backingBytes": 1073885184,
+    "restores": 20,
+    "restoreTotalMs": 778.326,
+    "gameFPSMeasured": false
+  },
+  "fix": "Continue bounded utility-worker turns independently of later game submissions; retain cold, generation, GPU lease and verified restoration checks",
+  "limits": {
+    "texturesPerTurn": 8,
+    "reclaimedMiBPerTurn": 128,
+    "timeBudgetMs": 25,
+    "continuationDelayMs": 50
+  },
+  "notYetVerified": [
+    "Liar Bar resident footprint on physical iPad",
+    "End-to-end game FPS/frame_fence reduction"
+  ],
+  "adaptiveLighting": {
+    "edge331": {
+      "compact": {
+        "maxDisplayLevels": 0.5839385986328125,
+        "mean": 0.00047043932136148214,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0
+      },
+      "compact-balanced": {
+        "maxDisplayLevels": 1.7695350646972656,
+        "mean": 0.006478709168732166,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0
+      },
+      "compact-performance": {
+        "maxDisplayLevels": 2.7925033569335938,
+        "mean": 0.025268204510211945,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0
+      }
+    },
+    "bilinear333": {
+      "compact": {
+        "maxDisplayLevels": 1.0035247802734375,
+        "mean": 0.001872546155937016,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "trusted_pixels": 631511,
+          "fallback_pixels": 1440297,
+          "fallback_groups": 46348,
+          "fallback_counter_slots": 1483136,
+          "fallback_slots": 1483136
+        }
+      },
+      "compact-balanced": {
+        "maxDisplayLevels": 5.119903564453125,
+        "mean": 0.013268021866679192,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "trusted_pixels": 875442,
+          "fallback_pixels": 1196366,
+          "fallback_groups": 39936,
+          "fallback_counter_slots": 1277952,
+          "fallback_slots": 1277952
+        }
+      },
+      "compact-performance": {
+        "maxDisplayLevels": 10.053070068359375,
+        "mean": 0.03790855035185814,
+        "pixelsOver8": 2,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "trusted_pixels": 1140833,
+          "fallback_pixels": 930975,
+          "fallback_groups": 32299,
+          "fallback_counter_slots": 1033568,
+          "fallback_slots": 1033568
+        }
+      }
+    },
+    "status": "Visible saved-scene light errors removed by edge rejection, but benchmark regresses; no adaptive runtime activation yet"
+  }
+}
