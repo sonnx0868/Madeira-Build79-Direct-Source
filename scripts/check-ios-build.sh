@@ -25,7 +25,9 @@ python3 "$root/tools/dxmt-present-resource-bundle.py" --root "$root" || missing=
 python3 "$root/tools/dxmt-depth-retention-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/dxmt-upload-batching-bundle.py" --root "$root" || missing=1
 python3 "$root/tools/dxmt-residency-bundle.py" --root "$root" || missing=1
-if [[ -f "$root/build/dxmt-ios/residency-drain.json" ]]; then
+if [[ -f "$root/build/dxmt-ios/residency-drain.json" ]] ||
+   python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get("residency_drain_refresh"))' \
+     "$root/build/dxmt-ios/texture-residency.json"; then
   python3 "$root/tools/dxmt-residency-drain-bundle.py" --root "$root" || missing=1
 fi
 python3 "$root/tools/xinput-host-authority-bundle.py" --root "$root" || missing=1
