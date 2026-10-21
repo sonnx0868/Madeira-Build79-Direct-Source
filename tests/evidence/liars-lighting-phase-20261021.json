@@ -1,0 +1,65 @@
+{
+  "format": "madeira-lighting-phase-evidence-v1",
+  "date": "2026-10-21",
+  "productionChange": {
+    "header": "build/dxmt-ios/lighting_phase_outline.hpp",
+    "headerSHA256": "b94653f7d2a4f762edceb28c3944918d92c83ca102318e99efd6c357614e9491",
+    "scope": "Only a matching compute shader with verified read-only regions and six exported lighting accumulators",
+    "changesResolution": false,
+    "changesTextureData": false,
+    "extraGpuBuffers": 0,
+    "extraGpuDispatches": 0
+  },
+  "physicalSample": {
+    "file": "smooth-stages.json",
+    "encoder119ms": 42.984167,
+    "limits": "Encoder includes 30 compute dispatches; timestamp sampling perturbs timing. This is not an individual-kernel measurement."
+  },
+  "gpuTests": [
+    {
+      "bitriseBuild": 323,
+      "device": "Apple Paravirtual device",
+      "passed": true,
+      "originalMs": 11.043604166665943,
+      "cppPhaseMs": 10.034125000004224,
+      "bitExact": true,
+      "scope": "Saved initial texture/buffer snapshots from the existing capture, with the Lit stencil bit reconstructed. This is a controlled scene fixture, not the exact captured frame or physical iPad FPS. C++ production-header transformation against actual saved AIR, with scope, idempotence, verifier and real Metal output checks."
+    },
+    {
+      "bitriseBuild": 324,
+      "device": "Apple Paravirtual device",
+      "passed": true,
+      "originalMs": 11.630645833335507,
+      "cppPhaseMs": 10.605979166655288,
+      "bitExact": true,
+      "scope": "Saved initial texture/buffer snapshots from the existing capture, with the Lit stencil bit reconstructed. This is a controlled scene fixture, not the exact captured frame or physical iPad FPS. C++ production-header transformation against actual saved AIR, with scope, idempotence, verifier and real Metal output checks."
+    }
+  ],
+  "experimentalAdaptiveLighting": {
+    "integratedIntoApp": false,
+    "bitExact": false,
+    "outputSize": [
+      1920,
+      1080
+    ],
+    "lightingGrid": [
+      960,
+      540
+    ],
+    "shippingMs": 12.17660416665467,
+    "balancedMs": 8.459854166630976,
+    "quality": {
+      "linearMeanAbsError": 0.0004298596759326756,
+      "displayMean8bitLevels": 0.1993240863084793,
+      "displayP99_8bitLevels": 2.7056143283843994,
+      "displayP999_8bitLevels": 7.63388729095459,
+      "pixelsOver8DisplayLevels": 3611,
+      "displayMax8bitLevels": 148.20474243164062
+    },
+    "limits": "Saved scene, reconstructed Lit stencil, one captured view; remaining bright-pixel errors and no physical-device sustained-FPS result."
+  },
+  "unresolved": [
+    "Sustained physical iPad FPS and complete frame_fence workload are not yet fixed or verified by this isolated shader change.",
+    "The 9.5GB RAM report is not resolved by this transformation."
+  ]
+}

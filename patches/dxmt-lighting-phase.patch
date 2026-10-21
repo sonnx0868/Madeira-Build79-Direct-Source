@@ -1,0 +1,19 @@
+--- a/src/airconv/airconv_context.cpp
++++ b/src/airconv/airconv_context.cpp
+@@ -1,5 +1,6 @@
+ #include "guarded_pcf.hpp"
+ #include "zero_light_guard.hpp"
++#include "lighting_phase_outline.hpp"
+ #include "llvm/IR/Constants.h"
+ #include "llvm/IR/DerivedTypes.h"
+ #include "llvm/IR/IRBuilder.h"
+@@ -168,6 +169,9 @@
+   // back into unconditional samples followed by a select.
+   MPM.addPass(createModuleToFunctionPassAdaptor(shaderopt::ComputePCFPass(), true));
+   MPM.addPass(createModuleToFunctionPassAdaptor(shaderopt::ComputeZeroLightPass(), true));
++  // Reorder the measured compute shader without changing its calculations,
++  // dispatch geometry, resource layout or pixel/texture resolution.
++  MPM.addPass(shaderopt::ComputeLightingPhasePass());
+ 
+   // Optimize the IR!
+   MPM.run(M, MAM);

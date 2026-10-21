@@ -24,9 +24,13 @@ SOURCES = ('build/dxmt-ios/explicit_lod_guard.hpp', 'patches/dxmt-explicit-lod-g
            'build/dxmt-ios/guarded_pcf.hpp', 'patches/dxmt-guarded-pcf.patch',
            'dxmt/src/winemetal/unix/cache.c', 'tools/shader-compiler-identity.py',
            'tools/dxmt-optimizer-bundle.py',
-           'build/dxmt-ios/zero_light_guard.hpp', 'patches/dxmt-zero-light-guard.patch')
-LEGACY_SOURCES = SOURCES[:4]
-PCF_SOURCES = SOURCES[:-2]
+           'build/dxmt-ios/zero_light_guard.hpp', 'patches/dxmt-zero-light-guard.patch',
+           'build/dxmt-ios/lighting_phase_outline.hpp', 'patches/dxmt-lighting-phase.patch')
+PHASE_BASE_SOURCES = SOURCES[:-2]
+LEGACY_SOURCES = PHASE_BASE_SOURCES[:4]
+PCF_SOURCES = PHASE_BASE_SOURCES[:-2]
+PHASE_BASE_COMMIT = '54755b621827769dbce18272c6aac90652db7b13'
+PHASE_PATCH = 'patches/dxmt-lighting-phase.patch'
 ZERO_BASE_COMMIT = '82d08f2e1080671efc399bdcdedf56c4a36a3056'
 ZERO_PATCH = 'patches/dxmt-zero-light-guard.patch'
 ZERO_BASE_ARCHIVE = 'f367ec5d55bc80ca5f92cffec0c226273a460f385c7892692c72837465f166e4'
@@ -118,10 +122,12 @@ def replacement_proof(data):
     assert selected, 'missing defined production ComputePCFPass run implementation'
     zero_symbols = sorted(name for name in symbols if 'ComputeZeroLightPass' in name and '3runE' in name)
     assert zero_symbols, 'missing defined production ComputeZeroLightPass run implementation'
-    for marker in (b'SinkingPass', b'LoopRotatePass', b'pcf.sample', b'pcf.condition', b'lighting.nonzero', b'lighting.zero'):
+    phase_symbols = sorted(name for name in symbols if 'ComputeLightingPhasePass' in name and '3runE' in name)
+    assert phase_symbols, 'missing defined production ComputeLightingPhasePass run implementation'
+    for marker in (b'SinkingPass', b'LoopRotatePass', b'pcf.sample', b'pcf.condition', b'lighting.nonzero', b'lighting.zero', b'madeira_lighting_phase', b'lighting.phase'):
         assert marker in data, ('missing prior optimizer or PCF implementation', marker)
-    return {'format': 'arm64-mach-o-compute-lighting-v2', 'defined_run_symbols': selected,
-            'zero_light_run_symbols': zero_symbols,
+    return {'format': 'arm64-mach-o-compute-lighting-v3', 'defined_run_symbols': selected,
+            'zero_light_run_symbols': zero_symbols, 'phase_run_symbols': phase_symbols,
             'contextObjectSHA256': digest(data), 'semantics_proved_by_object_scan': False}
 
 
@@ -173,7 +179,41 @@ def zero_source_hashes(root):
     return frozen_source_hashes(root, ZERO_BASE_COMMIT, PCF_SOURCES)
 
 
+def reverse_phase_overlay(root, folder, source):
+    if b'#include "lighting_phase_outline.hpp"' not in source.read_bytes():
+        return
+    data = (root / PHASE_PATCH).read_bytes().replace(b'\r\n', b'\n')
+    assert re.findall(rb'^\+\+\+ b/([^\r\n]+)$', data, re.M) == [CONTEXT.removeprefix('dxmt/').encode()]
+    patch = folder / 'lighting-phase.patch'
+    patch.write_bytes(data)
+    subprocess.run(['git', '-C', str(folder), 'apply', '--reverse', str(patch)], check=True, capture_output=True)
+
+
+def phase_source_hashes(root):
+    return frozen_source_hashes(root, PHASE_BASE_COMMIT, PHASE_BASE_SOURCES)
+
+
+def validate_phase_parent(root, parent, state):
+    assert parent['format'] == 'madeira-shader-optimizer-v2'
+    assert set(parent['sources']) == set(PHASE_BASE_SOURCES)
+    expected = phase_source_hashes(root)
+    assert parent['sources'] == expected, 'unverified lighting-phase optimizer parent sources'
+    metadata = {CONTEXT, 'build/dxmt-ios/refresh-optimizer.sh',
+                'tools/shader-compiler-identity.py', 'tools/dxmt-optimizer-bundle.py'}
+    for name in set(PHASE_BASE_SOURCES) - metadata:
+        assert source_sha(root / name) == expected[name], ('unrelated lighting-phase source changed', name)
+    with tempfile.TemporaryDirectory(prefix='madeira-lighting-phase-overlay-') as work:
+        folder = Path(work)
+        source = folder / CONTEXT.removeprefix('dxmt/')
+        source.parent.mkdir(parents=True)
+        source.write_bytes((root / CONTEXT).read_bytes().replace(b'\r\n', b'\n'))
+        assert b'#include "lighting_phase_outline.hpp"' in source.read_bytes()
+        reverse_phase_overlay(root, folder, source)
+        assert source_sha(source) == expected[CONTEXT], 'lighting-phase overlay hides an unrelated context change'
+
+
 def reverse_zero_overlay(root, folder, source):
+    reverse_phase_overlay(root, folder, source)
     data = (root / ZERO_PATCH).read_bytes().replace(b'\r\n', b'\n')
     assert re.findall(rb'^\+\+\+ b/([^\r\n]+)$', data, re.M) == [CONTEXT.removeprefix('dxmt/').encode()]
     patch = folder / 'zero.patch'
@@ -225,6 +265,8 @@ def validate_legacy(root, parent, state):
         assert source_sha(source) == expected[CONTEXT], 'PCF overlay hides an unrelated optimizer change'
         subprocess.run(['git', '-C', str(folder), 'apply', str(patch)], check=True, capture_output=True)
         subprocess.run(['git', '-C', str(folder), 'apply', str(folder / 'zero.patch')], check=True, capture_output=True)
+        if (folder / 'lighting-phase.patch').exists():
+            subprocess.run(['git', '-C', str(folder), 'apply', str(folder / 'lighting-phase.patch')], check=True, capture_output=True)
         assert source_sha(source) == source_sha(root / CONTEXT), 'optimizer source transition is not reversible'
 
 
@@ -262,7 +304,7 @@ def collect(root):
     return state
 
 
-def validate_parents(root, parents, state, legacy=False, zero=False):
+def validate_parents(root, parents, state, legacy=False, zero=False, phase=False):
     depth = module(root, 'dxmt-depth-retention-bundle')
     srv = module(root, 'dxmt-srv-bundle')
     assert set(parents) == set(depth.PARENTS), 'optimizer refresh requires the complete verified parent chain'
@@ -272,6 +314,9 @@ def validate_parents(root, parents, state, legacy=False, zero=False):
         adjusted[RECEIPT]['sources'] = state['optimizer_sources']
     elif zero:
         validate_zero_parent(root, parents[RECEIPT], state)
+        adjusted[RECEIPT]['sources'] = state['optimizer_sources']
+    elif phase:
+        validate_phase_parent(root, parents[RECEIPT], state)
         adjusted[RECEIPT]['sources'] = state['optimizer_sources']
     depth.validate_parents(root, adjusted, state)
     identity = compiler_id(srv.object_bytes(root / ARCHIVE, 'cache.o'))
@@ -295,7 +340,8 @@ def prepare(root, base, replacement):
     parents = depth.read_parents(root)
     legacy = set(parents[RECEIPT]['sources']) == set(LEGACY_SOURCES)
     zero = set(parents[RECEIPT]['sources']) == set(PCF_SOURCES)
-    validate_parents(root, parents, state, legacy=legacy, zero=zero)
+    phase = set(parents[RECEIPT]['sources']) == set(PHASE_BASE_SOURCES)
+    validate_parents(root, parents, state, legacy=legacy, zero=zero, phase=phase)
     validate_depth_record(root, state, parents)
     validate_renpy(root)
     proof = replacement_proof(replacement.read_bytes())
@@ -303,7 +349,7 @@ def prepare(root, base, replacement):
     identity = digest(('madeira-compute-pcf-v1\0' + old + '\0' + proof['contextObjectSHA256']).encode())
     assert identity != old
     prepared = {'format': 'madeira-shader-optimizer-base-v2', 'state': state, 'parents': parents,
-                'depth_receipt': read_json(root / depth.RECEIPT), 'legacy_migration': legacy, 'zero_migration': zero,
+                'depth_receipt': read_json(root / depth.RECEIPT), 'legacy_migration': legacy, 'zero_migration': zero, 'phase_migration': phase,
                 'oldCompilerID': old, 'compilerID': identity, 'object_proof': proof,
                 'contextObjectSHA256': proof['contextObjectSHA256']}
     upload = module(root, 'dxmt-upload-batching-bundle')
@@ -360,6 +406,9 @@ def transition(root, base, snapshot, state, parents, commit):
         adjusted[RECEIPT]['sources'] = old['optimizer_sources']
     elif snapshot.get('zero_migration'):
         validate_zero_parent(root, parents[RECEIPT], old)
+        adjusted[RECEIPT]['sources'] = old['optimizer_sources']
+    elif snapshot.get('phase_migration'):
+        validate_phase_parent(root, parents[RECEIPT], old)
         adjusted[RECEIPT]['sources'] = old['optimizer_sources']
     depth.validate_parents(root, adjusted, old)
     assert parents[RECEIPT]['compilerID'] == snapshot['oldCompilerID']

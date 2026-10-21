@@ -49,13 +49,15 @@ def object_fixture(production_symbol=True):
     # shader code; actual production object/compiler tests run separately.
     name = b'__ZN4llvm6detail9PassModelINS_8FunctionEN4dxmt9shaderopt14ComputePCFPassEE3runE\0'
     second = b'__ZN4llvm6detail9PassModelINS_8FunctionEN4dxmt9shaderopt20ComputeZeroLightPassEE3runE\0'
-    strings = b'\0' + name + second
-    payload = b'SinkingPass\0LoopRotatePass\0pcf.sample\0pcf.condition\0lighting.nonzero\0lighting.zero\0fixture-only\0'
+    third = b'__ZN4llvm6detail9PassModelINS_6ModuleEN4dxmt9shaderopt24ComputeLightingPhasePassEE3runE\0'
+    strings = b'\0' + name + second + third
+    payload = b'SinkingPass\0LoopRotatePass\0pcf.sample\0pcf.condition\0lighting.nonzero\0lighting.zero\0madeira_lighting_phase\0lighting.phase\0fixture-only\0'
     header = struct.pack('<8I', 0xfeedfacf, 0x100000c, 0, 1, 1, 24, 0, 0)
-    command = struct.pack('<6I', 2, 24, 56, 2, 88, len(strings))
+    command = struct.pack('<6I', 2, 24, 56, 3, 104, len(strings))
     symbol = struct.pack('<IBBHQ', 1, 0x0f if production_symbol else 1, 1 if production_symbol else 0, 0, 0)
     symbol2 = struct.pack('<IBBHQ', 1 + len(name), 0x0f, 1, 0, 0)
-    return header + command + symbol + symbol2 + strings + payload
+    symbol3 = struct.pack('<IBBHQ', 1 + len(name) + len(second), 0x0f, 1, 0, 0)
+    return header + command + symbol + symbol2 + symbol3 + strings + payload
 
 
 def archive(path, objects):
@@ -96,7 +98,7 @@ def replace_objects(base, output, replacements):
         assert changed == set(replacements)
 
 
-def source_fixture(folder):
+def source_fixture(folder, phase=False):
     names = set(bundle.SOURCES) | set(depth.SOURCES)
     names.update(bundle.module(ROOT, 'dxmt-upload-batching-bundle').SOURCES)
     for receipt in depth.PARENTS:
@@ -119,6 +121,9 @@ def source_fixture(folder):
     bundle.legacy_source_hashes = lambda root: expected
     zero_expected = bundle.zero_source_hashes(ROOT)
     bundle.zero_source_hashes = lambda root: zero_expected
+    if phase:
+        phase_expected = bundle.phase_source_hashes(ROOT)
+        bundle.phase_source_hashes = lambda root: phase_expected
     pin = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', bundle.BASE_COMMIT + ':wine'], text=True).strip()
     target = folder / 'wine/dlls/ntdll/signal_arm64ec.c'
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -138,7 +143,7 @@ def synthetic_inspection(root, require_depth):
     return libraries, [{'abi': 'fixture'}], [{'symbol': 'fixture-depth', 'rva': 1}]
 
 
-def synthetic_baseline(folder, legacy_sources, zero=False):
+def synthetic_baseline(folder, legacy_sources, zero=False, phase=False):
     depth.inspect_frontends = synthetic_inspection
     real_module = bundle.module
     bundle.module = lambda root, name: depth if name == 'dxmt-depth-retention-bundle' else real_module(root, name)
@@ -176,6 +181,9 @@ def synthetic_baseline(folder, legacy_sources, zero=False):
             if zero:
                 parent.update(format='madeira-shader-optimizer-v2',
                               sources={s: bundle.zero_source_hashes(folder)[s] for s in bundle.PCF_SOURCES})
+            if phase:
+                parent.update(format='madeira-shader-optimizer-v2',
+                              sources={s: bundle.phase_source_hashes(folder)[s] for s in bundle.PHASE_BASE_SOURCES})
         if name == 'build/dxmt-ios/shader-vector-load.json':
             parent['compilerID'] = 'a' * 64
         parents[name] = parent
@@ -190,6 +198,7 @@ def exercise(folder):
     assert original_proof['defined_run_symbols']
     rejected(lambda: bundle.replacement_proof(object_fixture(False)))
     rejected(lambda: bundle.replacement_proof(object_fixture().replace(b'pcf.sample', b'not.sample')))
+    rejected(lambda: bundle.replacement_proof(object_fixture().replace(b'ComputeLightingPhasePass', b'MissingLightingPhasePass')))
     out = folder / bundle.FOLDER
     out.mkdir(parents=True, exist_ok=True)
     base = out / 'base.a'
@@ -283,6 +292,12 @@ def exercise(folder):
     rejected(lambda: bundle.verify(folder))
     header.write_bytes(old_header)
     bundle.verify(folder)
+    phase_header = folder / 'build/dxmt-ios/lighting_phase_outline.hpp'
+    old_phase_header = phase_header.read_bytes()
+    phase_header.write_bytes(old_phase_header + b'\n// uncompiled phase change\n')
+    rejected(lambda: bundle.verify(folder))
+    phase_header.write_bytes(old_phase_header)
+    bundle.verify(folder)
     print(f'PASS: optimizer receipt transition; {counter} invalid source/member/PE/cache/receipt changes rejected before any write; original producers and RenPy payload preserved')
 
 
@@ -290,10 +305,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-zip', type=Path)
     parser.add_argument('--zero-baseline', action='store_true')
+    parser.add_argument('--phase-baseline', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='madeira-optimizer-receipts-') as work:
         folder = Path(work)
-        legacy_sources = source_fixture(folder)
+        legacy_sources = source_fixture(folder, phase=args.phase_baseline)
         if args.baseline_zip:
             expected_zip = ('41c4a98894a82c767bb69194bd6d5ba8882facbaec7d74b85b5d8357bf50453c' if args.zero_baseline else
                             'a4ed742120877cb9789ad0c01195d29f3293e829967f3881576c8a764809f1c7')
@@ -313,7 +329,7 @@ def main():
                         shutil.copyfileobj(source, out)
             print('Real bundle: checking all native objects, all Windows payloads, depth ABI and compiled native callback bypass')
         else:
-            synthetic_baseline(folder, legacy_sources, zero=args.zero_baseline)
+            synthetic_baseline(folder, legacy_sources, zero=args.zero_baseline, phase=args.phase_baseline)
         exercise(folder)
 
 

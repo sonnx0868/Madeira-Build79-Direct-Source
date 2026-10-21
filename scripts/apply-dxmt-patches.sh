@@ -6,6 +6,10 @@ residency_patch="$root/patches/dxmt-texture-residency.patch"
 if git -C "$root/dxmt" apply --reverse --check "$residency_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$residency_patch"
 fi
+phase_patch="$root/patches/dxmt-lighting-phase.patch"
+if git -C "$root/dxmt" apply --reverse --check "$phase_patch" >/dev/null 2>&1; then
+    git -C "$root/dxmt" apply --reverse "$phase_patch"
+fi
 zero_light_patch="$root/patches/dxmt-zero-light-guard.patch"
 if git -C "$root/dxmt" apply --reverse --check "$zero_light_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$zero_light_patch"
@@ -80,3 +84,7 @@ echo 'Applied independent buffer upload batching'
 git -C "$root/dxmt" apply --check "$residency_patch"
 git -C "$root/dxmt" apply "$residency_patch"
 echo 'Applied lossless cold BC residency hooks'
+
+git -C "$root/dxmt" apply --check "$phase_patch"
+git -C "$root/dxmt" apply "$phase_patch"
+echo 'Applied full-resolution lighting phase scheduling'

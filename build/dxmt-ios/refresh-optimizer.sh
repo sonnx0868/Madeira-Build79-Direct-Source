@@ -36,6 +36,10 @@ baseline875=82d08f2e1080671efc399bdcdedf56c4a36a3056
 if ! git -C "$root" cat-file -e "$baseline875^{commit}"; then
   git -C "$root" fetch --depth 1 origin "$baseline875"
 fi
+phase_baseline=54755b621827769dbce18272c6aac90652db7b13
+if ! git -C "$root" cat-file -e "$phase_baseline^{commit}"; then
+  git -C "$root" fetch --depth 1 origin "$phase_baseline"
+fi
 cp "$archive" "$out/base.a"
 for shader in air_msad air_samplepos air_tessellation; do
   xcrun -sdk macosx metal -o "$out/shader-headers/$shader.air" -c "$root/dxmt/src/airconv/shaders/$shader.metal" \
