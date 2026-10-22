@@ -99,7 +99,7 @@
   },
   "macValidation": {
     "format": "madeira-upstream-check-v1",
-    "commit": "2b1d60fb6f1eb13ff23fab343df5fd9a7301d641",
+    "commit": "a4a4d00acfbd689f5d691fa1ea14f23a11f7ca23",
     "host": "Apple Silicon Mac",
     "checksPassed": true,
     "gameFPSMeasured": false,
@@ -115,12 +115,24 @@
       "wine/dlls/ntdll/cs_x64_fastpath.c": "a90b66e5b13c9904c74cf4bfe7df62d014343e0f1605d48a221a06708ad45a76",
       "wine/dlls/ntdll/sync.c": "3cb010d398d355f3799fcbe5d9ff7cb926dcc697bda3b4d79cc2bc5d88be1a03"
     },
-    "buildURL": "https://app.bitrise.io/app/ac99862e-4c0d-41d9-8d95-dc452480dc9e/build/9b82327a-18a0-48a1-8fcf-6d100ac3a1de"
+    "buildURL": "https://app.bitrise.io/app/ac99862e-4c0d-41d9-8d95-dc452480dc9e/build/fef6ebef-f78b-4c58-b048-5a4fb21e05d8",
+    "arm64ecD3D11Units": 4,
+    "arm64ecWineUnits": [
+      "loader.o",
+      "sync.o"
+    ],
+    "logSHA256": "66e1566f3aae437bea030c90f75deaf76095e7a48cc1d519b9569769dd0bc2d6"
   },
   "x64HostValidation": {
     "result": "PASS",
     "executedProductionBytes": true,
     "cases": 10,
     "scope": "Windows x64; not ARM64EC runtime performance"
+  },
+  "shippingStatus": {
+    "newIPABuilt": false,
+    "newIPAUploaded": false,
+    "physicalLiarFPSOrRAMMeasured": false,
+    "physicalReplacedFPSMeasured": false
   }
 }
