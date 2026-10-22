@@ -5,7 +5,7 @@ set -euo pipefail
 root="${CM_BUILD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 # Remove exact dependent overlays before checking their older loader contexts.
 # Preserve unrelated edits; any source drift still fails the later apply gate.
-for name in wine-lean-sync-diagnostics.patch wine-x64-lock-tls-fastpath.patch; do
+for name in wine-lean-sync-diagnostics.patch wine-x64-lock-tls-fastpath.patch wine-module-path.patch; do
     patch="$root/patches/$name"
     if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
         git -C "$root/wine" apply --reverse "$patch"
