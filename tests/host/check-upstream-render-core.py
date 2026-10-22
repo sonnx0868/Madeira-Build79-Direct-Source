@@ -14,6 +14,9 @@ marshal = (root / 'dxmt/src/dxmt/dxmt_command.metal').read_text(encoding='utf-8'
 marshal = marshal[marshal.index('struct DXMTDispatchArguments'):marshal.index('struct depth_stencil_out')]
 marshal = marshal.replace('[[vertex]] ', '').replace(' [[buffer(0)]]', '')
 marshal = marshal.replace('constant ', 'const ').replace('device ', '')
+resources = (root / 'dxmt/src/d3d11/d3d11_resource.hpp').read_text(encoding='utf-8')
+srv = resources[resources.index('template <typename RESOURCE_DESC, typename VIEW_DESC>\nHRESULT ExtractEntireResourceViewDescription'):
+                resources.index('template <typename TEXTURE_DESC>', resources.index('#pragma region Helper'))]
 code = r'''
 #include <algorithm>
 #include <cassert>
@@ -29,6 +32,22 @@ code = r'''
 #include "dynamic_trim.hpp"
 #include <deque>
 #include <random>
+#include <type_traits>
+using UINT=unsigned;using HRESULT=int;
+constexpr HRESULT S_OK=0;constexpr unsigned DXGI_FORMAT_UNKNOWN=0;
+struct D3D11_BUFFER_DESC {};
+enum { D3D11_SRV_DIMENSION_TEXTURE1D=1,D3D11_SRV_DIMENSION_TEXTURE1DARRAY,
+       D3D11_SRV_DIMENSION_TEXTURE2D,D3D11_SRV_DIMENSION_TEXTURE2DARRAY,
+       D3D11_SRV_DIMENSION_TEXTURE3D,D3D11_SRV_DIMENSION_TEXTURECUBE,
+       D3D11_SRV_DIMENSION_TEXTURECUBEARRAY };
+struct Mips { unsigned MostDetailedMip,MipLevels; };
+struct D3D11_SHADER_RESOURCE_VIEW_DESC1 {
+  unsigned Format,ViewDimension;
+  union { Mips Texture1D,Texture1DArray,Texture2D,Texture2DArray,Texture3D,TextureCube,TextureCubeArray; };
+};
+struct TextureDesc { unsigned Format,MipLevels; };
+''' + srv + r'''
+template<class Resource,class View> HRESULT ExtractEntireResourceViewDescription(const Resource *,View *) { return -1; }
 #define WARN(...) ((void)0)
 template<class T> T align(T value,T alignment) { return (value+alignment-1)&~(alignment-1); }
 namespace dxmt {
@@ -52,10 +71,28 @@ struct Alloc {
     live_bytes+=n;peak_bytes=std::max(peak_bytes,live_bytes);creations++;return b;
   }
 };
+struct CountedSequence {
+  uint64_t value;
+  static inline unsigned reads=0;
+  operator uint64_t() const { ++reads;return value; }
+};
 using uint=uint32_t; using ulong=uint64_t; using ushort=uint16_t;
 struct uint2 { uint x,y; };
 ''' + marshal + r'''
 int main() {
+  TextureDesc texture={28,8};
+  for(unsigned dimension=1;dimension<=7;++dimension) {
+    D3D11_SHADER_RESOURCE_VIEW_DESC1 input={},output={};
+    input.ViewDimension=dimension;input.Texture1D={2,~0u};
+    assert(ExtractEntireResourceViewDescription(&texture,&input,&output)==S_OK);
+    assert(output.Texture1D.MipLevels==6 && output.Format==28);
+    input.Texture1D.MipLevels=3;
+    assert(ExtractEntireResourceViewDescription(&texture,&input,&output)==S_OK);
+    assert(output.Texture1D.MipLevels==3);
+    input.Texture1D={8,~0u};
+    assert(ExtractEntireResourceViewDescription(&texture,&input,&output)==S_OK);
+    assert(output.Texture1D.MipLevels==~0u); // invalid descriptions stay for validation
+  }
   {
     dxmt::RingBumpState<Alloc,4096> arena(Alloc{});
     for (unsigned i=1;i<=10000;++i) {
@@ -105,6 +142,12 @@ int main() {
     assert(old.size()==fast.size());
     for(size_t i=0;i<old.size();++i) assert(old[i].id==fast[i].id);
   }
+  struct CountedEntry { CountedSequence will_free_at; };
+  std::deque<CountedEntry> deep;
+  for(unsigned i=0;i<65536;++i) deep.push_back({{i}});
+  CountedSequence::reads=0;
+  assert(dxmt::completedNames(deep,32767,true)==32768);
+  assert(CountedSequence::reads<=17);
   // Both Metal marshal loops must complete a batch, not spin on task zero.
   const uint2 draws[]={{64,1},{128,2},{0,1}};
   DXMTDispatchArguments out[3]={{99,99,99},{99,99,99},{99,99,99}};
