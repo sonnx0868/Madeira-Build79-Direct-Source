@@ -17,21 +17,9 @@ OUT_LIB="$BUILD_DIR/libdxmt_unix.a"
 
 mkdir -p "$OBJ_DIR"
 
-PATCH="$BUILD_DIR/clean-build.patch"
-if git -C "$DXMT_ROOT" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
-    echo "DXMT iOS fallback patch already applied"
-else
-    git -C "$DXMT_ROOT" apply --check "$PATCH"
-    git -C "$DXMT_ROOT" apply "$PATCH"
-fi
-
-PIPELINE_PATCH="$BUILD_DIR/pipeline-cache.patch"
-if git -C "$DXMT_ROOT" apply --reverse --check "$PIPELINE_PATCH" >/dev/null 2>&1; then
-    echo "Metal pipeline cache hooks already applied"
-else
-    git -C "$DXMT_ROOT" apply --check "$PIPELINE_PATCH"
-    git -C "$DXMT_ROOT" apply "$PIPELINE_PATCH"
-fi
+# The native builder must use the same ordered overlay pipeline as PE builds.
+# Individual reverse checks fail once a later overlay extends their contexts.
+bash "$REPO_ROOT/scripts/apply-dxmt-patches.sh"
 
 COMMON_FLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=18.0 -fblocks -O2"
 INCLUDES="-I$OBJ_DIR -I$BUILD_DIR -I$REPO_ROOT/build -I$DXMT_ROOT/include -I$DXMT_ROOT/libs -I$DXMT_SRC/winemetal -I$DXMT_SRC/airconv"
