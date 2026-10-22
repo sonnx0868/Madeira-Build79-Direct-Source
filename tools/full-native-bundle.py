@@ -49,6 +49,10 @@ def payload_inventory(root):
     result = {}
     for directory in ('app/Madeira', 'FEX/build-ios'):
         for path in sorted((root / directory).rglob('*')):
+            # Official Wine Mono is staged separately after native packaging; its
+            # own signed-release receipt validates it. It is not a rebuilt input.
+            if directory == 'app/Madeira' and path.is_relative_to(root / 'app/Madeira/mono'):
+                continue
             if path.is_file() and path.suffix.lower() in ('.a', '.dll', '.dylib', '.exe'):
                 result[path.relative_to(root).as_posix()] = sha(path)
     return result
