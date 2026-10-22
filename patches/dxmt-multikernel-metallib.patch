@@ -1,0 +1,129 @@
+diff --git a/src/airconv/metallib_writer.cpp b/src/airconv/metallib_writer.cpp
+index ec97552..8fce88e 100644
+--- a/src/airconv/metallib_writer.cpp
++++ b/src/airconv/metallib_writer.cpp
+@@ -47,6 +47,9 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           dyn_cast<ConstantAsMetadata>(fn->getOperand(0).get())->getValue()
+         );
+         auto name = func->getName();
++        // Each function has its own length-prefixed tag record.
++        auto record_begin = function_def_stream.tell();
++        function_def_stream << value(uint32_t(0));
+         function_def_stream << "NAME";
+         function_def_stream << value((uint16_t)(name.size() + 1));
+         function_def_stream << name << '\0';
+@@ -91,6 +94,8 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           break;
+         }
+         function_def_stream << "ENDT";
++        uint32_t record_size = function_def_stream.tell() - record_begin;
++        memcpy(function_def.data() + record_begin, &record_size, sizeof(record_size));
+         auto inputs = dyn_cast<MDTuple>(fn->getOperand(2).get());
+ 
+         std::vector<InputAttribute> attribtues;
+@@ -166,6 +171,9 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           dyn_cast<ConstantAsMetadata>(fn->getOperand(0).get())->getValue()
+         );
+         auto name = func->getName();
++        // Each function has its own length-prefixed tag record.
++        auto record_begin = function_def_stream.tell();
++        function_def_stream << value(uint32_t(0));
+         function_def_stream << "NAME";
+         function_def_stream << value((uint16_t)(name.size() + 1));
+         function_def_stream << name << '\0';
+@@ -186,6 +194,8 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           .languageVersionMinor = 1,
+         });
+         function_def_stream << "ENDT";
++        uint32_t record_size = function_def_stream.tell() - record_begin;
++        memcpy(function_def.data() + record_begin, &record_size, sizeof(record_size));
+         public_metadata_stream << value(4);
+         public_metadata_stream << "ENDT";
+         private_metadata_stream << value(4);
+@@ -200,6 +210,9 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           dyn_cast<ConstantAsMetadata>(fn->getOperand(0).get())->getValue()
+         );
+         auto name = func->getName();
++        // Each function has its own length-prefixed tag record.
++        auto record_begin = function_def_stream.tell();
++        function_def_stream << value(uint32_t(0));
+         function_def_stream << "NAME";
+         function_def_stream << value((uint16_t)(name.size() + 1));
+         function_def_stream << name << '\0';
+@@ -220,6 +233,8 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           .languageVersionMinor = 1,
+         });
+         function_def_stream << "ENDT";
++        uint32_t record_size = function_def_stream.tell() - record_begin;
++        memcpy(function_def.data() + record_begin, &record_size, sizeof(record_size));
+ 
+         std::vector<InputAttribute> attribtues;
+ 
+@@ -294,6 +309,9 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           dyn_cast<ConstantAsMetadata>(fn->getOperand(0).get())->getValue()
+         );
+         auto name = func->getName();
++        // Each function has its own length-prefixed tag record.
++        auto record_begin = function_def_stream.tell();
++        function_def_stream << value(uint32_t(0));
+         function_def_stream << "NAME";
+         function_def_stream << value((uint16_t)(name.size() + 1));
+         function_def_stream << name << '\0';
+@@ -314,6 +332,8 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           .languageVersionMinor = 1,
+         });
+         function_def_stream << "ENDT";
++        uint32_t record_size = function_def_stream.tell() - record_begin;
++        memcpy(function_def.data() + record_begin, &record_size, sizeof(record_size));
+ 
+         SmallVector<char, 0> fn_public_metadata;
+         raw_svector_ostream fn_public_metadata_stream(fn_public_metadata);
+@@ -335,6 +355,9 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           dyn_cast<ConstantAsMetadata>(fn->getOperand(0).get())->getValue()
+         );
+         auto name = func->getName();
++        // Each function has its own length-prefixed tag record.
++        auto record_begin = function_def_stream.tell();
++        function_def_stream << value(uint32_t(0));
+         function_def_stream << "NAME";
+         function_def_stream << value((uint16_t)(name.size() + 1));
+         function_def_stream << name << '\0';
+@@ -355,6 +378,8 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+           .languageVersionMinor = 1,
+         });
+         function_def_stream << "ENDT";
++        uint32_t record_size = function_def_stream.tell() - record_begin;
++        memcpy(function_def.data() + record_begin, &record_size, sizeof(record_size));
+ 
+         SmallVector<char, 0> fn_public_metadata;
+         raw_svector_ostream fn_public_metadata_stream(fn_public_metadata);
+@@ -372,12 +397,11 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+   MTLBHeader header;
+   header.Magic = MTLB_Magic;
+   header.FileSize =
+-    sizeof(MTLBHeader) + sizeof(uint32_t) /* fn count */ +
+-    sizeof(uint32_t) /* constant: function list size */ + function_def.size() +
++    sizeof(MTLBHeader) + sizeof(uint32_t) /* fn count */ + function_def.size() +
+     sizeof(MTLBFourCC::EndTag) /* extended header*/
+     + public_metadata.size() + private_metadata.size() + bitcode.size();
+   header.FunctionListOffset = sizeof(MTLBHeader);
+-  header.FunctionListSize = function_def.size() + 4;
++  header.FunctionListSize = function_def.size();
+   header.PublicMetadataOffset =
+     header.FunctionListOffset + header.FunctionListSize +
+     sizeof(uint32_t) // extra room for function count
+@@ -401,7 +425,6 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+   // write to stream
+   OS << value(header);
+   OS << value(fn_count);
+-  OS << value((uint32_t)header.FunctionListSize);
+   OS << function_def;
+   OS.write("ENDT", 4); // extend header
+   OS << public_metadata;
+@@ -409,4 +432,4 @@ void MetallibWriter::Write(const llvm::Module &module, raw_ostream &OS) {
+   OS << bitcode;
+ }
+ 
+-} // namespace dxmt::metallib
+\ No newline at end of file
++} // namespace dxmt::metallib

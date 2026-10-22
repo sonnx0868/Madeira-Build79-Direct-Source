@@ -1,0 +1,258 @@
+{
+  "format": "madeira-adaptive-evaluation-v1",
+  "shippingActivation": "disabled: even best corrected-lighting candidate remains1.55% slower than current full-resolution reference",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "textureQualityChanged": false,
+  "experimentalSourceSHA256": {
+    "build/dxmt-ios/adaptive_lighting.hpp": "82dfbe979839ff72e02effbb0dfef210e98196184aa8aecda06e1cbb1baa480b",
+    "build/dxmt-ios/adaptive_lighting.metal": "1a43ad6cc8259683b6beb9e00baeace124c4331a7c64d33a0f946f2341b55ca7",
+    "patches/dxmt-multikernel-metallib.patch": "a9ef68228ca7cea0b537cecc3080467ba6a9c88ebce6a5a7d5288176e4df9cd3"
+  },
+  "scope": "Actual C++ LLVM15 shader transformation, Metal libraries and GPU pipelines on Apple paravirtual Mac; captured initial resources with reconstructed Lit stencil. Not an exact capture replay, game FPS, or a physical iPad measurement.",
+  "qualityMetric": "Maximum RGB-channel error after approximate Reinhard plus gamma2.2 mapping; not the final game tonemapper. Known bright leaks removed; moving-camera quality not measured.",
+  "run343": {
+    "mediansGPUms": {
+      "shipping": 12.403166666643983,
+      "native-balanced": 11.043770833339295,
+      "fallback-control": 14.147458333326313,
+      "positive-control": 0.4168749999848842,
+      "native-adaptive": 11.661187500010328,
+      "native-performance": 10.947312500036332,
+      "native-reference": 10.6133541666793
+    },
+    "imageQuality": {
+      "native-adaptive": {
+        "maxDisplayLevels": 3.8466873168945312,
+        "mean": 0.020390585064888,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "height": 1080,
+          "fallback_slots": 1302592,
+          "fallback_groups": 20353,
+          "width": 1920,
+          "supported": 1,
+          "fallback_pixels": 1108959,
+          "trusted_pixels": 962849
+        }
+      },
+      "native-balanced": {
+        "maxDisplayLevels": 5.170951843261719,
+        "mean": 0.032475829124450684,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "height": 1080,
+          "fallback_slots": 1182656,
+          "fallback_groups": 18479,
+          "width": 1920,
+          "supported": 1,
+          "fallback_pixels": 969514,
+          "trusted_pixels": 1102294
+        }
+      },
+      "native-performance": {
+        "maxDisplayLevels": 7.302478790283203,
+        "mean": 0.03375878557562828,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "height": 1080,
+          "fallback_slots": 1170624,
+          "fallback_groups": 18291,
+          "width": 1920,
+          "supported": 1,
+          "fallback_pixels": 955809,
+          "trusted_pixels": 1115999
+        }
+      }
+    }
+  },
+  "run345": {
+    "format": "madeira-adaptive-score-v1",
+    "candidates": {
+      "native-adaptive": {
+        "relativeGPUTime": 1.4026585300626129,
+        "pairedWins": 0,
+        "pairedRounds": 10,
+        "imagePassed": true,
+        "speedPassed": false,
+        "accepted": false
+      },
+      "native-balanced": {
+        "relativeGPUTime": 1.3461641353535454,
+        "pairedWins": 0,
+        "pairedRounds": 10,
+        "imagePassed": true,
+        "speedPassed": false,
+        "accepted": false
+      },
+      "native-performance": {
+        "relativeGPUTime": 1.3357410015319513,
+        "pairedWins": 0,
+        "pairedRounds": 10,
+        "imagePassed": true,
+        "speedPassed": false,
+        "accepted": false
+      }
+    },
+    "anyAccepted": false,
+    "physicalIPadFPSMeasured": false,
+    "movingCameraQualityMeasured": false,
+    "resolution": [
+      1920,
+      1080
+    ],
+    "textureQualityChanged": false
+  },
+  "matchedFullRateOccupancy346": {
+    "mediansGPUms": {
+      "occupancy-256": 11.993895833370516,
+      "occupancy-512": 11.89337499999965,
+      "shipping": 13.134916666672325,
+      "positive-control": 0.7673750000094515,
+      "occupancy-128": 11.963270833405204,
+      "occupancy-1024": 15.639770833388411,
+      "native-reference": 12.106062499981363
+    },
+    "allAcceptedOutputsBitExact": true,
+    "decision": "Best512-thread compiler hint is under2% faster than current full-rate reference; not enough evidence to change default.1024 regresses."
+  },
+  "frameFence": "Preserved completion ordering; no early signalling or recycling in-flight resources. Reducing real GPU work remains necessary.",
+  "RAMFix": {
+    "build": 896,
+    "sourceCommit": "d80f805ce45247c1ab6f74861e180cecf3aa143f",
+    "verifiedArtifact": "Madeira-v0.1.6-build896.ipa",
+    "completeDrainReceiptPackaged": true,
+    "turnTimeBudgetIsCooperative": true,
+    "inGameFootprintAfterFixMeasured": false,
+    "ipaSHA256": "e13d408b170c0dc7dd73e6984faf8e9f780545ef46dca796f55a54c074c639f9",
+    "nativeSHA256": "41f3bc46beed365deeae1cd1a2c3389266d8c4a0cb4e428aad551771618f6d84"
+  },
+  "run347": {
+    "mediansGPUms": {
+      "shipping": 11.493354166674408,
+      "fallback-control": 14.187000000021044,
+      "tuned-fallback512": 14.175187500029551,
+      "positive-control": 0.3519583333400078,
+      "tuned-128": 10.920666666663692,
+      "tuned-256": 10.892874999996138,
+      "native-performance": 10.894062500000246,
+      "tuned-512": 10.680395833333023,
+      "native-reference": 10.517541666672514
+    },
+    "imageQuality": {
+      "native-performance": {
+        "maxDisplayLevels": 7.302478790283203,
+        "mean": 0.03375878557562828,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "height": 1080,
+          "fallback_slots": 1066400,
+          "fallback_groups": 16663,
+          "width": 1920,
+          "supported": 1,
+          "fallback_pixels": 955809,
+          "trusted_pixels": 1115999
+        }
+      },
+      "tuned-128": {
+        "maxDisplayLevels": 7.302478790283203,
+        "mean": 0.03375878557562828,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "height": 1080,
+          "fallback_slots": 1066400,
+          "fallback_groups": 16663,
+          "width": 1920,
+          "supported": 1,
+          "fallback_pixels": 955809,
+          "trusted_pixels": 1115999
+        }
+      },
+      "tuned-256": {
+        "maxDisplayLevels": 7.302478790283203,
+        "mean": 0.03375878557562828,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "height": 1080,
+          "fallback_slots": 1066400,
+          "fallback_groups": 16663,
+          "width": 1920,
+          "supported": 1,
+          "fallback_pixels": 955809,
+          "trusted_pixels": 1115999
+        }
+      },
+      "tuned-512": {
+        "maxDisplayLevels": 7.302478790283203,
+        "mean": 0.03375878557562828,
+        "pixelsOver8": 0,
+        "oldBrightPixelError": 0.0,
+        "coverage": {
+          "height": 1080,
+          "fallback_slots": 1066400,
+          "fallback_groups": 16663,
+          "width": 1920,
+          "supported": 1,
+          "fallback_pixels": 955809,
+          "trusted_pixels": 1115999
+        }
+      }
+    },
+    "acceptance": {
+      "format": "madeira-adaptive-score-v1",
+      "candidates": {
+        "native-performance": {
+          "relativeGPUTime": 1.0357993193904649,
+          "pairedWins": 0,
+          "pairedRounds": 10,
+          "imagePassed": true,
+          "speedPassed": false,
+          "accepted": false
+        },
+        "tuned-128": {
+          "relativeGPUTime": 1.0383288236707044,
+          "pairedWins": 0,
+          "pairedRounds": 10,
+          "imagePassed": true,
+          "speedPassed": false,
+          "accepted": false
+        },
+        "tuned-256": {
+          "relativeGPUTime": 1.0356864127777086,
+          "pairedWins": 0,
+          "pairedRounds": 10,
+          "imagePassed": true,
+          "speedPassed": false,
+          "accepted": false
+        },
+        "tuned-512": {
+          "relativeGPUTime": 1.0154840524356137,
+          "pairedWins": 2,
+          "pairedRounds": 10,
+          "imagePassed": true,
+          "speedPassed": false,
+          "accepted": false
+        }
+      },
+      "anyAccepted": false,
+      "physicalIPadFPSMeasured": false,
+      "movingCameraQualityMeasured": false,
+      "resolution": [
+        1920,
+        1080
+      ],
+      "textureQualityChanged": false
+    }
+  },
+  "writerPatchAppliedOnlyInPrivateExperiments": true,
+  "testedWriterSHA256": "68deb86ea9f779d5d0b15ef803b4afa61cc5adbbc2e25082b5ab889824e06b0d",
+  "physicalIPadConnectedAtFinalVerification": false
+}

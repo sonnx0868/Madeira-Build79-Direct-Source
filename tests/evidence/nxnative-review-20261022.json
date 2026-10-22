@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/seedds/nxnative",
+  "commit": "ea12221d58c72a628643113b89f18ca1762c4219",
+  "license": "MIT",
+  "architecture": "Rewrite ARM64 Switch NSO binaries, replace Horizon services, translate NVN graphics to Metal; not Windows x64 CPU translation",
+  "reviewed": [
+    "docs/development.md",
+    "dm/gfx/nvn/nvn_mtl.m",
+    "dm/gfx/nvn/nvn_fstep.h",
+    "dm/host/hle_thread.c"
+  ],
+  "applicableConcepts": [
+    "Content-keyed pipeline prewarm manifests",
+    "Reuse upload staging allocations and commit residency changes only when needed",
+    "Dependency-safe uniform update deferral inside render passes",
+    "Block signalled waits; avoid prolonged polling loops",
+    "Deadline-aware scheduling and recovery probes from lower frame holds"
+  ],
+  "limits": [
+    "No direct x64/FEX replacement",
+    "Frame-step patches depend on game timing semantics and cannot be copied globally into Windows games",
+    "No evidence that this project resolves Liar Bar lighting cost or footprint",
+    "No source code from nxnative imported in this change"
+  ]
+}
