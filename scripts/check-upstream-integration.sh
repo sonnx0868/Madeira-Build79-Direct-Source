@@ -32,13 +32,32 @@ import zipfile,sys
 from pathlib import Path
 with zipfile.ZipFile(sys.argv[1]) as archive:
     for name in archive.namelist():
-        if name.startswith('wine/build-macos/include/') and not name.endswith('/'):
+        if (name.startswith(('wine/build-macos/include/','wine/build-arm64ec/include/')) or
+            name == 'wine/build-arm64ec/config.status') and not name.endswith('/'):
             target=Path(name)
             assert '..' not in target.parts and not target.is_absolute()
             target.parent.mkdir(parents=True,exist_ok=True)
             target.write_bytes(archive.read(name))
 PY
 bash build/ntdll-unix/build.sh upstream-check
+# Compile actual ARM64EC consumers as well as executing the x64 byte fixtures.
+toolchain=llvm-mingw-20260421-ucrt-macos-universal
+tc="$root/toolchains/$toolchain/bin"
+if [[ ! -x "$tc/arm64ec-w64-mingw32-clang++" ]]; then
+  download="${TMPDIR:-/tmp}/$toolchain.tar.xz"
+  curl --fail --location --retry 3 --silent --show-error \
+    "https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/$toolchain.tar.xz" -o "$download"
+  printf '%s  %s\n' bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7 "$download" | shasum -a 256 -c -
+  mkdir -p "$root/toolchains"
+  tar -xJf "$download" -C "$root/toolchains"
+fi
+export PATH="$tc:/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PATH"
+git -C dxmt submodule update --init --depth 1 include/native/directx
+python3 tests/host/check-dxmt-pe-compile.py --compiler "$tc/arm64ec-w64-mingw32-clang++" --require-tools \
+  --only src/dxmt/dxmt_dynamic.cpp --only src/d3d11/d3d11_pipeline_cache.cpp \
+  --only src/d3d11/d3d11_context_imm.cpp --only src/d3d11/d3d11_context_def.cpp
+(cd wine/build-arm64ec && bash ./config.status)
+make -C wine/build-arm64ec -j4 dlls/ntdll/arm64ec-windows/loader.o dlls/ntdll/arm64ec-windows/sync.o
 python3 - "$out" <<'PY'
 from pathlib import Path
 import hashlib,json,subprocess,sys
