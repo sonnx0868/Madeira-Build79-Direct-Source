@@ -11,7 +11,10 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
+import shutil
 import subprocess
+import tempfile
 import uuid
 
 RECEIPT = 'build/full-native-rebuild.json'
@@ -104,7 +107,25 @@ def stamp(root):
                                        ('libwineserver.a', ('mapping.o',))]:
         for name in object_names:
             folder = 'ntdll-unix' if 'ntdll' in archive_name else 'wineserver'
-            assert srv.object_bytes(root / 'app/Madeira' / archive_name, name) == (root / 'build' / folder / 'obj' / name).read_bytes()
+            compiled = (root / 'build' / folder / 'obj' / name).read_bytes()
+            packaged = srv.object_bytes(root / 'app/Madeira' / archive_name, name)
+            if archive_name == 'libwineserver.a' and compiled != packaged:
+                # The server's documented objcopy sweep prefixes collisions in
+                # both definitions and references after compilation. Reproduce
+                # that exact transform rather than accepting a different object.
+                script = (root / 'build/wineserver/build.sh').read_text()
+                body = script.split('COLLISIONS=(', 1)[1].split('\n)', 1)[0]
+                collisions = ' '.join(line.split('#', 1)[0] for line in body.splitlines()).split()
+                assert collisions and all(re.fullmatch('[a-z_][a-z_0-9]*', n) for n in collisions)
+                tool = shutil.which('llvm-objcopy')
+                assert tool, 'server object verification requires the producer objcopy tool'
+                arguments = [a for n in collisions for a in ('--redefine-sym', '_' + n + '=_ws_' + n)]
+                with tempfile.TemporaryDirectory(prefix='madeira-server-proof-') as scratch:
+                    target = Path(scratch) / name
+                    target.write_bytes(compiled)
+                    subprocess.run([tool, *arguments, str(target)], check=True)
+                    compiled = target.read_bytes()
+            assert packaged == compiled, ('archive differs from its compiled/normalized object', archive_name, name)
     identity = optimizer.compiler_id(objects['cache.o'])
     sources = source_inventory(root)
     common = {'archive_sha256': sha(archive), 'members': pacing.members(archive),

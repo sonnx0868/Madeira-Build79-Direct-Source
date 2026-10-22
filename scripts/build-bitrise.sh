@@ -95,6 +95,12 @@ on_exit() {
   status=$?
   if (( status != 0 )); then
     printf '%s\t%d\tfailed:%d\n' "$phase" "$((SECONDS-phase_start))" "$status" >> "$out/build-timings.tsv"
+    # Preserve completed cold compilation if a later provenance/app gate fails.
+    # This is a private diagnostic checkpoint, never a published native bundle.
+    if [[ "$mode" = bootstrap && -s "$root/app/Madeira/libdxmt_combined.a" &&
+          -s "$root/build/full-native-start.json" ]]; then
+      python3 "$root/tools/checkpoint-native-build.py" --root "$root" --out "$out/native-build-checkpoint.zip" || true
+    fi
   fi
   printf 'total\t%d\t%d\n' "$((SECONDS-total_start))" "$status" >> "$out/build-timings.tsv"
 }
