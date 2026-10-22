@@ -180,6 +180,11 @@ def zero_source_hashes(root):
 
 
 def reverse_phase_overlay(root, folder, source):
+    if b'#include "padded_lighting.hpp"' in source.read_bytes():
+        padded = folder / 'padded-context.patch'
+        padded.write_bytes((root / 'patches/dxmt-padded-light-table.patch').read_bytes().replace(b'\r\n', b'\n'))
+        subprocess.run(['git', '-C', str(folder), 'apply', '--reverse',
+                        '--include=src/airconv/airconv_context.cpp', str(padded)], check=True, capture_output=True)
     if b'#include "lighting_phase_outline.hpp"' not in source.read_bytes():
         return
     data = (root / PHASE_PATCH).read_bytes().replace(b'\r\n', b'\n')
@@ -267,6 +272,9 @@ def validate_legacy(root, parent, state):
         subprocess.run(['git', '-C', str(folder), 'apply', str(folder / 'zero.patch')], check=True, capture_output=True)
         if (folder / 'lighting-phase.patch').exists():
             subprocess.run(['git', '-C', str(folder), 'apply', str(folder / 'lighting-phase.patch')], check=True, capture_output=True)
+        if (folder / 'padded-context.patch').exists():
+            subprocess.run(['git', '-C', str(folder), 'apply', '--include=src/airconv/airconv_context.cpp',
+                            str(folder / 'padded-context.patch')], check=True, capture_output=True)
         assert source_sha(source) == source_sha(root / CONTEXT), 'optimizer source transition is not reversible'
 
 

@@ -26,12 +26,14 @@ BASE_SOURCES = {
     CONTEXT: 'cf62c823875ec1aac79864d1e3fe543c95e4cb1479809033fb6132ad7b58d66c',
     BOUNDARY: 'fd06b5fd78b281387441177b3f6962c7e0b6a559ef5b3d2d71a60c8f18ae56dc',
     WRITER: '0d893c8e92fd5fd9d19d1442a19849376174bf22b0ae1d87ec11cd3a013b1239',
-    'tools/dxmt-residency-bundle.py': 'c8d54f8ce98a6883eded1eb710902ceb939d984100163345babf618c9b0cf1a7'}
+    'tools/dxmt-residency-bundle.py': 'c8d54f8ce98a6883eded1eb710902ceb939d984100163345babf618c9b0cf1a7',
+    'tools/dxmt-optimizer-bundle.py': 'e11aa586ad3b2838b18ff58267948457b191eabf27011906653ed48fc3942148'}
 SOURCES = ('build/dxmt-ios/padded_lighting.hpp', 'build/dxmt-ios/padded_lighting.m',
            'patches/dxmt-padded-light-table.patch', 'patches/dxmt-multikernel-metallib.patch',
            'patches/dxmt-padded-verifier-hooks.patch',
            'dxmt/src/airconv/airconv_context.cpp', 'dxmt/src/airconv/metallib_writer.cpp',
            'dxmt/src/winemetal/unix/winemetal_unix.c', 'tools/dxmt-residency-bundle.py',
+           'tools/dxmt-optimizer-bundle.py',
            'tools/dxmt-padded-light-bundle.py', 'build/dxmt-ios/refresh-padded-light.sh',
            'tests/host/padded-lighting-driver.cpp', 'tests/host/padded-lighting.m',
            'scripts/check-padded-lighting.sh')

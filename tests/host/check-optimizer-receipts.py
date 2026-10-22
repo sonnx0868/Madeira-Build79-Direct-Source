@@ -122,6 +122,7 @@ def source_fixture(folder, phase=False, residency=False):
     for path in (ROOT / 'tools').glob('*.py'):
         names.add(path.relative_to(ROOT).as_posix())
     names.add('patches/wine-native-callback-context.patch')
+    names.add('patches/dxmt-padded-light-table.patch')
     for name in names:
         target = folder / name
         target.parent.mkdir(parents=True, exist_ok=True)
