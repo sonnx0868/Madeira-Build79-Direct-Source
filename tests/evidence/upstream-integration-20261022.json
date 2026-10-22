@@ -96,5 +96,31 @@
       5
     ],
     "newFaultSampler": false
+  },
+  "macValidation": {
+    "format": "madeira-upstream-check-v1",
+    "commit": "2b1d60fb6f1eb13ff23fab343df5fd9a7301d641",
+    "host": "Apple Silicon Mac",
+    "checksPassed": true,
+    "gameFPSMeasured": false,
+    "iPadRAMMeasured": false,
+    "sources": {
+      "build/ntdll-unix/signal_arm64_ios.c": "84d51a05ce24621de6e2a05e8886547bb1553e333807d1cb40388d9f67646bab",
+      "build/ntdll-unix/thread_ios.c": "3ce257000c9fc198a6f1e57c440987ab8d2d9f7358f78b91c24f1ba84d9f1922",
+      "build/ntdll-unix/virtual_ios.c": "865daa94694740aa5fd565727d7a90b533dbe8c2fd34373bdfeb380e7cbda408",
+      "build/wineserver/mapping_ios.c": "719af6cdb1ca704eba3100cc8675edecc8eb868e2c22664abd934cf7acd2d05e",
+      "dxmt/src/dxmt/dxmt_command.metal": "bae77515d7272302c066600d8917e4b4bb4e561a95b4fb81f2d040c4ea4397b4",
+      "dxmt/src/dxmt/dxmt_dynamic.cpp": "6ee51411878af5fa9021a92e708032d7ad59133ade1d9a65efe6b2e180220432",
+      "dxmt/src/d3d11/d3d11_context_impl.cpp": "e50543b914b931f109e285bbc64fea466432de21b1e3f4a65c35d6f400dbaebe",
+      "wine/dlls/ntdll/cs_x64_fastpath.c": "a90b66e5b13c9904c74cf4bfe7df62d014343e0f1605d48a221a06708ad45a76",
+      "wine/dlls/ntdll/sync.c": "3cb010d398d355f3799fcbe5d9ff7cb926dcc697bda3b4d79cc2bc5d88be1a03"
+    },
+    "buildURL": "https://app.bitrise.io/app/ac99862e-4c0d-41d9-8d95-dc452480dc9e/build/9b82327a-18a0-48a1-8fcf-6d100ac3a1de"
+  },
+  "x64HostValidation": {
+    "result": "PASS",
+    "executedProductionBytes": true,
+    "cases": 10,
+    "scope": "Windows x64; not ARM64EC runtime performance"
   }
 }
