@@ -2,6 +2,12 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+for name in dxmt-lazy-shader-objects.patch dxmt-logarithmic-dynamic-trim.patch dxmt-bounded-command-reuse.patch; do
+    patch="$root/patches/$name"
+    if git -C "$root/dxmt" apply --reverse --check "$patch" >/dev/null 2>&1; then
+        git -C "$root/dxmt" apply --reverse "$patch"
+    fi
+done
 padded_patch="$root/patches/dxmt-padded-light-table.patch"
 writer_patch="$root/patches/dxmt-multikernel-metallib.patch"
 for patch in "$padded_patch" "$writer_patch"; do
@@ -44,7 +50,8 @@ retirement_patch="$root/patches/dxmt-retirement-lifetime.patch"
 if git -C "$root/dxmt" apply --reverse --check "$retirement_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$retirement_patch"
 fi
-for name in patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.patch \
+for name in patches/dxmt-resolve-srv-mips.patch patches/dxmt-marshal-progress.patch \
+            patches/dxmt-madeira-query-log.patch patches/dxmt-runtime-lifecycle.patch \
             patches/dxmt-gameplay-performance.patch build/dxmt-ios/clean-build.patch \
             build/dxmt-ios/pipeline-cache.patch patches/dxmt-metal-public-atomic.patch \
             build/dxmt-ios/pipeline-warmup.patch patches/dxmt-gpu-foreground.patch \
@@ -100,3 +107,8 @@ git -C "$root/dxmt" apply "$writer_patch"
 git -C "$root/dxmt" apply --check "$padded_patch"
 git -C "$root/dxmt" apply "$padded_patch"
 echo 'Applied optional zero-extended lighting entry and bounded native dispatch adapter'
+
+for name in dxmt-bounded-command-reuse.patch dxmt-logarithmic-dynamic-trim.patch dxmt-lazy-shader-objects.patch; do
+    git -C "$root/dxmt" apply --check "$root/patches/$name"
+    git -C "$root/dxmt" apply "$root/patches/$name"
+done

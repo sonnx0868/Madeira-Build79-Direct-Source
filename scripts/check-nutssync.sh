@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "${MADEIRA_UPSTREAM_CHECK:-0}" = 1 ]]; then
+  exec bash "$root/scripts/check-upstream-integration.sh"
+fi
 out="${BITRISE_DEPLOY_DIR:-$root/build/nutssync-check}"
 mkdir -p "$out"
 exec > >(tee "$out/nutssync-check.log") 2>&1

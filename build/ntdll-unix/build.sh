@@ -18,6 +18,10 @@ FAILED_FILES=""
 compile_one() {
     local src=$1
     local name=$2
+    local sync_flags=()
+    if [[ "$name" == sync ]]; then
+        sync_flags=(-include "$BUILD_DIR/ios_thread_qos.h" -Dpthread_set_qos_class_self_np=madeira_guest_qos_self)
+    fi
     echo -n "  $name... "
 
     if xcrun -sdk iphoneos clang \
@@ -36,7 +40,7 @@ compile_one() {
         -DWINE_UNIX_LIB -DWINE_IOS=1 \
         -Dget_thread_context=ntdll_get_thread_context \
         -Dset_thread_context=ntdll_set_thread_context \
-        -c "$src" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
+        "${sync_flags[@]}" -c "$src" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
         echo "OK"
         SUCCEEDED=$((SUCCEEDED + 1))
     else

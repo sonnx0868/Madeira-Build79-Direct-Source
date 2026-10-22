@@ -201,3 +201,14 @@ else
     echo "Wine source does not match cooperative session priority" >&2
     exit 1
 fi
+
+# Reviewed upstream fast paths remain opt-in; lean diagnostics does not alter locks.
+for name in wine-x64-lock-tls-fastpath.patch wine-lean-sync-diagnostics.patch; do
+    patch="$root/patches/$name"
+    if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+        echo "Wine upstream optimization already applied: $name"
+    else
+        git -C "$root/wine" apply --check "$patch"
+        git -C "$root/wine" apply "$patch"
+    fi
+done

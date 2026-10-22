@@ -467,6 +467,9 @@ struct LibraryEntry: Codable, Identifiable {
         if reducedX87 { setenv("FEX_X87REDUCEDPRECISION", "1", 1) } else { unsetenv("FEX_X87REDUCEDPRECISION") }
         // Exported only when chosen: unset keeps the engine's own default (and any
         // madeira.cfg setting), as before these choices existed.
+        // Keep hot-path diagnostic atomics off unless the user explicitly asks.
+        // This changes bookkeeping only; lock and wake operations are identical.
+        setenv("MADEIRA_SYNC_LEAN", MadeiraConfig.get("env.MADEIRA_SYNC_LEAN") ?? "1", 1)
         let unityProfile = unitySmoothnessEnabled
         if let configured = MadeiraConfig.get("env.MADEIRA_CTX_FRAME") {
             setenv("MADEIRA_CTX_FRAME", configured, 1)

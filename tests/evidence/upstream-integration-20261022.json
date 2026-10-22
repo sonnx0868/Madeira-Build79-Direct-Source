@@ -1,0 +1,100 @@
+{
+  "format": "madeira-upstream-integration-v1",
+  "sources": [
+    {
+      "repository": "willfaust/Madeira",
+      "pr": 377,
+      "commit": "2e84f655346f88691f01803e5de592b8184ceecb",
+      "author": "alantangok",
+      "url": "https://github.com/willfaust/Madeira/pull/377"
+    },
+    {
+      "repository": "willfaust/Madeira",
+      "pr": 412,
+      "commit": "2873c661cb7fc185e1c5448968017f3b5d19e075",
+      "author": "NevesHenry",
+      "url": "https://github.com/willfaust/Madeira/pull/412"
+    },
+    {
+      "repository": "willfaust/dxmt",
+      "pr": 40,
+      "commit": "40f96a2d51e47f707a1138f1a6cefcb7b8671dc4",
+      "author": "meshoklv",
+      "url": "https://github.com/willfaust/dxmt/pull/40"
+    },
+    {
+      "repository": "willfaust/dxmt",
+      "pr": 41,
+      "commit": "7797e76ff67649b0d1844867fa257f3e6c73afd6",
+      "author": "meshoklv",
+      "url": "https://github.com/willfaust/dxmt/pull/41"
+    },
+    {
+      "repository": "willfaust/Madeira",
+      "pr": 401,
+      "commit": "0ebb11c879a48855049f278c90eb5bab3f3987b6",
+      "author": "meshoklv",
+      "url": "https://github.com/willfaust/Madeira/pull/401"
+    },
+    {
+      "repository": "willfaust/Madeira",
+      "pr": 219,
+      "commit": "2d160aae92db4621945955712648816cf85a1eef",
+      "author": "spitefulowl",
+      "url": "https://github.com/willfaust/Madeira/pull/219"
+    },
+    {
+      "repository": "willfaust/dxmt",
+      "pr": 42,
+      "commit": "9f5df5b927a81e61b94174926b7db7bd6bf1ed4a",
+      "author": "meshoklv",
+      "url": "https://github.com/willfaust/dxmt/pull/42"
+    },
+    {
+      "repository": "willfaust/dxmt",
+      "pr": 43,
+      "commit": "3d9658f0f6742b5cb71e898fbac7dc6f58f74d23",
+      "author": "meshoklv",
+      "url": "https://github.com/willfaust/dxmt/pull/43"
+    },
+    {
+      "repository": "willfaust/dxmt",
+      "pr": 19,
+      "commit": "0c0af8471d9b463662254334c82d221cd03f4da4",
+      "author": "spitefulowl",
+      "url": "https://github.com/willfaust/dxmt/pull/19"
+    },
+    {
+      "repository": "willfaust/wine",
+      "pr": 50,
+      "commit": "151277eb874ee3cdf7f45b422491ac4fcc91804f",
+      "author": "meshoklv",
+      "url": "https://github.com/willfaust/wine/pull/50"
+    },
+    {
+      "repository": "willfaust/wine",
+      "pr": 51,
+      "commit": "261ffee5def712cc685b0d3d557b1c7526cde198",
+      "author": "meshoklv",
+      "url": "https://github.com/willfaust/wine/pull/51"
+    }
+  ],
+  "scope": "Source integration; validation results appended after tests. No game FPS claim.",
+  "policy": {
+    "resolution": "unchanged",
+    "textures": "unchanged",
+    "dynamicCompletedReserve": 64,
+    "commandCacheDefault": false,
+    "commandCacheMaxBytes": 8388608,
+    "shaderIREvictionDefault": false,
+    "nameQoSDefault": "no rules",
+    "x64CSAndTLSDefault": false,
+    "leanSyncDefault": true,
+    "swapImportedCommits": [
+      3,
+      4,
+      5
+    ],
+    "newFaultSampler": false
+  }
+}

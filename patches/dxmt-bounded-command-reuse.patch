@@ -1,0 +1,79 @@
+--- a/src/d3d11/d3d11_context_impl.cpp
++++ b/src/d3d11/d3d11_context_impl.cpp
+@@ -1,3 +1,4 @@
++#include "../../../build/dxmt-ios/command_cache.hpp"
+ 
+ /**
+ This file is included by d3d11_context_{imm|def}.cpp
+@@ -5363,6 +5364,7 @@
+ };
+ 
+ class MTLD3D11CommandList : public ManagedDeviceChild<ID3D11CommandList> {
++  CommandCacheLease cpu_cache_lease_;
+ public:
+   MTLD3D11CommandList(MTLD3D11Device *pDevice, MTLD3D11CommandListPoolBase *pPool, UINT context_flag) :
+       ManagedDeviceChild(pDevice),
+@@ -5374,7 +5376,7 @@
+       cpu_command_allocator({}) {};
+ 
+   ~MTLD3D11CommandList() {
+-    Reset();
++    Reset(false);
+   }
+ 
+   void Recycle() final {
+@@ -5383,7 +5385,7 @@
+   }
+ 
+   void
+-  Reset() {
++  Reset(bool keep_cpu_block = true) {
+     auto current_seq_id = m_parent->GetDXMTDevice().queue().CurrentSeqId();
+ 
+     while (!used_dynamic_buffers.empty()) {
+@@ -5403,7 +5405,12 @@
+     issued_event_query.clear();
+     list.reset();
+     staging_allocator.free_blocks(~0uLL);
+-    cpu_command_allocator.free_blocks(~0uLL);
++    if (keep_cpu_block && commandCacheEnabled() && cpu_cache_lease_.acquire()) {
++      if (!cpu_command_allocator.free_blocks_keep_first()) cpu_cache_lease_.release();
++    } else {
++      cpu_command_allocator.free_blocks(~0uLL);
++      cpu_cache_lease_.release();
++    }
+ 
+     promote_flush = false;
+   };
+--- a/src/dxmt/dxmt_ring_bump_allocator.hpp
++++ b/src/dxmt/dxmt_ring_bump_allocator.hpp
+@@ -108,6 +108,29 @@
+   allocate(uint64_t seq_id, uint64_t coherent_id, size_t size, size_t alignment);
+ 
+   void free_blocks(uint64_t coherent_id);
++
++  // Called only after every command referring to this list's CPU arena is dead.
++  // The caller must own a bounded cache lease before requesting retention.
++  bool free_blocks_keep_first() {
++    std::lock_guard<mutex> lock(mutex_);
++    if (fifo.empty()) return false;
++    Allocation first = std::move(fifo.front());
++    fifo.pop();
++    while (!fifo.empty()) {
++      if (fifo.front().reusable_oversize) --reusable_oversize_blocks_;
++      fifo.pop();
++    }
++    if (first.total_size == BlockSize && !first.reusable_oversize) {
++      first.allocated_size = 0;
++      first.last_used_seq_id = 0;
++      first.inc_time_to_live = 0;
++      fifo.push(std::move(first));
++      return true;
++    }
++    if (first.reusable_oversize) --reusable_oversize_blocks_;
++    return false;
++  }
++
+ 
+ private:
+   struct Allocation {

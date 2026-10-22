@@ -1,0 +1,143 @@
+--- a/src/dxmt/dxmt_dynamic.cpp
++++ b/src/dxmt/dxmt_dynamic.cpp
+@@ -1,6 +1,7 @@
+ #include "dxmt_dynamic.hpp"
+ #include "dxmt_texture.hpp"
+ #include "dxmt_mem_census.hpp"
++#include "../../../build/dxmt-ios/dynamic_trim.hpp"
+ 
+ namespace dxmt {
+ DynamicBuffer::DynamicBuffer(Buffer *buffer, Flags<BufferAllocationFlag> flags) :
+@@ -48,76 +49,32 @@
+     fifo.pop_front();
+     break;
+   }
+-  /* ml681: walk the retained set while we already hold the lock. eligible vs
+-   * ineligible is the discriminator; min/max will_free_at shows whether the
+-   * tail is fenced by one burst or spread across many sequences. */
+-  /* ml685 DESIGN BUG, found by accident: this whole block -- INCLUDING THE TRIM
+-   * -- used to sit behind `census_id_ < DYN_CENSUS_SLOTS`. Allocator behaviour
+-   * was therefore decided by whether an object happened to fit in a DIAGNOSTIC
+-   * table. With the table at 512 the trim only ever saw tiny constant buffers,
+-   * freed nothing, and I read that as "nothing to free". Raising the table to
+-   * 8192 for observability silently switched the trim on for the instances that
+-   * held ~1GB, which is the entire reason memory dropped.
+-   *
+-   * The walk and the trim now run for EVERY instance; only the statistics are
+-   * gated. Behaviour must never depend on diagnostic capacity. */
+-  {
+-    const bool stats = census_id_ < DYN_CENSUS_SLOTS;
+-    uint64_t en = 0, eb = 0, in_n = 0, in_b = 0, lo = ~0ull, hi = 0, dup = 0;
+-    const void *prev_seen[8] = {nullptr};
+-    unsigned pi = 0;
+-    for (const auto &e : fifo) {
+-      uint64_t bytes = e.allocation.ptr() ? e.allocation->census_bytes_ : 0;
+-      if (e.will_free_at <= coherent_seq_id) { en++; eb += bytes; }
+-      else                                   { in_n++; in_b += bytes; }
+-      if (e.will_free_at < lo) lo = e.will_free_at;
+-      if (e.will_free_at > hi) hi = e.will_free_at;
+-      for (unsigned k = 0; k < 8; k++)
+-        if (prev_seen[k] && prev_seen[k] == (const void *)e.allocation.ptr()) { dup++; break; }
+-      prev_seen[pi++ & 7] = (const void *)e.allocation.ptr();
+-    }
+-    if (stats) {
+-      DynStat &st = g_dyn_stats[census_id_];
+-      st.depth.store(fifo.size(), std::memory_order_relaxed);
+-      st.eligible_n.store(en, std::memory_order_relaxed);
+-      st.eligible_bytes.store(eb, std::memory_order_relaxed);
+-      st.inelig_n.store(in_n, std::memory_order_relaxed);
+-      st.inelig_bytes.store(in_b, std::memory_order_relaxed);
+-      st.wfa_min.store(lo == ~0ull ? 0 : lo, std::memory_order_relaxed);
+-      st.wfa_max.store(hi, std::memory_order_relaxed);
+-      if (dup) st.dup_ptrs.fetch_add(dup, std::memory_order_relaxed);
+-    }
+-
+-    /* ml681 SAFE TRIM. Release only entries the GPU has demonstrably finished
+-     * with (will_free_at <= coherent_seq_id), and only the surplus beyond a
+-     * working reserve. Entries are pushed in non-decreasing will_free_at order,
+-     * so the eligible ones are exactly the front run -- stopping at the first
+-     * ineligible entry is what makes this safe.
+-     *
+-     * A blanket depth cap would be a use-after-free: an entry whose
+-     * will_free_at still exceeds coherent_seq_id can be in GPU use right now. */
+-    enum { DYN_KEEP_ELIGIBLE = 64 };
+-    if (en > DYN_KEEP_ELIGIBLE) {
+-      uint64_t drop = en - DYN_KEEP_ELIGIBLE, freed = 0, freed_n = 0;
+-      while (drop && !fifo.empty()) {
+-        const QueueEntry &f = fifo.front();
+-        if (f.will_free_at > coherent_seq_id) break;   /* never touch fenced */
+-        freed += f.allocation.ptr() ? f.allocation->census_bytes_ : 0;
+-        freed_n++;
+-        fifo.pop_front();
+-        drop--;
+-      }
+-      if (freed_n) {
+-        trimmed_last_ = true;                  /* ml685: for trim-regret */
+-        g_trim_total_n.fetch_add(freed_n, std::memory_order_relaxed);
+-        g_trim_total_bytes.fetch_add(freed, std::memory_order_relaxed);
+-        if (stats) {
+-          DynStat &st = g_dyn_stats[census_id_];
+-          st.trimmed_n.fetch_add(freed_n, std::memory_order_relaxed);
+-          st.trimmed_bytes.fetch_add(freed, std::memory_order_relaxed);
+-        }
+-      }
+-    }
++  // Upstream DXMT#43: avoid a census walk on every rename. Keep our existing
++  // 64-entry limit, so this optimization cannot add retained GPU allocations.
++  // Entries are in completion-sequence order. Never discard an in-flight one.
++  if (fifo.empty()) fifo_sequence_ordered_ = true;
++  uint64_t eligible = completedNames(fifo, coherent_seq_id, fifo_sequence_ordered_);
++  uint64_t freed = 0, freed_n = 0;
++  while (eligible > 64 && !fifo.empty() && fifo.front().will_free_at <= coherent_seq_id) {
++    --eligible;
++    const auto &entry = fifo.front();
++    freed += entry.allocation.ptr() ? entry.allocation->census_bytes_ : 0;
++    ++freed_n;
++    fifo.pop_front();
++  }
++  if (freed_n) {
++    trimmed_last_ = true;
++    g_trim_total_n.fetch_add(freed_n, std::memory_order_relaxed);
++    g_trim_total_bytes.fetch_add(freed, std::memory_order_relaxed);
++    if (census_id_ < DYN_CENSUS_SLOTS) {
++      g_dyn_stats[census_id_].trimmed_n.fetch_add(freed_n, std::memory_order_relaxed);
++      g_dyn_stats[census_id_].trimmed_bytes.fetch_add(freed, std::memory_order_relaxed);
++    }
++  }
++  if (census_id_ < DYN_CENSUS_SLOTS) {
++    g_dyn_stats[census_id_].depth.store(fifo.size(), std::memory_order_relaxed);
++    g_dyn_stats[census_id_].eligible_n.store(eligible, std::memory_order_relaxed);
++    g_dyn_stats[census_id_].inelig_n.store(fifo.size() - eligible, std::memory_order_relaxed);
+   }
+ 
+   /* ml684: report on SEQUENCE ADVANCEMENT, not only on memory high-water marks.
+@@ -168,8 +125,10 @@
+   g_mem_census.dyn_seq_current.store(current_seq_id, std::memory_order_relaxed);   /* ml680 */
+   if (!owned_by_command_list_ && census_id_ < DYN_CENSUS_SLOTS)
+     g_dyn_stats[census_id_].push_update.fetch_add(1, std::memory_order_relaxed);   /* ml681 */
+-  if (!owned_by_command_list_)
++  if (!owned_by_command_list_) {
++    if (!fifo.empty() && current_seq_id < fifo.back().will_free_at) fifo_sequence_ordered_ = false;
+     fifo.push_back(QueueEntry{.allocation = std::move(name_), .will_free_at = current_seq_id});
++  }
+   name_ = std::move(allocation);
+   name_suballocation_ = suballocation;
+   owned_by_command_list_ = owned_by_command_list;
+@@ -187,6 +146,7 @@
+   }
+   if (census_id_ < DYN_CENSUS_SLOTS)
+     g_dyn_stats[census_id_].push_recycle.fetch_add(1, std::memory_order_relaxed);   /* ml681 */
++  if (!fifo.empty() && current_seq_id < fifo.back().will_free_at) fifo_sequence_ordered_ = false;
+   fifo.push_back(QueueEntry{.allocation = std::move(allocation), .will_free_at = current_seq_id});
+ }
+ 
+--- a/src/dxmt/dxmt_dynamic.hpp
++++ b/src/dxmt/dxmt_dynamic.hpp
+@@ -65,6 +65,7 @@
+   Rc<BufferAllocation> name_;
+   uint32_t name_suballocation_ = 0;
+   bool owned_by_command_list_ = false;
++  bool fifo_sequence_ordered_ = true;
+   bool trimmed_last_ = false;      /* ml685: trim-regret latch */
+ };
+ 
