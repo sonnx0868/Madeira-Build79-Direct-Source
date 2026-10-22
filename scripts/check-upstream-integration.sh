@@ -21,6 +21,24 @@ python3 tests/host/check-guest-main-qos.py --require-darwin
 bash scripts/check-padded-lighting.sh
 xcrun -sdk macosx metal -c dxmt/src/dxmt/dxmt_command.metal -std=metal3.1 \
   --target=air64-apple-macos14.0 -o "$out/dxmt_command.air"
+# Reuse only generated headers/configuration from the hash-pinned public bundle.
+# Do not load its old native libraries over the changed source or re-stamp them.
+base="${TMPDIR:-/tmp}/madeira-upstream-headers.zip"
+curl --fail --location --retry 3 --silent --show-error \
+  'https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build875-82d08f2/Madeira-v0.1.6-native-deps-build875.zip' -o "$base"
+printf '%s  %s\n' 41c4a98894a82c767bb69194bd6d5ba8882facbaec7d74b85b5d8357bf50453c "$base" | shasum -a 256 -c -
+python3 - "$base" <<'PY'
+import zipfile,sys
+from pathlib import Path
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    for name in archive.namelist():
+        if name.startswith('wine/build-macos/include/') and not name.endswith('/'):
+            target=Path(name)
+            assert '..' not in target.parts and not target.is_absolute()
+            target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes(archive.read(name))
+PY
+bash build/ntdll-unix/build.sh upstream-check
 python3 - "$out" <<'PY'
 from pathlib import Path
 import hashlib,json,subprocess,sys

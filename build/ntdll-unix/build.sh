@@ -51,6 +51,18 @@ compile_one() {
     fi
 }
 
+# Compile the changed native translation units for an isolated regression job.
+# This deliberately does not stamp old receipts or package these objects as an IPA.
+if [[ "${1:-all}" = upstream-check ]]; then
+    compile_one "$BUILD_DIR/signal_arm64_ios.c" signal_arm64
+    compile_one "$BUILD_DIR/thread_ios.c" thread
+    compile_one "$BUILD_DIR/virtual_ios.c" virtual
+    compile_one "$BUILD_DIR/loader_ios.c" loader
+    compile_one "$WINE_SRC/dlls/ntdll/unix/sync.c" sync
+    [[ "$FAILED" = 0 ]] || exit 1
+    exit 0
+fi
+
 # Rebuild the consumer paired with FEX's LRCPC2 emitter without rebuilding
 # unrelated native dependencies. Never archive an object after compile failure.
 if [[ "${1:-all}" = alias-only ]]; then
