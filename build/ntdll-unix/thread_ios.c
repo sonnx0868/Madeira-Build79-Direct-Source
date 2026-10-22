@@ -1159,8 +1159,7 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
         if (++noteb_n <= 8)
             dprintf(2, "[pthread-exit] NO WINE TEB (native thread) — closing nothing, "
                        "exiting cleanly (n=%lu) rev=ml558\n", noteb_n);
-        ios_thread_qos_exit( (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread );
-    pthread_exit( UIntToPtr(status) );
+        pthread_exit( UIntToPtr(status) );
     }
     /* This is a descriptor reference for in-process synchronization, not a
      * kernel fd. libc close leaked it on every Wine thread exit. */
@@ -1258,6 +1257,7 @@ static DECLSPEC_NORETURN void pthread_exit_wrapper( int status )
         /* Drop our own TEB reference through the key that owns the slot.
          * We used to poke raw slot 275 here, which we never owned. */
         extern pthread_key_t ios_teb_tls_key;
+        ios_thread_qos_exit( (unsigned)(ULONG_PTR)NtCurrentTeb()->ClientId.UniqueThread );
         pthread_setspecific( ios_teb_tls_key, NULL );
         /* iOS-Madeira ml413 (#60): xtajit64 stamps TEB->Instrumentation[8]
          * (+0x16f8) while this thread holds a FEX shared lock (compile-time
