@@ -2,6 +2,13 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+padded_patch="$root/patches/dxmt-padded-light-table.patch"
+writer_patch="$root/patches/dxmt-multikernel-metallib.patch"
+for patch in "$padded_patch" "$writer_patch"; do
+    if git -C "$root/dxmt" apply --reverse --check "$patch" >/dev/null 2>&1; then
+        git -C "$root/dxmt" apply --reverse "$patch"
+    fi
+done
 residency_patch="$root/patches/dxmt-texture-residency.patch"
 if git -C "$root/dxmt" apply --reverse --check "$residency_patch" >/dev/null 2>&1; then
     git -C "$root/dxmt" apply --reverse "$residency_patch"
@@ -88,3 +95,8 @@ echo 'Applied lossless cold BC residency hooks'
 git -C "$root/dxmt" apply --check "$phase_patch"
 git -C "$root/dxmt" apply "$phase_patch"
 echo 'Applied full-resolution lighting phase scheduling'
+git -C "$root/dxmt" apply --check "$writer_patch"
+git -C "$root/dxmt" apply "$writer_patch"
+git -C "$root/dxmt" apply --check "$padded_patch"
+git -C "$root/dxmt" apply "$padded_patch"
+echo 'Applied optional zero-extended lighting entry and bounded native dispatch adapter'

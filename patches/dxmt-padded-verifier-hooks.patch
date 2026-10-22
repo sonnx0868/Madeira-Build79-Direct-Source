@@ -1,0 +1,25 @@
+diff --git a/tools/dxmt-residency-bundle.py b/tools/dxmt-residency-bundle.py
+index 286c1be..083cda8 100644
+--- a/tools/dxmt-residency-bundle.py
++++ b/tools/dxmt-residency-bundle.py
+@@ -42,9 +42,20 @@ def source_state(root, optimizer):
+         source.write_bytes((root / BOUNDARY).read_bytes().replace(b'\r\n', b'\n'))
+         patch = folder / 'residency.patch'
+         patch.write_bytes(data)
++        padded = b'padded_lighting.m' in source.read_bytes()
++        padded_patch = folder / 'padded.patch'
++        if padded:
++            padded_patch.write_bytes((root / 'patches/dxmt-padded-light-table.patch').read_bytes().replace(b'\r\n', b'\n'))
++            subprocess.run(['git', '-C', str(folder), 'apply', '--reverse',
++                            '--include=src/winemetal/unix/winemetal_unix.c', str(padded_patch)],
++                           check=True, capture_output=True)
+         subprocess.run(['git', '-C', str(folder), 'apply', '--reverse', str(patch)], check=True, capture_output=True)
+         previous = optimizer.source_sha(source)
+         subprocess.run(['git', '-C', str(folder), 'apply', str(patch)], check=True, capture_output=True)
++        if padded:
++            subprocess.run(['git', '-C', str(folder), 'apply',
++                            '--include=src/winemetal/unix/winemetal_unix.c', str(padded_patch)],
++                           check=True, capture_output=True)
+         assert optimizer.source_sha(source) == sources[BOUNDARY]
+     return sources, previous
+ 

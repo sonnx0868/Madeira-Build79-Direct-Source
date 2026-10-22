@@ -91,6 +91,8 @@ elif [[ "${1:-}" = --refresh-residency ]]; then
   bash "$root/build/dxmt-ios/refresh-residency.sh"
 elif [[ "${1:-}" = --refresh-residency-drain ]]; then
   bash "$root/build/dxmt-ios/refresh-residency-drain.sh"
+elif [[ "${1:-}" = --refresh-padded-light ]]; then
+  bash "$root/build/dxmt-ios/refresh-padded-light.sh"
 elif [[ "${1:-}" = --refresh-upload-batching ]]; then
   bash "$root/scripts/refresh-upload-batching.sh"
 elif [[ "${1:-}" = --refresh-sync ]]; then

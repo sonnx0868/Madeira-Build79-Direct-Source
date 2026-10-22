@@ -24,7 +24,9 @@ PATCH_NAMES = ("patches/dxmt-madeira-query-log.patch", "patches/dxmt-runtime-lif
                "patches/dxmt-gpu-stages.patch", "patches/dxmt-present-resource-lifetime.patch",
                "patches/dxmt-depth-rename-retention.patch",
                "patches/dxmt-upload-batching.patch",
-               "patches/dxmt-lighting-phase.patch")
+               "patches/dxmt-lighting-phase.patch",
+               "patches/dxmt-multikernel-metallib.patch",
+               "patches/dxmt-padded-light-table.patch")
 SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",
                 "src/d3d9/d3d9_shader.cpp", "src/dxmt/dxmt_tasks.hpp", "src/dxmt/dxmt_shader_cache.hpp",
@@ -39,7 +41,7 @@ SOURCE_FILES = ("src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.
                 "src/dxmt/dxmt_command_queue.cpp", "src/d3d11/d3d11_state_object.cpp",
                 "src/d3d11/d3d11_texture_device.cpp", "src/d3d11/d3d11_context_impl.cpp",
                 "src/dxmt/dxmt_allocation.hpp", "src/dxmt/dxmt_texture.hpp",
-                "src/dxmt/dxmt_texture.cpp")
+                "src/dxmt/dxmt_texture.cpp", "src/airconv/metallib_writer.cpp")
 
 
 def patched_sources(root):
@@ -95,6 +97,10 @@ def patched_sources(root):
         # against the exact source they extend. Restore it before returning.
         upload_batching_patch = folder / "patches/dxmt-upload-batching.patch"
         phase_patch = folder / "patches/dxmt-lighting-phase.patch"
+        padded_patch = folder / "patches/dxmt-padded-light-table.patch"
+        writer_patch = folder / "patches/dxmt-multikernel-metallib.patch"
+        for patch in (padded_patch, writer_patch):
+            subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(residency_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(residency_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(phase_patch)], check=True)
@@ -116,7 +122,7 @@ def patched_sources(root):
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", "--check", str(retirement_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", "--reverse", str(retirement_patch)], check=True)
         for path in patches:
-            if path in {phase_patch, retirement_patch, stage_patch, present_resource_patch, depth_retention_patch, upload_batching_patch}:
+            if path in {phase_patch, retirement_patch, stage_patch, present_resource_patch, depth_retention_patch, upload_batching_patch, padded_patch, writer_patch}:
                 continue
             if path == zero_patch:
                 continue
@@ -129,6 +135,8 @@ def patched_sources(root):
         subprocess.run(["git", "-C", str(checkout), "apply", str(zero_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(phase_patch)], check=True)
         subprocess.run(["git", "-C", str(checkout), "apply", str(residency_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", str(writer_patch)], check=True)
+        subprocess.run(["git", "-C", str(checkout), "apply", str(padded_patch)], check=True)
         return {name: (checkout / name).read_text(encoding="utf-8") for name in SOURCE_FILES}
 
 

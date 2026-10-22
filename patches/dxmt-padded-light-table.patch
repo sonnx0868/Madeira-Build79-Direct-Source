@@ -1,0 +1,135 @@
+--- a/src/airconv/airconv_context.cpp
++++ b/src/airconv/airconv_context.cpp
+@@ -1,6 +1,7 @@
+ #include "guarded_pcf.hpp"
+ #include "zero_light_guard.hpp"
+ #include "lighting_phase_outline.hpp"
++#include "padded_lighting.hpp"
+ #include "llvm/IR/Constants.h"
+ #include "llvm/IR/DerivedTypes.h"
+ #include "llvm/IR/IRBuilder.h"
+@@ -172,6 +173,7 @@
+   // Reorder the measured compute shader without changing its calculations,
+   // dispatch geometry, resource layout or pixel/texture resolution.
+   MPM.addPass(shaderopt::ComputeLightingPhasePass());
++  MPM.addPass(shaderopt::ComputePaddedLightTablePass());
+ 
+   // Optimize the IR!
+   MPM.run(M, MAM);
+--- a/src/winemetal/unix/winemetal_unix.c
++++ b/src/winemetal/unix/winemetal_unix.c
+@@ -60,6 +60,7 @@
+ #endif
+ #if TARGET_OS_IOS
+ #include "../../../../build/dxmt-ios/pipeline_cache_ios.h"
++#include "../../../../build/dxmt-ios/padded_lighting.m"
+ #endif
+ 
+ /* iOS-Madeira 2026-05-22 draw-call telemetry. Defined further down with
+@@ -1351,6 +1352,7 @@
+   params->ret = (obj_handle_t)[library newFunctionWithName:name];
+ #if TARGET_OS_IOS
+   madeira_warmup_track_function(library, (id<MTLFunction>)params->ret, name, @[], NO);
++  mpl_track_function(library, (id<MTLFunction>)params->ret, nil);
+ #endif
+   [name release];
+   return STATUS_SUCCESS;
+@@ -1404,6 +1406,7 @@
+ #if TARGET_OS_IOS
+   params->ret_pso = (obj_handle_t)madeira_new_compute_pipeline(device, descriptor, options, NULL, &err,
+                                                            !info->binary_archive_for_serialization);
++  mpl_track_pipeline(device, (id<MTLComputePipelineState>)params->ret_pso, descriptor, options);
+ #else
+   params->ret_pso =
+       (obj_handle_t)[device newComputePipelineStateWithDescriptor:descriptor options:options reflection:nil error:&err];
+@@ -1466,13 +1469,16 @@
+       id<MTLComputeCommandEncoder> encoder = [(id<MTLCommandBuffer>)params->handle computeCommandEncoderWithDescriptor:descriptor];
+       madeira_gpu_stage_encoder_created((void *)params->handle, encoder);
+       [descriptor release];
+-      if (encoder) { mdr_encoder((id)params->handle, encoder); params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0); return STATUS_SUCCESS; }
++      if (encoder) { mdr_encoder((id)params->handle, encoder); mpl_encoder((id)params->handle, encoder); params->ret = (obj_handle_t)encoder; if (madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0); return STATUS_SUCCESS; }
+     } else [descriptor release];
+   }
+ #endif
+   params->ret = (obj_handle_t)[(id<MTLCommandBuffer>)params->handle
+       computeCommandEncoderWithDispatchType:params->arg ? MTLDispatchTypeConcurrent : MTLDispatchTypeSerial];
+   mdr_encoder((id)params->handle, (id)params->ret);
++#if TARGET_OS_IOS
++  mpl_encoder((id)params->handle, (id)params->ret);
++#endif
+   if (params->ret && madeira_frame_hooks_on()) ios_frame_pass(2, 0, 0, 0);
+   return STATUS_SUCCESS;
+ }
+@@ -2356,6 +2362,9 @@
+       break;
+     case WMTComputeCommandDispatch: {
+       struct wmtcmd_compute_dispatch *body = (struct wmtcmd_compute_dispatch *)next;
++      #if TARGET_OS_IOS
++      if (mpl_dispatch(encoder, MTLSizeMake(body->size.width, body->size.height, body->size.depth), threadgroup_size, nil, 0)) break;
++#endif
+       [encoder dispatchThreadgroups:MTLSizeMake(body->size.width, body->size.height, body->size.depth)
+               threadsPerThreadgroup:threadgroup_size];
+       break;
+@@ -2368,6 +2377,9 @@
+     }
+     case WMTComputeCommandDispatchIndirect: {
+       struct wmtcmd_compute_dispatch_indirect *body = (struct wmtcmd_compute_dispatch_indirect *)next;
++      #if TARGET_OS_IOS
++      if (mpl_dispatch(encoder, MTLSizeMake(0, 0, 0), threadgroup_size, (id<MTLBuffer>)body->indirect_args_buffer, body->indirect_args_offset)) break;
++#endif
+       [encoder dispatchThreadgroupsWithIndirectBuffer:(id<MTLBuffer>)body->indirect_args_buffer
+                                  indirectBufferOffset:body->indirect_args_offset
+                                 threadsPerThreadgroup:threadgroup_size];
+@@ -2378,6 +2390,7 @@
+       [encoder setComputePipelineState:(id<MTLComputePipelineState>)body->pso];
+ #if TARGET_OS_IOS
+       madeira_gpu_stage_pipeline(encoder, (void *)body->pso);
++      mpl_pipeline(encoder, (id<MTLComputePipelineState>)body->pso);
+ #endif
+       threadgroup_size.width = body->threadgroup_size.width;
+       threadgroup_size.height = body->threadgroup_size.height;
+@@ -2388,11 +2401,17 @@
+       struct wmtcmd_compute_setbuffer *body = (struct wmtcmd_compute_setbuffer *)next;
+       wmt_stale_check(body->buffer, "compute setBuffer");
+       [encoder setBuffer:(id<MTLBuffer>)body->buffer offset:body->offset atIndex:body->index];
++#if TARGET_OS_IOS
++      mpl_buffer(encoder, (id<MTLBuffer>)body->buffer, body->offset, body->index);
++#endif
+       break;
+     }
+     case WMTComputeCommandSetBufferOffset: {
+       struct wmtcmd_compute_setbufferoffset *body = (struct wmtcmd_compute_setbufferoffset *)next;
+       [encoder setBufferOffset:body->offset atIndex:body->index];
++#if TARGET_OS_IOS
++      mpl_offset(encoder, body->offset, body->index);
++#endif
+       break;
+     }
+     case WMTComputeCommandUseResource: {
+@@ -2400,12 +2419,18 @@
+       wmt_stale_check(body->resource, "compute useResource");
+       if (!mdr_use(encoder, (id)body->resource, body->usage & MTLResourceUsageWrite)) break;
+       [encoder useResource:(id<MTLResource>)body->resource usage:(MTLResourceUsage)body->usage];
++#if TARGET_OS_IOS
++      mpl_resource(encoder, (id<MTLResource>)body->resource);
++#endif
+       break;
+     }
+     case WMTComputeCommandSetBytes: {
+       struct wmtcmd_compute_setbytes *body = (struct wmtcmd_compute_setbytes *)next;
+       wmt_census_sidecar_bytes(body->length);
+       [encoder setBytes:body->bytes.ptr length:body->length atIndex:body->index];
++#if TARGET_OS_IOS
++      mpl_bytes(encoder, body->bytes.ptr, body->length, body->index);
++#endif
+       break;
+     }
+     case WMTComputeCommandSetTexture: {
+@@ -4823,6 +4848,7 @@
+ 
+   params->ret = (obj_handle_t)[library newFunctionWithName:name constantValues:values error:&err];
+ #if TARGET_OS_IOS
++  mpl_track_function(library, (id<MTLFunction>)params->ret, values);
+   NSMutableArray *recorded = [NSMutableArray array];
+   BOOL supported = params->num_constants <= 64;
+   if (supported) for (uint64_t i = 0; i < params->num_constants; ++i) {

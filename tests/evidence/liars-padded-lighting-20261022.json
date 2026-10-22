@@ -1,0 +1,153 @@
+{
+  "format": "madeira-padded-light-evaluation-v1",
+  "date": "2026-10-22",
+  "acceptedNativeComponent": true,
+  "nativePackageBuildPending": true,
+  "outputResolution": [
+    1920,
+    1080
+  ],
+  "textureQualityChanged": false,
+  "precisionReduced": false,
+  "lightingResolutionReduced": false,
+  "method": "Zero-extend the light-buffer view and specialize only its validated byte length; remove repeated bounds work without changing lighting calculations. Reuse only GPU-completed scratch; copy current view and clear any previously longer prefix. Original shader fallback is preserved.",
+  "scope": "Actual production LLVM15 pass, multi-entry metallib writer, optional native dispatch/preparation/barriers/ownership code on Apple paravirtual Mac. Captured initial GBuffer/light/shadow resources with reconstructed Lit stencil; not an exact full-frame replay or physical iPad/game FPS measurement.",
+  "physicalEncoderEvidence": {
+    "encoder": 119,
+    "gpuMs": 42.984167,
+    "pipelineStates": 30,
+    "timingPerKernelAvailable": false,
+    "frameFenceIsRealGPUBackpressure": true,
+    "earlyFenceSignalAdded": false
+  },
+  "sourcesSHA256": {
+    "build/dxmt-ios/padded_lighting.hpp": "dc87a2a69d67bc249ff6acd3ec82a52ed59c134bd740a061f80e6bf8b81618ac",
+    "build/dxmt-ios/padded_lighting.m": "6bd40333d8cf92a895ac8189d076f24da81b6bb8826a73edc128bc1e3eb230f7",
+    "tests/host/padded-lighting-driver.cpp": "a992ce42e8b86e1a3d76ff461c4301ab6636db8ab1f9e01db96e74f05146d1d9",
+    "tests/host/padded-lighting.m": "2c31030a9a887e56202e6a7abfc0e28e59260e23ccbd2ca4aca04b01049be65c"
+  },
+  "native353WithoutReuse": {
+    "baselineCurrentGPUms": 9.969458333330294,
+    "candidateGPUms": 8.66781250002191,
+    "allPixelsBitExact": true
+  },
+  "noiseRun350Rejected": {
+    "reason": "7-270ms sample dispersion; never promoted from that median"
+  },
+  "unchangedAdaptivePath": "disabled; corrected half-resolution candidates failed earlier speed gate",
+  "scratchLimits": {
+    "bytesPerBuffer": 14680080,
+    "pendingBuffers": 7,
+    "idleBuffers": 1,
+    "totalBytesMaximum": 117440640,
+    "trimOnBackgroundAndMemoryWarning": true,
+    "gpuCompletionRequiredForReuse": true
+  },
+  "ramPagerPreserved": {
+    "sourceSHA256": "5a849ca95f5e9aa1858cfbbd73c3476e181a0ce78867c57fbaa18fe58d10d18d",
+    "base896NativeZIP_SHA256": "41f3bc46beed365deeae1cd1a2c3389266d8c4a0cb4e428aad551771618f6d84",
+    "physicalGame9500MiBResolved": false
+  },
+  "gameFPSMeasured": false,
+  "physicalIPadThermalMeasured": false,
+  "claimOfEliminatedInMatchFPSDrop": false,
+  "test356": {
+    "baselineCurrentGPUms": 10.157416666629615,
+    "candidateGPUms": 8.373833333394032,
+    "reductionPercent": 17.559418814581363,
+    "baseline891GPUms": 11.685145833325805,
+    "compilerCleanupOnlyGPUms": 10.39462500011723,
+    "pairedWins": 10,
+    "pairedRounds": 10,
+    "all2073600PixelsBitExact": true,
+    "positiveControlDifferent": true,
+    "activatedOnlyCandidate": {
+      "native-padded": 13,
+      "positive-control": 0,
+      "cpp-cleaned": 0,
+      "native-original": 0,
+      "shipping": 0,
+      "cpp-phase": 0
+    },
+    "pendingScratchAfterCompletion": 0,
+    "arcNativeCases": 8,
+    "mrcNativeCases": 8,
+    "allNativeCasesPassed": true,
+    "fixtureSHA256": "e1f3141dfd42e388f55db50154dd572eb9fbb3da3619d033042a50b6eefe36e3",
+    "samplesGPUms": {
+      "native-padded": [
+        10.872333333281858,
+        10.405250000076194,
+        7.859208333229617,
+        7.774500000095941,
+        7.774375000053624,
+        7.772124999974039,
+        8.38979166678655,
+        8.357875000001513,
+        8.779750000030617,
+        8.752125000000888
+      ],
+      "positive-control": [
+        0.45633333343175764,
+        0.8663333333061018,
+        0.3760833335491043,
+        0.3286250000655855,
+        0.3613750000113214,
+        0.3444583333021001,
+        0.4413750000367145,
+        0.41091666662396165,
+        1.2698749999344727,
+        1.0299999999006104
+      ],
+      "cpp-cleaned": [
+        13.373083333135583,
+        11.576999999988402,
+        10.764874999949825,
+        10.013458333332892,
+        9.996000000001004,
+        10.016083333312054,
+        10.022749999961889,
+        10.076125000068714,
+        10.713125000165746,
+        10.880625000027067
+      ],
+      "native-original": [
+        13.117833333353701,
+        11.808458333462113,
+        10.020458333428905,
+        10.275500000034299,
+        9.98537500004204,
+        9.976499999993393,
+        10.021666666716555,
+        10.051916666498073,
+        10.728375000098822,
+        11.083124999913707
+      ],
+      "shipping": [
+        15.877958333248898,
+        12.80912500010345,
+        12.18266666683121,
+        11.008374999846637,
+        11.003083333434915,
+        11.047708333308037,
+        11.04195833340782,
+        11.698625000008178,
+        11.671666666643432,
+        11.994250000043394
+      ],
+      "cpp-phase": [
+        14.001750000034008,
+        11.296874999970896,
+        10.894958333210525,
+        10.050874999933512,
+        10.036125000169704,
+        10.056000000076892,
+        10.063208333349394,
+        10.138083333231407,
+        10.176750000027823,
+        11.325250000027154
+      ]
+    },
+    "endedEncoderReferencesClearedOnAllPaths": true
+  }
+}

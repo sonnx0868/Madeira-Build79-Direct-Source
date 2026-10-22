@@ -16,7 +16,7 @@ fi
 # (the app-only workflow still sets the runtime refresh flag inline).
 if [[ "$mode" = cached && -n "${MADEIRA_NATIVE_REFRESH_MODE:-}" ]]; then
   case "$MADEIRA_NATIVE_REFRESH_MODE" in
-    optimizer-refresh|residency-refresh|residency-drain-refresh|upload-batching-refresh|alias-refresh|runtime-refresh)
+    optimizer-refresh|residency-refresh|residency-drain-refresh|padded-light-refresh|upload-batching-refresh|alias-refresh|runtime-refresh)
       mode="$MADEIRA_NATIVE_REFRESH_MODE" ;;
     *) echo 'Unsupported explicit native refresh mode' >&2; exit 2 ;;
   esac
@@ -57,6 +57,7 @@ case "$mode" in
   optimizer-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   residency-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   residency-drain-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
+  padded-light-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   upload-batching-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   sync-refresh) ipa=Madeira-v0.1.6-source.ipa ;;
   *) echo 'Usage: build-bitrise.sh cached|bootstrap|window-refresh|renpy-gl-refresh|input-refresh|signal-refresh|pacing-refresh' >&2; exit 2 ;;
@@ -137,7 +138,7 @@ else
   timed dock-patches bash scripts/apply-dock-patches.sh
   timed dxmt-check python3 tests/host/check-dxmt-patches.py
   timed dxmt-patches bash scripts/apply-dxmt-patches.sh
-  if [[ "$mode" = alias-refresh || "$mode" = resource-input-refresh || "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = residency-refresh || "$mode" = residency-drain-refresh || "$mode" = upload-batching-refresh || "$mode" = sync-refresh ]]; then
+  if [[ "$mode" = alias-refresh || "$mode" = resource-input-refresh || "$mode" = game-graphics-refresh || "$mode" = window-refresh || "$mode" = renpy-gl-refresh || "$mode" = input-refresh || "$mode" = signal-refresh || "$mode" = pacing-refresh || "$mode" = graphics-refresh || "$mode" = stackwalk-refresh || "$mode" = frameflow-refresh || "$mode" = retirement-refresh || "$mode" = present-resource-refresh || "$mode" = srv-refresh || "$mode" = query-refresh || "$mode" = loader-refresh || "$mode" = runtime-refresh || "$mode" = gpu-refresh || "$mode" = optimizer-refresh || "$mode" = residency-refresh || "$mode" = residency-drain-refresh || "$mode" = padded-light-refresh || "$mode" = upload-batching-refresh || "$mode" = sync-refresh ]]; then
     refresh=--refresh-window
     [[ "$mode" != alias-refresh ]] || refresh=--refresh-alias
     [[ "$mode" != renpy-gl-refresh ]] || refresh=--refresh-renpy-gl
@@ -159,6 +160,7 @@ else
     [[ "$mode" != optimizer-refresh ]] || refresh=--refresh-optimizer
     [[ "$mode" != residency-refresh ]] || refresh=--refresh-residency
     [[ "$mode" != residency-drain-refresh ]] || refresh=--refresh-residency-drain
+    [[ "$mode" != padded-light-refresh ]] || refresh=--refresh-padded-light
     [[ "$mode" != upload-batching-refresh ]] || refresh=--refresh-upload-batching
     [[ "$mode" != sync-refresh ]] || refresh=--refresh-sync
     timed native-restore bash scripts/restore-native-deps.sh "$refresh"
