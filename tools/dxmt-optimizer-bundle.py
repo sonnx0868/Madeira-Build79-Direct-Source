@@ -502,7 +502,11 @@ def verify(root):
     assert saved['format'] == 'madeira-shader-optimizer-v2'
     proof = replacement_proof(srv.object_bytes(root / ARCHIVE, 'airconv_context.o'))
     assert saved['object_proof'] == proof
-    assert saved['compilerID'] == digest(('madeira-compute-pcf-v1\0' + saved['oldCompilerID'] + '\0' + proof['contextObjectSHA256']).encode())
+    if saved.get('full_source_build'):
+        assert saved['full_source_build'] == 'build/full-native-rebuild.json'
+        module(root, 'full-native-bundle').verify(root)
+    else:
+        assert saved['compilerID'] == digest(('madeira-compute-pcf-v1\0' + saved['oldCompilerID'] + '\0' + proof['contextObjectSHA256']).encode())
 
 
 def main():

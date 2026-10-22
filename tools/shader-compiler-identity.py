@@ -5,7 +5,8 @@ import hashlib
 from pathlib import Path
 
 SOURCE_DIRECTORIES = ("dxmt/src/airconv", "dxmt/libs/DXBCParser", "dxmt/include", "madeira-d3d12/src")
-SOURCE_FILES = ("build/dxmt-ios/build.sh", "build/dxmt-ios/bounded_srv_load.hpp",
+SOURCE_FILES = ("build/dxmt-ios/padded_lighting.hpp", "build/dxmt-ios/padded_lighting.m",
+                "patches/dxmt-multikernel-metallib.patch", "build/dxmt-ios/build.sh", "build/dxmt-ios/bounded_srv_load.hpp",
                 "build/dxmt-ios/explicit_lod_guard.hpp",
                 "build/dxmt-ios/guarded_pcf.hpp",
                 "build/dxmt-ios/zero_light_guard.hpp",

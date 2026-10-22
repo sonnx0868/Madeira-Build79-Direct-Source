@@ -113,3 +113,7 @@ test -s "$root/build/dxmt-pe/swapchain-hooks.json"
 (cd "$root" && zip -q "$output" build/dxmt-pe/swapchain-hooks.json)
 echo "Created $output"
 shasum -a 256 "$output"
+
+if [[ -f "$root/build/full-native-rebuild.json" ]]; then
+  (cd "$root" && zip -q "$output" build/full-native-rebuild.json build/full-native-start.json)
+fi

@@ -44,7 +44,7 @@ def module(root, name):
     result = importlib.util.module_from_spec(spec); spec.loader.exec_module(result); return result
 
 
-def source_state(root, optimizer):
+def source_state(root, optimizer, full=False):
     after = {name: optimizer.source_sha(root / name) for name in SOURCES}
     with tempfile.TemporaryDirectory(prefix='madeira-padded-overlay-') as work:
         folder = Path(work)
@@ -59,7 +59,8 @@ def source_state(root, optimizer):
             target.write_bytes((root / name).read_bytes().replace(b'\r\n', b'\n'))
             subprocess.run(['git', '-C', str(folder), 'apply', '--reverse', str(target)], check=True, capture_output=True)
         before = {name: optimizer.source_sha(folder / name.removeprefix('dxmt/')) for name in BASE_SOURCES}
-        assert before == BASE_SOURCES, 'native overlay hides an unrelated change to verified896'
+        if not full:
+            assert before == BASE_SOURCES, 'native overlay hides an unrelated change to verified896'
         for index in reversed(range(len(patches))):
             subprocess.run(['git', '-C', str(folder), 'apply', str(folder / ('overlay-' + str(index) + '.patch'))],
                            check=True, capture_output=True)
@@ -234,7 +235,9 @@ def verify(root):
     module(root, 'dxmt-residency-bundle').verify(root)
     saved = optimizer.read_json(root / RECEIPT)
     assert saved['format'] == 'madeira-padded-lighting-v1'
-    assert saved['sources'] == source_state(root, optimizer)
+    full = saved.get('full_source_build') == 'build/full-native-rebuild.json'
+    if full: module(root, 'full-native-bundle').verify(root)
+    assert saved['sources'] == source_state(root, optimizer, full=full)
     assert saved['archive_sha256'] == optimizer.sha(root / ARCHIVE)
     objects = {name: srv.object_bytes(root / ARCHIVE, name) for name in CHANGED}
     assert saved['objects'] == object_proof(objects, optimizer)

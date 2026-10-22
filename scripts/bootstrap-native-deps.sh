@@ -5,6 +5,7 @@ set -euo pipefail
 root="${CM_BUILD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 jobs="${JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 8)}"
 export JOBS="$jobs" HOMEBREW_NO_AUTO_UPDATE=1
+python3 "$root/tools/full-native-bundle.py" --root "$root" --begin
 export PATH="/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:/opt/homebrew/opt/llvm/bin:$PATH"
 log() { printf '\n========== %s ==========\n' "$*"; }
 
@@ -194,6 +195,7 @@ python3 "$root/tools/dxmt-frameflow-bundle.py" --root "$root" --stamp
 python3 "$root/tools/dxmt-retirement-bundle.py" --root "$root" --stamp
 python3 "$root/tools/dxmt-present-resource-bundle.py" --root "$root" --stamp
 python3 "$root/tools/win32u-input-wake-bundle.py" --root "$root" --stamp
+python3 "$root/tools/full-native-bundle.py" --root "$root" --stamp
 python3 "$root/tools/dxmt-depth-retention-bundle.py" --root "$root" --stamp
 python3 "$root/tools/xinput-host-authority-bundle.py" --root "$root" --stamp
 python3 "$root/tools/dxmt-upload-batching-bundle.py" --root "$root" --stamp
