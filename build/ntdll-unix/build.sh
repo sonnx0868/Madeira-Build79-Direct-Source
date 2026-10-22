@@ -99,14 +99,15 @@ if [[ "${1:-all}" = runtime-only ]]; then
     test -s "$WINE_BUILD/include/config.h"
     compile_one "$BUILD_DIR/loader_ios.c" loader
     compile_one "$WINE_SRC/dlls/ntdll/unix/sync.c" sync
+    compile_one "$BUILD_DIR/thread_ios.c" thread
     [[ "$FAILED" = 0 ]] || exit 1
     candidate="$OBJ_DIR/libntdll_runtime_refresh.a"
     cp "$APP_LIB" "$candidate"
-    xcrun ar r "$candidate" "$OBJ_DIR/loader.o" "$OBJ_DIR/sync.o"
+    xcrun ar r "$candidate" "$OBJ_DIR/loader.o" "$OBJ_DIR/sync.o" "$OBJ_DIR/thread.o"
     xcrun ranlib "$candidate"
     python3 "$REPO_ROOT/tools/ntdll-runtime-bundle.py" --stamp --archive "$candidate" --base "$APP_LIB"
     mv "$candidate" "$APP_LIB"
-    echo 'Refreshed loader.o and sync.o; every other native object preserved'
+    echo 'Refreshed loader.o, sync.o and its thread QoS provider; other native objects preserved'
     exit 0
 fi
 if [[ "${1:-all}" = sync-only ]]; then

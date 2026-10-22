@@ -24,8 +24,9 @@ def verify(root, archive=None, stamp=False, base=None, sync_refresh=False):
              'build/ntdll-unix/ios_session_priority.h', 'patches/wine-session-priority.patch',
              'wine/dlls/ntdll/unix/sync.c', 'patches/wine-timed-sleep.patch',
              'build/ntdll-unix/shims/ios_tid_alert.h', 'patches/wine-tid-alert-parking.patch']
+    files += ['build/ntdll-unix/thread_ios.c', 'build/ntdll-unix/ios_thread_qos.h']
     expected = {'archive_sha256': sha(archive.read_bytes()),
-                'objects': {name: objects[name] for name in ('loader.o', 'sync.o')},
+                'objects': {name: objects[name] for name in ('loader.o', 'sync.o', 'thread.o')},
                 'inputs': {name: sha((root/name).read_bytes().replace(b'\r\n', b'\n')) for name in files}}
     receipt = root / 'build/ntdll-unix/runtime-scheduling-loader.json'
     if not stamp:
@@ -39,7 +40,7 @@ def verify(root, archive=None, stamp=False, base=None, sync_refresh=False):
         previous = helper.members(base)
         assert objects.keys() == previous.keys(), 'runtime refresh changed archive member set'
         changed = sorted(n for n in objects if objects[n] != previous[n])
-        allowed = {'madsync.o', 'sync.o', 'thread.o'} if sync_refresh else {'loader.o', 'sync.o'}
+        allowed = {'madsync.o', 'sync.o', 'thread.o'} if sync_refresh else {'loader.o', 'sync.o', 'thread.o'}
         assert 'sync.o' in changed and set(changed) <= allowed, ('unexpected native refresh', changed)
         document['base_archive_sha256'] = sha(base.read_bytes())
         document['changed_members'] = changed
