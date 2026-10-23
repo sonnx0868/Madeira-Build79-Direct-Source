@@ -45,6 +45,10 @@ enum MadeiraConfig {
 enum ExternalGameCompatibility { static func isUnity(_ entry: RendererEntry) -> Bool { entry.unity } }
 enum LibraryModel { static let drive = URL(fileURLWithPath: NSTemporaryDirectory()) }
 struct RendererEntry {
+    var id = UUID()
+    var isWindowsBrowser = false
+    var browserSoftwareRendering: Bool? = nil
+    var browserDisableSandbox: Bool? = nil
     var desktop: Bool? = nil
     var desktopCommand: String? = nil
     var startsSteamGameDirectly = false
@@ -284,6 +288,7 @@ print("PASS: Unity arguments, update rules, bounded session and companion snapsh
 with tempfile.TemporaryDirectory() as folder:
     source = Path(folder) / "main.swift"
     binary = Path(folder) / "check"
-    source.write_text(update + engines + error + snapshot + unity + renderer_profile + legacy_profile + display + checks, encoding="utf-8")
+    browser_policy = (root / 'app/Madeira/WindowsBrowser.swift').read_text(encoding='utf-8')
+    source.write_text(update + engines + error + snapshot + unity + browser_policy + renderer_profile + legacy_profile + display + checks, encoding="utf-8")
     subprocess.run([swift, str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
