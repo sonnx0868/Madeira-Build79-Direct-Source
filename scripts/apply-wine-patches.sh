@@ -210,6 +210,17 @@ else
     exit 1
 fi
 
+# WoW64's original class argument may be a MAKEINTATOM value.
+patch="$root/patches/wine-wow64-create-window-atom.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine WoW64 window class atoms already preserved"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match the WoW64 window class atom patch" >&2
+    exit 1
+fi
+
 # Reviewed upstream fast paths remain opt-in; lean diagnostics does not alter locks.
 for name in wine-x64-lock-tls-fastpath.patch wine-lean-sync-diagnostics.patch; do
     patch="$root/patches/$name"

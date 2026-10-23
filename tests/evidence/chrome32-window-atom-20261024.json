@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-24",
+  "build": 921,
+  "scope": "Chrome Windows32 early window thunk failure and later Crashpad termination",
+  "inputLog": "madeira-5e38f350-5f7d-4085-8630-95a0f47243b0.txt",
+  "inputSHA256": "ec63fa172239788dd77e0ee1ccb4b68acbe379674ffab9e0894c745575233684",
+  "observed": {
+    "childStatus": "0xc0000005",
+    "nativeFunction": "wine_dbgstr_wn called by NtUserCreateWindowEx",
+    "guestWindowBase": "0x7200000000",
+    "badClassPointer": "0x720000c021",
+    "classAtom": "0xc021",
+    "parentBreakpoint": "chrome.dll+0x4100d20",
+    "finalStatus": "0xffff7001",
+    "crashpadMessage": "crash server did not respond, self-terminating",
+    "crashpadWaitSeconds": 60,
+    "presentedFrames": 0
+  },
+  "repair": {
+    "overlay": "patches/wine-wow64-create-window-atom.patch",
+    "change": "Use existing get_str_or_atom for CreateWindowEx original class argument",
+    "nativeTarget": "app/Madeira/aarch64-windows/wow64win.dll",
+    "scope": "Win32 class atoms; ordinary pointer conversion and handle conversion unchanged",
+    "browserDiagnostics": "Fatal-only stderr with explicit caller overrides preserved"
+  },
+  "tests": {
+    "productionThunkCases": 40,
+    "classicAndShiftedWindows": true,
+    "realPointersAndHandlesAndCoordinates": "PASS",
+    "nativeARM64Rebuild": "pending CI",
+    "physicalIPadStartup": "not verified",
+    "laterParentBreakpointRootCause": "not yet independently established"
+  },
+  "userAcceptance": {
+    "browser": "Official Google Chrome Stable Windows",
+    "GoogleProfileSignIn": "not verified",
+    "GoogleSync": "not verified",
+    "ChromeExtensionsAndPersistence": "not verified"
+  },
+  "nutsInspection": {
+    "build": 1522,
+    "embeddedBrowser": "WKWebView in NutsBrowserView",
+    "customUserAgent": "Chrome/140.0.0.0",
+    "ChromeExeBundled": false,
+    "physicalWindowsChromeSyncProven": false
+  }
+}

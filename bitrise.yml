@@ -48,6 +48,10 @@ workflows:
                 echo 'a4e0d57245e167e98a9d465af1e3774d2b4ec9f04e483d19bcd97a6f63cf46dd  build/chrome-check/chrome.zip' | shasum -a 256 -c -
                 unzip -q build/chrome-check/chrome.zip -d build/chrome-check
                 python3 tests/host/check-windows-browser.py --require-swift --chrome build/chrome-check/chrome-win64/chrome.exe
+                if ! command -v 7zz >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install sevenzip; fi
+                curl --fail --location --retry 3 https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise.msi --output build/chrome-check/google-chrome-stable32.msi
+                python3 tools/extract-google-chrome.py --archive build/chrome-check/google-chrome-stable32.msi --sha256 05e3a2285039f22e68d999f5943c1cbb9b0c953fc307de925be57876d51cf506 --out build/chrome-check/regular32
+                python3 tests/host/check-windows-browser.py --require-swift --chrome build/chrome-check/regular32/program/Chrome-bin/chrome.exe
                 xcrun swiftc -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -typecheck app/Madeira/WindowsBrowser.swift
                 bash scripts/build-bitrise.sh bootstrap
       - deploy-to-bitrise-io@2:

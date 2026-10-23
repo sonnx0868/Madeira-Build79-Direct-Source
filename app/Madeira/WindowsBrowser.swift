@@ -139,6 +139,10 @@ enum WindowsBrowser {
         }
         add("--user-data-dir", "C:\\" + profileRelativePath(id).replacingOccurrences(of: "/", with: "\\") + "\\Profile")
         add("--no-first-run"); add("--no-default-browser-check"); add("--disable-background-mode")
+        // Keep the original fatal reason in this session's stderr. Crashpad
+        // can otherwise replace it with its generic 60-second timeout code.
+        // Fatal-only output avoids routine navigation and renderer logging.
+        add("--enable-logging", "stderr"); add("--log-level", "3")
         let size = resolution.split(separator: "x", omittingEmptySubsequences: false)
         if size.count == 2, let width = Int(size[0]), let height = Int(size[1]),
            (320...4096).contains(width), (240...4096).contains(height) {

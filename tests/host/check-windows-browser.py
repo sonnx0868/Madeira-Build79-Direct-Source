@@ -106,6 +106,7 @@ let normal = WindowsBrowser.arguments(WindowsBrowser.quote(text), id: old, resol
 let tokens = WindowsBrowser.tokens(normal)
 assert(tokens.contains(text) && tokens.contains("--window-size=1920,1080"))
 assert(tokens.filter { $0.hasPrefix("--user-data-dir=") }.count == 1)
+assert(tokens.contains("--enable-logging=stderr") && tokens.contains("--log-level=3"))
 for flag in ["--no-sandbox", "--disable-gpu", "--single-process", "--in-process-gpu", "--remote-debugging-port", "--enable-automation"] {
     assert(!tokens.contains { $0.hasPrefix(flag) })
 }
@@ -114,6 +115,9 @@ let adjusted = WindowsBrowser.tokens(WindowsBrowser.arguments(custom, id: old, r
 assert(adjusted.filter { $0.hasPrefix("--user-data-dir=") } == [#"--user-data-dir=C:\My Profile"#])
 assert(adjusted.filter { $0.hasPrefix("--window-size=") } == ["--window-size=800,600"])
 assert(adjusted.contains("--no-sandbox") && adjusted.contains("--disable-gpu"))
+let customLogging = WindowsBrowser.tokens(WindowsBrowser.arguments("--enable-logging=file --log-level=2", id: old, resolution: "1920x1080", software: false, disableSandbox: false))
+assert(customLogging.filter { $0.hasPrefix("--enable-logging=") } == ["--enable-logging=file"])
+assert(customLogging.filter { $0.hasPrefix("--log-level=") } == ["--log-level=2"])
 assert(WindowsBrowser.tokens(#"one\ two"#) == [#"one\"#, "two"])
 for value in ["", "plain", "a b", "\t", "quotes\"inside", "C:\\ends in slash\\", "tiếng Việt 日本語 🙂", "&|%$()"] {
     assert(WindowsBrowser.tokens(WindowsBrowser.quote(value)) == [value], value)
