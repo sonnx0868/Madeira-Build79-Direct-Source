@@ -38,6 +38,12 @@ workflows:
                 set -euo pipefail
                 cd "$BITRISE_SOURCE_DIR"
                 mkdir -p build/chrome-check
+                diagnose_exit() {
+                  status=$?
+                  if (( status != 0 )); then python3 tests/host/report-full-native-source.py || true; fi
+                  exit "$status"
+                }
+                trap diagnose_exit EXIT
                 curl --fail --location --retry 3 https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/win64/chrome-win64.zip --output build/chrome-check/chrome.zip
                 echo 'a4e0d57245e167e98a9d465af1e3774d2b4ec9f04e483d19bcd97a6f63cf46dd  build/chrome-check/chrome.zip' | shasum -a 256 -c -
                 unzip -q build/chrome-check/chrome.zip -d build/chrome-check
