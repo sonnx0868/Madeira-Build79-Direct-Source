@@ -550,6 +550,12 @@ struct LibraryEntry: Codable, Identifiable {
 
     /// What the bridge starts. Set on the main thread before the session begins.
     func configureLaunch() {
+        // Chrome 156 reserves its two PartitionAlloc pools as one 32GB-aligned
+        // range. Keep the translator's host arena out of that range before
+        // either side starts allocating. This is private launch state, not a
+        // global graphics or game memory setting.
+        if isWindowsBrowser && bits == 64 { setenv("_MADEIRA_BROWSER_VA", "1", 1) }
+        else { unsetenv("_MADEIRA_BROWSER_VA") }
         // "The game"'s identity and working folder for this launch only (the bridge
         // reads and clears them); every other launch starts without them.
         unsetenv("MADEIRA_STEAM_APPID"); unsetenv("MADEIRA_STEAM_APPPATH"); unsetenv("MADEIRA_WORKDIR")

@@ -22325,6 +22325,12 @@ void ios_reserve_fex_arena(void)
      * giving up -- the failure mode that matters is reserving NOTHING.
      * The VM's ceiling is 63GiB, so nothing above that can ever succeed. */
     static const struct { ULONG_PTR lo, hi; SIZE_T size; const char *what; } plan[] = {
+        /* Chrome156/920: the glued PA pools need 32GB aligned at 0x7800000000.
+         * The ordinary host arena occupies the upper half of that exact range.
+         * Use the neighbouring, equally sized host band for browser launches;
+         * keep publishing the real range through the existing Wine/FEX ABI.
+         * No soft reservation, overlap, guest binary patch or larger RAM limit. */
+        { 0x7400000000ull, 0x77ffffffffull, 0x400000000ull, "Chrome host band 16GB"    },
         { 0x7c00000000ull, 0x7fffffffffull, 0x400000000ull, "hardware high band 16GB"  },
         { 0x0800000000ull, 0x0fffffffffull, 0x200000000ull, "constrained 8GB"          },
         { 0x0400000000ull, 0x07ffffffffull, 0x200000000ull, "8GB @16-32G"              },
@@ -22338,6 +22344,8 @@ void ios_reserve_fex_arena(void)
     unsigned i;
     unsigned long long arena_task_max = 0;
     unsigned long long arena_size_cap = 0;   /* ml995 */
+    const char *browser_va = getenv( "_MADEIRA_BROWSER_VA" );
+    int browser_layout = browser_va && !strcmp( browser_va, "1" );
 
     if (done) return;
     done = 1;
@@ -22481,6 +22489,14 @@ void ios_reserve_fex_arena(void)
 
     for (i = 0; i < ARRAY_SIZE(plan); i++)
     {
+        /* A normal game follows the original plan in the original order.
+         * FIXED below is a no-overwrite reservation, so an occupied browser
+         * band falls back without touching somebody else's mapping. */
+        if (!i && !browser_layout) continue;
+        if (!i && (ios_in_layerkit( plan[i].lo, plan[i].size ) ||
+                   (arena_task_max && (plan[i].lo >= arena_task_max ||
+                    plan[i].size > arena_task_max - plan[i].lo))))
+            continue;
         if (arena_size_cap && (unsigned long long)plan[i].size > arena_size_cap)
         {
             dprintf( 2, "[fex-arena] ml995 SKIP %s (%llu MB) -- over the %llu MB cap\n",
@@ -22509,7 +22525,8 @@ void ios_reserve_fex_arena(void)
         /* ml802: 64KiB alignment mask. Wine's allocation granularity is 64KiB and
          * FEX asks with Alignment=0x10000; a base that is merely page-aligned
          * would make the first granule unusable and silently shrink the arena. */
-        kr = mach_vm_map( mach_task_self(), &addr, (mach_vm_size_t)size, 0xffff, VM_FLAGS_ANYWHERE,
+        kr = mach_vm_map( mach_task_self(), &addr, (mach_vm_size_t)size, 0xffff,
+                          !i ? VM_FLAGS_FIXED : VM_FLAGS_ANYWHERE,
                           MEMORY_OBJECT_NULL, 0, 0, PROT_NONE, VM_PROT_ALL, VM_INHERIT_COPY );
         if (kr != KERN_SUCCESS)
         {

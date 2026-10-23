@@ -237,6 +237,7 @@ checks() {
   python3 tests/host/check-qreg-alias.py
   python3 tests/host/check-builtin-xinput.py
   python3 tests/host/check-guest-spill.py
+  python3 tests/host/check-browser-address-layout.py
   python3 tests/host/check-dxmt-cpu-mappings.py
   python3 tests/host/check-gpu-lifecycle.py
   python3 tests/host/check-gpu-trace.py --require-darwin

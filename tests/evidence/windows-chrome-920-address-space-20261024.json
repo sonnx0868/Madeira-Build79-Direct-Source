@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-24",
+  "scope": "Chrome920 pre-window PartitionAlloc address-space failure",
+  "inputLog": "madeira-c5e5b497-b5b2-4974-a274-4c4d0b5eebe8.txt",
+  "inputSHA256": "d2613b4b6605420789b259df6bb5f0b5d9bf4f8a5cfc967d0008c2a8d76b63c4",
+  "device": "iPad14,6",
+  "build": 920,
+  "chromeVersion": "156.0.8078.47",
+  "observed": {
+    "presentedFrames": 0,
+    "windowsExit": "0x80000003",
+    "failureModule": "chrome_elf.dll",
+    "failureRVA": "0x1f9a24",
+    "failureBytes": "cc0f0b670fb94001",
+    "nativeAllocationStatus": "0xc0000017",
+    "alignedPoolBytes": 34359738368,
+    "alignmentBytes": 34359738368,
+    "fallbackReserveBytes": 68719411200,
+    "oldHostArena": [
+      "0x7c00000000",
+      "0x8000000000"
+    ],
+    "returnedThenReleasedPool": [
+      "0x7400000000",
+      "0x7c00000000"
+    ],
+    "reasonReturnedPoolRejected": "Base is 16GB aligned but not 32GB aligned"
+  },
+  "source": "https://github.com/chromium/chromium/blob/156.0.8078.47/base/allocator/partition_allocator/src/partition_alloc/partition_address_space.cc",
+  "repair": {
+    "scope": "only 64-bit Windows Chrome launch profile",
+    "hostArena": [
+      "0x7400000000",
+      "0x7800000000"
+    ],
+    "availableAlignedPool": [
+      "0x7800000000",
+      "0x8000000000"
+    ],
+    "hostArenaBytesUnchanged": 17179869184,
+    "fixedMappingOverwrites": false,
+    "softReservationAdded": false,
+    "chromeSandboxChanged": false,
+    "FEXCoreChanged": false
+  },
+  "tests": {
+    "productionArenaPolicyCompiledAndExecuted": true,
+    "cases": [
+      "ordinary game baseline",
+      "Chrome aligned allocation replay",
+      "literal flag validation",
+      "explicit arena disable",
+      "foreign page collision without overwrite",
+      "CoreAnimation range exclusion",
+      "failed registration rollback",
+      "constrained task ceiling"
+    ],
+    "existingGuestSpillTest": "PASS",
+    "swiftPolicy": "pending Mac CI",
+    "nativeIOSCompilation": "pending Mac CI",
+    "physicalIPadExecution": "not measured",
+    "fullChromeBrowsing": "not claimed"
+  }
+}
