@@ -113,6 +113,24 @@ test -s "$root/build/dxmt-pe/swapchain-hooks.json"
 (cd "$root" && zip -q "$output" build/dxmt-pe/swapchain-hooks.json)
 if [[ -f "$root/build/full-native-rebuild.json" ]]; then
   (cd "$root" && zip -q "$output" build/full-native-rebuild.json build/full-native-start.json)
+  # A cold receipt binds every shipped native payload, including rebuilt
+  # tracked libraries (GnuTLS/GMP) that older incremental ZIP lists omitted.
+  python3 - "$root" "$output" <<'PY'
+from pathlib import Path
+import hashlib, json, sys, zipfile
+root, output = Path(sys.argv[1]), Path(sys.argv[2])
+payloads = json.loads((root / 'build/full-native-rebuild.json').read_text())['payloads']
+added = 0
+with zipfile.ZipFile(output, 'a', compression=zipfile.ZIP_DEFLATED) as archive:
+    included = set(archive.namelist())
+    for name, expected in payloads.items():
+        path = root / name
+        assert path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected, name
+        if name not in included:
+            archive.write(path, name)
+            added += 1
+print('PASS: full native package covers all', len(payloads), 'bound payloads; added', added)
+PY
 fi
 
 echo "Created $output"

@@ -29,7 +29,9 @@ remain unverified until the Chrome process is exercised through Wine on iOS.
 compiles the production package/profile/argument policy and exercises isolation,
 file preservation, malformed packages, quoting and optional compatibility switches.
 The `madeira-chrome-windows-check` Bitrise workflow checks a hash-pinned official
-Windows package, typechecks for iOS and builds an experimental IPA with native913.
+Windows package, typechecks for iOS, rebuilds native dependencies completely and
+builds an experimental IPA. Its native ZIP includes every payload bound by the
+cold-build receipt, including the rebuilt TLS/GMP archives.
 
 ## Library controls
 
