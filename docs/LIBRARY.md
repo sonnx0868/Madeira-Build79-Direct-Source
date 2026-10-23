@@ -1,5 +1,38 @@
 # Library front end
 
+## Experimental Windows Chrome
+
+Copy the **entire** Windows Chrome folder into `Madeira/wine/drive_c/Apps/Chrome`
+using Files, then choose **Add executable** and its `chrome.exe`. Do not add the
+installer or copy a PC browser profile. A complete flat Chrome for Testing or
+versioned Chrome package is identified when added; existing entries are checked
+once when Play is pressed. Recognition does not prove iOS browser compatibility.
+
+The Windows browser profile uses the desktop compositor while launching the
+actual Chrome executable directly, outside reusable game supervision. It keeps
+Chrome's normal child processes, GPU policy and sandbox. Saved browser data goes
+to `drive_c/Madeira/Browsers/<library-entry-ID>/Profile`; removing/re-adding an
+entry creates a different profile. Explicit `--user-data-dir` and `--window-size`
+arguments take precedence. Browser URL arguments are redacted from launch logs.
+Chrome manages downloads using its own settings and Windows profile folders.
+
+Chrome's details offer **Software rendering** and **Disable Chrome sandbox** as
+explicit diagnostic choices. Neither is enabled automatically; software rendering
+can increase CPU use, and disabling the sandbox reduces protection from websites.
+No debugging listener, account import, profile-lock removal or automatic updater
+is enabled. Chrome for Testing needs manual browser updates from Google's official
+distribution. Cockpit, PNGOverlayTool and a multi-application workspace are outside
+this change. Device startup, navigation, input, downloads and persistent login
+remain unverified until the Chrome process is exercised through Wine on iOS.
+
+`tests/host/check-windows-browser.py --require-swift --chrome /path/to/chrome.exe`
+compiles the production package/profile/argument policy and exercises isolation,
+file preservation, malformed packages, quoting and optional compatibility switches.
+The `madeira-chrome-windows-check` Bitrise workflow checks a hash-pinned official
+Windows package, typechecks for iOS and builds an experimental IPA with native913.
+
+## Library controls
+
 Madeira starts in a game library. The original diagnostic screen (the
 "developer interface") is still there: **Settings › Interface › Use developer
 interface** switches to it, and its **Use New Interface** button switches back.

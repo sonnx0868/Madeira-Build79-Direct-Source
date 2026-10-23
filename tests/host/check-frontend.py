@@ -117,6 +117,7 @@ swift += 'enum MadeiraDock { static func validAppID(_ value: Int) -> Bool { valu
 swift += block((root / 'app/Madeira/ReadingProgressData.swift').read_text(encoding='utf-8'),
                'struct ReadingProgressPosition: Codable, Equatable') + '\n'
 swift += block(lib, 'struct LibraryEntry: Codable, Identifiable') + '\n'
+swift += (root / 'app/Madeira/WindowsBrowser.swift').read_text(encoding='utf-8') + '\n'
 swift += block(lib, 'enum LightEffectsPolicy') + '\n'
 swift += block(lib, 'enum GameGraphicsPreferences') + '\n'
 swift += block(lib, 'enum GameMemorySettings') + '\n'

@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-23",
+  "scope": "Experimental Windows Chrome launch only",
+  "chrome": {
+    "version": "156.0.8078.47",
+    "channel": "Stable",
+    "distribution": "Chrome for Testing (Windows x64)",
+    "url": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/win64/chrome-win64.zip",
+    "sha256": "a4e0d57245e167e98a9d465af1e3774d2b4ec9f04e483d19bcd97a6f63cf46dd",
+    "bytes": 209154801,
+    "autoUpdates": false
+  },
+  "nativeBaseline": 913,
+  "unchangedRootNativeSourceBindings": 352,
+  "directImportAudit": {
+    "chrome.exe": {
+      "machine": "0x8664",
+      "directImportedFunctions": 249,
+      "missingOrdinaryModules": [],
+      "missingNamedOrOrdinalExports": []
+    },
+    "chrome.dll": {
+      "machine": "0x8664",
+      "directImportedFunctions": 534,
+      "missingOrdinaryModules": [],
+      "missingNamedOrOrdinalExports": []
+    },
+    "chrome_elf.dll": {
+      "machine": "0x8664",
+      "directImportedFunctions": 209,
+      "missingOrdinaryModules": [],
+      "missingNamedOrOrdinalExports": []
+    }
+  },
+  "windowsArgumentCasesMatchingRealUCRT": 142,
+  "swiftPolicyExecution": "pending: Swift/Mac build connection unavailable in this chat",
+  "iOSCompilation": "pending",
+  "iOSBrowserExecution": "not performed: USB device list empty",
+  "IPAReleased": false
+}

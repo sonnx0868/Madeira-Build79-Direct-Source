@@ -125,6 +125,9 @@ final class GameRuntime: ObservableObject {
         !MadeiraConfig.bool("d3d12", default: false)
     }
     static func requiresDirectLaunch(_ entry: LibraryEntry) -> Bool {
+        // A browser owns renderer/network/GPU children and persistent profile
+        // locks. Do not put it through game-job reuse or a previous game's engine.
+        if entry.isWindowsBrowser { return true }
         if entry.epicAppName != nil { return true }
         // Both native settings are latched at engine creation, including Off.
         if entry.swapMB != nil || entry.realSuspend != nil || entry.lightEffectsEnabled { return true }

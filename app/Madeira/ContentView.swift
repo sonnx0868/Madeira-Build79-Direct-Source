@@ -2466,6 +2466,13 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        guard library.isVisible(entry) else { libraryAccess.request(); return }
+        var entry = entry
+        if entry.windowsBrowser == nil, entry.steamAppID == nil, entry.desktop != true,
+           WindowsBrowser.inspect(LibraryModel.drive.appendingPathComponent(entry.launchRelativePath)) != nil {
+            entry.windowsBrowser = true
+            library.save(entry)
+        }
         launchPreparedLibraryEntry(entry, componentsReady: false)
     }
 
@@ -2566,6 +2573,17 @@ struct ContentView: View {
             library.error = error.localizedDescription
             logStore.log("[launch-preflight] profile validation failed: \(error.localizedDescription)", level: .error)
             return
+        }
+        if entry.isWindowsBrowser {
+            do {
+                try WindowsBrowser.prepare(executable: LibraryModel.drive.appendingPathComponent(entry.launchRelativePath),
+                    drive: LibraryModel.drive, id: entry.id)
+            } catch {
+                library.error = error.localizedDescription
+                return
+            }
+            logStore.log("[windows-browser-v1] Chrome direct launch; desktop compositor; " +
+                "software=\(entry.browserSoftwareRendering == true ? 1 : 0) sandbox-disabled=\(entry.browserDisableSandbox == true ? 1 : 0)")
         }
         // A direct fallback cannot bootstrap over a live persistent engine.
         // Check before configureLaunch changes the shared process environment.

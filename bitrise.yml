@@ -19,6 +19,40 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: 41c4a98894a82c767bb69194bd6d5ba8882facbaec7d74b85b5d8357bf50453c
 
 workflows:
+  madeira-chrome-windows-check:
+    title: Validate Windows Chrome launch policy and build an experimental IPA
+    description: Verify the production browser policy on Mac/iOS and preserve verified native913; no publication or device compatibility claim.
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          title: Check Chrome package, profile isolation, arguments and iOS compilation
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                mkdir -p build/chrome-check
+                curl --fail --location --retry 3 https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/win64/chrome-win64.zip --output build/chrome-check/chrome.zip
+                echo 'a4e0d57245e167e98a9d465af1e3774d2b4ec9f04e483d19bcd97a6f63cf46dd  build/chrome-check/chrome.zip' | shasum -a 256 -c -
+                unzip -q build/chrome-check/chrome.zip -d build/chrome-check
+                python3 tests/host/check-windows-browser.py --require-swift --chrome build/chrome-check/chrome-win64/chrome.exe
+                xcrun swiftc -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -typecheck app/Madeira/WindowsBrowser.swift
+                MADEIRA_NATIVE_INPUT_URL=https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build913-399b9eb/Madeira-v0.1.6-native-deps-build913.zip \
+                MADEIRA_NATIVE_INPUT_SHA256=d943bdab73db114751cb7fe5702695b293cbee0840c7cf5b63f0ece968c4edfe \
+                bash scripts/build-bitrise.sh cached
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-Chrome-Windows-check
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-v016-alias-refresh:
     title: Fix native helper alias overflow and build IPA
     description: Test alias registration with sanitizers and refresh virtual.o from the verified873 bundle.

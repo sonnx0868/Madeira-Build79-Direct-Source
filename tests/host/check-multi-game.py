@@ -128,6 +128,7 @@ else:
     route_checks = r'''
 struct LibraryEntry {
     var launchRelativePath: String
+    var isWindowsBrowser = false
     var cpuTranslationBudget: Int? = nil
     var cpuCacheMode: String? = nil
     var swapMB: Int? = nil
@@ -153,6 +154,7 @@ let plain = routeDrive.appendingPathComponent("PlainGame/lib/windows-x86_64")
 try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
 try Data().write(to: plain.appendingPathComponent("unrelated.dll"))
 assert(!RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "PlainGame/game.exe")))
+assert(RuntimeRoute.requiresDirectLaunch(LibraryEntry(launchRelativePath: "Chrome/chrome.exe", isWindowsBrowser: true)))
 let maker = routeDrive.appendingPathComponent("MakerGame")
 try FileManager.default.createDirectory(at: maker, withIntermediateDirectories: true)
 try Data("FORM1234GEN8".utf8).write(to: maker.appendingPathComponent("data.win"))

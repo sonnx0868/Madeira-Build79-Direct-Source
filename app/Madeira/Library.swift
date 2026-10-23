@@ -204,6 +204,12 @@ struct LibraryEntry: Codable, Identifiable {
     /// Explorer /desktop command for a transient utility session. A regular
     /// Desktop entry leaves this nil and starts services.exe as before.
     var desktopCommand: String?
+    /// Optional so existing games retain their launch route. Set only after
+    /// identifying a complete Chrome package, or explicitly in its details.
+    var windowsBrowser: Bool?
+    var browserSoftwareRendering: Bool?
+    var browserDisableSandbox: Bool?
+    var isWindowsBrowser: Bool { windowsBrowser == true && desktop != true && !usesSteamSession }
     /// Touch controls' opacity (0.15...1, nil = 0.7) and overall size (0.5...2,
     /// nil = 1) in this game's sessions.
     var controlOpacity: Double?
@@ -322,6 +328,10 @@ struct LibraryEntry: Codable, Identifiable {
 
     var launchArguments: String {
         if desktop == true { return desktopCommand ?? "/desktop=shell,\(resolution) C:\\windows\\system32\\services.exe" }
+        if isWindowsBrowser {
+            return WindowsBrowser.arguments(arguments, id: id, resolution: resolution,
+                software: browserSoftwareRendering == true, disableSandbox: browserDisableSandbox == true)
+        }
         let original = startsSteamGameDirectly ? (steamProgramArguments ?? "") :
             gogID != nil ? [gogLaunchCommand ?? "", arguments].filter { !$0.isEmpty }.joined(separator: " ") : arguments
         if glBackend == "angle", GameEngineDetection.detect(LibraryModel.drive.appendingPathComponent(launchRelativePath)) == "Godot" {
@@ -445,7 +455,7 @@ struct LibraryEntry: Codable, Identifiable {
     func applyEnvironment() {
         GameMemorySettings.clearPrevious()
         configureLaunch()
-        if epicAppName != nil { setenv("_MADEIRA_PRIVATE_ARGS", "1", 1) }
+        if epicAppName != nil || isWindowsBrowser { setenv("_MADEIRA_PRIVATE_ARGS", "1", 1) }
         else { unsetenv("_MADEIRA_PRIVATE_ARGS") }
         ShaderPreparationSettings.apply(mode: shaderWarmupMode,
             automatic: desktop != true && unityOptimizations != false &&
@@ -563,7 +573,7 @@ struct LibraryEntry: Codable, Identifiable {
            MadeiraConfig.get("env.MADEIRA_FOLDER_COMPAT") != "0" {
             setenv("MADEIRA_FOLDER_COMPAT", "1", 1)
         }
-        if desktop == true { setenv("MADEIRA_DESKTOP", "1", 1) } else { unsetenv("MADEIRA_DESKTOP") }
+        if desktop == true || isWindowsBrowser { setenv("MADEIRA_DESKTOP", "1", 1) } else { unsetenv("MADEIRA_DESKTOP") }
         if startsSteamGameDirectly, let steamAppID {
             // The game's own Steam identity (SteamAppId, SteamGameId, SteamAppPath = its install
             // folder) instead of the bridge's fixed one, and Steam's working folder when it names one.
@@ -1608,6 +1618,11 @@ final class LibraryModel: ObservableObject {
         var entry = LibraryEntry(title: name, relativePath: relative, bits: machine == 0x14c ? 32 : 64)
         entry.graphicsAPI = graphicsImports(url)
         entry.gameEngine = GameEngineDetection.detect(url)
+        if WindowsBrowser.inspect(url) != nil {
+            entry.title = "Google Chrome (Windows)"
+            entry.windowsBrowser = true
+            entry.gameEngine = "Chromium"
+        }
         return entry
     }
 
@@ -4058,6 +4073,23 @@ struct LibraryDetail: View {
                 if let epic = entry.epicAppName {
                     EpicEntrySection(appName: epic, run: { prerequisite in leaving = true; play(prerequisite) },
                         leave: { leaving = true; dismiss() })
+                }
+                if entry.desktop != true && entry.steamAppID == nil &&
+                    URL(fileURLWithPath: entry.launchRelativePath).lastPathComponent.lowercased() == "chrome.exe" {
+                    Section {
+                        Toggle("Windows Chrome launch profile", isOn: Binding(
+                            get: { entry.windowsBrowser == true }, set: { entry.windowsBrowser = $0 }))
+                        if entry.windowsBrowser == true {
+                            Toggle("Software rendering", isOn: Binding(
+                                get: { entry.browserSoftwareRendering == true }, set: { entry.browserSoftwareRendering = $0 }))
+                            Toggle("Disable Chrome sandbox", isOn: Binding(
+                                get: { entry.browserDisableSandbox == true }, set: { entry.browserDisableSandbox = $0 }))
+                            Text("Disabling Chrome’s sandbox reduces protection from websites. Leave it enabled unless diagnosing a startup failure.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } header: { Text("Windows browser") } footer: {
+                        Text("Opens Chrome with desktop window composition and a separate saved profile. Hardware rendering and Chrome’s sandbox stay enabled by default. Software rendering can use more CPU. Windows Chrome compatibility is experimental.")
+                    }
                 }
                 if entry.desktop != true && entry.steamAppID == nil {
                     ExternalSteamSessionSection(entry: $entry)
