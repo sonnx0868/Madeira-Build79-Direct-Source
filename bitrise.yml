@@ -49,6 +49,24 @@ workflows:
                 unzip -q build/chrome-check/chrome.zip -d build/chrome-check
                 python3 tests/host/check-windows-browser.py --require-swift --chrome build/chrome-check/chrome-win64/chrome.exe
                 xcrun swiftc -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -typecheck app/Madeira/WindowsBrowser.swift
+                # Reproduce the cold producer's existing source overlays before
+                # restoring native913. The strict verifier still compares all
+                # 8,815 effective source hashes and every native payload.
+                git submodule update --init FEX wine
+                apply_existing() {
+                  module="$1"; patch="$BITRISE_SOURCE_DIR/$2"
+                  if git -C "$module" apply --check "$patch" >/dev/null 2>&1; then
+                    git -C "$module" apply "$patch"
+                  elif ! git -C "$module" apply --reverse --check "$patch" >/dev/null 2>&1; then
+                    echo "Source drift while restoring producer overlay: $2" >&2; return 1
+                  fi
+                }
+                apply_existing FEX build/fex-ios/clean-build.patch
+                apply_existing FEX patches/fex-upstream-host-features.patch
+                apply_existing FEX build/fex-arm64ec/backend-cache.patch
+                apply_existing wine patches/wine-socket-cmsg-rate-limit.patch
+                apply_existing wine patches/wine-ios-udp-tos.patch
+                apply_existing wine patches/wine-luajit-gc64-file-redirect.patch
                 MADEIRA_NATIVE_INPUT_URL=https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build913-399b9eb/Madeira-v0.1.6-native-deps-build913.zip \
                 MADEIRA_NATIVE_INPUT_SHA256=d943bdab73db114751cb7fe5702695b293cbee0840c7cf5b63f0ece968c4edfe \
                 bash scripts/build-bitrise.sh cached
