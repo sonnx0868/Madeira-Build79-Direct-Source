@@ -66,12 +66,24 @@ enum WindowsBrowser {
             throw NSError(domain: "Madeira.Chrome", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 "Chrome is incomplete. Copy its entire Windows folder, including chrome.dll, resources and Locales, into drive_c; select chrome.exe, not its installer."])
         }
-        let folder = root.appendingPathComponent(profileRelativePath(id)).appendingPathComponent("Profile").resolvingSymlinksInPath()
-        guard folder.path.hasPrefix(root.path + "/") else {
-            throw NSError(domain: "Madeira.Chrome", code: 2, userInfo: [NSLocalizedDescriptionKey:
-                "The Chrome profile folder points outside drive_c."])
+        let invalidProfile = NSError(domain: "Madeira.Chrome", code: 2, userInfo: [NSLocalizedDescriptionKey:
+            "The Chrome profile path contains a symbolic link or a non-folder item. Choose a regular folder inside drive_c."])
+        var folder = root.path
+        // Darwin may leave a non-existing leaf unresolved even when an ancestor
+        // is a symlink. Check/create each owned component separately; never let
+        // createDirectory(withIntermediateDirectories:) traverse an alias.
+        for component in (profileRelativePath(id) + "/Profile").split(separator: "/") {
+            folder = (folder as NSString).appendingPathComponent(String(component))
+            guard (try? FileManager.default.destinationOfSymbolicLink(atPath: folder)) == nil else {
+                throw invalidProfile
+            }
+            var directory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: folder, isDirectory: &directory) {
+                guard directory.boolValue else { throw invalidProfile }
+            } else {
+                try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: false)
+            }
         }
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         // Never copy a PC's cookies, edit Preferences, remove a singleton lock,
         // disable the sandbox or start a debugging listener during preparation.
     }

@@ -94,6 +94,7 @@ do { try WindowsBrowser.prepare(executable: outside, drive: drive, id: old); fat
 let escapeID = UUID(), escaped = drive.appendingPathComponent(WindowsBrowser.profileRelativePath(escapeID))
 try fm.createSymbolicLink(at: escaped, withDestinationURL: scratch)
 do { try WindowsBrowser.prepare(executable: flat, drive: drive, id: escapeID); fatalError("outside profile accepted") } catch {}
+assert(!fm.fileExists(atPath: scratch.appendingPathComponent("Profile").path))
 let nestedID = UUID(), nested = drive.appendingPathComponent(WindowsBrowser.profileRelativePath(nestedID))
 try fm.createDirectory(at: nested, withIntermediateDirectories: true)
 try fm.createSymbolicLink(at: nested.appendingPathComponent("Profile"), withDestinationURL: scratch)
