@@ -22,6 +22,9 @@ workflows:
   madeira-chrome-windows-check:
     title: Validate Windows Chrome launch policy and build an experimental IPA
     description: Verify the production browser policy on Mac/iOS and preserve verified native913; no publication or device compatibility claim.
+    triggers:
+      push:
+        - branch: codex/chrome-windows
     steps:
       - git-clone@8:
           inputs:
