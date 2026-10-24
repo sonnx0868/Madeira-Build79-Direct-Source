@@ -1,0 +1,43 @@
+{
+  "log": {
+    "id": "a6c720e6-fb4c-43dc-9ca6-e077e6a102ea",
+    "build": 929,
+    "uploaded": "2026-10-25 03:33 +07:00",
+    "bytes": 1190725,
+    "sha256": "994f360c7928f45f0f44273e0cb7d07d61099a8bec1cdb0ff04acf6ac842fb93"
+  },
+  "observed": {
+    "previousPEBAndMissingJITFatals": "absent",
+    "firstDeliveredException": "80000001 GUARD_PAGE_VIOLATION, WRITE at host7101683dec",
+    "reconstructedGuestEIP": "fff94f7e",
+    "actualPackagedCode": "ntdll32!RtlWakeAddressAll+0xe: mov dword ptr[ebp-410h],0",
+    "mainProcessEnd": "ffff7001 after63.8s with no present",
+    "exactChromiumSource": "Pinned crashpad_client_win.cc189 is UnhandledExceptionHandler timeout after an unhandled exception; not proof that Crashpad transport caused the original crash",
+    "otherChildExit": "pid00bc exited1 earlier; exact cause not established and not labeled the primary fatal"
+  },
+  "sourceDefects": [
+    "Mach fault service only recognizes TEB64 stack; misses windowed WoW64 guard growth",
+    "Signal path uses raw guest TEB32 bounds while fault pages are host addresses",
+    "Exception-frame placement repeats the same incomplete stack selection policy"
+  ],
+  "repair": "One shared target-TEB stack selector and grower for signal/Mach page repair and exception frames, with explicit guest/host translation and guest StackLimit publication",
+  "productionRegressionsPassed": [
+    "exact929 stack address",
+    "native64",
+    "classic WoW64",
+    "four guest window bases",
+    "foreign thread TEB remains unchanged",
+    "same ESP in a different process window is rejected",
+    "repeated growth",
+    "true overflow remains overflow",
+    "foreign guard remains exception",
+    "arbitrary AV is not swallowed",
+    "exception-frame placement uses translated bounds"
+  ],
+  "actualI386BinaryProof": "tests/evidence/chrome929-stack-guard-binary-20261025.json",
+  "additionalAudit": {
+    "privateFutexTable": "64-bit shared-table pointer query requires native pointer size; do not inject a host pointer into a32-bit table",
+    "ChromeARM64": "Official Google156.0.8078.48 MSI hash matches Microsoft WinGet and Google signatures validate.973 ordinary direct imports accounted for. Delay imports, runtime bodies, per-process executable copies and actual iPad execution remain separate gates."
+  },
+  "physicalBrowserExecutionVerified": false
+}

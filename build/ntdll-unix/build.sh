@@ -54,6 +54,7 @@ compile_one() {
 # Compile the changed native translation units for an isolated regression job.
 # This deliberately does not stamp old receipts or package these objects as an IPA.
 if [[ "${1:-all}" = child-check ]]; then
+    compile_one "$BUILD_DIR/virtual_ios.c" virtual
     compile_one "$BUILD_DIR/env_ios.c" env
     compile_one "$BUILD_DIR/loader_ios.c" loader
     compile_one "$BUILD_DIR/process_ios.c" process

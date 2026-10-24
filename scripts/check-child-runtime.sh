@@ -13,6 +13,8 @@ export UBSAN_OPTIONS=halt_on_error=1
 python3 tests/host/check-child-peb-isolation.py
 python3 tests/host/check-child-jit-environment.py
 python3 tests/host/check-queue-pipe-readiness.py
+python3 tests/host/check-wow64-stack-guard.py
+python3 tests/host/check-wow-context.py
 python3 tests/host/check-input-wake.py --require-darwin
 git submodule update --init --depth 1 wine
 bash scripts/apply-wine-patches.sh
@@ -40,13 +42,13 @@ bash build/wineserver/build.sh queue-check
 python3 - "$out" <<'PY'
 from pathlib import Path
 import hashlib,json,subprocess,sys
-files=['build/ntdll-unix/'+n+'_ios.c' for n in ('env','loader','process','server','signal_arm64')]
+files=['build/ntdll-unix/'+n+'_ios.c' for n in ('env','loader','process','server','signal_arm64','virtual')]
 files+=['build/wineserver/queue_ios.c']
 record={'format':'madeira-child-runtime-check-v1','commit':subprocess.check_output(
  ['git','rev-parse','HEAD'],text=True).strip(),'MacProductionRegressionsPassed':True,
- 'ASanUBSanPassed':True,'nativePipePollPassed':True,'iPhoneOSUnitsCompiled':6,
+ 'ASanUBSanPassed':True,'nativePipePollPassed':True,'iPhoneOSUnitsCompiled':7,
  'physicalChromeAndRenPyVerified':False,'IPAProduced':False,
  'sources':{f:hashlib.sha256(Path(f).read_bytes().replace(b'\r\n',b'\n')).hexdigest() for f in files}}
 (Path(sys.argv[1])/'child-runtime-check.json').write_text(json.dumps(record,indent=2)+'\n')
 PY
-echo 'PASS: actual Mac pipe/poll and sanitized regressions; six changed iPhoneOS units compiled'
+echo 'PASS: actual Mac pipe/poll and sanitized regressions; seven iPhoneOS units compiled including WoW64 stack guards'

@@ -19014,9 +19014,15 @@ struct thread_stack_info
 /***********************************************************************
  *           is_inside_thread_stack
  */
-static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
+static char *ios_wow_stack_address( TEB *teb, ULONG addr )
 {
-    TEB *teb = NtCurrentTeb();
+    return addr ? (char *)(ios_wow_base_for_peb( teb->Peb ) + addr) : NULL;
+}
+
+/* Both fault paths must inspect the target thread's native and WoW64 stacks.
+ * TEB32 bounds are guest addresses; page protection uses host addresses. */
+static BOOL is_inside_thread_stack_teb( void *ptr, struct thread_stack_info *stack, TEB *teb )
+{
     WOW_TEB *wow_teb = get_wow_teb( teb );
     size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
 
@@ -19028,19 +19034,24 @@ static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
     if ((char *)ptr > stack->start && (char *)ptr <= stack->end) return TRUE;
 
     if (!wow_teb) return FALSE;
-    stack->start = ULongToPtr( wow_teb->DeallocationStack );
-    stack->limit = ULongToPtr( wow_teb->Tib.StackLimit );
-    stack->end   = ULongToPtr( wow_teb->Tib.StackBase );
+    stack->start = ios_wow_stack_address( teb, wow_teb->DeallocationStack );
+    stack->limit = ios_wow_stack_address( teb, wow_teb->Tib.StackLimit );
+    stack->end   = ios_wow_stack_address( teb, wow_teb->Tib.StackBase );
     stack->guaranteed = max( wow_teb->GuaranteedStackBytes, min_guaranteed );
     stack->is_wow = TRUE;
     return ((char *)ptr > stack->start && (char *)ptr <= stack->end);
 }
 
 
+static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
+{
+    return is_inside_thread_stack_teb( ptr, stack, NtCurrentTeb() );
+}
+
 /***********************************************************************
  *           grow_thread_stack
  */
-static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_info )
+static NTSTATUS grow_thread_stack_teb( char *page, struct thread_stack_info *stack_info, TEB *teb )
 {
     NTSTATUS ret = 0;
 
@@ -19060,11 +19071,16 @@ static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_i
     }
     if (stack_info->is_wow)
     {
-        WOW_TEB *wow_teb = get_wow_teb( NtCurrentTeb() );
-        wow_teb->Tib.StackLimit = PtrToUlong( page );
+        WOW_TEB *wow_teb = get_wow_teb( teb );
+        wow_teb->Tib.StackLimit = (ULONG)((ULONG_PTR)page - ios_wow_base_for_peb( teb->Peb ));
     }
-    else NtCurrentTeb()->Tib.StackLimit = page;
+    else teb->Tib.StackLimit = page;
     return ret;
+}
+
+static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_info )
+{
+    return grow_thread_stack_teb( page, stack_info, NtCurrentTeb() );
 }
 
 
@@ -19395,47 +19411,13 @@ void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *r
  * fault-service + dispatch-frame logic against the FAULTING thread (which
  * the exception message keeps suspended). Current-thread dependencies are
  * parameterized away:
- *   - stack bounds come from the TARGET's TEB (no WOW branch: ARM64EC
- *     guests are 64-bit);
+ *   - stack bounds and growth use the shared helpers above, including the
+ *     TARGET's WoW64 stack translated through its own guest window;
  *   - no abort_thread (that would kill the exception SERVER thread) —
  *     undeliverable returns NULL and the caller declines as before;
  *   - the enable_write_exceptions/allow_writes report branch acts as
  *     allow_writes (clears the watch) since ntdll_get_thread_data() would
  *     read the wrong thread. */
-static BOOL is_inside_thread_stack_teb( void *ptr, struct thread_stack_info *stack, TEB *teb )
-{
-    size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
-
-    stack->start = teb->DeallocationStack;
-    stack->limit = teb->Tib.StackLimit;
-    stack->end   = teb->Tib.StackBase;
-    stack->guaranteed = max( teb->GuaranteedStackBytes, min_guaranteed );
-    stack->is_wow = FALSE;
-    return ((char *)ptr > stack->start && (char *)ptr <= stack->end);
-}
-
-static NTSTATUS grow_thread_stack_teb( char *page, struct thread_stack_info *stack_info, TEB *teb )
-{
-    NTSTATUS ret = 0;
-
-    set_page_vprot_bits( page, host_page_size, VPROT_COMMITTED, VPROT_GUARD );
-    mprotect_range( page, host_page_size, 0, 0 );
-    if (page >= stack_info->start + host_page_size + stack_info->guaranteed)
-    {
-        set_page_vprot_bits( page - host_page_size, host_page_size, VPROT_COMMITTED | VPROT_GUARD, 0 );
-        mprotect_range( page - host_page_size, host_page_size, 0, 0 );
-    }
-    else  /* inside guaranteed space -> overflow exception */
-    {
-        page = stack_info->start + host_page_size;
-        set_page_vprot_bits( page, stack_info->guaranteed, VPROT_COMMITTED, VPROT_GUARD );
-        mprotect_range( page, stack_info->guaranteed, 0, 0 );
-        ret = STATUS_STACK_OVERFLOW;
-    }
-    teb->Tib.StackLimit = page;
-    return ret;
-}
-
 /* ml374: the two entry points below run ON the Mach exception-server thread.
  * They raise ios_in_mach_exc for their whole extent so shared helpers (notably
  * mprotect_exec, reached via mprotect_range) skip wine log macros — see the

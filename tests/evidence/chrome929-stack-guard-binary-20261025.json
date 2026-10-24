@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "ntdllSHA256": "c3b3368f4d7429c23132898189a206aa493d037548f8d6c808488c2bbe545e4e",
+  "actualPackagedFunction": "RtlWakeAddressAll",
+  "exportRVA": "0x54f70",
+  "reproducedFault": {
+    "eip": "0xfff94f7e",
+    "guestAddress": "0x1683dec",
+    "hostAddress": "0x7101683dec",
+    "bytes": 4
+  },
+  "exact929LogMatches": true,
+  "storeSucceedsAfterStackGuardGrowth": true,
+  "testBoundary": "Actual packaged i386 prologue executes in Unicorn; page growth semantics independently exercised by production-C regression",
+  "iPadBrowserSuccessClaimed": false
+}

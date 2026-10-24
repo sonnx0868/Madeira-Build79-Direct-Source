@@ -57,6 +57,7 @@ workflows:
                 python3 tests/host/check-child-peb-isolation.py
                 python3 tests/host/check-child-jit-environment.py
                 python3 tests/host/check-queue-pipe-readiness.py
+                python3 tests/host/check-wow64-stack-guard.py
                 python3 tests/host/check-input-wake.py --require-darwin
                 xcrun swiftc -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -typecheck app/Madeira/WindowsBrowser.swift
                 bash scripts/build-bitrise.sh bootstrap
