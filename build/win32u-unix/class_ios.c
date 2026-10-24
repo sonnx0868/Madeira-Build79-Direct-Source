@@ -100,12 +100,14 @@ HINSTANCE user32_module = 0;
  * resolved on the dispatching thread. Builtin CLASS objects stay
  * session-global (they store index handles, arch-neutral); only the
  * handle→pointer resolution becomes owner-aware. Readers are
- * lock-free: slots fully written before the count is published. */
+ * lock-free: slots fully written before the count is published. Server-owned
+ * Desktop/Message classes are registered separately for each process below. */
 struct ios_client_procs
 {
     void      *peb;                          /* NULL = free slot */
     WINDOWPROC procs[NTUSER_NB_PROCS];
     HINSTANCE  user32_module;
+    DWORD      user_init_pid;                /* Desktop/Message classes belong to the server process */
 };
 #define IOS_MAX_CLIENT_PROCS 64
 static struct ios_client_procs ios_client_procs_reg[IOS_MAX_CLIENT_PROCS];
@@ -362,8 +364,6 @@ static void init_user(void)
     shared_session_init();
     gdi_init();
     sysparams_init();
-    winstation_init();
-    register_desktop_class();
 }
 
 /***********************************************************************
@@ -375,7 +375,9 @@ NTSTATUS WINAPI NtUserInitializeClientPfnArrays( const ntuser_client_func_ptr *c
                                                  HINSTANCE user_module )
 {
     static pthread_once_t init_once = PTHREAD_ONCE_INIT;
+    static pthread_mutex_t process_init_lock = PTHREAD_MUTEX_INITIALIZER;
     void *peb = NtCurrentTeb()->Peb;
+    DWORD pid = HandleToULong( NtCurrentTeb()->ClientId.UniqueProcess );
     struct ios_client_procs *entry = NULL;
     int slot, n;
     UINT i;
@@ -421,15 +423,27 @@ NTSTATUS WINAPI NtUserInitializeClientPfnArrays( const ntuser_client_func_ptr *c
 
     pthread_once( &init_once, init_user );
 
-    /* The native library is shared by Wine pseudo-processes, but window
-     * station/desktop handles belong to each server process. A Chrome
+    /* The native library is shared by Wine pseudo-processes, but station,
+     * desktop and Desktop/Message class objects belong to each server process. A Chrome
      * Crashpad child can win init_once before its browser parent loads user32.
      * The parent then has no station and sandbox desktop creation fails with
-     * SBOX_ERROR_CANNOT_GET_WINSTATION (34). Connect missing process/thread
-     * handles after the shared initialization; preserve an already selected
-     * station and desktop, including a sandbox's alternate objects. */
-    if (!NtUserGetProcessWindowStation() || !NtUserGetThreadDesktop( GetCurrentThreadId() ))
+     * SBOX_ERROR_CANNOT_GET_WINSTATION (34). Serialize per-process initialization
+     * separately: register_desktop_class() takes winproc_lock. Include PID so
+     * a recycled PEB cannot retain a previous process's class-ready state. */
+    pthread_mutex_lock( &process_init_lock );
+    if (!entry || entry->user_init_pid != pid)
+    {
         winstation_init();
+        register_desktop_class();
+        if (entry) entry->user_init_pid = pid;
+    }
+    else if (!NtUserGetProcessWindowStation() || !NtUserGetThreadDesktop( GetCurrentThreadId() ))
+    {
+        /* Repair a missing connection without replacing valid selected
+         * alternate objects on ordinary repeated client initialization. */
+        winstation_init();
+    }
+    pthread_mutex_unlock( &process_init_lock );
     return STATUS_SUCCESS;
 }
 

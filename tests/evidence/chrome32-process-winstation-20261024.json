@@ -37,8 +37,8 @@
     "2185": "Chrome parent PEB0x717ffd0000 registers user32 PFNs in slot1"
   },
   "rootCause": "init_user uses a session-global pthread_once; only its first pseudo-process runs winstation_init. Child starts user32 before parent, parent has no server-owned window station when Chrome creates sandbox desktop.",
-  "repair": "After shared init completes, connect missing current process station/thread desktop with winstation_init. Preserve already selected station/desktop; no sandbox opt-out, fake handles, memory/code patch or global reinitialization.",
-  "hostRegression": "PASS: production initializers reproduce old missing-station state; fixed child-first/main-first cases pass, shared init once, PFN isolation,100 repeated calls preserve alternate handles, partial inherited connection and failure transparency",
+  "repair": "Separate shared native initialization from process-owned USER initialization. Serialize station/desktop connection and Desktop/Message class registration per PID/PEB. Preserve selected alternate handles on repeated init; reinitialize classes on PID reuse of a PEB; no sandbox bypass or fake handles.",
+  "hostRegression": "PASS: exact924 production baseline reproduces missing parent station. Fixed child-first/main-first cases pass; shared init once, process class registration, PID/PEB reuse, PFN isolation,100 repeated calls preserve alternate handles, partial inherited connection and failure transparency.",
   "notYetVerified": [
     "Mac compilation",
     "New native packaging",
