@@ -13518,6 +13518,20 @@ static int mprotect_range( void *base, size_t size, BYTE set, BYTE clear )
 }
 
 
+/* set_vprot has already applied the union of all 4 KB guest protections in
+ * each 16 KB host page. Eager copying is only needed for host-executed images.
+ * Reapplying one x86 section's raw flags here loses its neighbours' WRITE bit:
+ * Chrome32 places executable .rodata and malloc_h on the same host page as
+ * writable .tls and CPADinfo. The eager pass then made CPADinfo read-only,
+ * although Wine still reported it writable, and Chrome crashed on its store.
+ * Keep the regular NtProtect/SMC path and native ARM64 copy path intact. */
+static inline int ios_eager_image_exec( void *base, size_t size, int prot )
+{
+    if (ios_guest_image_is_host_data( base, size )) return 0;
+    return mprotect_exec( base, size, prot );
+}
+
+
 /***********************************************************************
  *           set_vprot
  *
@@ -16824,7 +16838,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const UNICODE_STRIN
         if (sec[si].Characteristics & IMAGE_SCN_MEM_WRITE) prot |= PROT_WRITE;
         ERR("iOS: eager JIT-copy section %.8s (addr=%p size=0x%lx)\n",
             sec[si].Name, sec_addr, (unsigned long)sec_size);
-        mprotect_exec(sec_addr, sec_size, prot);
+        ios_eager_image_exec(sec_addr, sec_size, prot);
     }
     /* iOS: data sections were mapped MAP_PRIVATE + PROT_READ|PROT_WRITE
      * (see map_file_into_view) so they're already mprotect-able. No
@@ -17205,7 +17219,7 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
                         if (s[i].Characteristics & IMAGE_SCN_MEM_WRITE) prot |= PROT_WRITE;
                         ERR("iOS: eager JIT-copy for builtin %s section (base=%p size=0x%lx)\n",
                             s[i].Name, sec_addr, (unsigned long)sec_size);
-                        mprotect_exec(sec_addr, sec_size, prot);
+                        ios_eager_image_exec(sec_addr, sec_size, prot);
                     }
                 }
             }

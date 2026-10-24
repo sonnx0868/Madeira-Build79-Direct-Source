@@ -1,0 +1,63 @@
+{
+  "inputLog": "C:\\Users\\sonnx\\Downloads\\madeira-b91c99ca-86ad-4dbe-bb8b-6c84cf4198d8.txt",
+  "logSHA256": "ab8b0070814cc347aa32d6f091d76c4993c0e2fcf7b4e1f4d770657b6d5e7597",
+  "observedBuild": 922,
+  "sourceCommit": "463b2cf1b0f5840b605f772f128ad21fc16b24c1",
+  "chromeVersion": "156.0.8078.48",
+  "machine": "i386",
+  "chromeDLLSHA256": "29b1a4fe1b4d5e198dd9fd7f51b40fe1904d23a0610419932213248c239d5e13",
+  "firstFault": {
+    "type": "WRITE protection failure",
+    "hostAddress": "0x717abc2024",
+    "chromeDLLBase": "0x716ad00000",
+    "rva": "0xfec2024",
+    "section": "CPADinfo",
+    "sectionOffset": "0x24",
+    "hostProtection": "READ",
+    "wineHostPageVprot": "0x2d",
+    "hostPageBytes": 16384
+  },
+  "sharedHostPageSections": [
+    {
+      "name": ".rodata",
+      "rva": "0xfec0000",
+      "virtualSize": "0x18",
+      "characteristics": "0x60000020"
+    },
+    {
+      "name": ".tls",
+      "rva": "0xfec1000",
+      "virtualSize": "0x486",
+      "characteristics": "0xc0000040"
+    },
+    {
+      "name": "CPADinfo",
+      "rva": "0xfec2000",
+      "virtualSize": "0x28",
+      "characteristics": "0xc0000040"
+    },
+    {
+      "name": "malloc_h",
+      "rva": "0xfec3000",
+      "virtualSize": "0x71a",
+      "characteristics": "0x60000020"
+    }
+  ],
+  "mechanism": "After set_vprot merged 4KB guest protections into each 16KB host page, eager image fixup reapplied raw section RX without neighbouring writable bits. ml1030 drops guest host-EXEC and makes the whole mixed page read-only.",
+  "repair": "Skip redundant eager native-code copy/protection for guest-window PE images; preserve final merged host permissions. Both eager callers use the guard. Native ARM64/ARM64EC eager copy and ordinary NtProtect/SMC unchanged.",
+  "regression": {
+    "productionCDecision": "PASS",
+    "exactChromeDLLLayout": "PASS",
+    "baselineActualStore": "access violation reproduced",
+    "patchedActualStore": "PASS",
+    "nativeAndNonImagePath": "PASS",
+    "legacyEnvOptOut": "PASS"
+  },
+  "finalCode": "0xffff7001 after Crashpad timeout; not the first fault",
+  "remainingUnverified": [
+    "Mac/iOS compilation pending CI",
+    "Physical iPad browser startup",
+    "Any failures after the repaired first fault",
+    "Google sign-in, Sync, extensions"
+  ]
+}

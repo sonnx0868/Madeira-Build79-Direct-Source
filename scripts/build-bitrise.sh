@@ -239,6 +239,7 @@ checks() {
   python3 tests/host/check-guest-spill.py
   python3 tests/host/check-browser-address-layout.py
   python3 tests/host/check-wow64-window-atom.py
+  python3 tests/host/check-guest-image-eager-protection.py
   python3 tests/host/check-dxmt-cpu-mappings.py
   python3 tests/host/check-gpu-lifecycle.py
   python3 tests/host/check-gpu-trace.py --require-darwin

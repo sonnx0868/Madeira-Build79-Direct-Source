@@ -52,6 +52,7 @@ workflows:
                 curl --fail --location --retry 3 https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise.msi --output build/chrome-check/google-chrome-stable32.msi
                 python3 tools/extract-google-chrome.py --archive build/chrome-check/google-chrome-stable32.msi --sha256 05e3a2285039f22e68d999f5943c1cbb9b0c953fc307de925be57876d51cf506 --out build/chrome-check/regular32
                 python3 tests/host/check-windows-browser.py --require-swift --chrome build/chrome-check/regular32/program/Chrome-bin/chrome.exe
+                python3 tests/host/check-guest-image-eager-protection.py --chrome-dll build/chrome-check/regular32/program/Chrome-bin/156.0.8078.48/chrome.dll
                 xcrun swiftc -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -typecheck app/Madeira/WindowsBrowser.swift
                 bash scripts/build-bitrise.sh bootstrap
       - deploy-to-bitrise-io@2:
