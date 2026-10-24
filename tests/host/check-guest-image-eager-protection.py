@@ -79,9 +79,11 @@ fixture = r'''
 #endif
 #define WINE_IOS 1
 #define SEC_IMAGE 0x1000000
+#ifdef _WIN32
 #define PROT_READ 1
 #define PROT_WRITE 2
 #define PROT_EXEC 4
+#endif
 struct file_view { void *base; size_t size; unsigned protect; };
 static struct file_view view;
 static int guest, native_calls, last_prot;
