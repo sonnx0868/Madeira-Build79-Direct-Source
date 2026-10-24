@@ -60,6 +60,10 @@ compile_one() {
 }
 
 # Patched files: name:source_file:replaces_in_archive
+if [[ "${1:-all}" = queue-check ]]; then
+    compile_one "$BUILD_DIR/queue_ios.c" queue
+    exit 0
+fi
 PATCHED_FILES=(
     "session_control_ios:session_control_ios.c:session_control_ios.o"
     "wine_log_ios:wine_log_ios.c:wine_log_ios.o"

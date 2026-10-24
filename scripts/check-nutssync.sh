@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "${MADEIRA_CHILD_RUNTIME_CHECK:-0}" = 1 ]]; then
+  exec bash "$root/scripts/check-child-runtime.sh"
+fi
 if [[ "${MADEIRA_UPSTREAM_CHECK:-0}" = 1 ]]; then
   exec bash "$root/scripts/check-upstream-integration.sh"
 fi

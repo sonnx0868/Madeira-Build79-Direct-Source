@@ -241,6 +241,9 @@ checks() {
   python3 tests/host/check-wow64-window-atom.py
   python3 tests/host/check-guest-image-eager-protection.py
   python3 tests/host/check-process-winstation-init.py
+  python3 tests/host/check-child-peb-isolation.py
+  python3 tests/host/check-child-jit-environment.py
+  python3 tests/host/check-queue-pipe-readiness.py
   python3 tests/host/check-dxmt-cpu-mappings.py
   python3 tests/host/check-gpu-lifecycle.py
   python3 tests/host/check-gpu-trace.py --require-darwin
