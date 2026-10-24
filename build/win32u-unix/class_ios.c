@@ -420,6 +420,16 @@ NTSTATUS WINAPI NtUserInitializeClientPfnArrays( const ntuser_client_func_ptr *c
     pthread_mutex_unlock( &winproc_lock );
 
     pthread_once( &init_once, init_user );
+
+    /* The native library is shared by Wine pseudo-processes, but window
+     * station/desktop handles belong to each server process. A Chrome
+     * Crashpad child can win init_once before its browser parent loads user32.
+     * The parent then has no station and sandbox desktop creation fails with
+     * SBOX_ERROR_CANNOT_GET_WINSTATION (34). Connect missing process/thread
+     * handles after the shared initialization; preserve an already selected
+     * station and desktop, including a sandbox's alternate objects. */
+    if (!NtUserGetProcessWindowStation() || !NtUserGetThreadDesktop( GetCurrentThreadId() ))
+        winstation_init();
     return STATUS_SUCCESS;
 }
 

@@ -1,0 +1,49 @@
+{
+  "inputLog": "C:\\Users\\sonnx\\Downloads\\madeira-31f973bc-cb76-456e-b5c1-dac23f847cdc.txt",
+  "logSHA256": "7ebc9427da8acf0f3aca1e7a8707a9d3378c5402d77f7796fcec2fe3ed1e07bf",
+  "build": 924,
+  "previousFault": "CPADinfo write protection fault absent in this session",
+  "currentFirstFault": {
+    "module": "chrome.dll",
+    "imageBase": "0x716ad00000",
+    "guestRipAfterInt3": "0x6be44936",
+    "int3RVA": "0x1144935",
+    "eax": "0x22",
+    "sandboxResult": 34,
+    "meaning": "SBOX_ERROR_CANNOT_GET_WINSTATION"
+  },
+  "officialPDB": {
+    "source": "https://chromium-browser-symsrv.commondatastorage.googleapis.com/chrome.dll.pdb/00AFE5324D63C0074C4C44205044422E1/chrome.dll.pdb",
+    "guid": "00AFE5324D63C0074C4C44205044422E1",
+    "symbolizedStack": [
+      "base::ImmediateCrash",
+      "C:\\b\\s\\w\\ir\\cache\\builder\\src\\base\\immediate_crash.h:184:0",
+      "logging::CheckFailure",
+      "C:\\b\\s\\w\\ir\\cache\\builder\\src\\base\\check.h:258:0",
+      "sandbox::policy::Sandbox::Initialize",
+      "C:\\b\\s\\w\\ir\\cache\\builder\\src\\sandbox\\policy\\sandbox.cc:71:0",
+      "content::ContentMainRunnerImpl::Initialize(struct content::ContentMainParams)",
+      "C:\\b\\s\\w\\ir\\cache\\builder\\src\\content\\app\\content_main_runner_impl.cc:1088:0",
+      ""
+    ]
+  },
+  "chromiumRevision": "d0c02bfad08ec92a6ffcf989e53cd995e6381a4c",
+  "sourceFacts": {
+    "sandbox/policy/sandbox.cc:71": "CHECK result of CreateAlternateDesktop(Desktop::kAlternateWinstation)",
+    "sandbox/win/src/window.cc:22": "CreateAltWindowStation returns34 if GetProcessWindowStation is NULL"
+  },
+  "logOrdering": {
+    "1951": "Crashpad child PEB0x7200310000 registers user32 PFNs in slot0",
+    "2185": "Chrome parent PEB0x717ffd0000 registers user32 PFNs in slot1"
+  },
+  "rootCause": "init_user uses a session-global pthread_once; only its first pseudo-process runs winstation_init. Child starts user32 before parent, parent has no server-owned window station when Chrome creates sandbox desktop.",
+  "repair": "After shared init completes, connect missing current process station/thread desktop with winstation_init. Preserve already selected station/desktop; no sandbox opt-out, fake handles, memory/code patch or global reinitialization.",
+  "hostRegression": "PASS: production initializers reproduce old missing-station state; fixed child-first/main-first cases pass, shared init once, PFN isolation,100 repeated calls preserve alternate handles, partial inherited connection and failure transparency",
+  "notYetVerified": [
+    "Mac compilation",
+    "New native packaging",
+    "Physical iPad Chrome startup",
+    "Complete Chrome sandbox support",
+    "Google sign-in, Sync and extensions"
+  ]
+}
