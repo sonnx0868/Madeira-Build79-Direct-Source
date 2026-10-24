@@ -7,7 +7,8 @@ mkdir -p "$out"
 exec > >(tee "$out/child-runtime-check.log") 2>&1
 cd "$root"
 [[ "$(uname -s)" = Darwin && "$(uname -m)" = arm64 ]]
-export ASAN_OPTIONS=abort_on_error=1:detect_leaks=1
+# Apple's arm64 ASan runtime supports address checks but not LeakSanitizer.
+export ASAN_OPTIONS=abort_on_error=1:detect_leaks=0
 export UBSAN_OPTIONS=halt_on_error=1
 python3 tests/host/check-child-peb-isolation.py
 python3 tests/host/check-child-jit-environment.py
