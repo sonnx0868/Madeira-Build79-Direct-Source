@@ -1353,6 +1353,20 @@ static void msg_queue_poll_event( struct fd *fd, int event )
     struct msg_queue *queue = get_fd_user( fd );
     assert( queue->obj.ops == &msg_queue_ops );
 
+#ifdef WINE_IOS
+    /* The iOS server probes client sockets with synthetic POLLIN because
+     * AF_UNIX readiness is unreliable in the sandbox. Queue notification
+     * pipes also occupy those poll slots, but their callback must not latch
+     * QS_DRIVER until a byte (or a real pipe error) exists. Otherwise an empty
+     * pipe wakes every MsgWait, is re-armed by set_queue_mask, and immediately
+     * wakes it again. Anonymous pipes support poll() on iOS. Do not consume
+     * the byte here: the owning event pump acknowledges its own subscriber. */
+    struct pollfd ready = { get_unix_fd( fd ), POLLIN, 0 };
+    if (poll( &ready, 1, 0 ) <= 0) return;
+    event = ready.revents;
+    if (!(event & (POLLIN | POLLERR | POLLHUP | POLLNVAL))) return;
+    if (event & POLLNVAL) event |= POLLERR;
+#endif
     if (event & (POLLERR | POLLHUP)) set_fd_events( fd, -1 );
     else set_fd_events( queue->fd, 0 );
     set_queue_bits( queue, QS_DRIVER );

@@ -1057,6 +1057,21 @@ static void add_system_dll_path_var( WCHAR **env, SIZE_T *pos, SIZE_T *size )
  *
  * Add the environment variables that can differ between processes.
  */
+#ifdef WINE_IOS
+static void add_ios_jit_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
+{
+    /* These describe the app's live dual mapping, not a guest preference.
+     * Chromium deliberately constructs a restricted child environment. A
+     * newly mapped WoW64 translator reads its own PE CRT environment, so
+     * inheriting the host's mapping through that restricted block loses it.
+     * Restore only the mapping values, from the host, for every new process.
+     * Also replace stale guest values after a runtime pool is recreated. */
+    append_envA( env, pos, size, "WINE_IOS_JIT_RW", getenv( "WINE_IOS_JIT_RW" ) );
+    append_envA( env, pos, size, "WINE_IOS_JIT_RX", getenv( "WINE_IOS_JIT_RX" ) );
+    append_envA( env, pos, size, "WINE_IOS_JIT_SIZE", getenv( "WINE_IOS_JIT_SIZE" ) );
+}
+#endif
+
 static void add_dynamic_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
 {
     unsigned int i;
@@ -1116,6 +1131,7 @@ static void add_dynamic_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
     append_envA( env, pos, size, "SystemDrive", "C:" );
     append_envA( env, pos, size, "SystemRoot", "C:\\windows" );
 #ifdef WINE_IOS
+    add_ios_jit_environment( env, pos, size );
     os_log(OS_LOG_DEFAULT, "[Wine] add_dynamic_env: DONE");
 #endif
 }
@@ -1844,6 +1860,7 @@ static ULONG get_dword_option( HANDLE key, const WCHAR *name, ULONG defval )
  */
 static void load_global_options( const UNICODE_STRING *image )
 {
+    PEB *peb = NtCurrentTeb()->Peb;
     static const WCHAR optionsW[] = {'\\','R','e','g','i','s','t','r','y','\\',
         'M','a','c','h','i','n','e','\\','S','o','f','t','w','a','r','e','\\',
         'M','i','c','r','o','s','o','f','t','\\','W','i','n','d','o','w','s',' ','N','T','\\',
@@ -1974,6 +1991,8 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
      * is a no-op for the first process, where thread PEB == global peb. */
     PEB *global_peb_snapshot = peb;               /* still the global here */
     PEB *peb = NtCurrentTeb()->Peb;               /* shadow from here on */
+    WOW_PEB **session_wow_peb = &wow_peb;
+    WOW_PEB *wow_peb = NULL;                      /* this boot's 32-bit PEB */
     dprintf(2, "[init-peb] thread_peb=%p global_peb=%p params=%p module=%p%s\n",
             (void *)peb, (void *)global_peb_snapshot, (void *)params, module,
             peb == global_peb_snapshot ? "" : "  <-- MISMATCH (raced child; old code dropped params)");
@@ -1997,11 +2016,17 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
     peb->ImageSubSystemMinorVersion = main_image_info.MinorSubsystemVersion;
 
 #ifdef _WIN64
-    if (!is_machine_64bit( main_image_info.Machine ))
+    /* The window is reserved from this child's machine before its TEB exists.
+     * main_image_info and the legacy wow_peb global can both change while a
+     * sibling boots. Never use either to select or publish this child's PEB32.
+     * In926, build_wow64_parameters yielded to a second child; the first then
+     * wrote its parameters into the sibling PEB, leaving its own pointer NULL. */
+    if (ios_wow_base())
     {
         NtCurrentTeb()->WowTebOffset = teb_offset;
         NtCurrentTeb()->Tib.ExceptionList = (void *)((char *)NtCurrentTeb() + teb_offset);
         wow_peb = (PEB32 *)((char *)peb + page_size);
+        *session_wow_peb = wow_peb; /* retain the legacy session capability flag */
         set_thread_id( NtCurrentTeb(), GetCurrentProcessId(), GetCurrentThreadId() );
     }
 #endif

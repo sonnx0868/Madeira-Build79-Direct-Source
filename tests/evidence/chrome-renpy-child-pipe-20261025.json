@@ -1,0 +1,55 @@
+{
+  "baseline": "d784eea5cd1bebebd793c028f794a43dae350758",
+  "logs": [
+    {
+      "id": "a912f400-d525-4d47-997f-b7c0842cace8",
+      "build": 926,
+      "sha256": "f11c9f7de96dc163c9c93edd0eb933a428fe8c7bec6e76749ff736347d3c6bf3"
+    },
+    {
+      "id": "669cb59b-6fd0-4400-89e8-8995e6691ad6",
+      "build": 926,
+      "sha256": "93801f75f037206f07261554f3e50435b6bbda8b859589cde095acffd4b41351"
+    }
+  ],
+  "chrome": {
+    "first_fault_reconstructed_guest_eip": "0xfff5e5d4",
+    "i386_ntdll_base": "0xfff40000",
+    "rva": "0x1e5d4",
+    "actual926_instruction": "init_user_process_params: movl 0x290(%ebx), %esi; EBX is PEB32.ProcessParameters, which is NULL",
+    "earlier_saved_rip": "0xfff8dcac is the previous syscall return address, not the faulting x86 instruction",
+    "concurrency_evidence": "log6280 thread PEB7300310000/global7900310000; log6292 child730 API-set published through wow_peb7900311000",
+    "later_fatal": "child00e0 WoW64 initialization fails because WINE_IOS_JIT_RW/RX are absent",
+    "repairs": [
+      "Use thread-owned PEB/PEB32 during parameter creation, API-set initialization, process entry and querying",
+      "Populate only host-authoritative JIT mapping values in every dynamic child environment"
+    ]
+  },
+  "renpy": {
+    "evidence": "req116=set_queue_mask and req29=select account for approximately200000 requests/2s;192450000 server iterations; frame_fence0.00ms in slow samples",
+    "mechanism": "Synthetic POLLIN on an empty queue notification pipe latches QS_DRIVER; game acknowledges and re-arms; server invents another event",
+    "repair": "Poll actual queue pipe readiness before latching QS_DRIVER; leave byte consumption to owning subscriber"
+  },
+  "local_regressions": {
+    "old_peb_race": "reproduced with production926 functions and deterministic sibling interleaving",
+    "fixed_peb_race": "passed: parameters, API-set,64-bit exclusion, reused windows,1000 repeated boots",
+    "old_jit_environment": "reproduced with actual926 dynamic environment builder",
+    "fixed_jit_environment": "passed: restricted/inherited/stale blocks, case-insensitive names, host authority,2000 children",
+    "old_queue_pipe": "10000 false GUI wakes reproduced using actual926 callback",
+    "fixed_queue_pipe": "zero false wakes in10000 probes,1000 actual notifications, peer drain and HUP passed",
+    "previous_user32_and_renpy_startup_regressions": "passed locally"
+  },
+  "validation_limits": [
+    "Windows pipe test uses actual OS pipes and a PeekNamedPipe adapter; Mac CI uses native poll",
+    "Allocator, Wine server registration and host APIs are controlled test boundaries",
+    "No physical-device Chrome browsing/Sync or scene-specific RenPy freeze resolution claimed"
+  ],
+  "source_sha256": {
+    "build/ntdll-unix/env_ios.c": "3fd618a0f4b36de9546599541e7ee677acb66268c99911550191afded9e28625",
+    "build/ntdll-unix/loader_ios.c": "cefd5716b0bf7edfce2aa56652dbcadd517e768f76d3f27440218eea24577669",
+    "build/ntdll-unix/process_ios.c": "f99eae51233a6372ecc5830bed4c47743593ed44f93f303272d0dce2d9ee397e",
+    "build/ntdll-unix/server_ios.c": "74bc1f2b4eaf79b9165f0fb6448f749e74c9707349ecc47de78fc03ea459b3eb",
+    "build/ntdll-unix/signal_arm64_ios.c": "8d4ae5fce4cde75ee8fd321962569e300c5fd8df74e29dc524e8c5e9cec05335",
+    "build/wineserver/queue_ios.c": "921a1e5505e8656f841afdbcfb49712357334745c01813b6e89487a26c89a368"
+  }
+}

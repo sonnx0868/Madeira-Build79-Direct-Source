@@ -2723,6 +2723,8 @@ static unsigned int map_apiset_schema( WORD machine, void **view, SIZE_T *view_s
  */
 static void load_apiset_dll(void)
 {
+    PEB *peb = NtCurrentTeb()->Peb;
+    WOW_PEB *wow_peb = ios_wow_base() ? (WOW_PEB *)((char *)peb + page_size) : NULL;
     API_SET_NAMESPACE *map;
     unsigned int status;
     SIZE_T size;
@@ -2774,6 +2776,8 @@ static void load_apiset_dll(void)
  */
 static void ios_child_load_apiset( WORD machine )
 {
+    PEB *peb = NtCurrentTeb()->Peb;
+    WOW_PEB *wow_peb = ios_wow_base() ? (WOW_PEB *)((char *)peb + page_size) : NULL;
     API_SET_NAMESPACE *map;
     unsigned int status;
     SIZE_T size;
@@ -3666,33 +3670,11 @@ DECLSPEC_EXPORT void wine_ios_child_main( int argc, char *argv[], int child_fd_s
          * thread reads identity owner-aware from here on. */
         {
             SECTION_IMAGE_INFORMATION session_image_info = main_image_info;
-            /* `wow_peb` is a SESSION global, and init_peb()
-             * (env_ios.c) only ever WRITES it — for a 32-bit image — so it
-             * stays pointing at the previous 32-bit pseudo-process when a
-             * 64-bit child boots next.  init_peb's `if (wow_peb)` block then
-             * ran for that 64-bit child: it called ios_wow_map_user_shared_data
-             * and build_wow64_parameters, whose limit_2g ceiling was NOT
-             * translated into a window (this child has none), so the
-             * allocation was attempted below 4 GB, returned STATUS_NO_MEMORY,
-             * and `assert( !status )` (env_ios.c:1934) aborted — which on iOS
-             * is an abort() inside the one shared Mach task.  Observed on
-             * device: a console-subsystem i386 child's conhost.exe died this
-             * way and NtCreateUserProcess returned c00000e5.
-             * Clearing it here makes the derivation per-process: init_peb
-             * re-publishes it for a 32-bit child, and if it comes back NULL
-             * this child is 64-bit and the 32-bit sibling's value (still live
-             * and blocked in NtCreateUserProcess) is restored. */
-            WOW_PEB *saved_wow_peb = wow_peb;
-
-            wow_peb = NULL;
+            /* init_peb derives PEB32 from the current thread/window. Clearing
+             * and restoring the session pointer here races sibling boots and
+             * cannot isolate either process's 32-bit parameters. */
             CHILD_STAGE( "unix_init_startup_info" );
             unix_init_startup_info();
-            if (!wow_peb && saved_wow_peb)
-            {
-                dprintf( STDERR_FILENO, "[wow-peb] 64-bit child kept out of the WoW64 branch; "
-                         "restoring the session wow_peb=%p\n", saved_wow_peb );
-                wow_peb = saved_wow_peb;
-            }
             ios_register_proc_ident( child_peb, &main_image_info );
             main_image_info = session_image_info;
         }

@@ -4060,6 +4060,7 @@ size_t server_init_process_child( int child_fd_socket )
  */
 void server_init_process_done(void)
 {
+    PEB *peb = NtCurrentTeb()->Peb;
     void *teb;
     unsigned int status;
     int suspend;

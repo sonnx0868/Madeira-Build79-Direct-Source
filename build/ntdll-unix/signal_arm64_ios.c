@@ -13111,6 +13111,8 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
      * pLdrSystemDllInitBlock->pRtlUserThreadStart is already published guest.
      * Without a guest window wow_base is 0 and this is the upstream code. */
     ULONG_PTR wow_base = ios_wow_base_for_peb( teb->Peb );
+    PEB *peb = teb->Peb;
+    WOW_PEB *wow_peb = wow_base ? (WOW_PEB *)((char *)peb + page_size) : NULL;
 #define IOS_WOW_GUEST_IN(ptr) ios_wow_guest_in( (ptr), wow_base )
 
     if ((i386_context = get_cpu_area( IMAGE_FILE_MACHINE_I386 )))

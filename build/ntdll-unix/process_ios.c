@@ -2755,7 +2755,8 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
         len = sizeof(ULONG_PTR);
         if (size != len) return STATUS_INFO_LENGTH_MISMATCH;
         if (handle == GetCurrentProcess())
-            *(ULONG_PTR *)info = is_old_wow64() ? (ULONG_PTR)peb : (ULONG_PTR)wow_peb;
+            *(ULONG_PTR *)info = ios_wow_base()
+                ? (ULONG_PTR)NtCurrentTeb()->Peb + page_size : 0;
         else
         {
             ULONG_PTR val = 0;
