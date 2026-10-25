@@ -4467,10 +4467,18 @@ skip_reclaim_band: ;
             if (!handled && (req->exception == EXC_BAD_ACCESS ||
                              req->exception == EXC_BAD_INSTRUCTION))
             {
-                if (ios_mach_deliver_guest_exception( thread, &state,
-                        &neon_state, have_neon, req->exception,
-                        fault_addr, thread_teb ))
-                    handled = 1;
+                int delivery = ios_mach_deliver_guest_exception( thread, &state,
+                        &neon_state, have_neon, req->exception, fault_addr, thread_teb );
+                if (delivery == 3)
+                {
+                    /* A SIMD alias load updates NEON as well as the PC. Do
+                     * not advance the guest if the vector state cannot be
+                     * published: that would silently keep stale registers. */
+                    if (have_neon && thread_set_state( thread, ARM_NEON_STATE64,
+                            (thread_state_t)&neon_state, neon_count ) == KERN_SUCCESS)
+                        handled = 1;
+                }
+                else if (delivery) handled = 1;
             }
 
             if (handled)
@@ -6973,15 +6981,19 @@ struct ios_guard_operation
 {
     struct ios_guard_access access;
     uint64_t regs[31];
+    uint64_t sp;
+    unsigned char vectors[32][16];
+    int have_vectors, handled;
 };
 
 static void ios_guard_alias_operation( void *alias, void *opaque )
 {
     struct ios_guard_operation *op = opaque;
-    ios_guard_execute( &op->access, alias, op->regs );
+    op->handled = ios_guard_execute( &op->access, alias, op->regs, &op->sp,
+                                     op->have_vectors ? op->vectors : NULL );
 }
 
-static int ios_guard_neighbor_service( TEB *teb, ucontext_t *ctx, uintptr_t fault )
+static int ios_guard_neighbor_service( TEB *teb, ucontext_t *ctx, uintptr_t fault, int have_vectors )
 {
     extern BOOL ios_virtual_guard_neighbor_access( TEB *, void *, SIZE_T, BOOL,
                                                    void (*)(void *, void *), void * );
@@ -6993,16 +7005,27 @@ static int ios_guard_neighbor_service( TEB *teb, ucontext_t *ctx, uintptr_t faul
 
     if (mach_vm_read_overwrite( mach_task_self(), PC_sig(ctx), sizeof(insn),
                                 (mach_vm_address_t)&insn, &got ) != KERN_SUCCESS || got != sizeof(insn)) return 0;
-    for (i = 0; i < 31; ++i) op.regs[i] = REGn_sig(i, ctx);
+    for (i = 0; i < 29; ++i) op.regs[i] = REGn_sig(i, ctx);
+    op.regs[29] = FP_sig(ctx);
+    op.regs[30] = LR_sig(ctx);
     if (!ios_guard_decode( insn, op.regs, SP_sig(ctx), &op.access )) return 0;
+    if (op.access.vector && !have_vectors) return 0;
+    op.sp = SP_sig(ctx);
+    op.have_vectors = have_vectors;
+    op.handled = 0;
+    if (have_vectors) memcpy( op.vectors, ctx->uc_mcontext->__ns.__v, sizeof(op.vectors) );
     bytes = op.access.width * op.access.count;
     if (fault < op.access.address || fault - op.access.address >= bytes) return 0;
     write = op.access.kind == IOS_GUARD_STORE || op.access.kind == IOS_GUARD_STORE_RELEASE;
     if (!ios_virtual_guard_neighbor_access( teb, (void *)(uintptr_t)op.access.address, bytes,
-                                            write, ios_guard_alias_operation, &op )) return 0;
-    for (i = 0; i < 31; ++i) REGn_sig(i, ctx) = op.regs[i];
+                                            write, ios_guard_alias_operation, &op ) || !op.handled) return 0;
+    for (i = 0; i < 29; ++i) REGn_sig(i, ctx) = op.regs[i];
+    FP_sig(ctx) = op.regs[29];
+    LR_sig(ctx) = op.regs[30];
+    SP_sig(ctx) = op.sp;
+    if (have_vectors) memcpy( ctx->uc_mcontext->__ns.__v, op.vectors, sizeof(op.vectors) );
     PC_sig(ctx) += 4;
-    return 1;
+    return op.access.vector ? 2 : 1;
 }
 
 static int ios_mach_deliver_guest_exception_inner( thread_t thread, arm_thread_state64_t *state,
@@ -7283,6 +7306,7 @@ static int ios_mach_deliver_guest_exception_inner( thread_t thread, arm_thread_s
     {
         uint32_t esr = (uint32_t)mc.__es.__esr, esr_ec = esr >> 26;
         NTSTATUS st;
+        int guard_status;
         rec.ExceptionCode = EXCEPTION_ACCESS_VIOLATION;
         rec.NumberParameters = 2;
         if (esr_ec == 0x20 || esr_ec == 0x21) rec.ExceptionInformation[0] = EXCEPTION_EXECUTE_FAULT;
@@ -7501,10 +7525,11 @@ static int ios_mach_deliver_guest_exception_inner( thread_t thread, arm_thread_s
         if (!is_align)
         {
             if (rec.ExceptionInformation[0] != EXCEPTION_EXECUTE_FAULT &&
-                ios_guard_neighbor_service( teb, &uc, fault_addr ))
+                (guard_status = ios_guard_neighbor_service( teb, &uc, fault_addr, have_neon )))
             {
                 *state = mc.__ss;
-                return 2;
+                if (guard_status == 2) *neon = mc.__ns;
+                return guard_status == 2 ? 3 : 2;
             }
             st = ios_virtual_handle_fault_for_thread( &rec, teb );
             if (!st)
@@ -10142,7 +10167,7 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             return;
         }
         if (!(sg_rx && sg_pc >= sg_rx && sg_pc < sg_rx + sg_sz) && NtCurrentTeb() &&
-            ios_guard_neighbor_service( NtCurrentTeb(), context, (uintptr_t)siginfo->si_addr ))
+            ios_guard_neighbor_service( NtCurrentTeb(), context, (uintptr_t)siginfo->si_addr, ios_neon_valid ))
         {
             ios_fixup_x18_for_return( context );
             return;

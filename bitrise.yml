@@ -21,7 +21,7 @@ app:
 workflows:
   madeira-child-runtime-check:
     title: Validate Chrome child runtime on Mac and iPhoneOS
-    description: Run sanitized production regressions, real Mach guard-neighbor aliases and compile seven iPhoneOS units; no IPA publication.
+    description: Run sanitized production regressions, host-aligned stack guards, real Mach aliases, NEON publication and eight iPhoneOS units; no IPA publication.
     steps:
       - git-clone@8:
           inputs:
@@ -84,6 +84,7 @@ workflows:
                 python3 tests/host/check-queue-pipe-readiness.py
                 python3 tests/host/check-wow64-stack-guard.py
                 python3 tests/host/check-wow64-guard-neighbor.py
+                python3 tests/host/check-guard-bridge-context.py
                 python3 tests/host/check-wow64-stack-release.py
                 python3 tests/host/check-input-wake.py --require-darwin
                 xcrun swiftc -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -typecheck app/Madeira/WindowsBrowser.swift

@@ -15,11 +15,13 @@ python3 tests/host/check-child-jit-environment.py
 python3 tests/host/check-queue-pipe-readiness.py
 python3 tests/host/check-wow64-stack-guard.py
 python3 tests/host/check-wow64-guard-neighbor.py
+python3 tests/host/check-guard-bridge-context.py
 python3 tests/host/check-wow64-stack-release.py
 python3 tests/host/check-wow-context.py
 python3 tests/host/check-input-wake.py --require-darwin
 git submodule update --init --depth 1 wine
 bash scripts/apply-wine-patches.sh
+python3 tests/host/check-user-stack-host-pages.py
 python3 tests/host/check-renpy-startup.py
 python3 tests/host/check-process-winstation-init.py
 # Import generated configuration headers only, from the verified926 bundle.
@@ -47,12 +49,15 @@ import hashlib,json,subprocess,sys
 files=['build/ntdll-unix/'+n+'_ios.c' for n in ('env','loader','process','server','signal_arm64','virtual')]
 files+=['build/wineserver/queue_ios.c']
 files+=['build/ntdll-unix/ios_guard_access.h']
+files+=['build/ntdll-unix/ios_browser_child_role.h','wine/include/winternl.h',
+        'wine/dlls/ntdll/thread.c','wine/dlls/ntdll/unix/system.c','wine/dlls/wow64/system.c']
 record={'format':'madeira-child-runtime-check-v1','commit':subprocess.check_output(
  ['git','rev-parse','HEAD'],text=True).strip(),'MacProductionRegressionsPassed':True,
- 'ASanUBSanPassed':True,'nativePipePollPassed':True,'iPhoneOSUnitsCompiled':7,
+ 'ASanUBSanPassed':True,'nativePipePollPassed':True,'iPhoneOSUnitsCompiled':8,
  'realMachGuardNeighborAliasPassed':True,'ownerStackReleasePassed':True,
+ 'hostPageUserStackGuardsPassed':True,'guardBridgeAndNeonPublicationPassed':True,
  'physicalChromeAndRenPyVerified':False,'IPAProduced':False,
  'sources':{f:hashlib.sha256(Path(f).read_bytes().replace(b'\r\n',b'\n')).hexdigest() for f in files}}
 (Path(sys.argv[1])/'child-runtime-check.json').write_text(json.dumps(record,indent=2)+'\n')
 PY
-echo 'PASS: actual Mac pipe/poll and sanitized regressions; seven iPhoneOS units compiled including WoW64 stack guards'
+echo 'PASS: real host-aligned user stacks, guard aliases, NEON publication and sanitized regressions; eight iPhoneOS units compiled'

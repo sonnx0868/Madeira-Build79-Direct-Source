@@ -19098,9 +19098,9 @@ BOOL ios_virtual_guard_neighbor_access( TEB *teb, void *address, SIZE_T size, BO
     char *host_start;
     SIZE_T host_size;
     vm_prot_t cur_prot = 0, max_prot = 0;
-    BOOL handled = FALSE;
+    BOOL handled = FALSE, blocked_guard = FALSE;
 
-    if (!base || !size || size > 16 || start < base || start - base >= limit_4g ||
+    if (!base || !size || size > 32 || start < base || start - base >= limit_4g ||
         size > limit_4g - (start - base) || start > ~(ULONG_PTR)0 - size ||
         host_page_size <= page_size) return FALSE;
     end = start + size;
@@ -19108,7 +19108,9 @@ BOOL ios_virtual_guard_neighbor_access( TEB *teb, void *address, SIZE_T size, BO
     host_size = ROUND_SIZE( address, size, host_page_mask );
     mutex_lock( &virtual_mutex ); /* signal or Mach exception-server context */
     if (!find_view( address, size )) goto done;
-    if (!(get_host_page_vprot( address ) & VPROT_GUARD)) goto done;
+    for (current = (ULONG_PTR)host_start; current < end; current += host_page_size)
+        if (get_host_page_vprot( (void *)current ) & VPROT_GUARD) blocked_guard = TRUE;
+    if (!blocked_guard) goto done;
     {
         static unsigned int logs;
         if (logs++ < 8)

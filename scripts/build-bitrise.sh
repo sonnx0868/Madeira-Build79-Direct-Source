@@ -246,6 +246,8 @@ checks() {
   python3 tests/host/check-queue-pipe-readiness.py
   python3 tests/host/check-wow64-stack-guard.py
   python3 tests/host/check-wow64-guard-neighbor.py
+  python3 tests/host/check-guard-bridge-context.py
+  python3 tests/host/check-user-stack-host-pages.py
   python3 tests/host/check-wow64-stack-release.py
   python3 tests/host/check-dxmt-cpu-mappings.py
   python3 tests/host/check-gpu-lifecycle.py

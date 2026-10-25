@@ -60,6 +60,7 @@ if [[ "${1:-all}" = child-check ]]; then
     compile_one "$BUILD_DIR/process_ios.c" process
     compile_one "$BUILD_DIR/server_ios.c" server
     compile_one "$BUILD_DIR/signal_arm64_ios.c" signal_arm64
+    compile_one "$WINE_SRC/dlls/ntdll/unix/system.c" system
     [[ "$FAILED" = 0 ]] || exit 1
     exit 0
 fi

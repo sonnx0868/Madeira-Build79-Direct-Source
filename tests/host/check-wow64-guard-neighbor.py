@@ -78,14 +78,15 @@ static const SIZE_T page_size=4096,page_shift=12,page_mask=4095,limit_4g=0x10000
 static SIZE_T host_page_size=16384,host_page_mask=16383;
 static const SIZE_T pages_vprot_shift=20,pages_vprot_mask=0xfffff,pages_vprot_size=32768;
 static BYTE *pages_vprot[32768];
-static BYTE bytes[16384],before[16384],alias_bytes[16384];
+static BYTE bytes[32768],before[32768],alias_bytes[32768];
+static SIZE_T alias_offset,alias_length;
 static uintptr_t guest_base=0x7100000000ull,host;
 static int virtual_mutex,locked,callbacks,remaps,unmaps,fail_stage;
 static ULONG_PTR ios_wow_base_for_peb(void *peb) {return (uintptr_t)peb;}
 static void mutex_lock(int *m) {(void)m;assert(!locked);locked=1;}
 static void mutex_unlock(int *m) {(void)m;assert(locked);locked=0;}
 static void *find_view(const void *address,SIZE_T size) {
-    assert(locked);return fail_stage!=4 && (uintptr_t)address>=host && (uintptr_t)address+size<=host+16384?(void *)1:NULL;
+    assert(locked);return fail_stage!=4 && (uintptr_t)address>=host && (uintptr_t)address+size<=host+sizeof bytes?(void *)1:NULL;
 }
 /*PROTECTIONS*/
 static void set_page_vprot_bits(void *p,SIZE_T n,BYTE set,BYTE clear) {
@@ -105,34 +106,37 @@ typedef struct {NTSTATUS ExceptionCode;uintptr_t ExceptionInformation[3];} EXCEP
 static int mach_vm_remap(int a,mach_vm_address_t *out,SIZE_T n,int mask,int flags,int task,
                          mach_vm_address_t src,int copy,vm_prot_t *cur,vm_prot_t *max,int inherit) {
     (void)a;(void)mask;(void)flags;(void)task;(void)copy;(void)inherit;
-    assert(locked && n==16384 && src==host);++remaps;
+    assert(locked && (n==16384 || n==32768) && src>=host && src+n<=host+sizeof bytes);++remaps;alias_offset=src-host;alias_length=n;
     if(fail_stage==1)return 5;
-    memcpy(alias_bytes,bytes,sizeof bytes);*out=(uintptr_t)alias_bytes;*cur=0;
+    memcpy(alias_bytes,bytes+alias_offset,n);*out=(uintptr_t)alias_bytes;*cur=0;
     *max=fail_stage==2?VM_PROT_READ:3;return 0;
 }
 static int mach_vm_protect(int task,mach_vm_address_t p,SIZE_T n,int set_max,vm_prot_t prot) {
     (void)task;(void)p;(void)n;assert(!set_max && !(prot&4));return fail_stage==3?5:0;
 }
 static int mach_vm_deallocate(int task,mach_vm_address_t p,SIZE_T n) {
-    (void)task;(void)p;assert(locked && n==16384);++unmaps;
-    if(callbacks)memcpy(bytes,alias_bytes,sizeof bytes);return 0;
+    (void)task;(void)p;assert(locked && n==alias_length);++unmaps;
+    if(callbacks)memcpy(bytes+alias_offset,alias_bytes,n);return 0;
 }
 #endif
 /*ALIAS_POLICY*/
 static struct ios_guard_access op;
 static uint64_t regs[31];
+static unsigned char vectors[32][16];
 static void callback(void *alias,void *opaque) {
-    assert(locked && opaque==regs);++callbacks;ios_guard_execute(&op,alias,regs);
+    assert(locked && opaque==regs);++callbacks;assert(ios_guard_execute(&op,alias,regs,NULL,vectors));
 }
 static void fresh(void) {
     memset(bytes,0xa5,sizeof bytes);memcpy(before,bytes,sizeof bytes);
-    for(unsigned i=0;i<4;++i)set_page_vprot_bits((void *)(host+i*4096),4096,35,255);
+    for(unsigned i=0;i<8;++i)set_page_vprot_bits((void *)(host+i*4096),4096,35,255);
+    set_page_vprot_bits((void *)host,4096,0,VPROT_COMMITTED); /* exact932 red subpage:03,33,23,23 */
     set_page_vprot_bits((void *)(host+4096),4096,VPROT_GUARD,0);
-    memset(regs,0,sizeof regs);callbacks=remaps=unmaps=fail_stage=locked=0;
+    memset(regs,0,sizeof regs);memset(vectors,0x3c,sizeof vectors);memset(vectors[5],0x7e,16);callbacks=remaps=unmaps=fail_stage=locked=0;
 }
 static void run_access(uint64_t address,unsigned width,int write,int expected) {
     TEB target={(void *)guest_base};
-    op=(struct ios_guard_access){address,width,1,31,0,0,write?IOS_GUARD_STORE:IOS_GUARD_LOAD};
+    op=(struct ios_guard_access){.address=address,.width=width,.count=1,.rt=31,.kind=write?IOS_GUARD_STORE:IOS_GUARD_LOAD};
+    if(width==32){op.width=16;op.count=2;op.rt=4;op.rt2=5;op.vector=1;}
     assert(ios_virtual_guard_neighbor_access(&target,(void *)(uintptr_t)address,width,write,callback,regs)==expected);
     assert(!locked && callbacks==expected);
 }
@@ -141,10 +145,10 @@ static void decoder_tests(void) {
     r[24]=host+0x3ff4;
     assert(ios_guard_decode(0x889fff1fu,r,0,&a)); /* exact930 STLR wzr,[x24] */
     assert(a.address==host+0x3ff4 && a.width==4 && a.kind==IOS_GUARD_STORE_RELEASE && a.rt==31);
-    value=UINT64_MAX;ios_guard_execute(&a,&value,r);assert(value==0xffffffff00000000ull);
+    value=UINT64_MAX;assert(ios_guard_execute(&a,&value,r,NULL,NULL));assert(value==0xffffffff00000000ull);
     r[24]=host+0x3ff0;
     assert(ios_guard_decode(0xc8dfff04u,r,0,&a)); /* LDAR x4,[x24] */
-    value=0x8765432101234567ull;ios_guard_execute(&a,&value,r);assert(r[4]==value);
+    value=0x8765432101234567ull;assert(ios_guard_execute(&a,&value,r,NULL,NULL));assert(r[4]==value);
     r[24]++;assert(!ios_guard_decode(0xc8dfff04u,r,0,&a));r[24]=host+0x3ff4;
     assert(!ios_guard_decode(0x8800ff04u,r,0,&a)); /* STLXR never fakes an exclusive monitor */
     assert(!ios_guard_decode(0xb8e00304u,r,0,&a)); /* LDADD must remain atomic, not memcpy */
@@ -152,15 +156,28 @@ static void decoder_tests(void) {
     assert(ios_guard_decode(0xb81fc304u,r,0,&a)); /* STUR w4,[x24,#-4] */
     assert(a.address==r[24]-4 && a.width==4 && a.kind==IOS_GUARD_STORE);
     assert(ios_guard_decode(0xb9800304u,r,0,&a)); /* LDRSW x4,[x24] */
-    value=0x80000000u;ios_guard_execute(&a,&value,r);assert(r[4]==0xffffffff80000000ull);
+    value=0x80000000u;assert(ios_guard_execute(&a,&value,r,NULL,NULL));assert(r[4]==0xffffffff80000000ull);
     assert(ios_guard_decode(0x2900131fu,r,0,&a)); /* STP wzr,w4,[x24] */
-    value=UINT64_MAX;r[4]=7;ios_guard_execute(&a,&value,r);assert(value==0x700000000ull);
+    value=UINT64_MAX;r[4]=7;assert(ios_guard_execute(&a,&value,r,NULL,NULL));assert(value==0x700000000ull);
     assert(ios_guard_decode(0xb90003ffu,r,host+0x3ff4,&a));assert(a.address==host+0x3ff4); /* SP != XZR */
+    r[19]=host+0x3f00;r[8]=0xc4;r[4]=0x11223344;
+    assert(ios_guard_decode(0xb8284a64u,r,0,&a)); /* exact932 STR w4,[x19,w8,uxtw] */
+    assert(a.address==host+0x3fc4 && a.width==4 && a.kind==IOS_GUARD_STORE);
+    value=0;assert(ios_guard_execute(&a,&value,r,NULL,NULL));assert(value==0x11223344);
     r[24]=UINT64_MAX-3;assert(!ios_guard_decode(0xb9000704u,r,0,&a)); /* address wrap */
 }
+#ifdef REAL_MACH
+static int kernel_writable(uintptr_t address) {
+    mach_vm_address_t p=address;mach_vm_size_t n=0;mach_port_t object=0;
+    vm_region_basic_info_data_64_t info;mach_msg_type_number_t count=VM_REGION_BASIC_INFO_COUNT_64;
+    assert(mach_vm_region(mach_task_self(),&p,&n,VM_REGION_BASIC_INFO_64,(vm_region_info_t)&info,&count,&object)==KERN_SUCCESS);
+    if(object)mach_port_deallocate(mach_task_self(),object);
+    return p<=address && address<p+n && (info.protection&VM_PROT_WRITE);
+}
+#endif
 int main(void) {
 #ifdef REAL_MACH
-    void *original=mmap(NULL,16384,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);
+    void *original=mmap(NULL,sizeof bytes,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);
     assert(original!=MAP_FAILED);host=(uintptr_t)original;guest_base=host&~0xffffffffull;
     assert(guest_base && !(host&16383));
 #else
@@ -177,21 +194,33 @@ int main(void) {
     puts("REPRODUCED:930 production fault handler raises80000001 for legal4KB data and consumes a different4KB guard in the same16KB host page");
     fresh();
 #ifdef REAL_MACH
-    memcpy(original,bytes,sizeof bytes);assert(!mprotect(original,16384,PROT_NONE));
+    memcpy(original,bytes,sizeof bytes);assert(!mprotect(original,sizeof bytes,PROT_NONE));
 #endif
     run_access(host+0x3ff4,4,1,1);
     assert(get_page_vprot((void *)(host+4096))&VPROT_GUARD);
 #ifdef REAL_MACH
-    assert(!mprotect(original,16384,PROT_READ|PROT_WRITE));
+    assert(!kernel_writable(host));
+    assert(!mprotect(original,sizeof bytes,PROT_READ|PROT_WRITE));
     assert(!memcmp(original,before,0x3ff4));assert(!memcmp((char *)original+0x3ff4,"\0\0\0\0",4));
     assert(!memcmp((char *)original+0x3ff8,before+0x3ff8,8));
-    assert(!munmap(original,16384));
+    /* A32-byte SIMD pair crossing two host pages must not publish half. */
+    fresh();set_page_vprot_bits((void *)(host+4096),4096,0,VPROT_GUARD);
+    set_page_vprot_bits((void *)(host+16384+4096),4096,VPROT_GUARD,0);
+    memcpy(original,bytes,sizeof bytes);assert(!mprotect((char *)original+16384,16384,PROT_NONE));
+    run_access(host+0x3ff8,32,1,1);
+    assert(kernel_writable(host+0x3000) && !kernel_writable(host+0x4000));
+    assert(get_page_vprot((void *)(host+0x5000))&VPROT_GUARD);
+    assert(!mprotect(original,sizeof bytes,PROT_READ|PROT_WRITE));
+    assert(!memcmp(original,before,0x3ff8));
+    assert(!memcmp((char *)original+0x3ff8,vectors[4],16) && !memcmp((char *)original+0x4008,vectors[5],16));
+    assert(!memcmp((char *)original+0x4018,before+0x4018,sizeof bytes-0x4018));
+    assert(!munmap(original,sizeof bytes));
     puts("PASS: real Mach shared alias writes a permitted subpage of PROT_NONE backing; original guard metadata and all neighbour bytes preserved");
 #else
     assert(remaps==1 && unmaps==1 && !memcmp(bytes,before,0x3ff4));
     assert(!memcmp(bytes+0x3ff4,"\0\0\0\0",4));
     for(unsigned i=0;i<4;++i) {
-        fresh();run_access(host+i*4096+8,4,1,i!=1);
+        fresh();run_access(host+i*4096+8,4,1,i>=2);
     }
     fresh();run_access(host+4094,4,1,0); /* span enters guard */
     fresh();run_access(host+8190,4,0,0); /* starts inside guard */
@@ -201,11 +230,17 @@ int main(void) {
     fresh();set_page_vprot_bits((void *)(host+12288),4096,VPROT_WRITEWATCH,0);run_access(host+0x3ff4,4,1,0);
     fresh();run_access(host+0x100000000ull+0x3ff4,4,1,0); /* another process */
     fresh();set_page_vprot_bits((void *)(host+4096),4096,0,VPROT_GUARD);run_access(host+0x3ff4,4,1,0);
+    fresh();set_page_vprot_bits((void *)(host+4096),4096,0,VPROT_GUARD);
+    set_page_vprot_bits((void *)(host+0x5000),4096,VPROT_GUARD,0);
+    run_access(host+0x3ff8,32,1,1);assert(alias_length==32768 && unmaps==1);
+    assert(!memcmp(bytes+0x3ff8,vectors[4],16) && !memcmp(bytes+0x4008,vectors[5],16));
+    fresh();set_page_vprot_bits((void *)(host+0x4000),4096,VPROT_GUARD,0);
+    run_access(host+0x3ff8,32,1,0);assert(!memcmp(bytes,before,sizeof bytes));
     for(int fail=1;fail<=4;++fail) {
         fresh();fail_stage=fail;run_access(host+0x3ff4,4,1,0);
         assert(unmaps==(fail==2 || fail==3) && !memcmp(bytes,before,sizeof bytes));
     }
-    puts("PASS:4KB subpage matrix, exact930 WZR store, acquire/release, sign extension, pair spans, SP, wrap, original guards, foreign windows, denied pages and all Mach failure exits");
+    puts("PASS:4KB subpage matrix, exact930 WZR and932 register-offset stores, acquire/release, sign extension, pair spans, SP, wrap, original guards, foreign windows, denied pages and all Mach failure exits");
 #endif
     free(pages_vprot[bucket]);return 0;
 }
@@ -230,4 +265,4 @@ with tempfile.TemporaryDirectory(prefix='madeira-guard-neighbor-') as temp:
                         '-Wno-unused-function', '-Wno-unused-variable', '-I', str(root/'build/ntdll-unix'),
                         *flags, str(c), '-o', str(exe)], check=True)
         subprocess.run([str(exe)], check=True, timeout=30)
-print('NOT PROVEN: exact930 TEB bounds/subpage bytes or physical Chrome startup; the guard-neighbour cause remains conditional until a device fault is classified')
+print('NOT PROVEN: complete Chrome startup, later child processes, Google Sync or extensions on iPad')

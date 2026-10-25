@@ -1,0 +1,167 @@
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -2037,7 +2037,7 @@
+      * pseudo-process, i.e. the base B of its [B, B+4G) guest window.  Returns
+      * a ULONG_PTR; 0 for a process that has no window (every 64-bit process,
+      * and every platform other than the iOS port).  This is the single source
+-     * of truth for B — wow64.dll and the FEX WoW64 module each read it once
++     * of truth for B � wow64.dll and the FEX WoW64 module each read it once
+      * at process init.  No environment variables, no cross-process globals. */
+     ProcessWineIosWowGuestBase = 1010,
+ #endif
+@@ -2312,6 +2312,7 @@
+     SystemHandleCountInformation = 253,
+ #ifdef __WINESRC__
+     SystemWineVersionInformation = 1000,
++    SystemWineHostPageSizeInformation = 1001, /* private guard placement; not guest PageSize */
+ #endif
+ } SYSTEM_INFORMATION_CLASS, *PSYSTEM_INFORMATION_CLASS;
+ 
+--- a/dlls/wow64/system.c
++++ b/dlls/wow64/system.c
+@@ -344,6 +344,7 @@
+     case SystemProcessorBrandString:  /* char[] */
+     case SystemProcessorFeaturesInformation:  /* SYSTEM_PROCESSOR_FEATURES_INFORMATION */
+     case SystemWineVersionInformation:  /* char[] */
++    case SystemWineHostPageSizeInformation:  /* ULONG, identical on both ABIs */
+         return NtQuerySystemInformation( class, ptr, len, retlen );
+ 
+     case SystemCpuInformation:  /* SYSTEM_CPU_INFORMATION */
+--- a/dlls/ntdll/unix/system.c
++++ b/dlls/ntdll/unix/system.c
+@@ -3277,7 +3277,7 @@
+ 
+     TRACE( "(0x%08x,%p,0x%08x,%p)\n", class, info, size, ret_size );
+ 
+-    /* iOS-Madeira ml441 (#74): private class — hands every PE ntdll copy the
++    /* iOS-Madeira ml441 (#74): private class � hands every PE ntdll copy the
+      * address of the ONE process-wide futex queue table (unix sync.c), fixing
+      * the per-copy futex_queues split that lost RtlWakeAddress* wakes. */
+     if ((unsigned int)class == 0xf00d && size == sizeof(void *))
+@@ -3291,6 +3291,29 @@
+ 
+     switch (class)
+     {
++    case SystemWineHostPageSizeInformation:
++#ifdef WINE_IOS
++    {
++        long host_size = sysconf( _SC_PAGESIZE );
++        len = sizeof(ULONG);
++        if (size != len) ret = STATUS_INFO_LENGTH_MISMATCH;
++        else if (!info) ret = STATUS_ACCESS_VIOLATION;
++        else if (host_size < 4096 || host_size > 65536 || (host_size & (host_size - 1)))
++            ret = STATUS_NOT_SUPPORTED;
++        else
++        {
++            static unsigned int logged;
++            *(ULONG *)info = host_size;
++            if (__atomic_fetch_add( &logged, 1, __ATOMIC_RELAXED ) < 8)
++                fprintf( stderr, "[host-page-query-v1] host=%lu guest=4096 result-bytes=4\n", (unsigned long)host_size );
++        }
++        break;
++    }
++#else
++        ret = STATUS_INVALID_INFO_CLASS;
++        break;
++#endif
++
+     case SystemNativeBasicInformation:  /* 114 */
+         if (!is_win64) return STATUS_INVALID_INFO_CLASS;
+         /* fall through */
+--- a/dlls/ntdll/thread.c
++++ b/dlls/ntdll/thread.c
+@@ -320,12 +320,22 @@
+ {
+     PROCESS_STACK_ALLOCATION_INFORMATION alloc;
+     NTSTATUS status;
++    ULONG native_page = page_size;
++    SIZE_T guard_size = page_size, padding, alignment;
+ 
+     TRACE("commit %#Ix, reserve %#Ix, zero_bits %lu, commit_align %#Ix, reserve_align %#Ix, stack %p\n",
+             commit, reserve, zero_bits, commit_align, reserve_align, stack);
+ 
+-    if (!commit_align || !reserve_align)
+-        return STATUS_INVALID_PARAMETER;
++    if (!commit_align || !reserve_align) return STATUS_INVALID_PARAMETER;
++
++    /* iOS uses 16KB physical pages while Windows still reports 4KB. Keeping
++     * a 4KB guard beside committed stack bytes makes the whole physical page
++     * inaccessible. Obtain the host guard unit without changing guest ABI.
++     * An older/non-iOS runtime declines this private query: preserve 4KB. */
++    if (!NtQuerySystemInformation( SystemWineHostPageSizeInformation, &native_page,
++                                   sizeof(native_page), NULL ) &&
++        native_page >= page_size && native_page <= 0x10000 && !(native_page & (native_page - 1)))
++        guard_size = native_page;
+ 
+     if (!commit || !reserve)
+     {
+@@ -334,12 +344,18 @@
+         if (!commit) commit = nt->OptionalHeader.SizeOfStackCommit;
+     }
+ 
++    if (reserve > ~(SIZE_T)0 - (reserve_align - 1) || commit > ~(SIZE_T)0 - (commit_align - 1))
++        return STATUS_NO_MEMORY;
+     reserve = (reserve + reserve_align - 1) & ~(reserve_align - 1);
+     commit = (commit + commit_align - 1) & ~(commit_align - 1);
+-
+     if (reserve < commit) reserve = commit;
+     if (reserve < 0x100000) reserve = 0x100000;
+-    reserve = (reserve + 0xffff) & ~0xffff;  /* round to 64K boundary */
++    /* Preserve the requested usable stack; extra guard space is VA, not an
++     * eagerly touched allocation. All reserve/guard/data boundaries align. */
++    padding = 2 * (guard_size - page_size);
++    alignment = max( reserve_align, (SIZE_T)0x10000 );
++    if (reserve > ~(SIZE_T)0 - padding - (alignment - 1)) return STATUS_NO_MEMORY;
++    reserve = (reserve + padding + alignment - 1) & ~(alignment - 1);
+ 
+     alloc.ReserveSize = reserve;
+     alloc.ZeroBits = zero_bits;
+@@ -347,21 +363,28 @@
+                                       &alloc, sizeof(alloc) );
+     if (!status)
+     {
+-        void *addr;
+-        SIZE_T size = page_size;
+-
+-        addr = (char *)alloc.StackBase + page_size;
+-        NtAllocateVirtualMemory( GetCurrentProcess(), &addr, 0, &size, MEM_COMMIT, PAGE_READWRITE | PAGE_GUARD );
+-        addr = (char *)alloc.StackBase + 2 * page_size;
+-        size = reserve - 2 * page_size;
+-        NtAllocateVirtualMemory( GetCurrentProcess(), &addr, 0, &size, MEM_COMMIT, PAGE_READWRITE );
+-
+-        /* note: limit is lower than base since the stack grows down */
++        void *addr = (char *)alloc.StackBase + guard_size;
++        SIZE_T size = guard_size;
++        status = NtAllocateVirtualMemory( GetCurrentProcess(), &addr, 0, &size,
++                                          MEM_COMMIT, PAGE_READWRITE | PAGE_GUARD );
++        if (!status)
++        {
++            addr = (char *)alloc.StackBase + 2 * guard_size;
++            size = reserve - 2 * guard_size;
++            status = NtAllocateVirtualMemory( GetCurrentProcess(), &addr, 0, &size, MEM_COMMIT, PAGE_READWRITE );
++        }
++        if (status)
++        {
++            addr = alloc.StackBase;
++            size = 0;
++            NtFreeVirtualMemory( GetCurrentProcess(), &addr, &size, MEM_RELEASE );
++            return status;
++        }
+         stack->OldStackBase = 0;
+         stack->OldStackLimit = 0;
+         stack->DeallocationStack = alloc.StackBase;
+         stack->StackBase = (char *)alloc.StackBase + reserve;
+-        stack->StackLimit = (char *)alloc.StackBase + 2 * page_size;
++        stack->StackLimit = (char *)alloc.StackBase + 2 * guard_size;
+     }
+     return status;
+ }
+@@ -725,7 +748,7 @@
+                     continue;
+ 
+                 /* ml384: never deliver the UCRT's (void*)-1 reservation sentinel to a
+-                 * callback — destroy_fls does not guard it and free(-1) kills the
++                 * callback � destroy_fls does not guard it and free(-1) kills the
+                  * process in PartitionAlloc (family B). A thread that exits inside
+                  * the FlsSetValue(idx,-1) .. FlsSetValue(idx,ptd) window (huge under
+                  * emulation) leaves the sentinel in its slot. */

@@ -5,7 +5,7 @@ set -euo pipefail
 root="${CM_BUILD_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 # Remove exact dependent overlays before checking their older loader contexts.
 # Preserve unrelated edits; any source drift still fails the later apply gate.
-for name in wine-lean-sync-diagnostics.patch wine-x64-lock-tls-fastpath.patch wine-module-path.patch; do
+for name in wine-host-page-user-stack.patch wine-lean-sync-diagnostics.patch wine-x64-lock-tls-fastpath.patch wine-module-path.patch; do
     patch="$root/patches/$name"
     if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
         git -C "$root/wine" apply --reverse "$patch"
@@ -218,6 +218,17 @@ elif git -C "$root/wine" apply --check "$patch"; then
     git -C "$root/wine" apply "$patch"
 else
     echo "Wine source does not match the WoW64 window class atom patch" >&2
+    exit 1
+fi
+
+# Keep user-created stacks compatible with the host's protection granularity.
+patch="$root/patches/wine-host-page-user-stack.patch"
+if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+    echo "Wine user stacks already use the native guard page size"
+elif git -C "$root/wine" apply --check "$patch"; then
+    git -C "$root/wine" apply "$patch"
+else
+    echo "Wine source does not match native guard-aligned user stacks" >&2
     exit 1
 fi
 

@@ -23,6 +23,7 @@
 #endif
 
 #include "config.h"
+#include "ios_browser_child_role.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -3438,6 +3439,7 @@ extern size_t server_init_process_child( int child_fd_socket );
 
 DECLSPEC_EXPORT void wine_ios_child_main( int argc, char *argv[], int child_fd_socket )
 {
+    const char *browser_role = ios_browser_child_role( argc, argv );
     /* set by the spawner (process_ios.c) and updated as this child boots, so a
      * failure anywhere on the path names the stage exactly once */
     extern _Thread_local const char *ios_child_boot_stage;
@@ -3660,6 +3662,10 @@ DECLSPEC_EXPORT void wine_ios_child_main( int argc, char *argv[], int child_fd_s
         /* Register with wineserver using the child's socketfd */
         CHILD_STAGE( "server_init_process_child" );
         startup_info_size = server_init_process_child( child_fd_socket );
+        if (browser_role)
+            dprintf( STDERR_FILENO, "[browser-child-v1] pid=%04x tid=%04x role=%s machine=%04x stage=registered\n",
+                     (unsigned)(ULONG_PTR)teb->ClientId.UniqueProcess,
+                     (unsigned)(ULONG_PTR)teb->ClientId.UniqueThread, browser_role, ios_child_main_machine );
 
         /* init_startup_info — reads startup info from wineserver, loads the
          * child's PE. It OVERWRITES the main_image_info global with the

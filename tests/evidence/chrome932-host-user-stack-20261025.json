@@ -1,0 +1,59 @@
+{
+  "format": "chrome932-first-fault-repair-v1",
+  "sourceBefore": "09555b08acec88bfb1d64afaa3cfd5936efca6fd",
+  "log": {
+    "report": "5ad32bb0-3d1f-4e90-98ac-00e2f7ca1dfa",
+    "build": 932,
+    "sha256": "85204aaad0d7723e6f2b023cb942763b156c6dbdfd250c337ca5e69696f1c590"
+  },
+  "firstFault": {
+    "instruction": "0xb8284a64 STR w4,[x19,w8,uxtw]",
+    "earlierSimpleAndPairedStoresRecovered": true,
+    "windows4KBProtections": [
+      "03",
+      "33",
+      "23",
+      "23"
+    ],
+    "wowStackBounds": [
+      "0x1680000",
+      "0x1682000",
+      "0x1a80000"
+    ],
+    "root": "PE RtlCreateUserStack places red/guard/data at4KB boundaries inside one16KB inaccessible host page"
+  },
+  "fixes": [
+    "Host-aligned stack red/guard/data boundaries, public guest page size stays4096",
+    "Preserve usable reserve and requested larger alignment; clean up failed partial allocations",
+    "Common ARM64 register-offset, writeback and SIMD memory transfers; publish NEON before PC",
+    "Safe fixed Chrome child role labels; no raw arguments logged"
+  ],
+  "windowsProductionRegressions": "PASS",
+  "patchReapplyPreservesEffectiveSources": 38,
+  "realARM64Oracle": {
+    "status": "PASS",
+    "actualARM64Cases": 2670,
+    "forms": 447,
+    "unalignedAcquireCasesDeclined": [
+      "ldapur x4, [x24, #-4]",
+      "ldapur x4, [x24, #-4]",
+      "ldapur x4, [x24, #-4]",
+      "ldapur x4, [x24, #-4]",
+      "ldapur x4, [x24, #-4]",
+      "ldapur x4, [x24, #-4]",
+      "ldapur x4, [x24, #4]",
+      "ldapur x4, [x24, #4]",
+      "ldapur x4, [x24, #4]",
+      "ldapur x4, [x24, #4]",
+      "ldapur x4, [x24, #4]",
+      "ldapur x4, [x24, #4]"
+    ],
+    "oracle": "LLVM-assembled ARM64 executed by Unicorn; compare all31 GPRs, SP, all32 SIMD registers and65536 memory bytes with production C decoder/executor",
+    "headerSHA256": "4b5303e341930df44027eb4fc5ba3872fcf40fa3148d93c70a5270f6d01394c2",
+    "iPadExecutionClaimed": false
+  },
+  "packaged932RtlCreateUserStack": "Actual i386 instructions reproduce4KB boundary placement; three cases pass",
+  "MacValidation": "pending",
+  "physicalChromeGoogleSyncExtensions": "not verified",
+  "secondaryChildExit1": "role and reason not proven; not claimed fixed"
+}
