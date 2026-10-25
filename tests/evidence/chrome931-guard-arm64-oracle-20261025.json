@@ -1,0 +1,1640 @@
+{
+  "status": "PASS",
+  "actualARM64Cases": 324,
+  "forms": 83,
+  "unalignedAcquireCasesDeclined": [
+    "ldapur x4, [x24, #-4]",
+    "ldapur x4, [x24, #-4]",
+    "ldapur x4, [x24, #-4]",
+    "ldapur x4, [x24, #-4]",
+    "ldapur x4, [x24, #4]",
+    "ldapur x4, [x24, #4]",
+    "ldapur x4, [x24, #4]",
+    "ldapur x4, [x24, #4]"
+  ],
+  "oracle": "LLVM-assembled ARM64 executed by Unicorn; compare all31 registers and65536 memory bytes with production C decoder/executor",
+  "headerSHA256": "628278f14a612b4861d2fdac3cb1b8c5c073487582447a5a7411b23bac538858",
+  "cases": [
+    {
+      "instruction": "ldarb w4, [x24]",
+      "bytes": "04ffdf08",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldarb w4, [x24]",
+      "bytes": "04ffdf08",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldarb w4, [x24]",
+      "bytes": "04ffdf08",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldarb w4, [x24]",
+      "bytes": "04ffdf08",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldarb wzr, [x24]",
+      "bytes": "1fffdf08",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldarb wzr, [x24]",
+      "bytes": "1fffdf08",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldarb wzr, [x24]",
+      "bytes": "1fffdf08",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldarb wzr, [x24]",
+      "bytes": "1fffdf08",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlrb w4, [x24]",
+      "bytes": "04ff9f08",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlrb w4, [x24]",
+      "bytes": "04ff9f08",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlrb w4, [x24]",
+      "bytes": "04ff9f08",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlrb w4, [x24]",
+      "bytes": "04ff9f08",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlrb wzr, [x24]",
+      "bytes": "1fff9f08",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlrb wzr, [x24]",
+      "bytes": "1fff9f08",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlrb wzr, [x24]",
+      "bytes": "1fff9f08",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlrb wzr, [x24]",
+      "bytes": "1fff9f08",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldaprb w4, [x24]",
+      "bytes": "04c3bf38",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldaprb w4, [x24]",
+      "bytes": "04c3bf38",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldaprb w4, [x24]",
+      "bytes": "04c3bf38",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldaprb w4, [x24]",
+      "bytes": "04c3bf38",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldaprb wzr, [x24]",
+      "bytes": "1fc3bf38",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldaprb wzr, [x24]",
+      "bytes": "1fc3bf38",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldaprb wzr, [x24]",
+      "bytes": "1fc3bf38",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldaprb wzr, [x24]",
+      "bytes": "1fc3bf38",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldarh w4, [x24]",
+      "bytes": "04ffdf48",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldarh w4, [x24]",
+      "bytes": "04ffdf48",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldarh w4, [x24]",
+      "bytes": "04ffdf48",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldarh w4, [x24]",
+      "bytes": "04ffdf48",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldarh wzr, [x24]",
+      "bytes": "1fffdf48",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldarh wzr, [x24]",
+      "bytes": "1fffdf48",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldarh wzr, [x24]",
+      "bytes": "1fffdf48",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldarh wzr, [x24]",
+      "bytes": "1fffdf48",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlrh w4, [x24]",
+      "bytes": "04ff9f48",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlrh w4, [x24]",
+      "bytes": "04ff9f48",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlrh w4, [x24]",
+      "bytes": "04ff9f48",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlrh w4, [x24]",
+      "bytes": "04ff9f48",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlrh wzr, [x24]",
+      "bytes": "1fff9f48",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlrh wzr, [x24]",
+      "bytes": "1fff9f48",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlrh wzr, [x24]",
+      "bytes": "1fff9f48",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlrh wzr, [x24]",
+      "bytes": "1fff9f48",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldaprh w4, [x24]",
+      "bytes": "04c3bf78",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldaprh w4, [x24]",
+      "bytes": "04c3bf78",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldaprh w4, [x24]",
+      "bytes": "04c3bf78",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldaprh w4, [x24]",
+      "bytes": "04c3bf78",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldaprh wzr, [x24]",
+      "bytes": "1fc3bf78",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldaprh wzr, [x24]",
+      "bytes": "1fc3bf78",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldaprh wzr, [x24]",
+      "bytes": "1fc3bf78",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldaprh wzr, [x24]",
+      "bytes": "1fc3bf78",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldar w4, [x24]",
+      "bytes": "04ffdf88",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldar w4, [x24]",
+      "bytes": "04ffdf88",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldar w4, [x24]",
+      "bytes": "04ffdf88",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldar w4, [x24]",
+      "bytes": "04ffdf88",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldar wzr, [x24]",
+      "bytes": "1fffdf88",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldar wzr, [x24]",
+      "bytes": "1fffdf88",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldar wzr, [x24]",
+      "bytes": "1fffdf88",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldar wzr, [x24]",
+      "bytes": "1fffdf88",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlr w4, [x24]",
+      "bytes": "04ff9f88",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlr w4, [x24]",
+      "bytes": "04ff9f88",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlr w4, [x24]",
+      "bytes": "04ff9f88",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlr w4, [x24]",
+      "bytes": "04ff9f88",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapr w4, [x24]",
+      "bytes": "04c3bfb8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapr w4, [x24]",
+      "bytes": "04c3bfb8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapr w4, [x24]",
+      "bytes": "04c3bfb8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapr w4, [x24]",
+      "bytes": "04c3bfb8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapr wzr, [x24]",
+      "bytes": "1fc3bfb8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapr wzr, [x24]",
+      "bytes": "1fc3bfb8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapr wzr, [x24]",
+      "bytes": "1fc3bfb8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapr wzr, [x24]",
+      "bytes": "1fc3bfb8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldar x4, [x24]",
+      "bytes": "04ffdfc8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldar x4, [x24]",
+      "bytes": "04ffdfc8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldar x4, [x24]",
+      "bytes": "04ffdfc8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldar x4, [x24]",
+      "bytes": "04ffdfc8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldar xzr, [x24]",
+      "bytes": "1fffdfc8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldar xzr, [x24]",
+      "bytes": "1fffdfc8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldar xzr, [x24]",
+      "bytes": "1fffdfc8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldar xzr, [x24]",
+      "bytes": "1fffdfc8",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlr x4, [x24]",
+      "bytes": "04ff9fc8",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlr x4, [x24]",
+      "bytes": "04ff9fc8",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlr x4, [x24]",
+      "bytes": "04ff9fc8",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlr x4, [x24]",
+      "bytes": "04ff9fc8",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlr xzr, [x24]",
+      "bytes": "1fff9fc8",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlr xzr, [x24]",
+      "bytes": "1fff9fc8",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlr xzr, [x24]",
+      "bytes": "1fff9fc8",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlr xzr, [x24]",
+      "bytes": "1fff9fc8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapr x4, [x24]",
+      "bytes": "04c3bff8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapr x4, [x24]",
+      "bytes": "04c3bff8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapr x4, [x24]",
+      "bytes": "04c3bff8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapr x4, [x24]",
+      "bytes": "04c3bff8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapr xzr, [x24]",
+      "bytes": "1fc3bff8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapr xzr, [x24]",
+      "bytes": "1fc3bff8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapr xzr, [x24]",
+      "bytes": "1fc3bff8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapr xzr, [x24]",
+      "bytes": "1fc3bff8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldr w4, [x24, #0]",
+      "bytes": "040340b9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldr w4, [x24, #0]",
+      "bytes": "040340b9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldr w4, [x24, #0]",
+      "bytes": "040340b9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldr w4, [x24, #0]",
+      "bytes": "040340b9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldr w4, [x24, #16]",
+      "bytes": "041340b9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldr w4, [x24, #16]",
+      "bytes": "041340b9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldr w4, [x24, #16]",
+      "bytes": "041340b9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldr w4, [x24, #16]",
+      "bytes": "041340b9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldr x4, [x24, #0]",
+      "bytes": "040340f9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldr x4, [x24, #0]",
+      "bytes": "040340f9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldr x4, [x24, #0]",
+      "bytes": "040340f9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldr x4, [x24, #0]",
+      "bytes": "040340f9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldr x4, [x24, #16]",
+      "bytes": "040b40f9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldr x4, [x24, #16]",
+      "bytes": "040b40f9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldr x4, [x24, #16]",
+      "bytes": "040b40f9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldr x4, [x24, #16]",
+      "bytes": "040b40f9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrb w4, [x24, #0]",
+      "bytes": "04034039",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrb w4, [x24, #0]",
+      "bytes": "04034039",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrb w4, [x24, #0]",
+      "bytes": "04034039",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrb w4, [x24, #0]",
+      "bytes": "04034039",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrb w4, [x24, #16]",
+      "bytes": "04434039",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrb w4, [x24, #16]",
+      "bytes": "04434039",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrb w4, [x24, #16]",
+      "bytes": "04434039",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrb w4, [x24, #16]",
+      "bytes": "04434039",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrh w4, [x24, #0]",
+      "bytes": "04034079",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrh w4, [x24, #0]",
+      "bytes": "04034079",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrh w4, [x24, #0]",
+      "bytes": "04034079",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrh w4, [x24, #0]",
+      "bytes": "04034079",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrh w4, [x24, #16]",
+      "bytes": "04234079",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrh w4, [x24, #16]",
+      "bytes": "04234079",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrh w4, [x24, #16]",
+      "bytes": "04234079",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrh w4, [x24, #16]",
+      "bytes": "04234079",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #0]",
+      "bytes": "0403c039",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #0]",
+      "bytes": "0403c039",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #0]",
+      "bytes": "0403c039",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #0]",
+      "bytes": "0403c039",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #16]",
+      "bytes": "0443c039",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #16]",
+      "bytes": "0443c039",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #16]",
+      "bytes": "0443c039",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsb w4, [x24, #16]",
+      "bytes": "0443c039",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #0]",
+      "bytes": "04038039",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #0]",
+      "bytes": "04038039",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #0]",
+      "bytes": "04038039",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #0]",
+      "bytes": "04038039",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #16]",
+      "bytes": "04438039",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #16]",
+      "bytes": "04438039",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #16]",
+      "bytes": "04438039",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsb x4, [x24, #16]",
+      "bytes": "04438039",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #0]",
+      "bytes": "0403c079",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #0]",
+      "bytes": "0403c079",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #0]",
+      "bytes": "0403c079",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #0]",
+      "bytes": "0403c079",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #16]",
+      "bytes": "0423c079",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #16]",
+      "bytes": "0423c079",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #16]",
+      "bytes": "0423c079",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsh w4, [x24, #16]",
+      "bytes": "0423c079",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #0]",
+      "bytes": "04038079",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #0]",
+      "bytes": "04038079",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #0]",
+      "bytes": "04038079",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #0]",
+      "bytes": "04038079",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #16]",
+      "bytes": "04238079",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #16]",
+      "bytes": "04238079",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #16]",
+      "bytes": "04238079",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsh x4, [x24, #16]",
+      "bytes": "04238079",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #0]",
+      "bytes": "040380b9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #0]",
+      "bytes": "040380b9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #0]",
+      "bytes": "040380b9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #0]",
+      "bytes": "040380b9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #16]",
+      "bytes": "041380b9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #16]",
+      "bytes": "041380b9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #16]",
+      "bytes": "041380b9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldrsw x4, [x24, #16]",
+      "bytes": "041380b9",
+      "repeat": 3
+    },
+    {
+      "instruction": "str w4, [x24, #0]",
+      "bytes": "040300b9",
+      "repeat": 0
+    },
+    {
+      "instruction": "str w4, [x24, #0]",
+      "bytes": "040300b9",
+      "repeat": 1
+    },
+    {
+      "instruction": "str w4, [x24, #0]",
+      "bytes": "040300b9",
+      "repeat": 2
+    },
+    {
+      "instruction": "str w4, [x24, #0]",
+      "bytes": "040300b9",
+      "repeat": 3
+    },
+    {
+      "instruction": "str w4, [x24, #16]",
+      "bytes": "041300b9",
+      "repeat": 0
+    },
+    {
+      "instruction": "str w4, [x24, #16]",
+      "bytes": "041300b9",
+      "repeat": 1
+    },
+    {
+      "instruction": "str w4, [x24, #16]",
+      "bytes": "041300b9",
+      "repeat": 2
+    },
+    {
+      "instruction": "str w4, [x24, #16]",
+      "bytes": "041300b9",
+      "repeat": 3
+    },
+    {
+      "instruction": "str x4, [x24, #0]",
+      "bytes": "040300f9",
+      "repeat": 0
+    },
+    {
+      "instruction": "str x4, [x24, #0]",
+      "bytes": "040300f9",
+      "repeat": 1
+    },
+    {
+      "instruction": "str x4, [x24, #0]",
+      "bytes": "040300f9",
+      "repeat": 2
+    },
+    {
+      "instruction": "str x4, [x24, #0]",
+      "bytes": "040300f9",
+      "repeat": 3
+    },
+    {
+      "instruction": "str x4, [x24, #16]",
+      "bytes": "040b00f9",
+      "repeat": 0
+    },
+    {
+      "instruction": "str x4, [x24, #16]",
+      "bytes": "040b00f9",
+      "repeat": 1
+    },
+    {
+      "instruction": "str x4, [x24, #16]",
+      "bytes": "040b00f9",
+      "repeat": 2
+    },
+    {
+      "instruction": "str x4, [x24, #16]",
+      "bytes": "040b00f9",
+      "repeat": 3
+    },
+    {
+      "instruction": "strb wzr, [x24, #0]",
+      "bytes": "1f030039",
+      "repeat": 0
+    },
+    {
+      "instruction": "strb wzr, [x24, #0]",
+      "bytes": "1f030039",
+      "repeat": 1
+    },
+    {
+      "instruction": "strb wzr, [x24, #0]",
+      "bytes": "1f030039",
+      "repeat": 2
+    },
+    {
+      "instruction": "strb wzr, [x24, #0]",
+      "bytes": "1f030039",
+      "repeat": 3
+    },
+    {
+      "instruction": "strb wzr, [x24, #16]",
+      "bytes": "1f430039",
+      "repeat": 0
+    },
+    {
+      "instruction": "strb wzr, [x24, #16]",
+      "bytes": "1f430039",
+      "repeat": 1
+    },
+    {
+      "instruction": "strb wzr, [x24, #16]",
+      "bytes": "1f430039",
+      "repeat": 2
+    },
+    {
+      "instruction": "strb wzr, [x24, #16]",
+      "bytes": "1f430039",
+      "repeat": 3
+    },
+    {
+      "instruction": "strh w4, [x24, #0]",
+      "bytes": "04030079",
+      "repeat": 0
+    },
+    {
+      "instruction": "strh w4, [x24, #0]",
+      "bytes": "04030079",
+      "repeat": 1
+    },
+    {
+      "instruction": "strh w4, [x24, #0]",
+      "bytes": "04030079",
+      "repeat": 2
+    },
+    {
+      "instruction": "strh w4, [x24, #0]",
+      "bytes": "04030079",
+      "repeat": 3
+    },
+    {
+      "instruction": "strh w4, [x24, #16]",
+      "bytes": "04230079",
+      "repeat": 0
+    },
+    {
+      "instruction": "strh w4, [x24, #16]",
+      "bytes": "04230079",
+      "repeat": 1
+    },
+    {
+      "instruction": "strh w4, [x24, #16]",
+      "bytes": "04230079",
+      "repeat": 2
+    },
+    {
+      "instruction": "strh w4, [x24, #16]",
+      "bytes": "04230079",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldur x4, [x24, #-4]",
+      "bytes": "04c35ff8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldur x4, [x24, #-4]",
+      "bytes": "04c35ff8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldur x4, [x24, #-4]",
+      "bytes": "04c35ff8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldur x4, [x24, #-4]",
+      "bytes": "04c35ff8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldur x4, [x24, #0]",
+      "bytes": "040340f8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldur x4, [x24, #0]",
+      "bytes": "040340f8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldur x4, [x24, #0]",
+      "bytes": "040340f8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldur x4, [x24, #0]",
+      "bytes": "040340f8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldur x4, [x24, #4]",
+      "bytes": "044340f8",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldur x4, [x24, #4]",
+      "bytes": "044340f8",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldur x4, [x24, #4]",
+      "bytes": "044340f8",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldur x4, [x24, #4]",
+      "bytes": "044340f8",
+      "repeat": 3
+    },
+    {
+      "instruction": "stur wzr, [x24, #-4]",
+      "bytes": "1fc31fb8",
+      "repeat": 0
+    },
+    {
+      "instruction": "stur wzr, [x24, #-4]",
+      "bytes": "1fc31fb8",
+      "repeat": 1
+    },
+    {
+      "instruction": "stur wzr, [x24, #-4]",
+      "bytes": "1fc31fb8",
+      "repeat": 2
+    },
+    {
+      "instruction": "stur wzr, [x24, #-4]",
+      "bytes": "1fc31fb8",
+      "repeat": 3
+    },
+    {
+      "instruction": "stur wzr, [x24, #0]",
+      "bytes": "1f0300b8",
+      "repeat": 0
+    },
+    {
+      "instruction": "stur wzr, [x24, #0]",
+      "bytes": "1f0300b8",
+      "repeat": 1
+    },
+    {
+      "instruction": "stur wzr, [x24, #0]",
+      "bytes": "1f0300b8",
+      "repeat": 2
+    },
+    {
+      "instruction": "stur wzr, [x24, #0]",
+      "bytes": "1f0300b8",
+      "repeat": 3
+    },
+    {
+      "instruction": "stur wzr, [x24, #4]",
+      "bytes": "1f4300b8",
+      "repeat": 0
+    },
+    {
+      "instruction": "stur wzr, [x24, #4]",
+      "bytes": "1f4300b8",
+      "repeat": 1
+    },
+    {
+      "instruction": "stur wzr, [x24, #4]",
+      "bytes": "1f4300b8",
+      "repeat": 2
+    },
+    {
+      "instruction": "stur wzr, [x24, #4]",
+      "bytes": "1f4300b8",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapur x4, [x24, #0]",
+      "bytes": "040340d9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapur x4, [x24, #0]",
+      "bytes": "040340d9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapur x4, [x24, #0]",
+      "bytes": "040340d9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapur x4, [x24, #0]",
+      "bytes": "040340d9",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlur w4, [x24, #-4]",
+      "bytes": "04c31f99",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlur w4, [x24, #-4]",
+      "bytes": "04c31f99",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlur w4, [x24, #-4]",
+      "bytes": "04c31f99",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlur w4, [x24, #-4]",
+      "bytes": "04c31f99",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlur w4, [x24, #0]",
+      "bytes": "04030099",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlur w4, [x24, #0]",
+      "bytes": "04030099",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlur w4, [x24, #0]",
+      "bytes": "04030099",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlur w4, [x24, #0]",
+      "bytes": "04030099",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlur w4, [x24, #4]",
+      "bytes": "04430099",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlur w4, [x24, #4]",
+      "bytes": "04430099",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlur w4, [x24, #4]",
+      "bytes": "04430099",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlur w4, [x24, #4]",
+      "bytes": "04430099",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #-4]",
+      "bytes": "04c39f99",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #-4]",
+      "bytes": "04c39f99",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #-4]",
+      "bytes": "04c39f99",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #-4]",
+      "bytes": "04c39f99",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #0]",
+      "bytes": "04038099",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #0]",
+      "bytes": "04038099",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #0]",
+      "bytes": "04038099",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #0]",
+      "bytes": "04038099",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #4]",
+      "bytes": "04438099",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #4]",
+      "bytes": "04438099",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #4]",
+      "bytes": "04438099",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldapursw x4, [x24, #4]",
+      "bytes": "04438099",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #-16]",
+      "bytes": "04177e29",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #-16]",
+      "bytes": "04177e29",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #-16]",
+      "bytes": "04177e29",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #-16]",
+      "bytes": "04177e29",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #0]",
+      "bytes": "04174029",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #0]",
+      "bytes": "04174029",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #0]",
+      "bytes": "04174029",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #0]",
+      "bytes": "04174029",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #16]",
+      "bytes": "04174229",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #16]",
+      "bytes": "04174229",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #16]",
+      "bytes": "04174229",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldp w4, w5, [x24, #16]",
+      "bytes": "04174229",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #-16]",
+      "bytes": "04177fa9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #-16]",
+      "bytes": "04177fa9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #-16]",
+      "bytes": "04177fa9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #-16]",
+      "bytes": "04177fa9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #0]",
+      "bytes": "041740a9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #0]",
+      "bytes": "041740a9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #0]",
+      "bytes": "041740a9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #0]",
+      "bytes": "041740a9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #16]",
+      "bytes": "041741a9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #16]",
+      "bytes": "041741a9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #16]",
+      "bytes": "041741a9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldp x4, x5, [x24, #16]",
+      "bytes": "041741a9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #-16]",
+      "bytes": "04177e69",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #-16]",
+      "bytes": "04177e69",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #-16]",
+      "bytes": "04177e69",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #-16]",
+      "bytes": "04177e69",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #0]",
+      "bytes": "04174069",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #0]",
+      "bytes": "04174069",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #0]",
+      "bytes": "04174069",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #0]",
+      "bytes": "04174069",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #16]",
+      "bytes": "04174269",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #16]",
+      "bytes": "04174269",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #16]",
+      "bytes": "04174269",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldpsw x4, x5, [x24, #16]",
+      "bytes": "04174269",
+      "repeat": 3
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #-16]",
+      "bytes": "1f173e29",
+      "repeat": 0
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #-16]",
+      "bytes": "1f173e29",
+      "repeat": 1
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #-16]",
+      "bytes": "1f173e29",
+      "repeat": 2
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #-16]",
+      "bytes": "1f173e29",
+      "repeat": 3
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #0]",
+      "bytes": "1f170029",
+      "repeat": 0
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #0]",
+      "bytes": "1f170029",
+      "repeat": 1
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #0]",
+      "bytes": "1f170029",
+      "repeat": 2
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #0]",
+      "bytes": "1f170029",
+      "repeat": 3
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #16]",
+      "bytes": "1f170229",
+      "repeat": 0
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #16]",
+      "bytes": "1f170229",
+      "repeat": 1
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #16]",
+      "bytes": "1f170229",
+      "repeat": 2
+    },
+    {
+      "instruction": "stp wzr, w5, [x24, #16]",
+      "bytes": "1f170229",
+      "repeat": 3
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #-16]",
+      "bytes": "047f3fa9",
+      "repeat": 0
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #-16]",
+      "bytes": "047f3fa9",
+      "repeat": 1
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #-16]",
+      "bytes": "047f3fa9",
+      "repeat": 2
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #-16]",
+      "bytes": "047f3fa9",
+      "repeat": 3
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #0]",
+      "bytes": "047f00a9",
+      "repeat": 0
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #0]",
+      "bytes": "047f00a9",
+      "repeat": 1
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #0]",
+      "bytes": "047f00a9",
+      "repeat": 2
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #0]",
+      "bytes": "047f00a9",
+      "repeat": 3
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #16]",
+      "bytes": "047f01a9",
+      "repeat": 0
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #16]",
+      "bytes": "047f01a9",
+      "repeat": 1
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #16]",
+      "bytes": "047f01a9",
+      "repeat": 2
+    },
+    {
+      "instruction": "stp x4, xzr, [x24, #16]",
+      "bytes": "047f01a9",
+      "repeat": 3
+    },
+    {
+      "instruction": "str wzr, [sp]",
+      "bytes": "ff0300b9",
+      "repeat": 0
+    },
+    {
+      "instruction": "str wzr, [sp]",
+      "bytes": "ff0300b9",
+      "repeat": 1
+    },
+    {
+      "instruction": "str wzr, [sp]",
+      "bytes": "ff0300b9",
+      "repeat": 2
+    },
+    {
+      "instruction": "str wzr, [sp]",
+      "bytes": "ff0300b9",
+      "repeat": 3
+    },
+    {
+      "instruction": "ldr xzr, [sp]",
+      "bytes": "ff0340f9",
+      "repeat": 0
+    },
+    {
+      "instruction": "ldr xzr, [sp]",
+      "bytes": "ff0340f9",
+      "repeat": 1
+    },
+    {
+      "instruction": "ldr xzr, [sp]",
+      "bytes": "ff0340f9",
+      "repeat": 2
+    },
+    {
+      "instruction": "ldr xzr, [sp]",
+      "bytes": "ff0340f9",
+      "repeat": 3
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 0
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 1
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 2
+    },
+    {
+      "instruction": "stlr wzr, [x24]",
+      "bytes": "1fff9f88",
+      "repeat": 3
+    }
+  ],
+  "iPadExecutionClaimed": false
+}

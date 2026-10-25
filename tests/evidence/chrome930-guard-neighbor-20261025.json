@@ -26,5 +26,43 @@
   ],
   "WindowsProductionTests": "PASS: guard neighbour, stack release, prior stack fault/frames, child PEB, child JIT environment, pipe readiness",
   "remainingEvidenceLimit": "The930 log does not contain actual TEB32 stack bounds or the four separate4KB protections. Guard-neighbour membership of its exact fault is conditional, not proven by the source regression. Physical Chrome startup and later renderer/Google Sync/extensions remain unverified.",
-  "MacNativeAndSanitizerTests": "pending"
+  "MacNativeAndSanitizerTests": {
+    "status": "PASS",
+    "commit": "87172067cf57d6c691f91a4b7f1d1a9accf64054",
+    "ciBuild": 388,
+    "url": "https://app.bitrise.io/app/ac99862e-4c0d-41d9-8d95-dc452480dc9e/build/4417bde9-addb-484d-ba69-811cd3f1f8c9",
+    "realSharedMachAliasAgainstPROT_NONEPassed": true,
+    "ASanUBSanPassed": true,
+    "iPhoneOSUnitsCompiled": 7,
+    "receipt": {
+      "format": "madeira-child-runtime-check-v1",
+      "commit": "87172067cf57d6c691f91a4b7f1d1a9accf64054",
+      "MacProductionRegressionsPassed": true,
+      "ASanUBSanPassed": true,
+      "nativePipePollPassed": true,
+      "iPhoneOSUnitsCompiled": 7,
+      "realMachGuardNeighborAliasPassed": true,
+      "ownerStackReleasePassed": true,
+      "physicalChromeAndRenPyVerified": false,
+      "IPAProduced": false,
+      "sources": {
+        "build/ntdll-unix/env_ios.c": "c7b9d85ff23f42347f8dfeda64ee795005a43410c68231eac198cdb033a498eb",
+        "build/ntdll-unix/loader_ios.c": "e579d8e2191fb1ca28854e64fa79008730306826655843190d12905009fb9f0a",
+        "build/ntdll-unix/process_ios.c": "9d438a7523cc370e0ac3ac95c129e5dc2f4b6ab46e15182eda2b0029248ce9af",
+        "build/ntdll-unix/server_ios.c": "86a9850a4044693e089063ecf4cb10556b45ddeb811c58085165a516fc3504a8",
+        "build/ntdll-unix/signal_arm64_ios.c": "4626d1f48cd90ccd7dfd933666d04c96399d73f3f2b963381bdba526a5d65729",
+        "build/ntdll-unix/virtual_ios.c": "e56626c3ec0f159848e0c0fc97c19786e2ba9d6fcfe9aef1fda54e8cae9fffe0",
+        "build/wineserver/queue_ios.c": "c80703f2f0d2705d42fd3e31f4da71f6b82f90ca2464c0c62470b15ca385d5b9",
+        "build/ntdll-unix/ios_guard_access.h": "628278f14a612b4861d2fdac3cb1b8c5c073487582447a5a7411b23bac538858"
+      }
+    }
+  },
+  "actualARM64InstructionOracle": {
+    "status": "PASS",
+    "cases": 324,
+    "forms": 83,
+    "unalignedAcquireDeclined": 8,
+    "evidence": "tests/evidence/chrome931-guard-arm64-oracle-20261025.json",
+    "physicalDeviceExecution": false
+  }
 }
