@@ -27,7 +27,7 @@ python3 tests/host/check-renpy-startup.py
 python3 tests/host/check-process-winstation-init.py
 # Import generated configuration headers only, from the verified926 bundle.
 base="${TMPDIR:-/tmp}/madeira-child-runtime-headers.zip"
-curl --fail --location --retry 3 --silent --show-error \
+curl --fail --location --retry 3 --retry-all-errors --retry-delay 2 --silent --show-error \
   'https://github.com/sonnx0868/Madeira-Build79-Direct-Source/releases/download/v0.1.6-build926-d784eea/Madeira-v0.1.6-native-deps-build926.zip' -o "$base"
 printf '%s  %s\n' ea9a0a166ce08e73fefc879a07cf3f97df3732d3c633884e8e3709372cae8138 "$base" | shasum -a 256 -c -
 python3 - "$base" <<'PY'
