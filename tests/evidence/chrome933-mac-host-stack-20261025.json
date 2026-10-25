@@ -1,0 +1,31 @@
+{
+  "format": "madeira-child-runtime-check-v1",
+  "commit": "56bdbde92f4977bb164a88db45dc9136d0fb9e26",
+  "MacProductionRegressionsPassed": true,
+  "ASanUBSanPassed": true,
+  "nativePipePollPassed": true,
+  "iPhoneOSUnitsCompiled": 8,
+  "realMachGuardNeighborAliasPassed": true,
+  "ownerStackReleasePassed": true,
+  "hostPageUserStackGuardsPassed": true,
+  "guardBridgeAndNeonPublicationPassed": true,
+  "physicalChromeAndRenPyVerified": false,
+  "IPAProduced": false,
+  "sources": {
+    "build/ntdll-unix/env_ios.c": "c7b9d85ff23f42347f8dfeda64ee795005a43410c68231eac198cdb033a498eb",
+    "build/ntdll-unix/loader_ios.c": "40f5ee0c713f65d3982b24e08e2e3820444e625b61df2dc5f7820638ae2b9f10",
+    "build/ntdll-unix/process_ios.c": "9d438a7523cc370e0ac3ac95c129e5dc2f4b6ab46e15182eda2b0029248ce9af",
+    "build/ntdll-unix/server_ios.c": "86a9850a4044693e089063ecf4cb10556b45ddeb811c58085165a516fc3504a8",
+    "build/ntdll-unix/signal_arm64_ios.c": "a5ad52266657b3f4a49ca55d6e0cee9970ea112ce480f9ca94599bbdd0f4280e",
+    "build/ntdll-unix/virtual_ios.c": "f0dce39ae45388419fff61ceedfb0c6330dd8bdd19ae49f30f6c9b3af5e3790e",
+    "build/wineserver/queue_ios.c": "c80703f2f0d2705d42fd3e31f4da71f6b82f90ca2464c0c62470b15ca385d5b9",
+    "build/ntdll-unix/ios_guard_access.h": "4b5303e341930df44027eb4fc5ba3872fcf40fa3148d93c70a5270f6d01394c2",
+    "build/ntdll-unix/ios_browser_child_role.h": "ce718f34ab661ff518da6558d277966c53eb1282d7947543180c798fa7b3219a",
+    "wine/include/winternl.h": "d64ed0f45202f9b7322f771c91945258b6e6955db20566099266b7e8ed4a417d",
+    "wine/dlls/ntdll/thread.c": "9348b668574e4ffddced2374b8ab1b103c0ea7c034c0114174893173223e2c16",
+    "wine/dlls/ntdll/unix/system.c": "3219345b56692eb3b13358a211057522693f9d7f5de980f1e4a3cf4a30b653f7",
+    "wine/dlls/wow64/system.c": "4be9703f4fc70bede75c31fcdaee8ed16254422f8b5e253f5b5c488a880545db"
+  },
+  "ciURL": "https://app.bitrise.io/app/ac99862e-4c0d-41d9-8d95-dc452480dc9e/build/a93cef5f-57b8-4b95-bb4c-c2b37c2505ed",
+  "ciBuild": 390
+}
