@@ -14,6 +14,8 @@ python3 tests/host/check-child-peb-isolation.py
 python3 tests/host/check-child-jit-environment.py
 python3 tests/host/check-queue-pipe-readiness.py
 python3 tests/host/check-wow64-stack-guard.py
+python3 tests/host/check-wow64-guard-neighbor.py
+python3 tests/host/check-wow64-stack-release.py
 python3 tests/host/check-wow-context.py
 python3 tests/host/check-input-wake.py --require-darwin
 git submodule update --init --depth 1 wine
@@ -44,9 +46,11 @@ from pathlib import Path
 import hashlib,json,subprocess,sys
 files=['build/ntdll-unix/'+n+'_ios.c' for n in ('env','loader','process','server','signal_arm64','virtual')]
 files+=['build/wineserver/queue_ios.c']
+files+=['build/ntdll-unix/ios_guard_access.h']
 record={'format':'madeira-child-runtime-check-v1','commit':subprocess.check_output(
  ['git','rev-parse','HEAD'],text=True).strip(),'MacProductionRegressionsPassed':True,
  'ASanUBSanPassed':True,'nativePipePollPassed':True,'iPhoneOSUnitsCompiled':7,
+ 'realMachGuardNeighborAliasPassed':True,'ownerStackReleasePassed':True,
  'physicalChromeAndRenPyVerified':False,'IPAProduced':False,
  'sources':{f:hashlib.sha256(Path(f).read_bytes().replace(b'\r\n',b'\n')).hexdigest() for f in files}}
 (Path(sys.argv[1])/'child-runtime-check.json').write_text(json.dumps(record,indent=2)+'\n')

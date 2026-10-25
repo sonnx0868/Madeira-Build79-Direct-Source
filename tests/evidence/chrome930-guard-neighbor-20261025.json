@@ -1,0 +1,30 @@
+{
+  "log": {
+    "id": "9509f325-c078-4bcd-8377-190eafeef10a",
+    "build": 930,
+    "bytes": 1172380,
+    "sha256": "4373fd88be26bc7e471f09236e8dad770c54c6774a84a6655ede866da5fcc483"
+  },
+  "observed": {
+    "sourceCommit": "ac9770e220b9415fbbb39b7e9614209886445025",
+    "firstDeliveredException": "80000001, WRITE host7101683ff4, native STLR wzr,[x24]889fff1f",
+    "guestEIP": "fff94f7e: packaged i386 ntdll RtlWakeAddressAll+0xe",
+    "termination": "ffff7001 after Crashpad unhandled-exception timeout; zero presents",
+    "previousStackRepair": "present in930 linked ARM64 binary; it does not resolve this device failure"
+  },
+  "confirmedSourceDefects": [
+    "Host16KB protection union raises a guard exception for an allowed4KB neighbour, then removes the other subpages guard. Reproduced with actual production get_page_vprot/get_host_page_vprot and Mach fault function, not a homogeneous16KB page model.",
+    "virtual_free_teb frees the previous exiting threads32-bit stack through the callers guest window, rather than the target TEBs PEB. Reproduced all16 native/windowed owner-caller combinations."
+  ],
+  "implemented": [
+    "Decode supported scalar ARM64 memory accesses; execute only after checking every4KB touched.",
+    "Transient non-executable shared Mach alias retains all original permissions and genuine guards; no persistent alias cache or backing copy.",
+    "Acquire/release use aligned native atomics; exclusive and RMW instructions are declined.",
+    "Fault-address containment, wrap, SP versus XZR, sign extension, paired accesses and every Mach failure path tested.",
+    "Resolve WoW64 stack destruction using owning PEB.",
+    "At most8 actual guard layout records to distinguish a true stack guard from a4KB-neighbour fault on device."
+  ],
+  "WindowsProductionTests": "PASS: guard neighbour, stack release, prior stack fault/frames, child PEB, child JIT environment, pipe readiness",
+  "remainingEvidenceLimit": "The930 log does not contain actual TEB32 stack bounds or the four separate4KB protections. Guard-neighbour membership of its exact fault is conditional, not proven by the source regression. Physical Chrome startup and later renderer/Google Sync/extensions remain unverified.",
+  "MacNativeAndSanitizerTests": "pending"
+}

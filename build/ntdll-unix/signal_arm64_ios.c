@@ -39,6 +39,7 @@
 #ifdef WINE_IOS
 #include <dlfcn.h>
 #include <mach/mach.h>
+#include "ios_guard_access.h"
 
 /* iOS-Madeira ml674: XZR/WZR AS A STORE SOURCE MUST READ ZERO.
  *
@@ -6968,6 +6969,42 @@ static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
  * [unaligned-atomic] block below for why the two paths may not disagree. */
 static int ios_emulate_unaligned_guest_access(ucontext_t *ctx, uint32_t insn, uintptr_t addr);
 
+struct ios_guard_operation
+{
+    struct ios_guard_access access;
+    uint64_t regs[31];
+};
+
+static void ios_guard_alias_operation( void *alias, void *opaque )
+{
+    struct ios_guard_operation *op = opaque;
+    ios_guard_execute( &op->access, alias, op->regs );
+}
+
+static int ios_guard_neighbor_service( TEB *teb, ucontext_t *ctx, uintptr_t fault )
+{
+    extern BOOL ios_virtual_guard_neighbor_access( TEB *, void *, SIZE_T, BOOL,
+                                                   void (*)(void *, void *), void * );
+    struct ios_guard_operation op;
+    uint32_t insn;
+    mach_vm_size_t got = 0;
+    unsigned int i, bytes;
+    BOOL write;
+
+    if (mach_vm_read_overwrite( mach_task_self(), PC_sig(ctx), sizeof(insn),
+                                (mach_vm_address_t)&insn, &got ) != KERN_SUCCESS || got != sizeof(insn)) return 0;
+    for (i = 0; i < 31; ++i) op.regs[i] = REGn_sig(i, ctx);
+    if (!ios_guard_decode( insn, op.regs, SP_sig(ctx), &op.access )) return 0;
+    bytes = op.access.width * op.access.count;
+    if (fault < op.access.address || fault - op.access.address >= bytes) return 0;
+    write = op.access.kind == IOS_GUARD_STORE || op.access.kind == IOS_GUARD_STORE_RELEASE;
+    if (!ios_virtual_guard_neighbor_access( teb, (void *)(uintptr_t)op.access.address, bytes,
+                                            write, ios_guard_alias_operation, &op )) return 0;
+    for (i = 0; i < 31; ++i) REGn_sig(i, ctx) = op.regs[i];
+    PC_sig(ctx) += 4;
+    return 1;
+}
+
 static int ios_mach_deliver_guest_exception_inner( thread_t thread, arm_thread_state64_t *state,
                                                    arm_neon_state64_t *neon, int have_neon,
                                                    int exception, uintptr_t fault_addr,
@@ -7463,6 +7500,12 @@ static int ios_mach_deliver_guest_exception_inner( thread_t thread, arm_thread_s
          * guest-pc gate below, so no `goto dispatch` here. */
         if (!is_align)
         {
+            if (rec.ExceptionInformation[0] != EXCEPTION_EXECUTE_FAULT &&
+                ios_guard_neighbor_service( teb, &uc, fault_addr ))
+            {
+                *state = mc.__ss;
+                return 2;
+            }
             st = ios_virtual_handle_fault_for_thread( &rec, teb );
             if (!st)
             {
@@ -10095,6 +10138,12 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             ios_subfloor_service( context, siginfo->si_addr, "segv" ))
         {
             PC_sig(context) = PC_sig(context) + 4;
+            ios_fixup_x18_for_return( context );
+            return;
+        }
+        if (!(sg_rx && sg_pc >= sg_rx && sg_pc < sg_rx + sg_sz) && NtCurrentTeb() &&
+            ios_guard_neighbor_service( NtCurrentTeb(), context, (uintptr_t)siginfo->si_addr ))
+        {
             ios_fixup_x18_for_return( context );
             return;
         }

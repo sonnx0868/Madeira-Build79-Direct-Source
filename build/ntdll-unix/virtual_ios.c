@@ -18414,10 +18414,11 @@ void virtual_free_teb( TEB *teb )
     {
         size = 0;
 #ifdef WINE_IOS
-        /* guest -> host: a WoW thread's 32-bit stack pointer is a guest
-         * address.  Outside a window ios_wow_base() is 0 and this is the
-         * classic identity. */
-        ptr = (char *)ptr + ios_wow_base();
+        /* exit_thread frees the previous exiting thread's TEB, potentially
+         * from another pseudo-process. Resolve the stack through its owner,
+         * just like stack fault service; the freeing thread's window is not
+         * evidence of ownership. Outside a window the mapping is identity. */
+        ptr = (char *)ptr + ios_wow_base_for_peb( teb->Peb );
 #endif
         NtFreeVirtualMemory( GetCurrentProcess(), &ptr, &size, MEM_RELEASE );
     }
@@ -19082,6 +19083,69 @@ static NTSTATUS grow_thread_stack( char *page, struct thread_stack_info *stack_i
 {
     return grow_thread_stack_teb( page, stack_info, NtCurrentTeb() );
 }
+
+#ifdef WINE_IOS
+/* A 4KB Windows guard can share a 16KB host page with ordinary data. The
+ * union protection necessarily traps both. Do not consume a neighbour's
+ * one-shot guard or deliver its exception to an access that never touched it.
+ * Use a short-lived, non-executable alias for exactly one decoded access.
+ * Keep virtual_mutex through the callback so free/protect cannot race it. */
+BOOL ios_virtual_guard_neighbor_access( TEB *teb, void *address, SIZE_T size, BOOL write,
+                                       void (*access)(void *, void *), void *opaque )
+{
+    ULONG_PTR start = (ULONG_PTR)address, end, current, base = teb ? ios_wow_base_for_peb( teb->Peb ) : 0;
+    mach_vm_address_t alias = 0;
+    char *host_start;
+    SIZE_T host_size;
+    vm_prot_t cur_prot = 0, max_prot = 0;
+    BOOL handled = FALSE;
+
+    if (!base || !size || size > 16 || start < base || start - base >= limit_4g ||
+        size > limit_4g - (start - base) || start > ~(ULONG_PTR)0 - size ||
+        host_page_size <= page_size) return FALSE;
+    end = start + size;
+    host_start = ROUND_ADDR( address, host_page_mask );
+    host_size = ROUND_SIZE( address, size, host_page_mask );
+    mutex_lock( &virtual_mutex ); /* signal or Mach exception-server context */
+    if (!find_view( address, size )) goto done;
+    if (!(get_host_page_vprot( address ) & VPROT_GUARD)) goto done;
+    {
+        static unsigned int logs;
+        if (logs++ < 8)
+            dprintf( 2, "[guard-subpage-v1] addr=%p bytes=%zu write=%d page=%p owner=%p "
+                        "native=(%p,%p,%p) wow_offset=%d wow_guest=(%x,%x,%x) "
+                        "vprot=%02x,%02x,%02x,%02x\n",
+                     address, size, write, host_start, teb->Peb,
+                     teb->DeallocationStack, teb->Tib.StackLimit, teb->Tib.StackBase, teb->WowTebOffset,
+                     get_wow_teb(teb) ? get_wow_teb(teb)->DeallocationStack : 0,
+                     get_wow_teb(teb) ? get_wow_teb(teb)->Tib.StackLimit : 0,
+                     get_wow_teb(teb) ? get_wow_teb(teb)->Tib.StackBase : 0,
+                     get_page_vprot(host_start), get_page_vprot(host_start + page_size),
+                     get_page_vprot(host_start + 2 * page_size), get_page_vprot(host_start + 3 * page_size) );
+    }
+    for (current = start & ~page_mask; current < end; current += page_size)
+    {
+        BYTE prot = get_page_vprot( (void *)current );
+        BYTE required = VPROT_COMMITTED | (write ? VPROT_WRITE : VPROT_READ);
+        if ((prot & required) != required ||
+            (prot & (VPROT_GUARD | VPROT_WRITEWATCH | VPROT_EXEC | VPROT_WRITECOPY))) goto done;
+    }
+    if (mach_vm_remap( mach_task_self(), &alias, host_size, 0, VM_FLAGS_ANYWHERE,
+                       mach_task_self(), (mach_vm_address_t)host_start, FALSE,
+                       &cur_prot, &max_prot, VM_INHERIT_NONE ) != KERN_SUCCESS) goto done;
+    if ((max_prot & (VM_PROT_READ | (write ? VM_PROT_WRITE : 0))) !=
+        (VM_PROT_READ | (write ? VM_PROT_WRITE : 0))) goto unmap;
+    if (mach_vm_protect( mach_task_self(), alias, host_size, FALSE,
+                         VM_PROT_READ | (write ? VM_PROT_WRITE : 0) ) != KERN_SUCCESS) goto unmap;
+    access( (char *)(ULONG_PTR)alias + start - (ULONG_PTR)host_start, opaque );
+    handled = TRUE;
+unmap:
+    mach_vm_deallocate( mach_task_self(), alias, host_size );
+done:
+    mutex_unlock( &virtual_mutex );
+    return handled;
+}
+#endif
 
 
 /***********************************************************************

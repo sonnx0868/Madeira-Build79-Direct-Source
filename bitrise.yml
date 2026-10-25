@@ -19,6 +19,31 @@ app:
     - MADEIRA_NATIVE_DEPS_SHA256: 41c4a98894a82c767bb69194bd6d5ba8882facbaec7d74b85b5d8357bf50453c
 
 workflows:
+  madeira-child-runtime-check:
+    title: Validate Chrome child runtime on Mac and iPhoneOS
+    description: Run sanitized production regressions, real Mach guard-neighbor aliases and compile seven iPhoneOS units; no IPA publication.
+    steps:
+      - git-clone@8:
+          inputs:
+            - clone_depth: '-1'
+            - update_submodules: 'no'
+      - script@1:
+          inputs:
+            - content: |-
+                #!/bin/bash
+                set -euo pipefail
+                cd "$BITRISE_SOURCE_DIR"
+                bash scripts/check-child-runtime.sh
+      - deploy-to-bitrise-io@2:
+          is_always_run: true
+          inputs:
+            - is_compress: 'true'
+            - zip_name: Madeira-Child-Runtime-check
+            - is_enable_public_page: 'false'
+            - notify_user_groups: none
+            - always_notify_user_groups: none
+            - notify_email_list: ''
+
   madeira-chrome-windows-check:
     title: Validate Windows Chrome launch policy and build an experimental IPA
     description: Verify the production browser policy on Mac/iOS, rebuild native completely and package every bound payload; no publication or device compatibility claim.
@@ -58,6 +83,8 @@ workflows:
                 python3 tests/host/check-child-jit-environment.py
                 python3 tests/host/check-queue-pipe-readiness.py
                 python3 tests/host/check-wow64-stack-guard.py
+                python3 tests/host/check-wow64-guard-neighbor.py
+                python3 tests/host/check-wow64-stack-release.py
                 python3 tests/host/check-input-wake.py --require-darwin
                 xcrun swiftc -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -typecheck app/Madeira/WindowsBrowser.swift
                 bash scripts/build-bitrise.sh bootstrap
