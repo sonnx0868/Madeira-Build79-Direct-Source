@@ -21,20 +21,10 @@
  * use out of /usr/lib/libresolv.9.dylib with dlopen/dlsym (a system library,
  * which an iOS sandbox may dlopen).
  *
- * Every one of those has a fallback that returns a failure rather than
- * faulting: with no resolver library DnsQuery_A reports
- * DNS_ERROR_RCODE_SERVER_FAILURE (map_h_errno(TRY_AGAIN)) and the server list
- * comes back empty (DNS_ERROR_NO_DNS_SERVERS), both normal, documented
- * outcomes for a Windows program.
- *
- * Apple spellings this file relies on (iPhoneOS SDK <resolv.h>):
- *   res_init  -> res_9_init,  res_ninit -> res_9_ninit
- *   res_query -> res_9_query, res_nquery -> res_9_nquery
- *   __res_state (both the struct tag and the per-thread accessor)
- *                              -> __res_9_state
- * The _n* forms take the state explicitly and report through
- * state->res_h_errno, so they are preferred: they keep this file off the
- * process-global `_res`/`h_errno` symbols entirely.
+ * Bind res_9_ninit, res_9_nquery and res_9_ndestroy as one BIND9 ABI.
+ * Each pthread owns zero-initialized resolver storage and releases it on exit.
+ * Do not pass a borrowed __res_state result to a differently versioned API.
+ * Missing functions and failed initialization return a normal DNS error.
  *
  * virtual_ios.c binds this table for dnsapi.dll; MADEIRA_DNSAPI_UNIXLIB=0
  * keeps the stub table as before.
@@ -67,6 +57,7 @@
 #undef HAVE_STRUCT___RES_STATE__U__EXT_NSCOUNT6
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <dlfcn.h>
@@ -81,85 +72,83 @@
 /***********************************************************************
  *           the libresolv binding
  */
+typedef int (*ios_res_ninit_fn)( struct __res_state * );
+typedef int (*ios_res_nquery_fn)( struct __res_state *, const char *, int, int, unsigned char *, int );
+typedef void (*ios_res_ndestroy_fn)( struct __res_state * );
 static pthread_once_t ios_resolv_once = PTHREAD_ONCE_INIT;
+static pthread_key_t ios_resolv_key;
+static int ios_resolv_key_valid;
 static void *ios_resolv_lib;
+static ios_res_ninit_fn ios_resolv_ninit;
+static ios_res_nquery_fn ios_resolv_nquery;
+static ios_res_ndestroy_fn ios_resolv_ndestroy;
+static __thread int ios_resolv_h_errno;
+static __thread struct __res_state ios_resolv_null_state;
+
+struct ios_resolver_thread
+{
+    struct __res_state state;
+    int attempted;
+};
+
+static void ios_resolv_destroy( void *ptr )
+{
+    struct ios_resolver_thread *owner = ptr;
+    if (!owner) return;
+    if (owner->attempted) ios_resolv_ndestroy( &owner->state );
+    free( owner );
+}
 
 static void ios_resolv_load(void)
 {
-    static const char * const paths[] =
-    {
-        "/usr/lib/libresolv.9.dylib",   /* iOS: in the dyld shared cache */
-        "libresolv.9.dylib",
-        "libresolv.dylib",
-    };
-    unsigned int i;
-
-    for (i = 0; i < sizeof(paths) / sizeof(paths[0]) && !ios_resolv_lib; i++)
-        ios_resolv_lib = dlopen( paths[i], RTLD_NOW | RTLD_LOCAL );
-
-    /* dprintf, not ERR: the app runs with WINEDEBUG=err+all,err-virtual and
-     * this line has to be readable in every log. */
+    /* Bind one ABI family. The unversioned __res_state accessor may belong
+     * to another resolver ABI; never hand its storage to res_9_ninit.
+     * State is ours, per pthread, and res_9_ndestroy releases it at exit. */
+    ios_resolv_lib = dlopen( "/usr/lib/libresolv.9.dylib", RTLD_NOW | RTLD_LOCAL );
     if (ios_resolv_lib)
-        dprintf( STDERR_FILENO, "[unixlib] dnsapi: libresolv loaded (%p)\n", ios_resolv_lib );
-    else
-        dprintf( STDERR_FILENO, "[unixlib] dnsapi: NO libresolv on this device (%s) -- "
-                 "queries will return DNS_ERROR_RCODE_SERVER_FAILURE\n", dlerror() );
-}
-
-static void *ios_resolv_sym( const char *name )
-{
-    pthread_once( &ios_resolv_once, ios_resolv_load );
-    return ios_resolv_lib ? dlsym( ios_resolv_lib, name ) : NULL;
-}
-
-typedef struct __res_state *(*ios_res_state_fn)( void );
-typedef int (*ios_res_ninit_fn)( struct __res_state * );
-typedef int (*ios_res_nquery_fn)( struct __res_state *, const char *, int, int,
-                                  unsigned char *, int );
-
-/* Resolved once each; the racing initialisers below are benign (every racer
- * stores the same pointer, and a NULL read just repeats the dlsym). */
-#define IOS_RESOLV_SYM( var, type, apple, posix )                       \
-    static type var;                                                    \
-    static int var##_done;                                              \
-    if (!var##_done)                                                    \
-    {                                                                   \
-        if (!(var = (type)ios_resolv_sym( apple )))                     \
-            var = (type)ios_resolv_sym( posix );                        \
-        var##_done = 1;                                                 \
+    {
+        ios_resolv_ninit = (ios_res_ninit_fn)dlsym( ios_resolv_lib, "res_9_ninit" );
+        ios_resolv_nquery = (ios_res_nquery_fn)dlsym( ios_resolv_lib, "res_9_nquery" );
+        ios_resolv_ndestroy = (ios_res_ndestroy_fn)dlsym( ios_resolv_lib, "res_9_ndestroy" );
+        if (ios_resolv_ninit && ios_resolv_nquery && ios_resolv_ndestroy &&
+            !pthread_key_create( &ios_resolv_key, ios_resolv_destroy ))
+            ios_resolv_key_valid = 1;
     }
-
-/* h_errno: this file's own, so the TU never references the process-global one.
- * res_nquery reports through state->res_h_errno, which is copied here. */
-static __thread int ios_resolv_h_errno;
-
-/* Used only when libresolv is missing entirely: an all-zero state, whose
- * nscount is 0 (-> DNS_ERROR_NO_DNS_SERVERS) and whose options never gain
- * RES_INIT (-> init_resolver() keeps retrying the absent res_init, which is a
- * NULL check).  Shared by every thread on purpose: nothing ever writes a
- * meaningful value into it. */
-static struct __res_state ios_resolv_null_state;
+    dprintf( STDERR_FILENO, "[dns-state-v1] owned-pthread-state=%d abi=bind9 cleanup=ndestroy\n",
+             ios_resolv_key_valid );
+}
 
 static struct __res_state *ios_resolv_state(void)
 {
-    IOS_RESOLV_SYM( p_state, ios_res_state_fn, "__res_9_state", "__res_state" )
-
-    if (p_state)
+    struct ios_resolver_thread *owner;
+    pthread_once( &ios_resolv_once, ios_resolv_load );
+    if (!ios_resolv_key_valid) return &ios_resolv_null_state;
+    if (!(owner = pthread_getspecific( ios_resolv_key )))
     {
-        struct __res_state *state = p_state();
-        if (state) return state;
+        if (!(owner = calloc( 1, sizeof(*owner) ))) return &ios_resolv_null_state;
+        if (pthread_setspecific( ios_resolv_key, owner ))
+        {
+            free( owner );
+            return &ios_resolv_null_state;
+        }
     }
-    return &ios_resolv_null_state;
+    return &owner->state;
 }
 
 static int ios_resolv_init(void)
 {
     struct __res_state *state = ios_resolv_state();
-
+    struct ios_resolver_thread *owner;
     if (state != &ios_resolv_null_state)
     {
-        IOS_RESOLV_SYM( p_ninit, ios_res_ninit_fn, "res_9_ninit", "res_ninit" )
-        if (p_ninit) return p_ninit( state );
+        owner = pthread_getspecific( ios_resolv_key );
+        if (owner->attempted) ios_resolv_ndestroy( state );
+        memset( state, 0, sizeof(*state) );
+        owner->attempted = 1;
+        if (!ios_resolv_ninit( state )) return 0;
+        ios_resolv_ndestroy( state );
+        memset( state, 0, sizeof(*state) );
+        owner->attempted = 0;
     }
     ios_resolv_h_errno = TRY_AGAIN;
     return -1;
@@ -181,10 +170,9 @@ static int ios_resolv_query( const char *dname, int class, int type,
 
     if (state != &ios_resolv_null_state)
     {
-        IOS_RESOLV_SYM( p_nquery, ios_res_nquery_fn, "res_9_nquery", "res_nquery" )
-        if (p_nquery)
+        if ((state->options & RES_INIT) || !ios_resolv_init())
         {
-            ret = p_nquery( state, dname, class, type, answer, anslen );
+            ret = ios_resolv_nquery( state, dname, class, type, answer, anslen );
             /* res_nquery reports the DNS-level failure here, and map_h_errno()
              * in libresolv.c is what turns it into a DNS_ERROR_RCODE_*. */
             if (ret < 0) ios_resolv_h_errno = state->res_h_errno;

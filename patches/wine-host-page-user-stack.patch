@@ -19,7 +19,17 @@
  
 --- a/dlls/wow64/system.c
 +++ b/dlls/wow64/system.c
-@@ -344,6 +344,7 @@
+@@ -324,6 +324,9 @@
+ 
+     NTSTATUS status;
+ 
++    if (class == SystemWineHostPageSizeInformation)
++        TRACE( "[host-page-query-bridge-v1] size=%lu\n", len );
++
+     switch (class)
+     {
+     case SystemPerformanceInformation:  /* SYSTEM_PERFORMANCE_INFORMATION */
+@@ -344,6 +347,7 @@
      case SystemProcessorBrandString:  /* char[] */
      case SystemProcessorFeaturesInformation:  /* SYSTEM_PROCESSOR_FEATURES_INFORMATION */
      case SystemWineVersionInformation:  /* char[] */

@@ -24,6 +24,7 @@ for tree in build-arm64ec build-macos; do
 done
 bash "$root/build/wine-pe/build-ntdll.sh"
 WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-ntdll.sh"
+WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-modules.sh" wow64
 SKIP_DXMT=1 bash "$root/build/wine-i386/build.sh" ntdll
 python3 "$root/tools/check-wow64-addon.py" --root "$root" --write "$root/build/wine-i386/addon-receipt.json"
 bash "$root/build/madeira-dock/build.sh"

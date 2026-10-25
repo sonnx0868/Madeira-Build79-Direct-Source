@@ -21,7 +21,7 @@ app:
 workflows:
   madeira-child-runtime-check:
     title: Validate Chrome child runtime on Mac and iPhoneOS
-    description: Run sanitized production regressions, host-aligned stack guards, real Mach aliases, NEON publication and eight iPhoneOS units; no IPA publication.
+    description: Run sanitized production regressions, host-aligned stack guards, real Mach aliases, NEON publication, owned DNS state and nine iPhoneOS units; no IPA publication.
     steps:
       - git-clone@8:
           inputs:

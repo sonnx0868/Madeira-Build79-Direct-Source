@@ -247,6 +247,7 @@ checks() {
   python3 tests/host/check-wow64-stack-guard.py
   python3 tests/host/check-wow64-guard-neighbor.py
   python3 tests/host/check-guard-bridge-context.py
+  python3 tests/host/check-dns-owned-state.py
   python3 tests/host/check-user-stack-host-pages.py
   python3 tests/host/check-wow64-stack-release.py
   python3 tests/host/check-dxmt-cpu-mappings.py

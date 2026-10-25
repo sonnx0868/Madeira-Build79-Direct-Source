@@ -1,0 +1,101 @@
+{
+  "build": 934,
+  "report": "9bdae695-fd77-4eae-94fc-5bb92e9f466f",
+  "logSHA256": "966d04d8d2e2c60846cb7120181257edeb52f034597d75ec28a91ab29f267cab",
+  "firstFault": {
+    "kind": "native Darwin DNS access violation",
+    "address": "0x3a8",
+    "nativeStack": [
+      "libresolv.9.dylib res_9_vinit+0x90",
+      "resolv_get_searchlist+0x20",
+      "wow64_resolv_get_searchlist+0x78"
+    ],
+    "line": 5023
+  },
+  "laterFaults": {
+    "gpuChildExit": 1,
+    "guardNeighbourProtections": [
+      "03",
+      "33",
+      "23",
+      "23"
+    ],
+    "wowStack": [
+      "1680000",
+      "1682000",
+      "1a80000"
+    ],
+    "decodedAccessesExceed": 131000,
+    "downstream": "Crashpad timeout ffff7001"
+  },
+  "confirmedBuildDefect": {
+    "wow64DLLIdentical932And934": true,
+    "packaged934ARM64ExecutionProof": {
+      "status": "PASS",
+      "expectation": "old",
+      "dllSHA256": "291f7827ac9862e1cea520b9a17d4441865f256d66d3d135e91decdfc2a75492",
+      "entryRVA": "0x1d83c",
+      "syscallSlot": 54,
+      "serviceCount": 264,
+      "cases": [
+        {
+          "infoClass": 1001,
+          "length": 4,
+          "nullOutput": false,
+          "nullReturnLength": false,
+          "status": "0xc0000003",
+          "forwarded": false
+        },
+        {
+          "infoClass": 1001,
+          "length": 8,
+          "nullOutput": false,
+          "nullReturnLength": false,
+          "status": "0xc0000003",
+          "forwarded": false
+        },
+        {
+          "infoClass": 1001,
+          "length": 4,
+          "nullOutput": true,
+          "nullReturnLength": false,
+          "status": "0xc0000003",
+          "forwarded": false
+        },
+        {
+          "infoClass": 1001,
+          "length": 4,
+          "nullOutput": false,
+          "nullReturnLength": true,
+          "status": "0xc0000003",
+          "forwarded": false
+        },
+        {
+          "infoClass": 1000,
+          "length": 4,
+          "nullOutput": false,
+          "nullReturnLength": false,
+          "status": "0x0",
+          "forwarded": true
+        },
+        {
+          "infoClass": 4294967295,
+          "length": 4,
+          "nullOutput": false,
+          "nullReturnLength": false,
+          "status": "0xc0000003",
+          "forwarded": false
+        }
+      ],
+      "scope": "actual packaged ARM64 WoW64 thunk; native NT query and debug boundary controlled",
+      "physicalChromeVerified": false
+    },
+    "result": "Actual WoW64 thunk rejects class1001, so the corrected PE stack factory falls back to4KB. Source hashes alone did not prove transport DLL rebuilding."
+  },
+  "repairs": [
+    "Explicitly rebuild aarch64 wow64.dll and bind it to source+marker in loader provenance",
+    "Use per-pthread owned BIND9 DNS state and one ABI family with ndestroy cleanup"
+  ],
+  "DNSCrashRootLimit": "The exact internal iOS27 libresolv failure has not been reproduced on hardware here; owned state is being tested on real Darwin before packaging.",
+  "physicalChromeVerified": false
+}

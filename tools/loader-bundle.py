@@ -8,7 +8,10 @@ def main():
     args=parser.parse_args();root=args.root.resolve()
     sha=lambda p:hashlib.sha256((root/p).read_bytes()).hexdigest()
     inputs=['wine/dlls/ntdll/loader.c','patches/wine-module-path.patch',
-            'patches/madeira-dock-external-launch.patch','build/madeira-dock/build.sh']
+            'patches/madeira-dock-external-launch.patch','build/madeira-dock/build.sh',
+            'wine/dlls/wow64/system.c','wine/dlls/wow64/syscall.c','wine/dlls/wow64/wow64_private.h',
+            'wine/dlls/ntdll/ntsyscalls.h','patches/wine-host-page-user-stack.patch',
+            'scripts/bootstrap-native-deps.sh','scripts/refresh-module-loader.sh']
     binaries={}
     # Wine's hybrid EC ntdll uses the AMD64 PE header, as do the verified
     # existing EC farm and execute-callback receipt. The build targets EC.
@@ -17,6 +20,11 @@ def main():
         if data[:2]!=b'MZ' or struct.unpack_from('<H',data,off+4)[0] not in machines or b'module-path-v1' not in data:
             raise SystemExit('Missing current PE module recovery: '+name)
         binaries[name]=sha(name)
+    name='app/Madeira/aarch64-windows/wow64.dll';data=(root/name).read_bytes()
+    off=struct.unpack_from('<I',data,60)[0]
+    if data[:2]!=b'MZ' or struct.unpack_from('<H',data,off+4)[0]!=0xaa64 or b'[host-page-query-bridge-v1]' not in data:
+        raise SystemExit('Missing rebuilt ARM64 WoW64 host-page transport; do not reuse the tracked old DLL')
+    binaries[name]=sha(name)
     name='app/Madeira/arm64ec-windows/dockhost.exe';data=(root/name).read_bytes();off=struct.unpack_from('<I',data,60)[0]
     if data[:2]!=b'MZ' or struct.unpack_from('<H',data,off+4)[0]!=0x8664 or b'external-process-started' not in data:
         raise SystemExit('Missing external-program Dock host')

@@ -18,6 +18,7 @@ FAILED_FILES=""
 compile_one() {
     local src=$1
     local name=$2
+    shift 2
     local sync_flags=()
     if [[ "$name" == sync ]]; then
         sync_flags=(-include "$BUILD_DIR/ios_thread_qos.h" -Dpthread_set_qos_class_self_np=madeira_guest_qos_self)
@@ -40,7 +41,7 @@ compile_one() {
         -DWINE_UNIX_LIB -DWINE_IOS=1 \
         -Dget_thread_context=ntdll_get_thread_context \
         -Dset_thread_context=ntdll_set_thread_context \
-        "${sync_flags[@]}" -c "$src" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
+        "${sync_flags[@]}" "$@" -c "$src" -o "$OBJ_DIR/$name.o" 2>"$OBJ_DIR/$name.err"; then
         echo "OK"
         SUCCEEDED=$((SUCCEEDED + 1))
     else
@@ -61,6 +62,7 @@ if [[ "${1:-all}" = child-check ]]; then
     compile_one "$BUILD_DIR/server_ios.c" server
     compile_one "$BUILD_DIR/signal_arm64_ios.c" signal_arm64
     compile_one "$WINE_SRC/dlls/ntdll/unix/system.c" system
+    compile_one "$BUILD_DIR/dnsapi_unixlib_ios.c" dnsapi_unixlib -I"$WINE_SRC/dlls/dnsapi"
     [[ "$FAILED" = 0 ]] || exit 1
     exit 0
 fi

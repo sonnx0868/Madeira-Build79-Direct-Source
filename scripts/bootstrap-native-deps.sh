@@ -122,7 +122,7 @@ bash "$root/build/wine-pe/build-controller.sh"
 bash "$root/build/wine-pe/build-wintypes.sh"
 bash "$root/build/wine-pe/build-d3dcompiler.sh"
 bash "$root/build/wine-pe/build-modules.sh" gdiplus mlang sspicli opengl32 glu32 xaudio2_8 xaudio2_9 kernelbase
-WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-modules.sh" opengl32 glu32 kernelbase wow64win
+WINE_PE_ARCH=aarch64 bash "$root/build/wine-pe/build-modules.sh" opengl32 glu32 kernelbase wow64win wow64
 python3 "$root/tools/check-compatibility-binaries.py" --root "$root" --wine-only
 git -C "$root/wine" rev-parse HEAD > "$root/build/wine-pe/opengl-pe.version"
 
