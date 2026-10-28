@@ -12927,65 +12927,23 @@ static inline int mprotect_exec( void *base, size_t size, int unix_prot )
                     unsigned int reloc_rva = *(unsigned int *)(rw_image + pe_off + 0xB0);
                     unsigned int reloc_sz  = *(unsigned int *)(rw_image + pe_off + 0xB4);
 
-                    if (reloc_rva && reloc_sz && delta)
+                    unsigned short characteristics = ios_reloc_u16(rw_image + pe_off + 0x16);
+                    int fixup_count = ios_reloc_image_dir64((uint8_t *)rw_image, image_size,
+                        characteristics, &reloc_rva, &reloc_sz, pe_image_base, delta);
+                    if (fixup_count < 0)
                     {
-                        char *reloc_data = rw_image + reloc_rva;
-                        char *block = reloc_data;
-                        int fixup_count = 0;
-
-                        ERR("iOS JIT:   relocations: RVA=0x%x size=0x%x delta=0x%lx\n",
-                            reloc_rva, reloc_sz, (long)delta);
-
-                        while (block < reloc_data + reloc_sz)
-                        {
-                            unsigned int block_rva  = *(unsigned int *)block;
-                            unsigned int block_size = *(unsigned int *)(block + 4);
-                            int j, num_entries;
-                            unsigned short *entries;
-
-                            if (!block_size || block_size < 8) break;
-
-                            num_entries = (block_size - 8) / 2;
-                            entries = (unsigned short *)(block + 8);
-
-                            for (j = 0; j < num_entries; j++)
-                            {
-                                int type = entries[j] >> 12;
-                                int off  = entries[j] & 0xFFF;
-
-                                if (type == 0) continue;
-
-                                if (type == 10)  /* IMAGE_REL_BASED_DIR64 */
-                                {
-                                    uint64_t *fixup = (uint64_t *)(rw_image + block_rva + off);
-                                    uint64_t val = *fixup;
-                                    if (val >= pe_image_base && val < pe_image_base + image_size)
-                                    {
-                                        *fixup += delta;
-                                        fixup_count++;
-                                    }
-                                    else
-                                    {
-                                        /* Log first few skipped entries */
-                                        static int skip_log = 0;
-                                        if (skip_log < 5)
-                                        {
-                                            ERR("iOS JIT:   SKIP reloc at RVA 0x%x: val=0x%llx (outside image 0x%llx-0x%llx)\n",
-                                                block_rva + off, (unsigned long long)val,
-                                                (unsigned long long)pe_image_base,
-                                                (unsigned long long)(pe_image_base + image_size));
-                                            skip_log++;
-                                        }
-                                    }
-                                }
-                            }
-
-                            block += block_size;
-                        }
-
+                        dprintf(2, "[reloc-image-v2] invalid directory rva=%x size=%x image=%lx; refusing image copy\n",
+                            reloc_rva, reloc_sz, (unsigned long)image_size);
+                        ios_jit_retire_image(image_base, image_size);
+                        errno = ENOEXEC;
+                        return -1;
+                    }
+                    if (characteristics & IMAGE_FILE_RELOCS_STRIPPED)
+                        dprintf(2, "[reloc-image-v2] fixed image %p: stripped directory ignored and not cached\n", image_base);
+                    if (fixup_count)
+                    {
                         __asm__ __volatile__("dsb sy" ::: "memory");
                         sys_icache_invalidate((char *)jit_rx_base + offset, image_size);
-
                         ERR("iOS JIT:   applied %d DIR64 fixups (delta=0x%lx)\n",
                             fixup_count, (long)delta);
                     }
@@ -13380,30 +13338,14 @@ int ios_jit_copy_module_for_child(void *module_addr, void *child_peb)
      * runtime-written unix addresses (dispatchers, hooks). */
     if (m->reloc_rva && m->reloc_size)
     {
-        char *reloc = rw_dest + m->reloc_rva;
-        char *reloc_end = reloc + m->reloc_size;
-        int fixups = 0;
-        while (reloc < reloc_end)
+        unsigned int reloc_rva = m->reloc_rva, reloc_size = m->reloc_size;
+        unsigned short characteristics = ios_reloc_u16(rw_dest + pe_off + 0x16);
+        int fixups = ios_reloc_image_dir64((uint8_t *)rw_dest, m->size, characteristics,
+            &reloc_rva, &reloc_size, pe_image_base, child_delta);
+        if (fixups < 0)
         {
-            unsigned int block_rva = *(unsigned int *)reloc;
-            unsigned int block_size = *(unsigned int *)(reloc + 4);
-            unsigned short *entries = (unsigned short *)(reloc + 8);
-            int j, num;
-            if (!block_size || block_size < 8) break;
-            num = (block_size - 8) / 2;
-            for (j = 0; j < num; j++)
-            {
-                if ((entries[j] >> 12) == 10)  /* IMAGE_REL_BASED_DIR64 */
-                {
-                    uint64_t *fixup = (uint64_t *)(rw_dest + block_rva + (entries[j] & 0xFFF));
-                    if (*fixup >= pe_image_base && *fixup < pe_image_base + m->size)
-                    {
-                        *fixup += child_delta;
-                        fixups++;
-                    }
-                }
-            }
-            reloc += block_size;
+            dprintf(2, "[child-ntdll] invalid relocation directory; refusing private copy\n");
+            return -1;
         }
         dprintf(2, "[child-ntdll] applied %d DIR64 fixups (delta=0x%lx)\n",
                 fixups, (long)child_delta);

@@ -1,0 +1,50 @@
+{
+  "logId": "ec4eb9bf-f21c-4215-ad73-123fb2d4c2e8",
+  "reportedBuild": 937,
+  "game": "MyBullyIsMyLover",
+  "localExecutableSHA256": "7de22bd423c9015c60254e46a5b86628c511f435740163ed1d6cba1d27e2c6dd",
+  "localImageSize": "0x49000",
+  "reportedMappedImageSize": "0x34000",
+  "reportedCopiedImageSize": "0x33000",
+  "binaryMatchLimit": "The supplied PC folder is not the Compressed folder named in the iPad report; image resource size differs. Both have matching fixed-base x64 startup characteristics, and the provided EXE deterministically reproduces the unsafe relocation class. No exact faulting PC was recorded on iPad.",
+  "cause": "Pool-copy relocation walker ignored IMAGE_FILE_RELOCS_STRIPPED and trusted obsolete directory fields pointing into replacement icon/resource bytes. At RVA0x1f000 the supplied EXE contains repeated0xff9b1924 words, interpreted as a multi-gigabyte relocation block.",
+  "repair": [
+    "Ignore and do not cache relocation metadata for stripped images.",
+    "Use existing two-pass bounded DIR64 helper for initial image copies and private child copies.",
+    "Reject invalid non-stripped metadata before any fixup and retire the failed initial mapping."
+  ],
+  "localValidation": {
+    "actualProvidedEXE": "Previous walker: real access violation; patched policy: all bytes preserved and metadata cleared.",
+    "syntheticSameReportedImageSize": "Previous walker: real access violation; patched policy passed.",
+    "ordinaryParentChildRelocation": "Valid unaligned DIR64 and runtime pointer preservation passed; malformed later block leaves earlier data unchanged.",
+    "priorRenPyStartup": "PASS",
+    "BCDProductionCallbacks": "Both prior faults reproduced with actual production code; immediate/queued/multi-async and null-buffer cases fixed; valid commands unchanged.",
+    "patchPipeline": "Wine integration repeated successfully; complete pinned LF DXMT pipeline passes from clean inputs and repeated application."
+  },
+  "BCD": {
+    "repo": "https://github.com/thebcd69/bcd-games",
+    "source": "f0ac152c2f571b4d9a62778cc0ff9d51a4d13037",
+    "imported": [
+      "async-cancel-keepalive",
+      "CopyStructureCount missing buffer guard"
+    ],
+    "reviewedNotImported": [
+      "Open experimental Auto HDR: extra GPU work, no measured performance benefit.",
+      "Battle.net/store and external SSD PRs: separate features requiring signing/storage/auth validation.",
+      "Appearance/foldable-device layout PRs: unrelated to current startup/runtime failure."
+    ],
+    "archivedRepository": "llamajose/madeira-bcd archived2026-10-23; test-pr1 and test-ultra have no commits ahead of main."
+  },
+  "physicalDeviceGameplayVerified": false,
+  "FPSImprovementClaimed": false,
+  "sources": {
+    "build/ntdll-unix/ios_pe_relocations.h": "9e6c02bd1afafc32ed69b19097aa566698e6a71862945f78fb498c57c98b6fbc",
+    "build/ntdll-unix/virtual_ios.c": "7ff710aa51a55558af1e820d20aead7a4899e2b3b28ea81a96f309a900102d23",
+    "patches/wine-bcd-async-cancel.patch": "a1b99062e9fd3e9cd6cb4a23e7030a413d31cd6327a02c4a0d9e7a5961af0520",
+    "patches/dxmt-bcd-copy-structure-count.patch": "b96321e804bd11deb612a821f719acde4431bb896f4686794355993c2600bad2",
+    "scripts/apply-wine-patches.sh": "212f2cbc079ba63cb8af36998dca74074f2ac2524a69273fae4b41b96f441f3e",
+    "scripts/apply-dxmt-patches.sh": "a3e83a0f6213e5fdba3b40ba0794242e5fea82859e7a3373775afad6dcd70241",
+    "tests/host/check-image-relocations.py": "b0545ea399a2ed5ba8381ad79556d098586fcc3ce681fc5136401ed075850b19",
+    "tests/host/check-bcd-runtime-fixes.py": "c60231b0f20d6a818cbbf1c01eec910a400527b1498067c89edfc38e83a67ed3"
+  }
+}

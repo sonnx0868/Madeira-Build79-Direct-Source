@@ -49,3 +49,23 @@ static inline int ios_reloc_sync_dir64(uint8_t *image, size_t image_size,
     }
     return 0;
 }
+
+/* A fixed image can retain obsolete directory fields after its resources are
+ * replaced. IMAGE_FILE_RELOCS_STRIPPED makes those bytes ineligible, even when
+ * the host keeps a second image copy at a different address. Clear the cached
+ * directory too: child copies and later data sync must not walk it again. */
+static inline int ios_reloc_image_dir64(uint8_t *image, size_t image_size,
+    uint16_t characteristics, uint32_t *rva, uint32_t *table_size,
+    uint64_t preferred_base, intptr_t delta)
+{
+    if (characteristics & 0x0001) { /* IMAGE_FILE_RELOCS_STRIPPED */
+        *rva = *table_size = 0;
+        return 0;
+    }
+    if (!*rva || !*table_size) {
+        *rva = *table_size = 0;
+        return 0;
+    }
+    return ios_reloc_sync_dir64(image, image_size, *rva, *table_size,
+        preferred_base, delta, 0, image_size);
+}

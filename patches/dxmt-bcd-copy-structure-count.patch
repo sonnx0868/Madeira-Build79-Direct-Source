@@ -1,0 +1,28 @@
+--- a/src/d3d11/d3d11_context_impl.cpp
++++ b/src/d3d11/d3d11_context_impl.cpp
+@@ -1,3 +1,4 @@
++#include <atomic>
+ #include "../../../build/dxmt-ios/command_cache.hpp"
+ 
+ /**
+@@ -1196,8 +1197,19 @@
+ 
+     if (auto dst_bind = reinterpret_cast<D3D11ResourceCommon *>(pDstBuffer)) {
+       if (auto uav = static_cast<D3D11UnorderedAccessView *>(pSrcView)) {
++        /* madeira-bcd: CopyStructureCount without a buffer (round 620, F1 2020: 4W6WMV, G1WB9T). The encoder lambda
++         * dereferenced an empty destination or counter on the encode thread and the process died; skip such a call. */
++        auto dst_rc = dst_bind->buffer();
++        auto counter_rc = uav->counter();
++        if (!dst_rc || !counter_rc) {
++          static std::atomic<unsigned> skipped{0};
++          unsigned n = ++skipped;
++          if (n <= 8 || !(n & (n - 1)))
++            ERR("[copy-structure-count] skipped #", n, ": ", !dst_rc ? "the destination has no Metal buffer" : "the view has no counter");
++          return;
++        }
+         SwitchToBlitEncoder(CommandBufferState::BlitEncoderActive);
+-        EmitOP([=, dst = dst_bind->buffer(), counter = uav->counter()](ArgumentEncodingContext &enc) {
++        EmitOP([=, dst = std::move(dst_rc), counter = std::move(counter_rc)](ArgumentEncodingContext &enc) {
+           auto [dst_buffer, dst_offset] = enc.access(dst, DstAlignedByteOffset, 4, DXMT_ENCODER_RESOURCE_ACESS_WRITE);
+           auto [counter_buffer, counter_offset] = enc.access(counter, 0, 4, DXMT_ENCODER_RESOURCE_ACESS_READ);
+           auto &cmd = enc.encodeBlitCommand<wmtcmd_blit_copy_from_buffer_to_buffer>();

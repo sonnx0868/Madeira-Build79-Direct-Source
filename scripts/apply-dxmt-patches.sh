@@ -2,7 +2,7 @@
 # One ordered integration pipeline for source bootstrap and cached-bundle builds.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-for name in dxmt-lazy-shader-objects.patch dxmt-logarithmic-dynamic-trim.patch dxmt-bounded-command-reuse.patch; do
+for name in dxmt-bcd-copy-structure-count.patch dxmt-lazy-shader-objects.patch dxmt-logarithmic-dynamic-trim.patch dxmt-bounded-command-reuse.patch; do
     patch="$root/patches/$name"
     if git -C "$root/dxmt" apply --reverse --check "$patch" >/dev/null 2>&1; then
         git -C "$root/dxmt" apply --reverse "$patch"
@@ -108,7 +108,7 @@ git -C "$root/dxmt" apply --check "$padded_patch"
 git -C "$root/dxmt" apply "$padded_patch"
 echo 'Applied optional zero-extended lighting entry and bounded native dispatch adapter'
 
-for name in dxmt-bounded-command-reuse.patch dxmt-logarithmic-dynamic-trim.patch dxmt-lazy-shader-objects.patch; do
+for name in dxmt-bounded-command-reuse.patch dxmt-logarithmic-dynamic-trim.patch dxmt-lazy-shader-objects.patch dxmt-bcd-copy-structure-count.patch; do
     git -C "$root/dxmt" apply --check "$root/patches/$name"
     git -C "$root/dxmt" apply "$root/patches/$name"
 done

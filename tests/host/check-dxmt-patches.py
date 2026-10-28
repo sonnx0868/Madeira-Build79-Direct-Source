@@ -27,7 +27,8 @@ PATCH_NAMES = ("patches/dxmt-resolve-srv-mips.patch", "patches/dxmt-marshal-prog
                "patches/dxmt-lighting-phase.patch",
                "patches/dxmt-multikernel-metallib.patch",
                "patches/dxmt-padded-light-table.patch",
-               "patches/dxmt-bounded-command-reuse.patch", "patches/dxmt-logarithmic-dynamic-trim.patch", "patches/dxmt-lazy-shader-objects.patch")
+               "patches/dxmt-bounded-command-reuse.patch", "patches/dxmt-logarithmic-dynamic-trim.patch", "patches/dxmt-lazy-shader-objects.patch",
+               "patches/dxmt-bcd-copy-structure-count.patch")
 SOURCE_FILES = ("src/dxmt/dxmt_dynamic.cpp", "src/dxmt/dxmt_dynamic.hpp", "src/dxmt/dxmt_ring_bump_allocator.hpp", "src/d3d11/d3d11_resource.hpp", "src/dxmt/dxmt_command.metal", "src/util/com/com_guid.cpp", "src/winemetal/unix/winemetal_unix.c",
                 "src/winemetal/unix/cache.c", "src/d3d11/d3d11_pipeline_cache.cpp",
                 "src/d3d9/d3d9_shader.cpp", "src/dxmt/dxmt_tasks.hpp", "src/dxmt/dxmt_shader_cache.hpp",

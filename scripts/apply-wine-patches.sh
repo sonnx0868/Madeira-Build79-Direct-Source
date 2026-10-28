@@ -232,11 +232,12 @@ else
     exit 1
 fi
 
-# Reviewed upstream fast paths remain opt-in; lean diagnostics does not alter locks.
-for name in wine-x64-lock-tls-fastpath.patch wine-lean-sync-diagnostics.patch; do
+# Fast paths remain opt-in; diagnostics and the async cancellation lifetime fix
+# do not change their enablement or the selected synchronization engine.
+for name in wine-x64-lock-tls-fastpath.patch wine-lean-sync-diagnostics.patch wine-bcd-async-cancel.patch; do
     patch="$root/patches/$name"
     if git -C "$root/wine" apply --reverse --check "$patch" >/dev/null 2>&1; then
-        echo "Wine upstream optimization already applied: $name"
+        echo "Wine upstream integration already applied: $name"
     else
         git -C "$root/wine" apply --check "$patch"
         git -C "$root/wine" apply "$patch"

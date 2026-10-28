@@ -36,6 +36,7 @@ for item in d3d11/d3d11 dxgi/dxgi d3d9/d3d9 winemetal/winemetal; do
 done
 grep -a -q 'compiler-workers=v1' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
 grep -a -q 'commitBeforePresent=' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
+grep -aFq '[copy-structure-count]' "$root/app/Madeira/arm64ec-windows/d3d11.dll"
 python3 "$root/tools/patch-dxmt-query-log.py" --check
 python3 "$root/tools/dxmt-query-bundle.py" --root "$root" --stamp
 python3 "$root/tools/dxmt-swapchain-bundle.py" --root "$root" --stamp

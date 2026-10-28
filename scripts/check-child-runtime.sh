@@ -17,6 +17,7 @@ python3 tests/host/check-wow64-stack-guard.py
 python3 tests/host/check-wow64-guard-neighbor.py
 python3 tests/host/check-guard-bridge-context.py
 python3 tests/host/check-dns-owned-state.py
+python3 tests/host/check-image-relocations.py
 python3 tests/host/check-wow64-stack-release.py
 python3 tests/host/check-wow-context.py
 python3 tests/host/check-input-wake.py --require-darwin
@@ -49,7 +50,7 @@ from pathlib import Path
 import hashlib,json,subprocess,sys
 files=['build/ntdll-unix/'+n+'_ios.c' for n in ('env','loader','process','server','signal_arm64','virtual')]
 files+=['build/wineserver/queue_ios.c']
-files+=['build/ntdll-unix/ios_guard_access.h','build/ntdll-unix/dnsapi_unixlib_ios.c']
+files+=['build/ntdll-unix/ios_guard_access.h','build/ntdll-unix/ios_pe_relocations.h','build/ntdll-unix/dnsapi_unixlib_ios.c']
 files+=['build/ntdll-unix/ios_browser_child_role.h','wine/include/winternl.h',
         'wine/dlls/ntdll/thread.c','wine/dlls/ntdll/unix/system.c','wine/dlls/wow64/system.c']
 record={'format':'madeira-child-runtime-check-v1','commit':subprocess.check_output(

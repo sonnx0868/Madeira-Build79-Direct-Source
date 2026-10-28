@@ -82,6 +82,7 @@ workflows:
                 python3 tests/host/check-child-peb-isolation.py
                 python3 tests/host/check-child-jit-environment.py
                 python3 tests/host/check-queue-pipe-readiness.py
+                python3 tests/host/check-image-relocations.py
                 python3 tests/host/check-wow64-stack-guard.py
                 python3 tests/host/check-wow64-guard-neighbor.py
                 python3 tests/host/check-guard-bridge-context.py

@@ -75,6 +75,8 @@ python3 "$root/tests/host/check-live-pipeline-cache.py"
 python3 "$root/tests/host/check-shader-warmup.py"
 python3 "$root/tests/host/check-color-store.py"
 python3 "$root/tests/host/check-renpy-startup.py"
+python3 "$root/tests/host/check-image-relocations.py"
+python3 "$root/tests/host/check-bcd-runtime-fixes.py"
 
 # The ARM64EC PE modules are tracked build inputs today. Patch the same source
 # fix into them deterministically until their rebuild joins this bootstrap.

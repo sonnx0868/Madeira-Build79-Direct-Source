@@ -207,3 +207,15 @@ work follows Legendary (https://github.com/derrod/legendary). Madeira-specific
 changes cover privacy filtering, launch-profile persistence and token lifecycle.
 GOG integration is Madeira-owned Swift, using public GOG endpoints described in
 Heroic/gogdl's protocol implementation; no gogdl implementation was copied.
+
+## BCD runtime fixes (2026-10-29)
+
+Includes work from BCD by thebcd69 (https://github.com/thebcd69/bcd-games).
+Imported from main at `f0ac152`: async I/O cancellation keepalive and the DXMT
+CopyStructureCount missing-buffer guard. The integration is represented by
+`patches/wine-bcd-async-cancel.patch` and
+`patches/dxmt-bcd-copy-structure-count.patch`; original BCD provenance comments
+are retained. These changes keep the licenses of their Wine and DXMT files,
+as specified by section 6 of BCD's LICENSE-BCD.md. No BCD branding assets or
+BCD Material build scripts are shipped. Madeira-specific changes add portable
+regression checks and route the fixes through the existing native build.
